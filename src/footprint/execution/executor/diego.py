@@ -32,6 +32,7 @@ from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
+from footprint.execution.market import QuoteBook
 from footprint.execution.orders import Order, OrderBroker, OrderState, OrderType, Side
 
 log = logging.getLogger("footprint.execution")
@@ -82,9 +83,11 @@ class Executor:
         stops: StopKeeper,
         ledger: Ledger,
         halt: Halt,
+        book: QuoteBook,
     ) -> None:
         self._p = profiles
         self._halt = halt
+        self._book = book
         self._pipeline = pipeline
         self._broker = broker
         self._stops = stops
@@ -113,6 +116,15 @@ class Executor:
             raise EntryRefused("approval is stale")
         if now - approved.plan.choice.chain_ts > max_age:
             raise EntryRefused("the option quote behind the approval is stale")
+        decided = approved.plan.choice.quote
+        live = self._book.latest(decided.contract_id)
+        if live is None or now - live.ts > max_age or live.ts > now:
+            raise EntryRefused("no fresh quote in the book for the chosen contract")
+        if (live.bid, live.ask) != (decided.bid, decided.ask):
+            raise EntryRefused(
+                f"the market moved since the decision: book {live.bid}/{live.ask} vs "
+                f"decided {decided.bid}/{decided.ask}"
+            )
         pre = precheck(p.risk, p.instrument, blackouts, self._ledger.account(now), now)
         if not pre.allowed:
             raise EntryRefused(
@@ -142,6 +154,13 @@ class Executor:
         status = self._broker.place(order)
         log.info("entry %s placed at %s", order.order_id, plan.limit_floor)
         return self._after(ticket, status.state, status.filled, status.avg_price, now)
+
+    def abandon(self, ticket: EntryTicket) -> None:
+        """Cancel a working entry (reconcile takes over whatever it may have filled)."""
+        try:
+            self._broker.cancel(ticket.order_id)
+        except Exception as exc:  # reconcile will see and cancel it from the broker's list
+            log.critical("could not cancel entry %s: %r", ticket.order_id, exc)
 
     def on_time(self, ticket: EntryTicket, now: datetime) -> EntryTicket:
         """Advance a working entry: fill check, price steps, timeout."""
