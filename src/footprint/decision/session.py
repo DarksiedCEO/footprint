@@ -10,19 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo
 
 from footprint.core.config import InstrumentProfile, Session
-
-
-def require_utc(ts: datetime, field: str) -> None:
-    """Accept only datetimes whose tzinfo is UTC itself (not merely offset zero)."""
-    if not isinstance(ts, datetime):
-        raise TypeError(f"{field} must be a datetime, got {type(ts).__name__}")
-    if ts.tzinfo is not UTC:
-        raise ValueError(f"{field} must be timezone-aware UTC (tzinfo=UTC), got {ts!r}")
+from footprint.core.models import require_utc
 
 
 class SessionKind(Enum):

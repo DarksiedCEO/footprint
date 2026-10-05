@@ -21,12 +21,11 @@ from decimal import Decimal
 from enum import Enum
 
 from footprint.core.config import InstrumentProfile, RiskProfile
-from footprint.core.models import Direction
+from footprint.core.models import Direction, require_utc
 from footprint.decision.session import (
     NewsBlackout,
     SessionKind,
     in_news_blackout,
-    require_utc,
     session_at,
 )
 

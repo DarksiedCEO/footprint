@@ -111,7 +111,8 @@ def overnight(**changes: str) -> dict[str, str]:
 def test_instrument_rejects_overlapping_sessions(
     instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
 ) -> None:
-    with pytest.raises(ConfigError, match="must not overlap"):
+    # A prime window that wraps midnight is rejected even earlier, as crossing midnight.
+    with pytest.raises(ConfigError, match=r"must not overlap|must not cross midnight"):
         load_instrument(rewrite(instrument_path, tmp_path, **changes))
 
 
@@ -231,3 +232,13 @@ def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None
     target = tmp_path / "nq.yaml"
     target.write_text(yaml.safe_dump(data).replace("holidays: []", "holidays: [2026-12-25]"))
     assert load_instrument(target).holidays == frozenset({date(2026, 12, 25)})
+
+
+def test_prime_session_crossing_midnight_is_rejected(instrument_path: Path, tmp_path: Path) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    data["prime_session"] = session(start="22:00", end="02:00")
+    data["overnight_session"] = session(start="03:00", end="20:00")
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="cross midnight"):
+        load_instrument(target)

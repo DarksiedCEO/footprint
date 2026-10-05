@@ -189,6 +189,8 @@ def load_instrument(path: Path) -> InstrumentProfile:
         trading_days=_trading_days(raw, "trading_days", where),
         holidays=_holidays(raw, "holidays", where),
     )
+    if profile.prime_session.start > profile.prime_session.end:
+        raise ConfigError(f"{where}: prime_session must not cross midnight")
     if profile.prime_session.timezone != profile.overnight_session.timezone:
         raise ConfigError(
             f"{where}: prime_session and overnight_session must use the same timezone "
