@@ -11,11 +11,11 @@ import pytest
 
 from footprint.agents.contract_picker import ContractChoice, ContractPicker, NoContract
 from footprint.core.calendar import SessionKind
-from footprint.core.config import ExecutionProfile, InstrumentProfile, RiskProfile
+from footprint.core.config import ConfigError, ExecutionProfile, InstrumentProfile, RiskProfile
 from footprint.core.models import Direction
 from footprint.core.options import OptionChain, OptionQuote, Right
 from footprint.decision.sizing import EntryPlan, NoSize, size
-from footprint.decision.stop import StopKeeper, StopLevel
+from footprint.decision.stop import BidTick, StopKeeper, TickStatus
 
 PT = ZoneInfo("America/Los_Angeles")
 D = Decimal
@@ -101,13 +101,14 @@ def test_felix_counts_calendar_days_over_a_weekend(felix: ContractPicker) -> Non
     assert result.dte == 3
 
 
-def test_felix_counts_days_in_pacific_time(felix: ContractPicker) -> None:
-    # 22:30 PT Tuesday is already Wednesday in UTC; Wednesday expiry is still 1 day out.
+def test_felix_counts_from_the_pacific_trading_day(felix: ContractPicker) -> None:
+    # 22:30 PT Tuesday is Wednesday in UTC and belongs to Wednesday's trading day, so a
+    # Wednesday expiry is 0 days out (excluded) and Thursday's is 1.
     late = datetime(2026, 9, 15, 22, 30, tzinfo=PT).astimezone(UTC)
-    wed = TUE + timedelta(days=1)
-    result = felix.choose(chain(q(wed, 20000), ts=late), Direction.LONG, late)
+    wed, thu = TUE + timedelta(days=1), TUE + timedelta(days=2)
+    result = felix.choose(chain(q(wed, 20000), q(thu, 20000), ts=late), Direction.LONG, late)
     assert isinstance(result, ContractChoice)
-    assert result.dte == 1
+    assert (result.quote.expiry, result.dte) == (thu, 1)
 
 
 @pytest.mark.parametrize(
@@ -165,13 +166,43 @@ def test_felix_refuses_stale_future_or_foreign_chains(felix: ContractPicker) -> 
     assert isinstance(felix.choose(foreign, Direction.LONG, NOW), NoContract)
 
 
+def test_felix_names_a_missing_bid(felix: ContractPicker) -> None:
+    c = chain(q(TUE + timedelta(days=1), 20000, bid=0, ask=2))
+    result = felix.choose(c, Direction.LONG, NOW)
+    assert isinstance(result, NoContract)
+    assert "no bid" in result.reason
+
+
+def test_felix_counts_from_the_trading_day_overnight(felix: ContractPicker) -> None:
+    # Thursday 17:00 PT is Friday's overnight session: a Friday expiry is 0 days out.
+    thu_evening = datetime(2026, 10, 8, 17, 0, tzinfo=PT).astimezone(UTC)
+    fri, mon = date(2026, 10, 9), date(2026, 10, 12)
+    c = chain(q(fri, 20000), q(mon, 20000), ts=thu_evening)
+    result = felix.choose(c, Direction.LONG, thu_evening)
+    assert isinstance(result, ContractChoice)
+    assert (result.quote.expiry, result.dte) == (mon, 3)
+    closed = datetime(2026, 10, 10, 9, 0, tzinfo=PT).astimezone(UTC)  # Saturday
+    assert isinstance(
+        felix.choose(chain(q(mon, 20000), ts=closed), Direction.LONG, closed), NoContract
+    )
+
+
+def test_felix_refuses_a_far_strike_in_a_gappy_chain(felix: ContractPicker) -> None:
+    wed = TUE + timedelta(days=1)
+    gappy = chain(q(wed, 19500), q(wed, 20500), price=20010)
+    result = felix.choose(gappy, Direction.LONG, NOW)
+    assert isinstance(result, NoContract)
+    assert "points from" in result.reason
+    near = chain(q(wed, 19960), price=20010)  # exactly 50 points away
+    assert isinstance(felix.choose(near, Direction.LONG, NOW), ContractChoice)
+
+
 # --- Ezra -----------------------------------------------------------------------
 
 
 def choice(bid: float, ask: float) -> ContractChoice:
-    return ContractChoice(
-        quote=q(TUE + timedelta(days=1), 20000, bid=bid, ask=ask), dte=1, chain_ts=NOW
-    )
+    quote = q(TUE + timedelta(days=1), 20000, bid=bid, ask=ask)
+    return ContractChoice(quote=quote, dte=1, chain_ts=NOW)
 
 
 def sized(
@@ -185,26 +216,37 @@ def sized(
     return size(choice(bid, ask), session, risk, instrument, execution)
 
 
-def test_ezra_sizes_against_the_worst_allowed_price(
+@pytest.mark.parametrize(
+    ("bid", "ask", "floor", "ceiling"),
+    [
+        (150, 152, "151", "151.5"),  # mid 151 + 25% of 2 = 151.5
+        (150, 151.25, "150.5", "150.75"),  # 150.9375 rounds DOWN to the tick
+        (149.75, 150, "149.75", "149.75"),  # one-tick spread: never above the bid
+        (151, 151, "151", "151"),
+    ],
+)
+def test_ezra_prices_stay_on_the_tick_and_inside_g5(
+    risk: RiskProfile,
+    instrument: InstrumentProfile,
+    execution: ExecutionProfile,
+    bid: float,
+    ask: float,
+    floor: str,
+    ceiling: str,
+) -> None:
+    plan = sized(bid, ask, risk, instrument, execution)
+    assert isinstance(plan, EntryPlan)
+    assert (plan.limit_floor, plan.limit_ceiling) == (D(floor), D(ceiling))
+    quote = plan.choice.quote
+    assert plan.limit_ceiling <= quote.mid + quote.spread * D("0.25")
+
+
+def test_ezra_cost_includes_the_entry_fee(
     risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
 ) -> None:
     plan = sized(150, 152, risk, instrument, execution)
     assert isinstance(plan, EntryPlan)
-    # mid 151 + 25% of the 2-point spread = 151.5; x $20 + $2.50 fee
-    assert plan.limit_ceiling == D("151.5")
-    assert plan.contracts == 1
-    assert plan.cost == D("3032.5")
-
-
-def test_ezra_rounds_the_ceiling_up_to_the_tick_and_never_past_the_ask(
-    risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
-) -> None:
-    plan = sized(150, 151.25, risk, instrument, execution)  # 150.9375 -> 151.00
-    assert isinstance(plan, EntryPlan)
-    assert plan.limit_ceiling == D("151.00")
-    locked = sized(151, 151, risk, instrument, execution)
-    assert isinstance(locked, EntryPlan)
-    assert locked.limit_ceiling == D(151)
+    assert plan.cost == D("3032.5")  # 151.5 x $20 + $2.50
 
 
 @pytest.mark.parametrize(
@@ -228,22 +270,21 @@ def test_ezra_never_exceeds_the_position_cap(
         assert plan.cost <= risk.position_cap
 
 
-def test_ezra_uses_the_session_cap_and_refuses_closed(
+def test_ezra_sizes_prime_only(
     risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
 ) -> None:
-    assert isinstance(sized(150, 152, risk, instrument, execution, SessionKind.OVERNIGHT), NoSize)
-    assert isinstance(
-        sized(100, 102, risk, instrument, execution, SessionKind.OVERNIGHT), EntryPlan
-    )
-    assert isinstance(sized(150, 152, risk, instrument, execution, SessionKind.CLOSED), NoSize)
+    for session in (SessionKind.OVERNIGHT, SessionKind.CLOSED):
+        result = sized(100, 102, risk, instrument, execution, session)
+        assert isinstance(result, NoSize)
+        assert "prime" in result.reason
 
 
-def test_ezra_refuses_a_premium_too_small_for_the_hard_stop(
+def test_ezra_refuses_a_premium_too_small_for_the_stop_and_its_limit(
     risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
 ) -> None:
-    # $750 / $20 = 37.5 points of stop; the mid must stay more than one tick above it.
-    assert isinstance(sized(37.5, 38, risk, instrument, execution), NoSize)
-    assert isinstance(sized(39.75, 40.25, risk, instrument, execution), EntryPlan)
+    # Stop 37.5 points below the fill, limit 5 points below that, must stay >= 0.25.
+    assert isinstance(sized(42.5, 43, risk, instrument, execution), EntryPlan)  # floor 42.75
+    assert isinstance(sized(42.25, 42.75, risk, instrument, execution), NoSize)  # floor 42.5
 
 
 def test_ezra_caps_contracts_at_max_contracts(
@@ -264,82 +305,132 @@ def booker(
     return StopKeeper(risk, instrument, execution)
 
 
+def tick(bid: float, age_seconds: float = 0) -> BidTick:
+    return BidTick(D(str(bid)), NOW - timedelta(seconds=age_seconds))
+
+
 def test_hard_stop_is_stop_loss_below_the_fill(booker: StopKeeper) -> None:
-    stop = booker.initial(D("151.5"), 1)
+    stop = booker.open("t1", D("151.5"), 1)
     assert stop.price == D("114.0")  # 151.5 - 750/20
     assert not stop.trailing
+    assert booker.current("t1") == stop
 
 
 def test_hard_stop_rounds_toward_a_smaller_loss(
     risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
 ) -> None:
     odd = StopKeeper(replace(risk, stop_loss=D(752)), instrument, execution)
-    stop = odd.initial(D("151.5"), 1)  # 151.5 - 37.6 = 113.9 -> up to 114.0
-    assert stop.price == D("114.0")
-    for entry in (D("100.25"), D("151.75"), D("333.5")):
-        loss = (entry - odd.initial(entry, 1).price) * instrument.point_value
+    assert odd.open("a", D("151.5"), 1).price == D("114.0")  # 113.9 rounds up
+    for i, entry in enumerate((D("100.25"), D("151.75"), D("333.5"))):
+        loss = (entry - odd.open(f"p{i}", entry, 1).price) * instrument.point_value
         assert loss <= D(752)
 
 
-def test_hard_stop_refuses_a_premium_it_cannot_protect(booker: StopKeeper) -> None:
+def test_open_validates(booker: StopKeeper) -> None:
+    booker.open("t1", D(150), 1)
+    with pytest.raises(ValueError, match="already"):
+        booker.open("t1", D(150), 1)
+    with pytest.raises(ValueError, match="tick"):
+        booker.open("t2", D("150.1"), 1)
     with pytest.raises(ValueError, match="too small"):
-        booker.initial(D("37.5"), 1)
+        booker.open("t3", D("42.5"), 1)
+    booker.open("t4", D("42.75"), 1)
+    with pytest.raises(ValueError, match="contracts"):
+        booker.open("t5", D(150), 0)
 
 
-def test_trail_engages_at_the_profit_target_and_follows_half_the_peak(
+def test_trail_engages_at_the_net_profit_target_and_follows_half_the_net_peak(
     booker: StopKeeper,
 ) -> None:
-    stop = booker.initial(D(150), 1)  # hard stop 112.5
-    stop = booker.on_bid(stop, D("199.75"))  # +$995: not yet
-    assert (stop.price, stop.trailing) == (D("112.5"), False)
-    stop = booker.on_bid(stop, D(200))  # +$1,000: lock entry + $500
-    assert (stop.price, stop.trailing) == (D(175), True)
-    stop = booker.on_bid(stop, D(220))  # +$1,400: keep $700
-    assert stop.price == D(185)
-    stop = booker.on_bid(stop, D(190))  # pullback: the stop holds
-    assert stop.price == D(185)
-    assert stop.peak_bid == D(220)
-    assert not booker.hit(stop, D("185.25"))
-    assert booker.hit(stop, D(185))
+    booker.open("t", D(150), 1)  # hard stop 112.5; round-trip fees $5
+    booker.on_tick("t", tick(200), NOW)  # +$1,000 gross, $995 net: not yet
+    assert (booker.current("t").price, booker.current("t").trailing) == (D("112.5"), False)
+    booker.on_tick("t", tick(200.25), NOW)  # $1,000 net: lock $500 net
+    assert booker.current("t").price == D("175.25")  # 150 + (500 + 5) / 20
+    assert booker.current("t").trailing
+    booker.on_tick("t", tick(220), NOW)  # $1,395 net: keep $697.50 -> 185.125 -> up
+    assert booker.current("t").price == D("185.25")
+    booker.on_tick("t", tick(190), NOW)  # pullback: the stop holds
+    assert booker.current("t").price == D("185.25")
+    assert booker.current("t").peak_bid == D(220)
+    assert not booker.hit("t", tick(185.5), NOW)
+    assert booker.hit("t", tick(185.25), NOW)
 
 
-def test_trail_rounds_down_to_the_tick(booker: StopKeeper) -> None:
-    stop = booker.on_bid(booker.initial(D(150), 1), D("200.25"))  # keep $502.50 -> 25.125 pts
-    assert stop.price == D(175)
+def test_locked_profit_is_at_least_the_keep_share_net_of_fees(
+    booker: StopKeeper, risk: RiskProfile, instrument: InstrumentProfile
+) -> None:
+    booker.open("t", D(150), 1)
+    for peak in (D("200.25"), D("213.75"), D("250.5"), D(400)):
+        booker.on_tick("t", BidTick(peak, NOW), NOW)
+        stop = booker.current("t")
+        fees = 2 * risk.fee_per_contract_per_side
+        net_locked = (stop.price - stop.entry) * instrument.point_value - fees
+        net_peak = (peak - stop.entry) * instrument.point_value - fees
+        assert net_locked >= net_peak / 2
+
+
+def test_stale_and_no_bid_ticks_never_move_or_trigger(booker: StopKeeper) -> None:
+    booker.open("t", D(150), 1)
+    assert booker.on_tick("t", tick(260, age_seconds=6), NOW) is TickStatus.STALE
+    assert booker.on_tick("t", BidTick(D(260), NOW + timedelta(seconds=1)), NOW) is TickStatus.STALE
+    assert booker.current("t").peak_bid == D(150)
+    assert not booker.hit("t", tick(100, age_seconds=6), NOW)
+    assert booker.on_tick("t", tick(0), NOW) is TickStatus.NO_BID
+    assert not booker.hit("t", tick(0), NOW)
+    assert not booker.gapped_through("t", tick(0), NOW)
+    assert booker.on_tick("t", tick(151, age_seconds=5), NOW) is TickStatus.USED
 
 
 def test_resting_stop_limit_and_gap_watchdog(booker: StopKeeper) -> None:
-    stop = booker.initial(D("151.5"), 1)
-    order = booker.resting_order(stop)
+    booker.open("t", D("151.5"), 1)
+    order = booker.resting_order("t")
     assert (order.trigger, order.limit) == (D(114), D(109))  # 20 ticks of 0.25 below
-    assert booker.gapped_through(stop, D("108.75"))
-    assert not booker.gapped_through(stop, D(109))
-    low = StopLevel(entry=D(40), contracts=1, price=D(2), peak_bid=D(40), trailing=False)
-    assert booker.resting_order(low).limit == D("0.25")  # never below one tick
+    assert booker.gapped_through("t", tick(108.75), NOW)
+    assert not booker.gapped_through("t", tick(109), NOW)
 
 
-def test_stop_level_validates() -> None:
-    with pytest.raises(ValueError, match="price"):
-        StopLevel(entry=D(1), contracts=1, price=D(0), peak_bid=D(1), trailing=False)
-    with pytest.raises(ValueError, match="contracts"):
-        StopLevel(entry=D(1), contracts=0, price=D(1), peak_bid=D(1), trailing=False)
-
-
-def test_ratchet_logs_refusals(booker: StopKeeper, caplog: pytest.LogCaptureFixture) -> None:
-    stop = booker.initial(D(150), 1)
+def test_requests_are_ratcheted_on_the_tick_and_logged(
+    booker: StopKeeper, caplog: pytest.LogCaptureFixture
+) -> None:
+    booker.open("t", D(150), 1)
     with caplog.at_level(logging.WARNING, logger="footprint.stop"):
-        same, refusal = booker.ratchet(stop, D(100), "trade_mgmt")
-    assert same == stop
+        refusal = booker.request("t", D(100), "trade_mgmt")
     assert refusal is not None
     assert (refusal.requested, refusal.kept, refusal.source) == (D(100), D("112.5"), "trade_mgmt")
+    assert "widen" in refusal.reason
     assert "refused" in caplog.text
-    tighter, none = booker.ratchet(stop, D(120), "trade_mgmt")
-    assert (tighter.price, none) == (D(120), None)
+    assert booker.request("t", D("120.1"), "trade_mgmt") is not None  # off the tick
+    assert booker.request("t", D("NaN"), "trade_mgmt") is not None
+    assert booker.current("t").price == D("112.5")
+    assert booker.request("t", D(120), "trade_mgmt") is None
+    assert booker.current("t").price == D(120)
 
 
-def test_felix_names_a_missing_bid(felix: ContractPicker) -> None:
-    result = felix.choose(
-        chain(q(TUE + timedelta(days=1), 20000, bid=0, ask=2)), Direction.LONG, NOW
-    )
-    assert isinstance(result, NoContract)
-    assert "no bid" in result.reason
+def test_copies_cannot_change_the_stop(booker: StopKeeper) -> None:
+    copy = booker.open("t", D(150), 1)
+    widened = replace(copy, price=D("0.25"))
+    assert widened.price == D("0.25")
+    assert booker.current("t").price == D("112.5")
+    assert booker.resting_order("t").trigger == D("112.5")
+    assert booker.close("t").price == D("112.5")
+    with pytest.raises(KeyError):
+        booker.current("t")
+
+
+def test_keeper_refuses_a_limit_offset_that_breaks_stop_max(
+    risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
+) -> None:
+    wide = replace(execution, stop_order=replace(execution.stop_order, limit_offset_ticks=50))
+    # 750 + 50 x 0.25 x 20 + 5 = 1005 > 1000
+    with pytest.raises(ConfigError, match="stop_max"):
+        StopKeeper(risk, instrument, wide)
+    ok = replace(execution, stop_order=replace(execution.stop_order, limit_offset_ticks=49))
+    StopKeeper(risk, instrument, ok)  # 750 + 245 + 5 = 1000
+
+
+def test_bid_tick_validates() -> None:
+    with pytest.raises(ValueError, match="bid"):
+        BidTick(D(-1), NOW)
+    with pytest.raises(ValueError, match="UTC"):
+        BidTick(D(1), datetime(2026, 9, 15, 7, 0, tzinfo=PT))

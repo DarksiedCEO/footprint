@@ -3,9 +3,11 @@
 Rule, all numbers from config:
 - calls for a long, puts for a short (v1 only buys options);
 - the nearest expiration with days-to-expiry between dte_min and dte_max, counted
-  in calendar days from the trading date in the prime session's timezone;
+  in calendar days from the TRADING day (an overnight session counts from the day
+  it leads into);
 - in that expiration, the strike nearest the underlying price (a tie goes to the
-  in-the-money side: the lower strike for a call, the higher for a put);
+  in-the-money side: the lower strike for a call, the higher for a put), and no
+  further than max_strike_distance from it;
 - skip the trade (never fall back to another contract) when that contract has no
   bid, its spread is wider than max_spread_pct_of_mid of its mid, or its open
   interest is below min_open_interest. A chain older than quotes.max_age_seconds
@@ -17,8 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
+from footprint.core.calendar import trading_day_at
 from footprint.core.config import ExecutionProfile, InstrumentProfile
 from footprint.core.models import Direction, require_utc
 from footprint.core.options import OptionChain, OptionQuote, Right
@@ -58,7 +60,9 @@ class ContractPicker:
             return NoContract(f"chain is stale: {age} old")
 
         right = Right.for_direction(direction)
-        today = as_of.astimezone(ZoneInfo(self._instrument.prime_session.timezone)).date()
+        today = trading_day_at(as_of, self._instrument)
+        if today is None:
+            return NoContract("market closed: no trading day to count expiry from")
         lo, hi = self._instrument.dte_min, self._instrument.dte_max
         eligible = [
             q for q in chain.quotes if q.right is right and lo <= (q.expiry - today).days <= hi
@@ -76,6 +80,11 @@ class ContractPicker:
         quote = min(same_expiry, key=distance)
         dte = (quote.expiry - today).days
         rules = self._execution.contract
+        if abs(quote.strike - price) > rules.max_strike_distance:
+            return NoContract(
+                f"nearest strike {quote.strike} is {abs(quote.strike - price)} points from "
+                f"{price}, over {rules.max_strike_distance}"
+            )
         if quote.bid <= 0:
             return NoContract(f"{quote.contract_id}: no bid")
         spread_pct = (quote.spread / quote.mid).scaleb(2)

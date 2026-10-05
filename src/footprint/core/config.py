@@ -429,6 +429,7 @@ class QuoteSettings:
 class ContractSettings:
     max_spread_pct_of_mid: Decimal
     min_open_interest: int
+    max_strike_distance: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,7 +466,8 @@ def load_execution(path: Path) -> ExecutionProfile:
     c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)
     contract = ContractSettings(
         max_spread_pct_of_mid=_positive_decimal(c, "max_spread_pct_of_mid", c_where),
-        min_open_interest=_integer(c, "min_open_interest", c_where, minimum=0),
+        min_open_interest=_integer(c, "min_open_interest", c_where, minimum=1),
+        max_strike_distance=_positive_decimal(c, "max_strike_distance", c_where),
     )
     if contract.max_spread_pct_of_mid >= _PERCENT_MAX:
         raise ConfigError(f"{c_where}: max_spread_pct_of_mid must be < {_PERCENT_MAX}")
@@ -492,3 +494,25 @@ def load_execution(path: Path) -> ExecutionProfile:
         limit_offset_ticks=_integer(so, "limit_offset_ticks", s_where, minimum=1)
     )
     return ExecutionProfile(quotes=quotes, contract=contract, entry=entry, stop_order=stop_order)
+
+
+def check_consistency(
+    instrument: InstrumentProfile, risk: RiskProfile, execution: ExecutionProfile
+) -> None:
+    """Rules that span more than one profile. Raises ConfigError.
+
+    The worst fill of the resting stop-limit (its limit price) plus the round-trip
+    fees must stay within stop_max, so the "wide limit" (G1) can never turn the
+    hard stop into a bigger loss than the money model allows.
+    """
+    per_contract = instrument.option_tick_size * instrument.point_value
+    worst = (
+        risk.stop_loss
+        + execution.stop_order.limit_offset_ticks * per_contract * risk.max_contracts
+        + 2 * risk.fee_per_contract_per_side * risk.max_contracts
+    )
+    if worst > risk.stop_max:
+        raise ConfigError(
+            f"a stop filled at its limit loses {worst}, over stop_max {risk.stop_max}: "
+            "reduce stop_order.limit_offset_ticks or stop_loss"
+        )

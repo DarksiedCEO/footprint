@@ -4,54 +4,82 @@ v1 always holds long options, so a stop is a premium level BELOW the entry fill,
 triggered when the option's BID trades at or through it (G2: you can only sell at
 the bid).
 
+Booker OWNS every live stop: positions are keyed by id, and the only way to change
+a stop is through Booker. Callers get immutable copies; altering a copy changes
+nothing Booker uses, so it cannot reach the broker (NB-01).
+
 - Hard stop: entry fill minus stop_loss of option value across the position,
   rounded UP to the option tick, so the loss never exceeds stop_loss (fees aside).
-- Trail (G7): once the gain on the bid reaches profit_target, the stop jumps to
-  entry + trail_keep_pct of the peak gain and then follows the peak at that share.
-  No volume or theta adjustment until those agents exist.
-- Ratchet (NB-01): every change goes through `ratchet`; a request that would move
-  the stop further from entry is refused, logged, and leaves the stop unchanged.
-- Resting order (G1): the broker holds a stop-limit at the stop with its limit
-  limit_offset_ticks below. If the bid gaps through that limit, trade management
-  must flatten (see `gapped_through`).
+- Trail (G7, net of fees per G15): once the gain on the bid, after round-trip fees,
+  reaches profit_target, the stop moves so that trail_keep_pct of the peak net
+  gain is locked, and then follows the peak at that share. No volume or theta
+  adjustment until those agents exist.
+- Every change goes through the ratchet: a request that would move the stop
+  further from entry, or off the tick, is refused, logged, and changes nothing.
+- Quotes older than quotes.max_age_seconds, or with no bid, never move or trigger
+  a stop; the resting order at the broker protects the position meanwhile.
+- Resting order (G1): a stop-limit at the stop with its limit limit_offset_ticks
+  below. If the bid falls below that limit, trade management must flatten.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
+from enum import Enum
 
-from footprint.core.config import ExecutionProfile, InstrumentProfile, RiskProfile
-from footprint.decision.sizing import round_to_tick
+from footprint.core.config import (
+    ExecutionProfile,
+    InstrumentProfile,
+    RiskProfile,
+    check_consistency,
+)
+from footprint.core.models import require_utc
+from footprint.decision.sizing import hard_stop_price, round_to_tick, stop_fits
 
 log = logging.getLogger("footprint.stop")
 
 
 @dataclass(frozen=True, slots=True)
 class StopLevel:
+    """A read-only copy of one position's stop."""
+
+    position_id: str
     entry: Decimal
     contracts: int
     price: Decimal
     peak_bid: Decimal
     trailing: bool
 
+
+@dataclass(frozen=True, slots=True)
+class BidTick:
+    """The option's best bid at `ts`. A bid of 0 means there is no bid."""
+
+    bid: Decimal
+    ts: datetime
+
     def __post_init__(self) -> None:
-        for name in ("entry", "price", "peak_bid"):
-            value = getattr(self, name)
-            if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
-                raise ValueError(f"StopLevel.{name} must be a finite Decimal > 0")
-        if isinstance(self.contracts, bool) or not isinstance(self.contracts, int):
-            raise TypeError("StopLevel.contracts must be an int")
-        if self.contracts < 1:
-            raise ValueError("StopLevel.contracts must be >= 1")
+        if not isinstance(self.bid, Decimal) or not self.bid.is_finite() or self.bid < 0:
+            raise ValueError(f"BidTick.bid must be a finite Decimal >= 0, got {self.bid!r}")
+        require_utc(self.ts, "BidTick.ts")
+
+
+class TickStatus(Enum):
+    USED = "USED"
+    STALE = "STALE"
+    NO_BID = "NO_BID"
 
 
 @dataclass(frozen=True, slots=True)
 class Refusal:
+    position_id: str
     requested: Decimal
     kept: Decimal
     source: str
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,64 +92,124 @@ class StopKeeper:
     def __init__(
         self, risk: RiskProfile, instrument: InstrumentProfile, execution: ExecutionProfile
     ) -> None:
+        check_consistency(instrument, risk, execution)
         self._risk = risk
         self._instrument = instrument
         self._execution = execution
+        self._stops: dict[str, StopLevel] = {}
 
     @property
     def agent_id(self) -> str:
         return "stop"
 
-    def _points(self, dollars: Decimal, contracts: int) -> Decimal:
-        return dollars / (self._instrument.point_value * contracts)
+    # --- lifecycle ----------------------------------------------------------------
 
-    def initial(self, entry: Decimal, contracts: int) -> StopLevel:
-        """The hard stop for a fresh fill of `contracts` at `entry`."""
+    def open(self, position_id: str, fill: Decimal, contracts: int) -> StopLevel:
+        """Set the hard stop for a new position. Once per position id."""
+        if not isinstance(position_id, str) or not position_id.strip():
+            raise ValueError("position_id must be a non-empty string")
+        if position_id in self._stops:
+            raise ValueError(f"position {position_id!r} already has a stop")
+        if isinstance(contracts, bool) or not isinstance(contracts, int) or contracts < 1:
+            raise ValueError("contracts must be an int >= 1")
         tick = self._instrument.option_tick_size
-        price = round_to_tick(entry - self._points(self._risk.stop_loss, contracts), tick, up=True)
-        if price < tick:
-            raise ValueError(f"entry {entry} is too small to carry the hard stop")
-        return StopLevel(
-            entry=entry, contracts=contracts, price=price, peak_bid=entry, trailing=False
+        if not isinstance(fill, Decimal) or not fill.is_finite() or fill <= 0:
+            raise ValueError(f"fill must be a finite Decimal > 0, got {fill!r}")
+        if fill % tick:
+            raise ValueError(f"fill {fill} is not on the option tick {tick}")
+        if not stop_fits(fill, contracts, self._risk, self._instrument, self._execution):
+            raise ValueError(f"fill {fill} is too small to carry the hard stop and its limit")
+        level = StopLevel(
+            position_id=position_id,
+            entry=fill,
+            contracts=contracts,
+            price=hard_stop_price(fill, contracts, self._risk, self._instrument),
+            peak_bid=fill,
+            trailing=False,
         )
+        self._stops[position_id] = level
+        return level
 
-    def ratchet(
-        self, stop: StopLevel, requested: Decimal, source: str
-    ) -> tuple[StopLevel, Refusal | None]:
-        """Move the stop to `requested` only if that is no further from entry."""
-        if requested < stop.price:
-            refusal = Refusal(requested=requested, kept=stop.price, source=source)
+    def current(self, position_id: str) -> StopLevel:
+        return self._stops[position_id]
+
+    def close(self, position_id: str) -> StopLevel:
+        return self._stops.pop(position_id)
+
+    # --- changes --------------------------------------------------------------------
+
+    def request(self, position_id: str, price: Decimal, source: str) -> Refusal | None:
+        """Move the stop to `price` if that is no further from entry and on the tick."""
+        stop = self._stops[position_id]
+        tick = self._instrument.option_tick_size
+        reason = ""
+        if not isinstance(price, Decimal) or not price.is_finite():
+            reason = "not a finite price"
+        elif price % tick:
+            reason = f"off the option tick {tick}"
+        elif price < stop.price:
+            reason = "would widen the stop"
+        if reason:
             log.warning(
-                "stop widening refused: %s asked %s, stop stays %s", source, requested, stop.price
+                "stop change refused for %s: %s asked %s (%s); stop stays %s",
+                position_id,
+                source,
+                price,
+                reason,
+                stop.price,
             )
-            return stop, refusal
-        return replace(stop, price=requested), None
+            return Refusal(position_id, price, stop.price, source, reason)
+        self._stops[position_id] = replace(stop, price=price)
+        return None
 
-    def on_bid(self, stop: StopLevel, bid: Decimal) -> StopLevel:
-        """Update the peak and the trail for a new bid. Never lowers the stop."""
-        peak = max(stop.peak_bid, bid)
-        stop = replace(stop, peak_bid=peak)
-        peak_gain = (peak - stop.entry) * self._instrument.point_value * stop.contracts
-        if peak_gain < self._risk.profit_target:
-            return stop
-        keep = peak_gain * self._risk.trail_keep_pct.scaleb(-2)
+    def on_tick(self, position_id: str, tick: BidTick, as_of: datetime) -> TickStatus:
+        """Track the peak bid and move the trail. Never lowers the stop."""
+        status = self._usable(tick, as_of)
+        if status is not TickStatus.USED:
+            return status
+        stop = self._stops[position_id]
+        stop = replace(stop, peak_bid=max(stop.peak_bid, tick.bid))
+        self._stops[position_id] = stop
+        pv = self._instrument.point_value
+        fees = 2 * self._risk.fee_per_contract_per_side * stop.contracts
+        net_peak = (stop.peak_bid - stop.entry) * pv * stop.contracts - fees
+        if net_peak < self._risk.profit_target:
+            return status
+        keep = net_peak * self._risk.trail_keep_pct.scaleb(-2)
         target = round_to_tick(
-            stop.entry + self._points(keep, stop.contracts),
+            stop.entry + (keep + fees) / (pv * stop.contracts),
             self._instrument.option_tick_size,
-            up=False,
+            up=True,
         )
-        moved, _ = self.ratchet(stop, max(target, stop.price), "trail")
-        return replace(moved, trailing=True)
+        if target > stop.price:
+            self.request(position_id, target, "trail")
+        self._stops[position_id] = replace(self._stops[position_id], trailing=True)
+        return status
 
-    @staticmethod
-    def hit(stop: StopLevel, bid: Decimal) -> bool:
-        return bid <= stop.price
+    # --- questions ------------------------------------------------------------------
 
-    def resting_order(self, stop: StopLevel) -> StopOrderSpec:
+    def hit(self, position_id: str, tick: BidTick, as_of: datetime) -> bool:
+        if self._usable(tick, as_of) is not TickStatus.USED:
+            return False
+        return tick.bid <= self._stops[position_id].price
+
+    def resting_order(self, position_id: str) -> StopOrderSpec:
+        stop = self._stops[position_id]
         tick = self._instrument.option_tick_size
         limit = stop.price - tick * self._execution.stop_order.limit_offset_ticks
         return StopOrderSpec(trigger=stop.price, limit=max(limit, tick))
 
-    def gapped_through(self, stop: StopLevel, bid: Decimal) -> bool:
+    def gapped_through(self, position_id: str, tick: BidTick, as_of: datetime) -> bool:
         """The bid is below the resting order's limit: it may never fill; flatten now."""
-        return bid < self.resting_order(stop).limit
+        if self._usable(tick, as_of) is not TickStatus.USED:
+            return False
+        return tick.bid < self.resting_order(position_id).limit
+
+    def _usable(self, tick: BidTick, as_of: datetime) -> TickStatus:
+        require_utc(as_of, "as_of")
+        age = as_of - tick.ts
+        if age < timedelta(0) or age > timedelta(seconds=self._execution.quotes.max_age_seconds):
+            return TickStatus.STALE
+        if tick.bid == 0:
+            return TickStatus.NO_BID
+        return TickStatus.USED

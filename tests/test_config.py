@@ -350,6 +350,7 @@ def test_execution_profile_loads(execution_path: Path) -> None:
     e = load_execution(execution_path)
     assert e.quotes.max_age_seconds == 5
     assert (e.contract.max_spread_pct_of_mid, e.contract.min_open_interest) == (Decimal(5), 100)
+    assert e.contract.max_strike_distance == Decimal(50)
     assert (e.entry.step_ticks, e.entry.step_seconds, e.entry.max_steps) == (1, 5, 4)
     assert e.entry.timeout_seconds == 30
     assert e.entry.max_over_mid_pct_of_spread == Decimal(25)
@@ -361,7 +362,8 @@ def test_execution_profile_loads(execution_path: Path) -> None:
     [
         ("quotes", {"max_age_seconds": 0}),
         ("contract", {"max_spread_pct_of_mid": 100}),
-        ("contract", {"min_open_interest": -1}),
+        ("contract", {"min_open_interest": 0}),  # would switch the filter off
+        ("contract", {"max_strike_distance": 0}),
         ("entry", {"step_ticks": 0}),
         ("entry", {"max_over_mid_pct_of_spread": 51}),  # past the ask
         ("entry", {"timeout_seconds": 19}),  # 4 steps x 5 s do not fit

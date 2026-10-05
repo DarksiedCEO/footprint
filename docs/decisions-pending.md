@@ -15,3 +15,7 @@ Each is a config value or a one-line change; nothing here is hidden in code.
 | D8 | Felix (G3) | Minimum open interest 100 | G3 says "calibrate from data"; there is no chain data yet | Calibrate from a week of chain snapshots |
 | D9 | Instrument | Option tick 0.25 points | UNVERIFIED against the CME contract specs | Confirm the NQ option tick (and any reduced tick for cheap premiums) |
 | D10 | Booker (G1) | Resting stop-limit's limit 20 ticks (5 points, $100/contract) below the trigger | G1 approved "a wide limit" without a number | Confirm or change `stop_order.limit_offset_ticks`; test in paper |
+| D11 | Ezra / Diego (G5) | Entry prices are on the tick: start at the mid rounded down, never above mid + 25% of the spread rounded down. With a one-tick spread that means posting at the bid only | G5 forbids paying past mid + 25%; on a one-tick spread no tick price exists between the bid and that limit | Keep strict, or allow the ask on one-tick spreads |
+| D12 | Felix (G3) | "1–3 DTE" = calendar days from the trading day (an overnight session counts from the day it leads into) | Avoids buying an option that expires inside the session it is traded in | Confirm calendar days (vs trading days) |
+| D13 | Booker (G7, G15) | The trail starts at +$1,000 NET of round-trip fees and locks 50% of the net peak | G15: every P&L figure the risk layer sees includes fees | Confirm |
+| D14 | Felix | Skip if the nearest strike is more than 50 points from the underlying | Guards against a gappy chain; not in the spec | Confirm or change `contract.max_strike_distance` |

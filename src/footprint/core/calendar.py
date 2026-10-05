@@ -47,17 +47,13 @@ def _covers(session: Session, clock: time) -> bool:
     return clock >= session.start or clock <= session.end
 
 
-def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
-    """The window `moment` (UTC) falls in, or CLOSED on non-trading days.
-
-    A PRIME window belongs to its own calendar day. An OVERNIGHT window that
-    crosses midnight belongs to the trading day it leads into, so the evening
-    before a weekend or holiday is CLOSED.
-    """
+def _classify(moment: datetime, instrument: InstrumentProfile) -> tuple[SessionKind, date | None]:
     prime, overnight = instrument.prime_session, instrument.overnight_session
     day, clock = local_minute(moment, prime)
     if _covers(prime, clock):
-        return SessionKind.PRIME if is_trading_day(day, instrument) else SessionKind.CLOSED
+        if is_trading_day(day, instrument):
+            return SessionKind.PRIME, day
+        return SessionKind.CLOSED, None
     day, clock = local_minute(moment, overnight)
     if _covers(overnight, clock):
         crosses_midnight = overnight.start > overnight.end
@@ -65,5 +61,22 @@ def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
             day + timedelta(days=1) if crosses_midnight and clock >= overnight.start else day
         )
         if is_trading_day(trading_day, instrument):
-            return SessionKind.OVERNIGHT
-    return SessionKind.CLOSED
+            return SessionKind.OVERNIGHT, trading_day
+    return SessionKind.CLOSED, None
+
+
+def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
+    """The window `moment` (UTC) falls in, or CLOSED on non-trading days.
+
+    A PRIME window belongs to its own calendar day. An OVERNIGHT window that
+    crosses midnight belongs to the trading day it leads into, so the evening
+    before a weekend or holiday is CLOSED.
+    """
+    return _classify(moment, instrument)[0]
+
+
+def trading_day_at(moment: datetime, instrument: InstrumentProfile) -> date | None:
+    """The trading day `moment` belongs to (an overnight session belongs to the day it
+    leads into), or None when the market is closed.
+    """
+    return _classify(moment, instrument)[1]
