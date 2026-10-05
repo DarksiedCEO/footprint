@@ -81,11 +81,11 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
     )
     assert decision.approved is not None, decision.reasons()
     book = QuoteBook()
-    broker = SimulatedBroker(book)
+    broker = SimulatedBroker(book, profiles.execution.quotes.max_age_seconds)
     stops = StopKeeper(profiles.risk, profiles.instrument, profiles.execution)
     alarms: list[Alarm] = []
     halt = Halt()
-    executor = Executor(profiles, pipeline, broker, stops, ledger, halt)
+    executor = Executor(profiles, pipeline, broker, stops, ledger, halt, book)
     manager = Manager(profiles, broker, stops, ledger, halt, book, alarms.append)
     s = Stack(
         profiles,

@@ -104,6 +104,7 @@ class Manager:
         self._halt = halt
         self._book = book
         self._on_alarm = on_alarm or (lambda alarm: None)
+        self._reconcile_closes: list[Closed] = []
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
         self._reconcile_round = 0
@@ -379,6 +380,15 @@ class Manager:
         log.info("closed %s at %s (%s), net %s", position.position_id, price, reason.value, net)
         return Closed(position.position_id, price, now, reason, net)
 
+    def route_alarms(self, sink: Callable[[Alarm], None]) -> None:
+        """Send every alarm to `sink` (the runner owns the one line to Andre)."""
+        self._on_alarm = sink
+
+    def take_reconcile_closes(self) -> list[Closed]:
+        """Trades reconcile booked since the last call (for the journal)."""
+        closes, self._reconcile_closes = self._reconcile_closes, []
+        return closes
+
     def _alarm(self, now: datetime, message: str) -> None:
         log.critical(message)
         self._on_alarm(Alarm(now, message))
@@ -447,7 +457,7 @@ class Manager:
             price, actual_fill = self._actual_exit(position)
             if not actual_fill:
                 self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {price}")
-            self._close(position, price, now, ExitReason.RECONCILE)
+            self._reconcile_closes.append(self._close(position, price, now, ExitReason.RECONCILE))
         elif not remaining and ledger_open is not None and position is None:
             self._alarm(
                 now,

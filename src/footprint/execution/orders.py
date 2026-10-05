@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Protocol, runtime_checkable
@@ -131,12 +131,18 @@ class QuoteSource(Protocol):
 
     def latest(self, contract_id: str) -> Quote | None: ...
 
+    @property
+    def newest(self) -> datetime | None: ...
+
 
 class SimulatedBroker:
     """A pessimistic in-memory broker for backtests, paper rehearsal and tests."""
 
-    def __init__(self, book: QuoteSource) -> None:
-        """Fills only against `book`, the same quotes the rest of the system reads."""
+    def __init__(self, book: QuoteSource, max_quote_age_seconds: int) -> None:
+        """Fills only against `book`, the same quotes the rest of the system reads, and
+        never against a quote older than `max_quote_age_seconds` behind the book's
+        newest quote."""
+        self._max_age = timedelta(seconds=max_quote_age_seconds)
         self._orders: dict[str, OrderStatus] = {}
         self._positions: dict[str, int] = {}
         self._book = book
@@ -152,6 +158,9 @@ class SimulatedBroker:
 
     def _try_fill(self, status: OrderStatus, quote: Quote, *, at_touch: bool) -> OrderStatus:
         order = status.order
+        newest = self._book.newest
+        if newest is not None and newest - quote.ts > self._max_age:
+            return status  # a stale quote fills nothing
         triggered = status.triggered
         if order.order_type is OrderType.STOP_LIMIT and not triggered:
             assert order.stop_price is not None

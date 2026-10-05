@@ -10,6 +10,7 @@ Only a restart (followed by reconcile and Andre clearing the latch) resets it.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 log = logging.getLogger("footprint.halt")
 
@@ -17,6 +18,11 @@ log = logging.getLogger("footprint.halt")
 class Halt:
     def __init__(self) -> None:
         self._reasons: list[str] = []
+        self._sinks: list[Callable[[str], None]] = []
+
+    def route(self, sink: Callable[[str], None]) -> None:
+        """Every future trip is also sent to `sink` (the runner's alarm to Andre)."""
+        self._sinks.append(sink)
 
     @property
     def tripped(self) -> bool:
@@ -29,3 +35,5 @@ class Halt:
     def trip(self, reason: str) -> None:
         log.critical("halt: %s", reason)
         self._reasons.append(reason)
+        for sink in self._sinks:
+            sink(f"HALT: {reason}")

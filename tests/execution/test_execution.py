@@ -184,12 +184,13 @@ def test_an_entry_the_broker_will_not_protect_is_flattened(stack: Stack) -> None
                 return OrderStatus(order, OrderState.REJECTED, 0, None)
             return super().place(order)
 
-    broker = NoStops(stack.book)
+    broker = NoStops(stack.book, 5)
     stack.executor._broker = broker
     stack.manager._broker = broker
     stack.broker = broker
-    stack.quote(150, D(151), SEND)  # the ask is at the floor: fills on placement
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position is not None
     closed = stack.step(ticket.position, stack.quote(150, D(151), SEND + SEC), (), SEND + SEC)
@@ -409,8 +410,9 @@ def test_a_broker_error_on_the_stop_means_unprotected_and_flattened(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", flaky)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position is not None
     closed = stack.step(ticket.position, stack.quote(150, 152, SEND + SEC), (), SEND + SEC)
@@ -419,12 +421,25 @@ def test_a_broker_error_on_the_stop_means_unprotected_and_flattened(
     assert stack.broker.positions() == {}
 
 
-def test_an_off_tick_fill_is_flattened_without_crashing(stack: Stack) -> None:
-    stack.quote(150, D("150.9"), SEND)  # the fill comes back off the option tick
+def test_an_off_tick_fill_is_flattened_without_crashing(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker._try_fill
+
+    def off_tick(status: OrderStatus, quote: Quote, *, at_touch: bool) -> OrderStatus:
+        result = original(status, quote, at_touch=at_touch)
+        if result.state is OrderState.FILLED and status.order.order_id.endswith("-entry"):
+            return replace(result, avg_price=D("150.9"))  # the broker reports an odd price
+        return result
+
+    monkeypatch.setattr(stack.broker, "_try_fill", off_tick)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position is not None
-    closed = stack.step(ticket.position, stack.quote(150, 152, SEND + SEC), (), SEND + SEC)
+    t = SEND + SEC
+    closed = stack.step(ticket.position, stack.quote(150, 152, t), (), t)
     assert closed is not None
     assert stack.broker.positions() == {}
 
@@ -440,8 +455,9 @@ def test_an_unprotected_position_is_flattened_even_on_a_stale_quote(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", no_stops)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.position is not None
     t = SEND + 30 * SEC
     stale = stack.quote(150, 152, t - 20 * SEC)
@@ -664,8 +680,9 @@ def test_a_ledger_failure_halts_further_entries(
         raise OSError("disk full")
 
     monkeypatch.setattr(stack.ledger, "on_entry_filled", broken)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.PROTECTED
     assert stack.halt.tripped
     # The ledger thinks nothing is open, so the pipeline would approve again ...
@@ -691,8 +708,9 @@ def test_a_stop_that_arrived_without_an_answer_is_adopted(
         return status
 
     monkeypatch.setattr(stack.broker, "place", lost_reply)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.PROTECTED
     assert ticket.position is not None
     assert ticket.position.stop_order_id == f"{ticket.position_id}-stop"
@@ -719,8 +737,9 @@ def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
 
     monkeypatch.setattr(stack.broker, "place", lost_reply)
     monkeypatch.setattr(stack.broker, "status", status_blind_during_entry)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED  # Diego could not confirm the stop
     assert ticket.position is not None
     blind["on"] = False
@@ -832,8 +851,9 @@ def test_an_orphan_stop_that_already_filled_is_never_sold_again(
 
     monkeypatch.setattr(stack.broker, "place", lost_reply)
     monkeypatch.setattr(stack.broker, "status", status_blind_during_entry)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position is not None
     blind["on"] = False
@@ -901,13 +921,14 @@ def test_a_stop_that_filled_before_its_answer_is_adopted(
     def filled_then_lost(order: Order) -> OrderStatus:
         status = original(order)
         if order.order_type is OrderType.STOP_LIMIT:
-            stack.book.publish(stack.quote(110, 111, SEND))  # it triggers and fills at once
+            stack.quote(110, 111, SEND)  # it triggers and fills at once
             raise TimeoutError("no acknowledgement")
         return status
 
     monkeypatch.setattr(stack.broker, "place", filled_then_lost)
-    stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.PROTECTED
     assert ticket.position is not None
     closed = stack.step(ticket.position, stack.quote(110, 111, SEND + SEC), (), SEND + SEC)

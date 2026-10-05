@@ -12,9 +12,10 @@ live, or on a simulated clock in a backtest); the runner then, in order:
    decision says so, and submits an approved entry.
 Every alarm and halt is passed to `on_alarm`, which must reach Andre.
 
-After a restart, build a new Runner (fresh halt): it starts in reconcile with no
-position (`reconcile(None)`), so anything the broker still holds is flattened and
-the kill switch latched; entries resume only after Andre clears it.
+Every start is treated as a restart: a new Runner latches the kill switch and
+starts in reconcile with no position (`reconcile(None)`), so anything the broker
+still holds is flattened. Entries resume only after Andre clears the kill switch
+by name. Every alarm, halt and latch goes to the one `on_alarm` line to Andre.
 """
 
 from __future__ import annotations
@@ -57,7 +58,12 @@ class Runner:
         chain: Callable[[datetime], OptionChain | None],
         blackouts: Callable[[datetime], Iterable[NewsBlackout]],
         on_alarm: Callable[[Alarm], None],
+        started: datetime,
     ) -> None:
+        """Start (or restart) the system. It starts reconciling with the kill switch
+        latched: entries resume only after Andre clears it by name.
+        """
+        require_utc(started, "started")
         self._pipeline = pipeline
         self._executor = executor
         self._manager = manager
@@ -68,12 +74,19 @@ class Runner:
         self._chain = chain
         self._blackouts = blackouts
         self._on_alarm = on_alarm
+        self._now = started
+        # One line to Andre: management alarms, halts and latches all come through here.
+        manager.route_alarms(self._deliver)
+        halt.route(lambda message: self._alarm(self._now, message))
         self._reconciling = True
         self._ticket: EntryTicket | None = None
         self._position: Position | None = None
         self._birth: Decision | None = None
         self._last_decided: datetime | None = None
+        self._latched = False
         self.closed: list[Closed] = []
+        ledger.latch_kill_switch("start-up: Andre must clear the kill switch to trade")
+        self._watch_latch(started)
 
     @property
     def position(self) -> Position | None:
@@ -88,41 +101,72 @@ class Runner:
         self._reconciling = True
 
     def step(self, now: datetime) -> None:
+        """One pass. Never raises: any failure alarms, halts and sends the runner to
+        reconcile, so a broken collaborator can never leave a position unwatched.
+        """
         require_utc(now, "now")
+        self._now = now
+        try:
+            self._step(now)
+        except Exception as exc:
+            self._alarm(now, f"step failed: {exc!r}; halting and reconciling")
+            self._halt.trip(f"step failed: {exc!r}")
+            self.doubt()
+        self._watch_latch(now)
+
+    def _step(self, now: datetime) -> None:
         if self._reconciling:
-            if self._manager.reconcile(self._position, now):
-                self._reconciling = False
-            elif self._position is not None and self._ledger.open_position_id is None:
-                self._position = None  # reconcile booked or flattened it
+            self._reconcile(now)
             return
         blackouts = tuple(self._blackouts(now))
 
         if self._ticket is not None:
-            self._ticket = self._executor.on_time(self._ticket, now)
-            if self._ticket.outcome is not EntryOutcome.WORKING:
-                self._position = self._ticket.position
-                if self._ticket.outcome is EntryOutcome.UNPROTECTED:
-                    self._alarm(now, f"{self._ticket.position_id}: filled without a stop")
-                self._ticket = None
+            ticket = self._executor.on_time(self._ticket, now)
+            self._ticket = ticket if ticket.outcome is EntryOutcome.WORKING else None
+            if ticket.outcome is not EntryOutcome.WORKING:
+                self._entry_done(ticket, now)
 
         if self._position is not None:
-            try:
-                closed = self._manager.manage(self._position, blackouts, now)
-            except Exception as exc:  # never crash the loop; reconcile instead
-                self._alarm(now, f"management failed: {exc!r}; reconciling")
-                self._halt.trip(f"management failed: {exc!r}")
-                self.doubt()
-                return
+            closed = self._manager.manage(self._position, blackouts, now)
             if closed is not None:
-                if self._birth is not None:
-                    self._journal.record_trade(self._position, closed, self._birth)
-                self.closed.append(closed)
-                self._position, self._birth = None, None
+                self._trade_done(self._position, closed, now)
             return
 
+        if self._ticket is None:
+            self._decide(now, blackouts)
+
+    def _reconcile(self, now: datetime) -> None:
         if self._ticket is not None:
-            return
-        self._decide(now, blackouts)
+            # A working entry must not outlive the doubt: cancel it; reconcile handles
+            # whatever it may have filled.
+            self._executor.abandon(self._ticket)
+            self._ticket = None
+        agreed = self._manager.reconcile(self._position, now)
+        for closed in self._manager.take_reconcile_closes():
+            if self._position is not None and closed.position_id == self._position.position_id:
+                self._trade_done(self._position, closed, now)
+        if agreed:
+            self._reconciling = False
+        elif self._position is not None and self._ledger.open_position_id is None:
+            self._position = None
+
+    def _entry_done(self, ticket: EntryTicket, now: datetime) -> None:
+        """The one path for every finished entry, however it finished."""
+        self._position = ticket.position
+        if ticket.outcome is EntryOutcome.UNPROTECTED:
+            self._alarm(now, f"{ticket.position_id}: filled without a resting stop")
+        if self._position is None:
+            self._birth = None
+
+    def _trade_done(self, position: Position, closed: Closed, now: datetime) -> None:
+        self.closed.append(closed)
+        birth = self._birth
+        self._position, self._birth = None, None
+        if birth is not None:
+            try:
+                self._journal.record_trade(position, closed, birth)
+            except Exception as exc:  # the trade is closed; losing its record is an alarm
+                self._alarm(now, f"journal failed for {closed.position_id}: {exc!r}")
 
     def _decide(self, now: datetime, blackouts: tuple[NewsBlackout, ...]) -> None:
         bars = self._bars(now)
@@ -136,21 +180,38 @@ class Runner:
         decision = self._pipeline.decide(
             bars, self._chain(now), self._ledger.account(now), blackouts, now
         )
-        self._journal.record_decision(decision)
         if decision.latch_kill_switch:
             self._ledger.latch_kill_switch("drawdown limit reached")
+        try:
+            self._journal.record_decision(decision)
+        except Exception as exc:
+            self._alarm(now, f"journal failed for a decision: {exc!r}")
         if decision.approved is None:
             return
         try:
-            self._ticket = self._executor.submit(decision.approved, blackouts, now)
+            ticket = self._executor.submit(decision.approved, blackouts, now)
         except EntryRefused as exc:
             log.warning("entry refused at send: %s", exc)
             return
         self._birth = decision
-        if self._ticket.outcome is not EntryOutcome.WORKING:
-            self._position = self._ticket.position
-            self._ticket = None
+        if ticket.outcome is EntryOutcome.WORKING:
+            self._ticket = ticket
+        else:
+            self._entry_done(ticket, now)
+            if self._position is not None:
+                closed = self._manager.manage(self._position, blackouts, now)
+                if closed is not None:
+                    self._trade_done(self._position, closed, now)
+
+    def _watch_latch(self, now: datetime) -> None:
+        latched = self._ledger.account(now).kill_switch_latched
+        if latched and not self._latched:
+            self._alarm(now, "KILL SWITCH LATCHED: no entries until Andre clears it")
+        self._latched = latched
+
+    def _deliver(self, alarm: Alarm) -> None:
+        log.critical(alarm.message)
+        self._on_alarm(alarm)
 
     def _alarm(self, now: datetime, message: str) -> None:
-        log.critical(message)
-        self._on_alarm(Alarm(now, message))
+        self._deliver(Alarm(now, message))
