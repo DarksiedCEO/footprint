@@ -1,6 +1,5 @@
 """The ibapi installer refuses any file but the one pinned by hash."""
 
-import hashlib
 import importlib.util
 import zipfile
 from pathlib import Path
@@ -37,7 +36,8 @@ def test_an_archive_escaping_its_folder_is_refused(
     with zipfile.ZipFile(evil, "w") as z:
         z.writestr("twsapi_macunix/IBJts/source/pythonclient/../../../../../../escape.py", "x")
     module = installer()
-    monkeypatch.setattr(module, "SHA256", hashlib.sha256(evil.read_bytes()).hexdigest())
+    with zipfile.ZipFile(evil) as z:
+        monkeypatch.setattr(module, "TREE_SHA256", module.tree_sha256(z, module.client_files(z)))
     assert module.main(["install_ibapi.py", str(evil)]) == 1
     assert "unsafe path" in capsys.readouterr().err
 
@@ -45,4 +45,22 @@ def test_an_archive_escaping_its_folder_is_refused(
 def test_the_pin_names_one_release() -> None:
     module = installer()
     assert module.URL.endswith("twsapi_macunix.1050.02.zip")
-    assert len(module.SHA256) == 64
+    assert len(module.TREE_SHA256) == 64
+
+
+def client_zip(path: Path, content: bytes, compression: int) -> zipfile.ZipFile:
+    with zipfile.ZipFile(path, "w", compression) as z:
+        z.writestr("twsapi_macunix/IBJts/source/pythonclient/ibapi/client.py", content)
+        z.writestr("__MACOSX/twsapi_macunix/._x", b"finder noise")  # never installed
+    return zipfile.ZipFile(path)
+
+
+def test_the_pin_is_on_the_files_not_on_the_zip(tmp_path: Path) -> None:
+    module = installer()
+    stored = client_zip(tmp_path / "a.zip", b"code", zipfile.ZIP_STORED)
+    rezipped = client_zip(tmp_path / "b.zip", b"code", zipfile.ZIP_DEFLATED)
+    changed = client_zip(tmp_path / "c.zip", b"codE", zipfile.ZIP_STORED)
+    pinned = module.tree_sha256(stored, module.client_files(stored))
+    assert (tmp_path / "a.zip").read_bytes() != (tmp_path / "b.zip").read_bytes()
+    assert module.tree_sha256(rezipped, module.client_files(rezipped)) == pinned
+    assert module.tree_sha256(changed, module.client_files(changed)) != pinned

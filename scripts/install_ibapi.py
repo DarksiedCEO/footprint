@@ -2,7 +2,10 @@
 environment.
 
 IBKR does not publish ibapi on PyPI (the `ibapi` there is an old unofficial upload),
-so it comes from IBKR's own download, checked against the SHA-256 recorded below:
+so it comes from IBKR's own download. What is pinned is the Python client itself: a
+SHA-256 over every file under pythonclient/ (path and content), so a copy that was
+unzipped and zipped again on a Mac (which changes the zip, not the files) is
+accepted, and any change to a single file is refused:
 
     uv run python scripts/install_ibapi.py                 # downloads from IBKR
     uv run python scripts/install_ibapi.py path/to/zip     # a copy you downloaded
@@ -10,7 +13,7 @@ so it comes from IBKR's own download, checked against the SHA-256 recorded below
 A different file is refused. `uv sync` removes ibapi (it is not in the lock): run this
 again after any `uv sync`. `uv run` leaves it in place.
 
-To move to another IBKR release, change VERSION, URL and SHA256 together, in a
+To move to another IBKR release, change VERSION, URL and TREE_SHA256 together, in a
 reviewed change.
 
 ibapi is GPL-3.0-or-later (see docs/decisions-pending.md, D25).
@@ -30,7 +33,7 @@ from pathlib import Path
 
 VERSION = "10.50.2"  # ibapi's own version string for IBKR "Stable" API 10.50.02 (2026-09-09)
 URL = "https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip"
-SHA256 = "0d6482032f17934025039623fa85dee6d0651727ba73d3dac977d8c50ebccedd"
+TREE_SHA256 = "24ce67883549a200867eef0c535fcc951718b43a1f448b9e5ed6a9e1bc76652c"
 CLIENT = "twsapi_macunix/IBJts/source/pythonclient/"
 
 
@@ -42,11 +45,16 @@ def _fail(message: str) -> int:
     return 1
 
 
-def _sha256(path: Path) -> str:
+def client_files(archive: zipfile.ZipFile) -> list[str]:
+    return sorted(m for m in archive.namelist() if m.startswith(CLIENT) and not m.endswith("/"))
+
+
+def tree_sha256(archive: zipfile.ZipFile, members: list[str]) -> str:
+    """One hash over each file's path (inside pythonclient/) and content."""
     digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            digest.update(block)
+    for member in members:
+        content = hashlib.sha256(archive.read(member)).hexdigest()
+        digest.update(f"{member[len(CLIENT) :]}\0{content}\n".encode())
     return digest.hexdigest()
 
 
@@ -66,12 +74,16 @@ def main(argv: list[str]) -> int:
                     shutil.copyfileobj(response, f)
             except OSError as exc:
                 return _fail(f"could not download {URL}: {exc!r}")
-        actual = _sha256(archive)
-        if actual != SHA256:
-            size = archive.stat().st_size
-            return _fail(f"{archive.name} ({size} bytes) has SHA-256 {actual}, expected {SHA256}")
         with zipfile.ZipFile(archive) as z:
-            members = [m for m in z.namelist() if m.startswith(CLIENT)]
+            members = client_files(z)
+            if not members:
+                return _fail(f"{archive.name} has no {CLIENT}")
+            actual = tree_sha256(z, members)
+            if actual != TREE_SHA256:
+                return _fail(
+                    f"the Python client in {archive.name} has SHA-256 {actual}, "
+                    f"expected {TREE_SHA256}"
+                )
             for member in members:
                 target = (work / member).resolve()
                 if not target.is_relative_to(work.resolve()):
