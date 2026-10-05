@@ -72,6 +72,10 @@ class RiskProfile:
     kill_switch_drawdown_pct: Decimal
     max_trades_prime: int
     max_trades_overnight: int
+    stop_loss: Decimal
+    trail_keep_pct: Decimal
+    max_contracts: int
+    fee_per_contract_per_side: Decimal
 
 
 def _read_mapping(path: Path, expected: set[str]) -> Mapping[str, object]:
@@ -109,6 +113,16 @@ def _positive_decimal(raw: Mapping[str, object], key: str, where: str) -> Decima
     number = Decimal(str(value))
     if not number.is_finite() or number <= 0:
         raise ConfigError(f"{where}: {key} must be a finite number > 0, got {value!r}")
+    return number
+
+
+def _non_negative_decimal(raw: Mapping[str, object], key: str, where: str) -> Decimal:
+    value = raw[key]
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ConfigError(f"{where}: {key} must be a number, got {value!r}")
+    number = Decimal(str(value))
+    if not number.is_finite() or number < 0:
+        raise ConfigError(f"{where}: {key} must be a finite number >= 0, got {value!r}")
     return number
 
 
@@ -230,6 +244,10 @@ def load_risk(path: Path) -> RiskProfile:
         kill_switch_drawdown_pct=_positive_decimal(raw, "kill_switch_drawdown_pct", where),
         max_trades_prime=_integer(raw, "max_trades_prime", where, minimum=0),
         max_trades_overnight=_integer(raw, "max_trades_overnight", where, minimum=0),
+        stop_loss=_positive_decimal(raw, "stop_loss", where),
+        trail_keep_pct=_positive_decimal(raw, "trail_keep_pct", where),
+        max_contracts=_integer(raw, "max_contracts", where, minimum=1),
+        fee_per_contract_per_side=_non_negative_decimal(raw, "fee_per_contract_per_side", where),
     )
     if profile.position_cap > profile.bankroll:
         raise ConfigError(f"{where}: position_cap must be <= bankroll")
@@ -241,6 +259,14 @@ def load_risk(path: Path) -> RiskProfile:
         raise ConfigError(f"{where}: daily_max_loss must be <= weekly_max_loss")
     if profile.kill_switch_drawdown_pct > _PERCENT_MAX:
         raise ConfigError(f"{where}: kill_switch_drawdown_pct must be <= {_PERCENT_MAX}")
+    if not profile.stop_min <= profile.stop_loss <= profile.stop_max:
+        raise ConfigError(f"{where}: stop_loss must lie within stop_min..stop_max")
+    if profile.trail_keep_pct >= _PERCENT_MAX:
+        raise ConfigError(f"{where}: trail_keep_pct must be < {_PERCENT_MAX}")
+    if profile.max_contracts != 1:
+        raise ConfigError(
+            f"{where}: max_contracts must be 1 in v1 (Option A); scale-out is not built"
+        )
     return profile
 
 
@@ -392,3 +418,77 @@ def load_strategy(path: Path) -> StrategyProfile:
         options=options,
         zeroday=zeroday,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class QuoteSettings:
+    max_age_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class ContractSettings:
+    max_spread_pct_of_mid: Decimal
+    min_open_interest: int
+
+
+@dataclass(frozen=True, slots=True)
+class EntrySettings:
+    step_ticks: int
+    step_seconds: int
+    max_steps: int
+    timeout_seconds: int
+    max_over_mid_pct_of_spread: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class StopOrderSettings:
+    limit_offset_ticks: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionProfile:
+    quotes: QuoteSettings
+    contract: ContractSettings
+    entry: EntrySettings
+    stop_order: StopOrderSettings
+
+
+def load_execution(path: Path) -> ExecutionProfile:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(ExecutionProfile)})
+
+    q_where = f"{where}: quotes"
+    q = _check_keys(raw["quotes"], {f.name for f in fields(QuoteSettings)}, q_where)
+    quotes = QuoteSettings(max_age_seconds=_integer(q, "max_age_seconds", q_where, minimum=1))
+
+    c_where = f"{where}: contract"
+    c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)
+    contract = ContractSettings(
+        max_spread_pct_of_mid=_positive_decimal(c, "max_spread_pct_of_mid", c_where),
+        min_open_interest=_integer(c, "min_open_interest", c_where, minimum=0),
+    )
+    if contract.max_spread_pct_of_mid >= _PERCENT_MAX:
+        raise ConfigError(f"{c_where}: max_spread_pct_of_mid must be < {_PERCENT_MAX}")
+
+    e_where = f"{where}: entry"
+    e = _check_keys(raw["entry"], {f.name for f in fields(EntrySettings)}, e_where)
+    entry = EntrySettings(
+        step_ticks=_integer(e, "step_ticks", e_where, minimum=1),
+        step_seconds=_integer(e, "step_seconds", e_where, minimum=1),
+        max_steps=_integer(e, "max_steps", e_where, minimum=0),
+        timeout_seconds=_integer(e, "timeout_seconds", e_where, minimum=1),
+        max_over_mid_pct_of_spread=_non_negative_decimal(e, "max_over_mid_pct_of_spread", e_where),
+    )
+    if entry.max_over_mid_pct_of_spread > _PERCENT_MAX / 2:
+        raise ConfigError(
+            f"{e_where}: max_over_mid_pct_of_spread must be <= half the spread (the ask)"
+        )
+    if entry.step_seconds * entry.max_steps > entry.timeout_seconds:
+        raise ConfigError(f"{e_where}: all steps must fit inside timeout_seconds")
+
+    s_where = f"{where}: stop_order"
+    so = _check_keys(raw["stop_order"], {f.name for f in fields(StopOrderSettings)}, s_where)
+    stop_order = StopOrderSettings(
+        limit_offset_ticks=_integer(so, "limit_offset_ticks", s_where, minimum=1)
+    )
+    return ExecutionProfile(quotes=quotes, contract=contract, entry=entry, stop_order=stop_order)

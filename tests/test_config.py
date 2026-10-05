@@ -57,6 +57,10 @@ def test_risk_profile_loads(risk_path: Path) -> None:
     assert profile.weekly_max_loss == Decimal("3500")
     assert profile.kill_switch_drawdown_pct == Decimal("20")
     assert (profile.max_trades_prime, profile.max_trades_overnight) == (4, 0)
+    assert profile.stop_loss == Decimal("750")
+    assert profile.trail_keep_pct == Decimal("50")
+    assert profile.max_contracts == 1
+    assert profile.fee_per_contract_per_side == Decimal("2.5")
 
 
 @pytest.mark.parametrize(
@@ -309,3 +313,70 @@ def test_bad_strategy_values_are_rejected(
     target.write_text(yaml.safe_dump(data))
     with pytest.raises(ConfigError):
         load_strategy(target)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"stop_loss": 700},  # below stop_min
+        {"stop_loss": 1001},  # above stop_max
+        {"trail_keep_pct": 100},
+        {"trail_keep_pct": 0},
+        {"max_contracts": 2},  # scale-out is not built
+        {"max_contracts": 0},
+        {"fee_per_contract_per_side": -1},
+        {"fee_per_contract_per_side": ...},
+    ],
+)
+def test_risk_rejects_bad_stop_trail_and_size(
+    risk_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError):
+        load_risk(rewrite(risk_path, tmp_path, **changes))
+
+
+def test_risk_accepts_zero_fees(risk_path: Path, tmp_path: Path) -> None:
+    assert (
+        load_risk(
+            rewrite(risk_path, tmp_path, fee_per_contract_per_side=0)
+        ).fee_per_contract_per_side
+        == 0
+    )
+
+
+def test_execution_profile_loads(execution_path: Path) -> None:
+    from footprint.core.config import load_execution
+
+    e = load_execution(execution_path)
+    assert e.quotes.max_age_seconds == 5
+    assert (e.contract.max_spread_pct_of_mid, e.contract.min_open_interest) == (Decimal(5), 100)
+    assert (e.entry.step_ticks, e.entry.step_seconds, e.entry.max_steps) == (1, 5, 4)
+    assert e.entry.timeout_seconds == 30
+    assert e.entry.max_over_mid_pct_of_spread == Decimal(25)
+    assert e.stop_order.limit_offset_ticks == 20
+
+
+@pytest.mark.parametrize(
+    ("section", "changes"),
+    [
+        ("quotes", {"max_age_seconds": 0}),
+        ("contract", {"max_spread_pct_of_mid": 100}),
+        ("contract", {"min_open_interest": -1}),
+        ("entry", {"step_ticks": 0}),
+        ("entry", {"max_over_mid_pct_of_spread": 51}),  # past the ask
+        ("entry", {"timeout_seconds": 19}),  # 4 steps x 5 s do not fit
+        ("stop_order", {"limit_offset_ticks": 0}),
+        ("stop_order", {"extra": 1}),
+    ],
+)
+def test_bad_execution_values_are_rejected(
+    execution_path: Path, tmp_path: Path, section: str, changes: dict[str, Any]
+) -> None:
+    from footprint.core.config import load_execution
+
+    data = yaml.safe_load(execution_path.read_text())
+    data[section].update(changes)
+    target = tmp_path / "execution.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError):
+        load_execution(target)

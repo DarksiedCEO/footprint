@@ -5,6 +5,13 @@ overnight_position_cap: 2500
 profit_target: 1000
 stop_min: 750
 stop_max: 1000
+stop_loss: 750            # G2: the hard stop, in option value, triggered on the BID
+trail_keep_pct: 50        # G7: from +profit_target the stop locks, then trails at this
+                          # share of the peak gain (50% of $1,000 = entry + $500)
+max_contracts: 1          # Option A (decided Oct 4). Above 1 is refused: scale-out is
+                          # not built in v1.
+fee_per_contract_per_side: 2.5  # G15. UNVERIFIED estimate of IBKR commission + CME fees
+                                # per NQ option contract per side; replace from IBKR.
 daily_max_stopouts: 2
 daily_max_loss: 2000
 weekly_max_loss: 3500
