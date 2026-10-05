@@ -22,6 +22,14 @@ dev = [
     "ruff>=0.16.10",
     "types-pyyaml>=6.0.12.20260906",
 ]
+# What IBKR's ibapi needs (ibapi itself: scripts/install_ibapi.py, pinned by hash).
+ibkr = [
+    "protobuf==5.29.5",
+    "setuptools>=80",  # builds ibapi (it has only a setup.py) without fetching anything
+]
+
+[tool.uv]
+default-groups = ["dev", "ibkr"]
 
 [tool.ruff]
 line-length = 100
@@ -35,6 +43,10 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "DTZ", "PT"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["ibapi", "ibapi.*"]
+ignore_missing_imports = true  # IBKR ships no type information
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

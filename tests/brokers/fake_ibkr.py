@@ -22,7 +22,9 @@ failures IBKR is known for, each switched on by a test:
   first, the refusal only on release();
 - warn_on_send: every send is first answered with this warning code;
 - inactivate() / reactivate(): IBKR reports an order Inactive, then live again;
-- correct(): IBKR corrects a fill under a new execId suffix.
+- correct(): IBKR corrects a fill under a new execId suffix;
+- status_first: a new order's status (and fill) arrives before its openOrder;
+- mute_listing: a request for the open orders is never answered.
 
 Every modify is echoed by an openOrder with the new prices, as IBKR does. The open
 orders replay lists only open orders, and a status changed while disconnected is
@@ -90,6 +92,8 @@ class FakeIbkr:
     warn_on_send: int | None = None
     inactive: set[int] = field(default_factory=set)  # permIds reported Inactive
     position_requests: int = 0
+    status_first: bool = False  # a new order's status is told before its openOrder
+    mute_listing: bool = False  # a request for the open orders is never answered
     copies: dict[int, _Copy] = field(default_factory=dict)
     held: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
     executions: list[tuple[str, int, int, int, str, str, str, int, Decimal]] = field(
@@ -249,6 +253,8 @@ class FakeIbkr:
         self._report()
 
     def request_open_orders(self) -> None:
+        if self.mute_listing:
+            return
         for copy in self.copies.values():
             status = self.sim.status(copy.sim_id)
             if status.state is OrderState.WORKING:
@@ -297,8 +303,12 @@ class FakeIbkr:
                 request.oca_group,
             )
         )
-        self._open_order(copy, self.sim.status(sim_id))
-        self._report(force=request.ib_id)
+        if self.status_first:
+            self._report(force=request.ib_id)
+            self._open_order(copy, self.sim.status(sim_id))
+        else:
+            self._open_order(copy, self.sim.status(sim_id))
+            self._report(force=request.ib_id)
 
     def _open_order(self, copy: _Copy, status: OrderStatus) -> None:
         r = copy.request

@@ -106,6 +106,13 @@ def _text(raw: Mapping[str, object], key: str, where: str) -> str:
     return value
 
 
+def _boolean(raw: Mapping[str, object], key: str, where: str) -> bool:
+    value = raw[key]
+    if not isinstance(value, bool):
+        raise ConfigError(f"{where}: {key} must be true or false, got {value!r}")
+    return value
+
+
 def _positive_decimal(raw: Mapping[str, object], key: str, where: str) -> Decimal:
     value = raw[key]
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -500,6 +507,10 @@ class ReconcileSettings:
 class IbkrConfig:
     ack_timeout_seconds: int
     positions_disagree_alarm_seconds: int
+    reconnect_seconds: int
+    option_security_type: str
+    require_paper: bool
+    paper_account_prefix: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -594,6 +605,10 @@ def load_execution(path: Path) -> ExecutionProfile:
         positions_disagree_alarm_seconds=_integer(
             ib, "positions_disagree_alarm_seconds", i_where, minimum=1
         ),
+        reconnect_seconds=_integer(ib, "reconnect_seconds", i_where, minimum=1),
+        option_security_type=_text(ib, "option_security_type", i_where),
+        require_paper=_boolean(ib, "require_paper", i_where),
+        paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
     )
     return ExecutionProfile(
         quotes=quotes,

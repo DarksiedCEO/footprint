@@ -136,3 +136,28 @@ def test_a_position_report_a_step_behind_the_close_does_not_halt(
     runner.step(drop + 2 * SEC)
     assert not runner.reconciling  # agreed
     assert not stack.halt.tripped  # entries were never shut off
+
+
+def test_an_entry_whose_fill_is_told_before_its_open_order_is_protected(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    fake, adapter, runner, _ = open_through_ibkr_status_first(stack, bars, tmp_path)
+    assert runner.position is not None  # the fill was seen: a position, not "unfilled"
+    pid = runner.position.position_id
+    assert any(r.order_ref == f"{pid}-stop" for r in fake.sends)  # and it has its stop
+    assert adapter.positions() == {stack.contract: 1}
+
+
+def open_through_ibkr_status_first(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> tuple[FakeIbkr, IbkrBroker, Runner, datetime]:
+    fake, adapter = through_ibkr(stack, [])
+    fake.status_first = True
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    for second in range(1, 12):
+        runner.step(DECISION_TIME + second * SEC)
+    fill = DECISION_TIME + 12 * SEC
+    stack.quote(150, D("151.5"), fill)
+    runner.step(fill)
+    return fake, adapter, runner, fill

@@ -691,3 +691,52 @@ def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: I
     assert ib.adapter.status("p1-stop").state is OrderState.WORKING
     assert any("LIVE again" in a for a in ib.alarms)
     assert ib.resyncs == [1, 1, 1]  # and the runner is sent to reconcile
+
+
+def test_the_open_orders_are_listed_afresh_before_a_broker_wide_cancel(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-exit-1", group="p1"))
+    ib.fake.degraded = True
+    ib.adapter.modify("p1-exit-1", D(199), None)  # a duplicate copy: needs a global cancel
+    ib.fake.connected = False  # (so its events are not told)
+    with_a_stock(ib)  # Andre places a stock order now, from another client: unseen
+    ib.fake.connected = True
+    assert ib.adapter.outside_open_orders == 0  # the adapter does not know of it yet
+    ib.adapter.cancel("p1-exit-1")
+    assert ib.fake.global_cancels == 0
+    assert any("CANCEL BY HAND" in a for a in ib.alarms)
+
+
+def test_a_fill_told_before_its_open_order_is_a_fill(ib: Ib) -> None:
+    ib.fake.status_first = True
+    status = ib.adapter.place(buy(price=152))  # fills at once; status first
+    assert (status.state, status.filled, status.avg_price) == (OrderState.FILLED, 1, D(152))
+
+
+def test_no_broker_wide_cancel_when_the_fresh_listing_does_not_come(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-exit-1", group="p1"))
+    ib.fake.degraded = True
+    ib.adapter.modify("p1-exit-1", D(199), None)  # a duplicate copy: needs a global cancel
+    ib.fake.mute_listing = True
+    ib.adapter.cancel("p1-exit-1")
+    assert ib.fake.global_cancels == 0
+    assert any("could not be listed afresh" in a for a in ib.alarms)
+
+
+def test_another_clients_order_with_our_reference_is_listed_as_foreign(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))
+    ib.adapter.on_open_order(
+        0, 8888, "p1-stop", 501, "NQ", "FOP", "SELL", 1, "LMT", D(300), None, None, "Submitted"
+    )
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    assert len(ib.fake.copies) == 1
+    listed = sorted(o.order_id for o in ib.adapter.open_orders())
+    assert listed == ["ib-8888", "p1-stop"]  # theirs is not a copy of ours
+    assert not any("DUPLICATE" in a for a in ib.alarms)
+
+
+def test_another_clients_reference_never_lends_its_id_to_our_order(ib: Ib) -> None:
+    ib.adapter.on_open_order(
+        0, 8889, "p9-exit-1", 501, "NQ", "FOP", "SELL", 1, "LMT", D(300), None, None, "Submitted"
+    )
+    ib.adapter.place(sell("p9-exit-1", price=300))
+    assert ib.fake.sends[-1].ib_id == 100  # its own id from IBKR, never the other's 0
