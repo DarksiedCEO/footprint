@@ -112,6 +112,7 @@ class RiskDecision:
     session: SessionKind
     blackout: NewsBlackout | None
     latch_kill_switch: bool
+    entry: EntryRequest | None = None  # the sized entry judged; None for a precheck
 
     @property
     def allowed(self) -> bool:
@@ -127,19 +128,21 @@ def drawdown_breached(profile: RiskProfile, state: AccountState) -> bool:
     return state.peak_equity - state.equity >= trigger
 
 
-def evaluate(
+def precheck(
     profile: RiskProfile,
     instrument: InstrumentProfile,
     blackouts: Iterable[NewsBlackout],
     state: AccountState,
-    entry: EntryRequest,
+    ts: datetime,
 ) -> RiskDecision:
-    """Every reason the entry must not proceed; no vetoes means it may.
+    """Every veto that does not depend on a sized entry, at moment `ts`.
 
-    All checks always run, so the decision log shows the complete picture.
+    Run on every decision, so a latched kill switch or a tripped breaker is always
+    on the record even when no setup appears.
     """
-    session = session_at(entry.ts, instrument)
-    blackout = in_news_blackout(entry.ts, blackouts)
+    require_utc(ts, "ts")
+    session = session_at(ts, instrument)
+    blackout = in_news_blackout(ts, blackouts)
     breached = drawdown_breached(profile, state)
 
     vetoes: list[Veto] = []
@@ -158,13 +161,8 @@ def evaluate(
     elif session is SessionKind.PRIME:
         if state.trades_today_prime >= profile.max_trades_prime:
             vetoes.append(Veto.TRADE_CEILING)
-        if entry.cost > profile.position_cap:
-            vetoes.append(Veto.OVER_POSITION_CAP)
-    else:
-        if state.trades_today_overnight >= profile.max_trades_overnight:
-            vetoes.append(Veto.TRADE_CEILING)
-        if entry.cost > profile.overnight_position_cap:
-            vetoes.append(Veto.OVER_POSITION_CAP)
+    elif state.trades_today_overnight >= profile.max_trades_overnight:
+        vetoes.append(Veto.TRADE_CEILING)
     if blackout is not None:
         vetoes.append(Veto.NEWS_BLACKOUT)
     return RiskDecision(
@@ -172,4 +170,30 @@ def evaluate(
         session=session,
         blackout=blackout,
         latch_kill_switch=breached and not state.kill_switch_latched,
+    )
+
+
+def evaluate(
+    profile: RiskProfile,
+    instrument: InstrumentProfile,
+    blackouts: Iterable[NewsBlackout],
+    state: AccountState,
+    entry: EntryRequest,
+) -> RiskDecision:
+    """Every reason the entry must not proceed; no vetoes means it may.
+
+    All checks always run, so the decision log shows the complete picture.
+    """
+    base = precheck(profile, instrument, blackouts, state, entry.ts)
+    vetoes = list(base.vetoes)
+    if base.session is SessionKind.PRIME and entry.cost > profile.position_cap:
+        vetoes.append(Veto.OVER_POSITION_CAP)
+    if base.session is SessionKind.OVERNIGHT and entry.cost > profile.overnight_position_cap:
+        vetoes.append(Veto.OVER_POSITION_CAP)
+    return RiskDecision(
+        vetoes=tuple(vetoes),
+        session=base.session,
+        blackout=base.blackout,
+        latch_kill_switch=base.latch_kill_switch,
+        entry=entry,
     )

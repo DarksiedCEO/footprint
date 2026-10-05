@@ -581,3 +581,38 @@ def test_a_bucket_straddling_the_daily_halt_counts_only_open_minutes(
         [*session_data(MON, TUE), bar(pt(MON, 14, 0), 1004, 1005, 1003, 1004)], key=lambda b: b.ts
     )
     assert isinstance(grant.snapshot(bars, pt(TUE, 6, 33)), LevelsSnapshot)
+
+
+def test_an_extreme_bar_keeps_nia_tripped_for_the_recent_window(nia: ZeroDayAgent) -> None:
+    bars = calm_sessions()
+    today = last_day(bars)
+    spiked = replace_bar(bars, pt(today, 6, 45), volume=1500)
+    assert nia.check(spiked, pt(today, 6, 50)).tripped  # 5 closed bars include 06:45
+    assert not nia.check(spiked, pt(today, 6, 51)).tripped  # 06:46-06:50 only
+
+
+def test_the_spike_candidate_bar_has_its_own_limit(nia: ZeroDayAgent) -> None:
+    bars = calm_sessions()
+    today = last_day(bars)
+
+    def spike(jump_to: float) -> list[Bar]:
+        """06:49 jumps from 19999 to `jump_to`; 06:50 follows through by 2 points."""
+        out = replace_bar(
+            bars, pt(today, 6, 49), open_=19999, high=jump_to + 1, low=19998, close=jump_to
+        )
+        return replace_bar(
+            out,
+            pt(today, 6, 50),
+            open_=jump_to,
+            high=jump_to + 3,
+            low=jump_to - 1,
+            close=jump_to + 2,
+        )
+
+    # A 12-point spike candle (6x the typical 2-point move) is allowed: limit 8x.
+    assert not nia.check(spike(20011), pt(today, 6, 51)).tripped
+    # A 20-point spike candle (10x) is too much even for a spike.
+    assert nia.check(spike(20019), pt(today, 6, 51)).tripped
+    # The same 12-point jump on the LAST bar is judged at the normal 4x.
+    last = replace_bar(bars, pt(today, 6, 50), open_=20011, high=20013, low=20009, close=20011)
+    assert nia.check(last, pt(today, 6, 51)).tripped

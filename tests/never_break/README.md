@@ -19,7 +19,7 @@ Each rule gets its test in the PR that builds the component that owns it.
 | NB-11 | Kill switch on drawdown, latched until Andre clears it | risk | **tested** |
 | NB-12 | Limit orders only on options | execution (Diego) | pending component |
 | NB-13 | Trade-count ceilings (v1: 0 overnight) | risk | **tested** |
-| NB-14 | No countertrend entries | console (Desmond) | pending component |
-| NB-15 | VWAP side rule | console / levels (Grant) | pending component |
+| NB-14 | No countertrend entries | console (Desmond) | **tested** (tests/decision: console gate + end-to-end downtrend scenario) |
+| NB-15 | VWAP side rule | console / levels (Grant) | **tested** (tests/decision: long at/below and short above VWAP blocked) |
 | NB-16 | Flatten on unclear recovery | trade mgmt (Malik) | pending component |
 | NB-17 | Position cost within the cap | risk + sizing (Ezra) | **tested** (gate veto + Ezra sizes at the worst allowed price) |
