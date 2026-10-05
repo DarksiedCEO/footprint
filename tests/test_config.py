@@ -242,3 +242,40 @@ def test_prime_session_crossing_midnight_is_rejected(instrument_path: Path, tmp_
     target.write_text(yaml.safe_dump(data))
     with pytest.raises(ConfigError, match="cross midnight"):
         load_instrument(target)
+
+
+def test_strategy_profile_loads(strategy_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    s = load_strategy(strategy_path)
+    assert (s.trend.timeframe_minutes, s.trend.ema_fast, s.trend.ema_slow) == (15, 9, 21)
+    assert s.trend.swing_strength == 2
+    assert (s.volume.timeframe_minutes, s.volume.lookback_sessions) == (1, 20)
+    assert s.volume.spike_multiple == Decimal("3")
+    assert s.range.adr_days == 10
+    assert (s.range.quiet_below_pct, s.range.extended_above_pct) == (Decimal(70), Decimal(100))
+
+
+@pytest.mark.parametrize(
+    ("section", "changes"),
+    [
+        ("trend", {"ema_fast": 21}),
+        ("trend", {"ema_slow": 0}),
+        ("trend", {"extra": 1}),
+        ("volume", {"spike_multiple": 1}),
+        ("volume", {"lookback_sessions": 0}),
+        ("range", {"quiet_below_pct": 100}),
+        ("range", {"adr_days": True}),
+    ],
+)
+def test_bad_strategy_values_are_rejected(
+    strategy_path: Path, tmp_path: Path, section: str, changes: dict[str, Any]
+) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    data[section].update(changes)
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError):
+        load_strategy(target)
