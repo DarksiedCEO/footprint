@@ -18,7 +18,7 @@ from footprint.execution.executor.diego import (
 )
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger, StateStore
-from footprint.execution.management.malik import ExitReason
+from footprint.execution.management.malik import Alarm, ExitReason
 from footprint.execution.orders import (
     Order,
     OrderState,
@@ -961,3 +961,35 @@ def test_a_broker_error_while_working_the_exit_halts_and_retries(
     stack.quote(160, 161, later + SEC)  # the bid comes back: the resting exit fills
     closed = stack.manager.manage(position, (), later + SEC)
     assert closed is not None
+
+
+def test_a_stale_or_future_book_quote_with_the_decided_prices_is_refused(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-1 H4, both halves: equal prices are not enough, the quote must be fresh."""
+    decided = stack.approved.plan.choice.quote
+    old = Quote(decided.contract_id, decided.bid, decided.ask, SEND - 10 * SEC)
+    monkeypatch.setattr(stack.book, "latest", lambda contract_id: old)
+    with pytest.raises(EntryRefused, match="no fresh quote"):
+        stack.executor.submit(stack.approved, (), SEND)
+
+
+def test_a_book_quote_from_the_future_is_refused(stack: Stack) -> None:
+    decided = stack.approved.plan.choice.quote
+    stack.book.publish(Quote(decided.contract_id, decided.bid, decided.ask, SEND + 10 * SEC))
+    with pytest.raises(EntryRefused, match="no fresh quote"):
+        stack.executor.submit(stack.approved, (), SEND)
+
+
+def test_a_manager_with_a_broken_alarm_sink_still_flattens(stack: Stack) -> None:
+    """Round-1 defence in depth: Manager._alarm never throws on its own."""
+    filled_position(stack)
+
+    def broken(alarm: Alarm) -> None:
+        raise ConnectionError("pager down")
+
+    stack.manager.route_alarms(broken)
+    t = FILLED_AT + 60 * SEC
+    stack.quote(160, 161, t)
+    assert not stack.reconcile(None, stack.quote(160, 161, t), t)  # must not raise
+    assert stack.broker.positions() == {}

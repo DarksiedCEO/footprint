@@ -69,6 +69,7 @@ class ExitReason(Enum):
     KILL_SWITCH = "KILL_SWITCH"
     UNPROTECTED = "UNPROTECTED"
     RECONCILE = "RECONCILE"
+    FAILSAFE = "FAILSAFE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +157,18 @@ class Manager:
         self._stops.on_tick(pid, tick, now)
         self._sync_stop(position, now)
         return None
+
+    def flatten(self, position: Position, now: datetime) -> Closed | None:
+        """Get out using the broker and the quote book alone: no stop keeper, no ledger
+        read, no news calendar. The runner calls this when normal management keeps
+        failing. Call again each step until it returns the close."""
+        require_utc(now, "now")
+        if position.position_id in self._closed:
+            raise RuntimeError(f"position {position.position_id!r} is already closed")
+        quote = self._book.latest_or_empty(position.contract_id)
+        if position.exit_order_id is not None:
+            return self._work_exit(position, quote, now)
+        return self._start_exit(position, quote, now, ExitReason.FAILSAFE)
 
     def _sync_stop(self, position: Position, now: datetime) -> None:
         """Make the broker's resting stop match Booker's, retrying every call until it
@@ -264,7 +277,12 @@ class Manager:
             self._stand_down(now, f"{pid}: broker error while exiting")
             return None
         self._exit_reason[pid] = reason
-        if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
+        if reason in (
+            ExitReason.GAP,
+            ExitReason.UNPROTECTED,
+            ExitReason.KILL_SWITCH,
+            ExitReason.FAILSAFE,
+        ):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
         return self._place_exit(position, quote, now, reason)
 
@@ -408,7 +426,12 @@ class Manager:
         than run without its stop and trail.
         """
         expected = {position.contract_id: position.contracts} if position else {}
-        expected_orders = {position.stop_order_id} if position and position.stop_order_id else set()
+        # A working exit (with its stop already cancelled) is a known state, not a doubt.
+        expected_orders = (
+            {o for o in (position.stop_order_id, position.exit_order_id) if o is not None}
+            if position
+            else set()
+        )
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
         actual = self._broker.positions()

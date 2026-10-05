@@ -11,7 +11,7 @@ from footprint.core.models import Bar
 from footprint.core.options import OptionChain
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.management.malik import Alarm, ExitReason
-from footprint.execution.orders import Order, OrderStatus
+from footprint.execution.orders import Order, OrderState, OrderStatus, OrderType, SimulatedBroker
 from footprint.execution.runner import Runner
 from tests.decision.scenario import DECISION_TIME, chain_for
 from tests.execution.conftest import Stack
@@ -44,6 +44,7 @@ def runner_for(
         on_alarm=alarms.append,
         started=DECISION_TIME - SEC,
         book=stack.book,
+        settings=stack.profiles.execution.runner,
     )
     if cleared:
         runner.clear_to_trade("Andre")
@@ -199,7 +200,7 @@ def test_a_broken_alarm_channel_never_stops_the_start_up_flatten(
     assert stack.broker.positions() == {}  # flattened anyway
     assert stack.broker.open_orders() == []
     failed = len(calls)
-    assert failed >= 1
+    assert failed == 1  # one try while the line is down, however many alarms
     down = False
     runner.step(t + SEC)  # the channel is back: what failed is delivered
     first_failed = calls[0]
@@ -308,3 +309,233 @@ def test_a_quiet_feed_never_fills_a_stepped_entry_on_an_old_quote(
     runner.step(DECISION_TIME + 11 * SEC)  # steps to 151.5, above that old ask
     assert runner.position is None
     assert stack.broker.positions() == {}
+
+
+# --- review round 3 ---------------------------------------------------------------------
+
+
+def open_trade(stack: Stack, runner: Runner) -> datetime:
+    """Run the runner into a protected position (filled at 151.5); returns the fill time."""
+    runner.step(DECISION_TIME)
+    for second in range(1, 12):
+        runner.step(DECISION_TIME + second * SEC)
+    fill = DECISION_TIME + 12 * SEC
+    stack.quote(150, D("151.5"), fill)
+    runner.step(fill)
+    assert runner.position is not None
+    return fill
+
+
+def test_a_broken_news_calendar_flattens_and_blocks_entries(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """R3-1: an unreadable calendar is a blackout in force, not a crash loop."""
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+
+    def broken(now: datetime) -> tuple[()]:
+        raise ConnectionError("calendar down")
+
+    runner._blackouts = broken
+    t = fill + SEC
+    stack.quote(150, 152, t)
+    runner.step(t)
+    assert runner.position is None
+    assert [c.reason for c in runner.closed] == [ExitReason.NEWS]
+    assert stack.broker.positions() == {}
+    assert not stack.halt.tripped  # handled, not a step failure
+    runner.step(t + SEC)
+    assert sum("calendar unreadable" in a.message for a in alarms) == 1
+
+
+def test_a_position_that_cannot_be_managed_is_flattened_by_the_failsafe(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-1: management keeps crashing, reconcile keeps agreeing; the failsafe still
+    gets the position out through the broker alone."""
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+
+    def broken(*args: object) -> None:
+        raise OSError("stop keeper broken")
+
+    monkeypatch.setattr(stack.stops, "check", broken)
+    limit = stack.profiles.execution.runner.max_unmanaged_seconds
+    t = fill
+    while (t - fill).total_seconds() <= limit:
+        t += SEC
+        stack.quote(150, 152, t)
+        runner.step(t)
+        assert runner.position is not None  # not before the limit
+    t += SEC
+    stack.quote(150, 152, t)
+    runner.step(t)  # the failsafe exit sells at the bid
+    assert runner.position is None
+    assert stack.broker.positions() == {}
+    assert runner.closed[-1].reason is ExitReason.FAILSAFE
+    assert stack.ledger.open_position_id is None
+    assert sum("unmanaged since" in a.message for a in alarms) == 1
+
+
+def test_the_failsafe_never_runs_while_reconciling(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    calls: list[object] = []
+    monkeypatch.setattr(stack.manager, "flatten", lambda *a: calls.append(a))
+    runner._managed_at = fill - timedelta(hours=1)
+    runner.doubt()
+    runner._failsafe(fill + SEC)
+    assert calls == []
+
+
+def test_a_retry_storm_is_impossible_while_the_pager_is_down(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-2: one pager try per step, after the safety work; no duplicate queue."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    tries: list[str] = []
+
+    def pager(alarm: Alarm) -> None:
+        tries.append(alarm.message)
+        raise ConnectionError("pager down")
+
+    def broken(now: datetime) -> list[Bar]:
+        raise OSError("bars feed down")
+
+    runner._on_alarm = pager
+    runner._bars = broken
+    for second in range(1, 61):
+        before = len(tries)
+        runner.step(DECISION_TIME + second * SEC)
+        assert len(tries) - before <= 1
+    assert len(runner._undelivered) <= 3
+    messages = [a.message for a in runner._undelivered]
+    assert len(messages) == len(set(messages))
+
+
+def test_a_changing_exception_text_never_grows_the_halt_reasons(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    n = {"i": 0}
+
+    def broken(now: datetime) -> list[Bar]:
+        n["i"] += 1
+        raise OSError(f"bars feed down at attempt {n['i']}")
+
+    runner._bars = broken
+    for second in range(1, 11):
+        runner.step(DECISION_TIME + second * SEC)
+    assert stack.halt.reasons == ("step failed: OSError",)
+    assert sum("step failed" in a.message and "HALT" not in a.message for a in alarms) == 1
+
+
+def test_a_close_found_by_reconcile_is_journaled(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Round-1 M3, now guarded: a trade reconcile books still reaches the journal."""
+    runner, journal, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    runner.doubt()
+    drop = fill + SEC
+    stack.quote(114, 116, drop)  # the resting stop fills while the runner is in doubt
+    runner.step(drop)
+    assert runner.position is None
+    assert [c.reason for c in runner.closed] == [ExitReason.RECONCILE]
+    (trade,) = journal.trades()
+    assert D(trade["net_pnl"]) == (D(114) - D("151.5")) * 20 - 5  # the real fill
+
+
+def test_an_immediate_unprotected_fill_is_flattened_on_the_same_step(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Round-1 M1, now guarded: filled at once, stop refused, out in the same step."""
+
+    class FillsAtOnceRefusesStops(SimulatedBroker):
+        def place(self, order: Order) -> OrderStatus:
+            if order.order_type is OrderType.STOP_LIMIT:
+                return OrderStatus(order, OrderState.REJECTED, 0, None)
+            status = super().place(order)
+            if order.order_id.endswith("-entry"):
+                self._positions[order.contract_id] = order.quantity
+                status = OrderStatus(order, OrderState.FILLED, order.quantity, order.limit_price)
+                self._orders[order.order_id] = status
+            return status
+
+    broker = FillsAtOnceRefusesStops(stack.book, stack.profiles.execution.quotes.max_age_seconds)
+    stack.executor._broker = broker
+    stack.manager._broker = broker
+    stack.broker = broker
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    runner.step(DECISION_TIME + SEC)
+    assert broker.positions() == {}
+    assert runner.position is None
+    assert [c.reason for c in runner.closed] == [ExitReason.UNPROTECTED]
+    assert any("filled without a resting stop" in a.message for a in alarms)
+
+
+def test_reconcile_accepts_a_working_exit(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A position mid-exit (stop cancelled, exit working) is a known state."""
+    from tests.execution.test_execution import exit_rests_on_arrival
+
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    position = runner.position
+    assert position is not None
+    exit_rests_on_arrival(stack, monkeypatch)
+    t = fill + SEC
+    stack.quote(150, 152, t)
+    assert stack.manager.flatten(position, t) is None  # the exit rests
+    assert position.exit_order_id is not None
+    assert position.stop_order_id is None
+    assert stack.manager.reconcile(position, t + SEC)
+    assert not any("reconcile mismatch" in a.message for a in alarms)
+
+
+def test_a_repeating_alarm_is_queued_once_while_the_pager_is_down(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+
+    def pager(alarm: Alarm) -> None:
+        raise ConnectionError("pager down")
+
+    runner._on_alarm = pager
+    for second in range(10, 20):  # no quotes: "no fresh quote" every step
+        runner.step(fill + second * SEC)
+    messages = [a.message for a in runner._undelivered]
+    assert any("no fresh quote" in m for m in messages)
+    assert len(messages) == len(set(messages))
+
+
+def test_a_failsafe_that_cannot_get_out_alarms_once_and_keeps_trying(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    tries = {"n": 0}
+
+    def blind(order_id: str) -> OrderStatus:
+        tries["n"] += 1
+        raise ConnectionError("broker unreachable")
+
+    monkeypatch.setattr(stack.broker, "status", blind)
+    monkeypatch.setattr(stack.broker, "cancel", blind)
+    limit = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, limit + 10):
+        runner.step(fill + second * SEC)
+    before = tries["n"]
+    for second in range(limit + 10, limit + 20):
+        runner.step(fill + second * SEC)
+    assert runner.position is not None  # cannot get out while the broker is blind ...
+    assert sum("unmanaged since" in a.message for a in alarms) == 1  # ... said once
+    assert stack.halt.tripped
+    assert tries["n"] > before  # ... and it never stops trying

@@ -12,6 +12,15 @@ live, or on a simulated clock in a backtest); the runner then, in order:
    decision says so, and submits an approved entry.
 Every alarm and halt is passed to `on_alarm`, which must reach Andre.
 
+Failing safe:
+- a news calendar that cannot be read is treated as a blackout in force now: the
+  position is flattened and no entry is approved until it reads again;
+- an open position that has not been managed for `max_unmanaged_seconds` (inputs
+  keep failing, steps keep crashing) is flattened through the broker and the quote
+  book alone (`Manager.flatten`), on every step until it is closed;
+- while the alarm line is down, at most one delivery is tried per step, after the
+  step's safety work; undelivered alarms wait in a queue without duplicates.
+
 Every start is treated as a restart: a new Runner starts in reconcile with no
 position (`reconcile(None)`), so anything the broker still holds is flattened, and
 it sends no entry until Andre clears it to trade by name (`clear_to_trade`). This
@@ -26,6 +35,7 @@ import logging
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta
 
+from footprint.core.config import RunnerSettings
 from footprint.core.models import Bar, require_utc
 from footprint.core.options import OptionChain
 from footprint.decision.pipeline import Decision, Pipeline
@@ -63,6 +73,7 @@ class Runner:
         on_alarm: Callable[[Alarm], None],
         started: datetime,
         book: QuoteBook,
+        settings: RunnerSettings,
     ) -> None:
         """Start (or restart) the system. It starts reconciling and sends no entry
         until Andre clears it to trade by name (`clear_to_trade`).
@@ -82,6 +93,12 @@ class Runner:
         self._book = book
         self._cleared_by: str | None = None
         self._undelivered: list[Alarm] = []
+        self._channel_down = False
+        self._tried_channel = False
+        self._failure_kinds: set[str] = set()
+        self._max_unmanaged = timedelta(seconds=settings.max_unmanaged_seconds)
+        self._managed_at: datetime | None = None
+        self._failsafe_alarmed = False
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -120,21 +137,28 @@ class Runner:
         """
         require_utc(now, "now")
         self._now = now
-        self._retry_alarms()
+        self._tried_channel = False
         try:
             self._book.mark_time(now)
             self._step(now)
             self._watch_latch(now)
         except Exception as exc:
-            self._halt.trip(f"step failed: {exc!r}")  # safety first, then the alarm
+            kind = type(exc).__name__
+            self._halt.trip(f"step failed: {kind}")  # safety first, then the alarm
             self.doubt()
-            self._alarm(now, f"step failed: {exc!r}; halting and reconciling")
+            if kind not in self._failure_kinds:  # once per kind: the halt already holds
+                self._failure_kinds.add(kind)
+                self._alarm(now, f"step failed: {exc!r}; halting and reconciling")
+            else:
+                log.exception("step failed again")
+        self._failsafe(now)
+        self._retry_alarms()
 
     def _step(self, now: datetime) -> None:
         if self._reconciling:
             self._reconcile(now)
             return
-        blackouts = tuple(self._blackouts(now))
+        blackouts = self._safe_blackouts(now)
 
         if self._ticket is not None:
             ticket = self._executor.on_time(self._ticket, now)
@@ -143,9 +167,7 @@ class Runner:
                 self._entry_done(ticket, now)
 
         if self._position is not None:
-            closed = self._manager.manage(self._position, blackouts, now)
-            if closed is not None:
-                self._trade_done(self._position, closed, now)
+            self._manage(now, blackouts)
             return
 
         if self._ticket is None:
@@ -164,11 +186,13 @@ class Runner:
         if agreed:
             self._reconciling = False
         elif self._position is not None and self._ledger.open_position_id is None:
-            self._position = None
+            self._position, self._managed_at = None, None
 
     def _entry_done(self, ticket: EntryTicket, now: datetime) -> None:
         """The one path for every finished entry, however it finished."""
         self._position = ticket.position
+        if self._position is not None:
+            self._managed_at = now  # the unmanaged clock starts at the fill
         if ticket.outcome is EntryOutcome.UNPROTECTED:
             self._alarm(now, f"{ticket.position_id}: filled without a resting stop")
         if self._position is None:
@@ -177,7 +201,8 @@ class Runner:
     def _trade_done(self, position: Position, closed: Closed, now: datetime) -> None:
         self.closed.append(closed)
         birth = self._birth
-        self._position, self._birth = None, None
+        self._position, self._birth, self._managed_at = None, None, None
+        self._failsafe_alarmed = False
         if birth is not None:
             try:
                 self._journal.record_trade(position, closed, birth)
@@ -218,9 +243,49 @@ class Runner:
         else:
             self._entry_done(ticket, now)
             if self._position is not None:
-                closed = self._manager.manage(self._position, blackouts, now)
-                if closed is not None:
-                    self._trade_done(self._position, closed, now)
+                self._manage(now, blackouts)
+
+    def _manage(self, now: datetime, blackouts: tuple[NewsBlackout, ...]) -> None:
+        assert self._position is not None
+        closed = self._manager.manage(self._position, blackouts, now)
+        self._managed_at = now
+        if closed is not None:
+            self._trade_done(self._position, closed, now)
+
+    def _safe_blackouts(self, now: datetime) -> tuple[NewsBlackout, ...]:
+        """A calendar that cannot be read is a blackout in force now (fail safe)."""
+        try:
+            return tuple(self._blackouts(now))
+        except Exception as exc:
+            if "calendar" not in self._failure_kinds:
+                self._failure_kinds.add("calendar")
+                self._alarm(now, f"news calendar unreadable: {exc!r}; treating as a blackout")
+            return (NewsBlackout("news calendar unreadable", now, now),)
+
+    def _failsafe(self, now: datetime) -> None:
+        """Flatten a position that normal management has not reached for too long.
+        Skipped while reconciling: reconcile flattens on its own when it disagrees, and
+        two sellers could sell the contract twice."""
+        if self._position is None or self._managed_at is None or self._reconciling:
+            return
+        if now - self._managed_at <= self._max_unmanaged:
+            return
+        position = self._position
+        if not self._failsafe_alarmed:
+            self._failsafe_alarmed = True
+            self._alarm(
+                now,
+                f"{position.position_id}: unmanaged since {self._managed_at}; "
+                "flattening through the broker",
+            )
+        try:
+            closed = self._manager.flatten(position, now)
+            if closed is not None:
+                self._trade_done(position, closed, now)
+        except Exception as exc:
+            self._halt.trip(f"failsafe flatten failed: {type(exc).__name__}")
+            self.doubt()
+            log.exception("failsafe flatten failed")
 
     def _watch_latch(self, now: datetime) -> None:
         latched = self._ledger.account(now).kill_switch_latched
@@ -229,18 +294,38 @@ class Runner:
         self._latched = latched
 
     def _deliver(self, alarm: Alarm) -> None:
-        """Never raises: an undeliverable alarm is kept and retried every step."""
+        """Never raises. While the line is down, alarms are queued without being tried."""
         log.critical(alarm.message)
+        if self._channel_down:
+            self._queue(alarm)
+            return
+        if not self._send(alarm):
+            self._queue(alarm)
+
+    def _send(self, alarm: Alarm) -> bool:
+        self._tried_channel = True
         try:
             self._on_alarm(alarm)
         except Exception:
             log.exception("alarm channel failed; will retry")
+            self._channel_down = True
+            return False
+        self._channel_down = False
+        return True
+
+    def _queue(self, alarm: Alarm) -> None:
+        if all(queued.message != alarm.message for queued in self._undelivered):
             self._undelivered.append(alarm)
 
     def _retry_alarms(self) -> None:
-        pending, self._undelivered = self._undelivered, []
-        for alarm in pending:
-            self._deliver(alarm)
+        """After the step's safety work: one try if the line is down and nothing was
+        tried this step; once it answers, send everything that waited, in order."""
+        if not self._undelivered or (self._channel_down and self._tried_channel):
+            return
+        while self._undelivered:
+            if not self._send(self._undelivered[0]):
+                return  # still down: it stays first in line
+            self._undelivered.pop(0)
 
     def _alarm(self, now: datetime, message: str) -> None:
         self._deliver(Alarm(now, message))

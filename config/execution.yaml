@@ -22,3 +22,7 @@ news:
   time_stop_min_gain: 250     #   this many minutes is closed
   window_minutes: 13          # spec: the news entry window runs this long after the
                               #   blackout ends (5:32 to 5:45 PT for an 8:30 ET print)
+runner:
+  max_unmanaged_seconds: 30   # DEFAULT: an open position that has not been managed for
+                              #   this long (inputs failing, step crashing) is flattened
+                              #   through the broker alone
