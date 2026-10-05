@@ -13,3 +13,26 @@ range:
   adr_days: 10
   quiet_below_pct: 70
   extended_above_pct: 100
+  chase_zone_pct: 10         # entering in this outer % of today's range, in the trade's
+                             # direction, on a day already past quiet_below_pct, scores -1
+data:
+  max_bar_age_seconds: 120   # DEFAULT: newest completed 1-min bar older than this = feed stale
+  min_session_coverage_pct: 90  # DEFAULT: a session with fewer minutes than this is unusable
+  max_gap_minutes: 5         # DEFAULT: a longer run of missing minutes inside a session,
+                             # or at its open/close, makes the session unusable
+levels:
+  # Round numbers are reported but are NOT walls (deviation, Andre to decide): while N is
+  # larger than the instrument's round-number spacing, the next round number is always
+  # inside the target and every trade would be vetoed.
+  # N = points of underlying move needed for the profit target (see options.assumed_delta).
+  room_multiple: 1.5         # nearest opposing level >= this many N away: full support
+  wall_multiple: 1           # nearest opposing level closer than this many N: veto
+  swing_lookback_bars: 96    # DEFAULT: trend-timeframe bars searched for swing levels
+options:
+  assumed_delta: 0.45        # G4: fixed, pessimistic delta until a greeks agent exists
+zeroday:
+  lookback_sessions: 20      # G9: "typical" = average of the same metric on these sessions
+  trip_multiple: 4           # G9: range, volatility and price-jump tripwires
+  volume_trip_multiple: 10   # DEVIATION from G9 (4x): a 4x volume bar is a normal momentum
+                             # trigger, so 4x here would veto the strategy's own entries.
+                             # Andre to confirm.
