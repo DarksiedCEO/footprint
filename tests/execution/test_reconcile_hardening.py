@@ -26,6 +26,14 @@ D = Decimal
 SEC = timedelta(seconds=1)
 
 
+def working_sells(stack: Stack) -> int:
+    return sum(
+        st.order.quantity - st.filled
+        for st in stack.broker._orders.values()
+        if st.state is OrderState.WORKING and st.order.side is Side.SELL
+    )
+
+
 def settle(stack: Stack) -> timedelta:
     return timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
 
@@ -372,9 +380,7 @@ class LaggyBroker(SimulatedBroker):
 
 
 def use(stack: Stack, broker: SimulatedBroker) -> None:
-    stack.executor._broker = broker
-    stack.manager._broker = broker
-    stack.broker = broker
+    stack.use_broker(broker)
 
 
 def test_r9_1_a_late_listed_flatten_never_gets_a_second_seller(stack: Stack) -> None:
@@ -423,8 +429,7 @@ def test_r9_1_an_own_order_the_broker_cannot_report_yet_still_covers(
     for k in range(10):
         stack.book.mark_time(t + k * SEC)
         stack.manager.reconcile(None, t + k * SEC)
-    placed = [line for line in stack.broker.log if line.startswith("placed reconcile-")]
-    assert len(placed) == 1  # one flatten, then waiting on it
+        assert working_sells(stack) <= 1  # never two sellers at once
 
 
 def test_r9_2_a_flickering_report_escalates_and_is_never_acted_on(stack: Stack) -> None:
@@ -458,7 +463,7 @@ def test_finished_flatten_orders_stop_being_followed(stack: Stack) -> None:
         stack.quote(160, 161, t + k * SEC)
         stack.manager.reconcile(None, t + k * SEC)  # the flatten fills at 160
     assert stack.broker.positions() == {}
-    assert stack.manager._reconcile_sent == {}  # nothing finished is chased forever
+    assert stack.manager._broker.unfinished == {}  # nothing finished is chased forever
 
 
 def test_holdings_that_will_not_settle_after_the_cancels_escalate(stack: Stack) -> None:
@@ -565,3 +570,116 @@ def test_with_no_settle_wait_a_slow_cancel_is_still_not_repriced(
         stack.manager.reconcile(None, t + k * SEC)
     assert reconcile_orders(stack)
     assert modifies == []
+
+
+# --- review R10-1: a lost exit answer on the management path -----------------------------
+
+
+@pytest.mark.parametrize("resend_answers", [True, False])
+def test_r10_1_a_lost_exit_answer_never_gets_a_second_exit(
+    stack: Stack,
+    bars: list[Bar],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resend_answers: bool,
+) -> None:
+    """The exit reaches the broker but its answer is lost, and the broker lists new
+    orders late. Whether the resend under the same id answers (it proves the exit
+    arrived) or not (its fate stays unknown), no second exit is ever working, and the
+    account is never short."""
+    broker = LaggyBroker(
+        stack.book, stack.profiles.execution.quotes.max_age_seconds, list_lag_reads=3
+    )
+    stack.use_broker(broker)
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    real_place = SimulatedBroker.place
+    exit_sends = {"n": 0}
+
+    def lost_exit(order: Order) -> OrderStatus:
+        if "-exit-" in order.order_id:
+            exit_sends["n"] += 1
+            if exit_sends["n"] == 1:
+                real_place(broker, order)  # reaches the broker; the answer is lost
+                raise TimeoutError("no acknowledgement")
+            if not resend_answers:
+                raise TimeoutError("no acknowledgement")
+        return real_place(broker, order)
+
+    monkeypatch.setattr(broker, "place", lost_exit)
+    stack.ledger.latch_kill_switch("test")  # management starts a kill-switch exit
+    for second in range(1, 15):
+        t = fill + second * SEC
+        stack.book.mark_time(t)  # the feed is quiet: exits rest
+        runner.step(t)
+        assert working_sells(stack) <= 1
+    exits = [s for s in broker._orders.values() if "-exit-" in s.order.order_id]
+    assert len(exits) <= 1
+    stack.quote(150, 152, fill + 16 * SEC)  # a live bid: whatever rests can fill
+    assert all(qty >= 0 for qty in broker.truth().values())
+
+
+def test_a_report_that_settles_late_is_not_called_unsettled_afterwards(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The settle clock runs over one unbroken unsettled stretch: a disagreement that
+    flickered for a while, then settled, does not count against the next wait (here,
+    a cancel that confirms one round late once reconcile starts acting)."""
+    broker = LaggyBroker(stack.book, stack.profiles.execution.quotes.max_age_seconds)
+    stack.use_broker(broker)
+    filled_position(stack)
+    real_cancel = broker.cancel
+    late = {"once": True}
+
+    def late_once(order_id: str) -> OrderStatus:
+        if late["once"]:
+            late["once"] = False
+            return broker.status(order_id)
+        return real_cancel(order_id)
+
+    monkeypatch.setattr(broker, "cancel", late_once)
+    limit = stack.profiles.execution.reconcile.max_settle_seconds
+    t = FILLED_AT + 60 * SEC
+    broker.flicker = True
+    k = 0
+    while k < limit - 2:  # flickers for most of the limit, never all of it
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+        k += 1
+    broker.flicker = False
+    for _ in range(10):  # settles; reconcile acts and flattens
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+        k += 1
+    assert not any("NOT SETTLING" in a.message for a in stack.alarms)
+    assert broker.truth() == {}
+
+
+def test_a_long_normal_reconcile_is_not_called_unsettled(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconcile walks a dead feed for longer than the limit, settled every round;
+    then one cancel confirms late. That short wait is not 'not settling'."""
+    filled_position(stack)
+    limit = stack.profiles.execution.reconcile.max_settle_seconds
+    t = FILLED_AT + 60 * SEC
+    k = 0
+    for _ in range(limit + 5):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+        k += 1
+    real_cancel = stack.broker.cancel
+    late = {"once": True}
+
+    def late_once(order_id: str) -> OrderStatus:
+        if late["once"]:
+            late["once"] = False
+            return stack.broker.status(order_id)
+        return real_cancel(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", late_once)
+    for _ in range(6):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+        k += 1
+    assert not any("NOT SETTLING" in a.message for a in stack.alarms)

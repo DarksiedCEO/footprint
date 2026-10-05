@@ -33,7 +33,7 @@ from footprint.decision.stop import StopKeeper
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
-from footprint.execution.orders import Order, OrderBroker, OrderState, OrderType, Side
+from footprint.execution.orders import Order, OrderState, OrderType, Side, TrackedBroker
 
 log = logging.getLogger("footprint.execution")
 
@@ -79,7 +79,7 @@ class Executor:
         self,
         profiles: Profiles,
         pipeline: Pipeline,
-        broker: OrderBroker,
+        broker: TrackedBroker,
         stops: StopKeeper,
         ledger: Ledger,
         halt: Halt,

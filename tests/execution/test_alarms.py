@@ -324,3 +324,21 @@ def test_a_second_outage_hands_its_backlog_over_again() -> None:
     assert eventually(lambda: "alarm 1" in backup and "alarm 2" in backup)  # second outage
     line.close(WAIT)
     assert fallback.close(WAIT)
+
+
+def test_a_slow_but_working_pager_hands_the_backlog_over_at_most_once() -> None:
+    backup: list[str] = []
+    heard: list[str] = []
+
+    def slow(a: Alarm) -> None:
+        time.sleep(0.08)  # each delivery takes longer than retry: "unhealthy" while busy
+        heard.append(a.message)
+
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=20)
+    line = AlarmLine(slow, retry=timedelta(milliseconds=30), max_pending=20, fallback=fallback)
+    for n in range(5):
+        line.submit(alarm(n))
+    assert eventually(lambda: len(heard) == 5)
+    assert len(backup) == len(set(backup))  # never the same alarm handed over twice
+    assert line.close(WAIT)
+    assert fallback.close(WAIT)

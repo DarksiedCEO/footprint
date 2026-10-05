@@ -16,7 +16,7 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger, StateStore
 from footprint.execution.management.malik import Alarm, Closed, Manager
 from footprint.execution.market import QuoteBook
-from footprint.execution.orders import Quote, SimulatedBroker
+from footprint.execution.orders import Quote, SimulatedBroker, TrackedBroker
 from tests.conftest import REPO_ROOT
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
@@ -67,6 +67,14 @@ class Stack:
         """Manage on the book's latest quote (the one `stack.quote` just published)."""
         return self.manager.manage(position, blackouts, now)
 
+    def use_broker(self, broker: SimulatedBroker) -> TrackedBroker:
+        """Swap in another simulator (wrapped in the order record) everywhere."""
+        tracked = TrackedBroker(broker)
+        self.executor._broker = tracked
+        self.manager._broker = tracked
+        self.broker = broker
+        return tracked
+
     def reconcile(self, position: Position | None, _published: Quote, now: datetime) -> bool:
         """Reconcile through its two settle waits, as the runner's steps would: the
         first look, the disagreement holding still, then what is held holding still.
@@ -94,8 +102,9 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
     stops = StopKeeper(profiles.risk, profiles.instrument, profiles.execution)
     alarms: list[Alarm] = []
     halt = Halt()
-    executor = Executor(profiles, pipeline, broker, stops, ledger, halt, book)
-    manager = Manager(profiles, broker, stops, ledger, halt, book, alarms.append)
+    tracked = TrackedBroker(broker)
+    executor = Executor(profiles, pipeline, tracked, stops, ledger, halt, book)
+    manager = Manager(profiles, tracked, stops, ledger, halt, book, alarms.append)
     s = Stack(
         profiles,
         pipeline,

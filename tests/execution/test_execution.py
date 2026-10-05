@@ -185,9 +185,7 @@ def test_an_entry_the_broker_will_not_protect_is_flattened(stack: Stack) -> None
             return super().place(order)
 
     broker = NoStops(stack.book, 5)
-    stack.executor._broker = broker
-    stack.manager._broker = broker
-    stack.broker = broker
+    stack.use_broker(broker)
     ticket = stack.executor.submit(stack.approved, (), SEND)
     stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
     ticket = stack.executor.on_time(ticket, SEND)
@@ -399,26 +397,79 @@ def test_a_ledger_failure_after_the_fill_still_leaves_the_stop(
     assert any(o.order_type is OrderType.STOP_LIMIT for o in stack.broker.open_orders())
 
 
-def test_a_broker_error_on_the_stop_means_unprotected_and_flattened(
+def test_a_stop_send_that_hiccups_once_is_resent_under_its_id(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     original = stack.broker.place
+    hiccups = {"left": 1}
 
     def flaky(order: Order) -> OrderStatus:
-        if order.order_type is OrderType.STOP_LIMIT:
-            raise ConnectionError("gateway dropped")
+        if order.order_type is OrderType.STOP_LIMIT and hiccups["left"] > 0:
+            hiccups["left"] -= 1
+            raise ConnectionError("gateway dropped")  # never reached the broker
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", flaky)
     ticket = stack.executor.submit(stack.approved, (), SEND)
-    stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.outcome is EntryOutcome.PROTECTED  # the resend placed it
+    stops = [s for s in stack.broker._orders.values() if s.order.order_type is OrderType.STOP_LIMIT]
+    assert len(stops) == 1
+
+
+def test_a_stop_whose_answer_was_lost_is_found_by_the_resend(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker.place
+    lost = {"left": 1}
+
+    def lost_answer(order: Order) -> OrderStatus:
+        status = original(order)  # reaches the broker (a second send is a duplicate)
+        if order.order_type is OrderType.STOP_LIMIT and lost["left"] > 0:
+            lost["left"] -= 1
+            raise TimeoutError("no acknowledgement")
+        return status
+
+    monkeypatch.setattr(stack.broker, "place", lost_answer)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.outcome is EntryOutcome.PROTECTED  # the duplicate id proved it arrived
+    stops = [s for s in stack.broker._orders.values() if s.order.order_type is OrderType.STOP_LIMIT]
+    assert len(stops) == 1  # exactly one stop at the broker
+
+
+def test_a_stop_of_unknown_fate_is_never_sold_beside(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every send of the stop fails and nothing can confirm it either way: it may be
+    working. No exit is sent beside it; reconcile takes over and escalates."""
+    from footprint.execution.management.malik import NeedsReconcile
+
+    original = stack.broker.place
+
+    def down_for_stops(order: Order) -> OrderStatus:
+        if order.order_type is OrderType.STOP_LIMIT:
+            raise ConnectionError("gateway dropped")
+        return original(order)
+
+    monkeypatch.setattr(stack.broker, "place", down_for_stops)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
     ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position is not None
-    closed = stack.step(ticket.position, stack.quote(150, 152, SEND + SEC), (), SEND + SEC)
-    assert closed is not None
-    assert closed.reason is ExitReason.UNPROTECTED
-    assert stack.broker.positions() == {}
+    t = SEND + SEC
+    with pytest.raises(NeedsReconcile):
+        stack.step(ticket.position, stack.quote(150, 152, t), (), t)
+    assert not any(line.startswith("placed") and "-exit-" in line for line in stack.broker.log)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    for k in range(1, escalate + 10):
+        stack.quote(150, 152, t + k * SEC)
+        stack.manager.reconcile(ticket.position, t + k * SEC)
+    assert stack.broker.positions() == {stack.contract: 1}  # never sold beside it
+    assert sum("CANCEL STUCK" in a.message for a in stack.alarms) == 1
 
 
 def test_an_off_tick_fill_is_flattened_without_crashing(
@@ -722,11 +773,15 @@ def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
     original_place = stack.broker.place
     original_status = stack.broker.status
 
+    sends = {"stop": 0}
+
     def lost_reply(order: Order) -> OrderStatus:
-        status = original_place(order)
         if order.order_type is OrderType.STOP_LIMIT:
-            raise TimeoutError("no acknowledgement")
-        return status
+            sends["stop"] += 1
+            if sends["stop"] == 1:
+                original_place(order)  # it reaches the broker; the answer is lost
+            raise TimeoutError("no acknowledgement")  # and the resend gets no answer
+        return original_place(order)
 
     blind = {"on": True}
 
@@ -837,11 +892,15 @@ def test_an_orphan_stop_that_already_filled_is_never_sold_again(
     original_place = stack.broker.place
     original_status = stack.broker.status
 
+    sends = {"stop": 0}
+
     def lost_reply(order: Order) -> OrderStatus:
-        status = original_place(order)
         if order.order_type is OrderType.STOP_LIMIT:
-            raise TimeoutError("no acknowledgement")
-        return status
+            sends["stop"] += 1
+            if sends["stop"] == 1:
+                original_place(order)  # it reaches the broker; the answer is lost
+            raise TimeoutError("no acknowledgement")  # and the resend gets no answer
+        return original_place(order)
 
     blind = {"on": True}
 
@@ -1052,3 +1111,30 @@ def test_a_sell_of_another_size_that_fills_during_the_sweep_is_not_the_exit(
         stack.manager.flatten(position, FILLED_AT + SEC)
     assert stack.ledger.open_position_id == position.position_id  # nothing booked
     assert stack.halt.tripped
+
+
+def test_an_exit_whose_answer_is_lost_keeps_its_id_and_reconciles(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review R10-1: never forget an exit whose fate is unknown, and doubt at once."""
+    from footprint.execution.management.malik import NeedsReconcile
+
+    position = filled_position(stack)
+    original = stack.broker.place
+    sends = {"n": 0}
+
+    def lost(order: Order) -> OrderStatus:
+        if "-exit-" in order.order_id:
+            sends["n"] += 1
+            if sends["n"] == 1:
+                original(order)
+            raise TimeoutError("no answer")
+        return original(order)
+
+    monkeypatch.setattr(stack.broker, "place", lost)
+    stack.ledger.latch_kill_switch("test")
+    t = FILLED_AT + 60 * SEC
+    with pytest.raises(NeedsReconcile):
+        stack.step(position, stack.quote(150, 152, t), (), t)
+    assert position.exit_order_id is not None  # still known, still followed
+    assert position.exit_order_id in stack.manager._broker.unfinished

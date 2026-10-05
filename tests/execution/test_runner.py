@@ -255,9 +255,13 @@ def test_a_broker_error_on_the_entry_reconciles_instead_of_crashing(
     runner.step(DECISION_TIME)
     original = stack.broker.place
 
+    sends = {"n": 0}
+
     def lost_ack(order: Order) -> OrderStatus:
-        original(order)  # it reached the broker ...
-        raise ConnectionError("... but the answer was lost")
+        sends["n"] += 1
+        if sends["n"] == 1:
+            original(order)  # it reached the broker ...
+        raise ConnectionError("... but the answer was lost")  # and the resend too
 
     monkeypatch.setattr(stack.broker, "place", lost_ack)
     runner.step(DECISION_TIME + SEC)  # must not raise
@@ -489,9 +493,7 @@ def test_an_immediate_unprotected_fill_is_flattened_on_the_same_step(
             return status
 
     broker = FillsAtOnceRefusesStops(stack.book, stack.profiles.execution.quotes.max_age_seconds)
-    stack.executor._broker = broker
-    stack.manager._broker = broker
-    stack.broker = broker
+    stack.use_broker(broker)
     runner, _, alarms = runner_for(stack, bars, tmp_path)
     runner.step(DECISION_TIME)
     runner.step(DECISION_TIME + SEC)

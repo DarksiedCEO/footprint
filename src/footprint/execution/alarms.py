@@ -203,9 +203,14 @@ class AlarmLine:
                 continue
             with self._cv:
                 self._in_flight, self._in_flight_since = None, None
-                self._failing, self._forwarding = False, False
+                self._failing = False
                 if self._pending and self._pending[0] is alarm:
                     self._pending.popleft()
+                if not self._pending:
+                    # Caught up: a later outage hands its backlog over again. (Not on
+                    # every success, or a slow-but-working pager would hand the same
+                    # backlog to the fallback once per delivery.)
+                    self._forwarding = False
                 self._delivered += 1
                 if self._dropped and self._last_dropped is not None:
                     note = Alarm(
