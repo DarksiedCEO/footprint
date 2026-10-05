@@ -13,11 +13,11 @@ System ids are permanent. Names are display labels only and may change.
 
 | System id    | Name      | Job |
 | ------------ | --------- | --- |
-| `trend`      | Mateo     | Reads the 15-min trend (higher highs/lows vs the 9/21 EMA) |
-| `momentum`   | Darius    | Hunts the 1-min entry candle (volume spike + follow-through) |
+| `trend`      | Mateo     | Reads the trend timeframe (higher highs/lows vs the fast/slow EMA pair) |
+| `momentum`   | Darius    | Hunts the entry-timeframe candle (volume spike + follow-through) |
 | `volume`     | Rafael    | Relative volume vs the trailing average for the time of day |
 | `levels`     | Grant     | Distance to prior-day H/L/C, overnight H/L, VWAP, swings, round numbers |
-| `range`      | Nadia     | Today's range vs the 10-day average daily range |
+| `range`      | Nadia     | Today's range vs the average daily range |
 | `session`    | Cyrus     | Session windows and news blackouts |
 | `sizing`     | Ezra      | Position size within the risk caps |
 | `stop`       | Booker    | Hard stop placement and the trail |

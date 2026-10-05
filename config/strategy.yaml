@@ -1,0 +1,15 @@
+# Reader settings. Every strategy number lives here, never in code.
+# Values marked DEFAULT were not fixed by the spec; Andre may change them.
+trend:
+  timeframe_minutes: 15
+  ema_fast: 9
+  ema_slow: 21
+  swing_strength: 2          # DEFAULT: a swing high/low needs this many bars on each side
+volume:
+  timeframe_minutes: 1
+  lookback_sessions: 20      # same time-of-day bars averaged for relative volume
+  spike_multiple: 3          # DEFAULT: spec says ~3-4x; start at the low end
+range:
+  adr_days: 10
+  quiet_below_pct: 70
+  extended_above_pct: 100
