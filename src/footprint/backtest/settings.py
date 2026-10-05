@@ -1,0 +1,94 @@
+"""Backtest settings, loaded from config/backtest.yaml. No number lives in code."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, fields
+from datetime import timedelta
+from decimal import Decimal
+from pathlib import Path
+
+from footprint.core.config import (
+    _PERCENT_MAX,
+    ConfigError,
+    _check_keys,
+    _integer,
+    _positive_decimal,
+    _read_mapping,
+)
+
+_MINUTE_SECONDS = int(timedelta(minutes=1).total_seconds())
+
+
+@dataclass(frozen=True, slots=True)
+class OptionModelSettings:
+    atm_premium_points: Decimal
+    spread_points: Decimal
+    strike_step: Decimal
+    strikes_each_side: int
+    open_interest: int
+    expiries_listed: int
+
+
+@dataclass(frozen=True, slots=True)
+class EngineSettings:
+    substep_seconds: int
+    history_minutes: int
+
+
+@dataclass(frozen=True, slots=True)
+class GateSettings:
+    min_trades: int
+    min_win_rate_pct: Decimal
+    min_payoff_ratio: Decimal
+    min_profit_factor: Decimal
+    max_drawdown_pct: Decimal
+    out_of_sample_pct: Decimal
+    min_out_of_sample_trades: int
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestSettings:
+    option_model: OptionModelSettings
+    engine: EngineSettings
+    gates: GateSettings
+
+
+def load_backtest(path: Path) -> BacktestSettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(BacktestSettings)})
+
+    o_where = f"{where}: option_model"
+    o = _check_keys(raw["option_model"], {f.name for f in fields(OptionModelSettings)}, o_where)
+    option_model = OptionModelSettings(
+        atm_premium_points=_positive_decimal(o, "atm_premium_points", o_where),
+        spread_points=_positive_decimal(o, "spread_points", o_where),
+        strike_step=_positive_decimal(o, "strike_step", o_where),
+        strikes_each_side=_integer(o, "strikes_each_side", o_where, minimum=1),
+        open_interest=_integer(o, "open_interest", o_where, minimum=0),
+        expiries_listed=_integer(o, "expiries_listed", o_where, minimum=1),
+    )
+
+    e_where = f"{where}: engine"
+    e = _check_keys(raw["engine"], {f.name for f in fields(EngineSettings)}, e_where)
+    engine = EngineSettings(
+        substep_seconds=_integer(e, "substep_seconds", e_where, minimum=1),
+        history_minutes=_integer(e, "history_minutes", e_where, minimum=1),
+    )
+    if engine.substep_seconds >= _MINUTE_SECONDS or _MINUTE_SECONDS % engine.substep_seconds:
+        raise ConfigError(f"{e_where}: substep_seconds must divide a minute")
+
+    g_where = f"{where}: gates"
+    g = _check_keys(raw["gates"], {f.name for f in fields(GateSettings)}, g_where)
+    gates = GateSettings(
+        min_trades=_integer(g, "min_trades", g_where, minimum=1),
+        min_win_rate_pct=_positive_decimal(g, "min_win_rate_pct", g_where),
+        min_payoff_ratio=_positive_decimal(g, "min_payoff_ratio", g_where),
+        min_profit_factor=_positive_decimal(g, "min_profit_factor", g_where),
+        max_drawdown_pct=_positive_decimal(g, "max_drawdown_pct", g_where),
+        out_of_sample_pct=_positive_decimal(g, "out_of_sample_pct", g_where),
+        min_out_of_sample_trades=_integer(g, "min_out_of_sample_trades", g_where, minimum=1),
+    )
+    for name in ("min_win_rate_pct", "max_drawdown_pct", "out_of_sample_pct"):
+        if getattr(gates, name) >= _PERCENT_MAX:
+            raise ConfigError(f"{g_where}: {name} must be below {_PERCENT_MAX}")
+    return BacktestSettings(option_model=option_model, engine=engine, gates=gates)

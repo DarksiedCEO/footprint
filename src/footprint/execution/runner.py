@@ -37,7 +37,7 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta
 
 from footprint.core.config import RunnerSettings
-from footprint.core.models import Bar, require_utc
+from footprint.core.models import Bar, Direction, require_utc
 from footprint.core.options import OptionChain
 from footprint.decision.pipeline import Decision, Pipeline
 from footprint.decision.session import NewsBlackout
@@ -128,6 +128,16 @@ class Runner:
     @property
     def reconciling(self) -> bool:
         return self._reconciling
+
+    @property
+    def exposure(self) -> Direction | None:
+        """The direction of the open position, or of the entry still working; None
+        when there is neither."""
+        if self._position is not None:
+            return self._position.direction
+        if self._ticket is not None:
+            return self._ticket.approved.signal.direction
+        return None
 
     def doubt(self) -> None:
         """Something does not add up: reconcile before doing anything else."""
