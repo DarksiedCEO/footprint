@@ -16,7 +16,13 @@ from footprint.core.config import ConfigError, ExecutionProfile, InstrumentProfi
 from footprint.core.models import Direction
 from footprint.core.options import OptionChain, OptionQuote, Right
 from footprint.decision.sizing import EntryPlan, NoSize, size
-from footprint.decision.stop import BidTick, StopCheck, StopKeeper, TickStatus
+from footprint.decision.stop import (
+    BidTick,
+    StopCheck,
+    StopClosedError,
+    StopKeeper,
+    TickStatus,
+)
 
 PT = ZoneInfo("America/Los_Angeles")
 D = Decimal
@@ -396,9 +402,9 @@ def test_repeated_or_late_ticks_confirm_nothing(booker: StopKeeper) -> None:
     booker.open("t", D(150), 1)
     bad = BidTick(D(400), D(401), NOW)
     assert booker.on_tick("t", bad, NOW) is TickStatus.USED
-    assert booker.on_tick("t", bad, NOW) is TickStatus.STALE  # the same tick again
+    assert booker.on_tick("t", bad, NOW) is TickStatus.DUPLICATE  # the same tick again
     late = BidTick(D(400), D(401), NOW - timedelta(seconds=1))
-    assert booker.on_tick("t", late, NOW) is TickStatus.STALE  # older than the last
+    assert booker.on_tick("t", late, NOW) is TickStatus.DUPLICATE  # older than the last
     assert booker.current("t").price == D("112.5")
     assert booker.current("t").peak_bid == D(150)
 
@@ -476,7 +482,12 @@ def test_a_closed_position_can_never_reopen(booker: StopKeeper) -> None:
     assert booker.close("t").price == D("112.5")
     assert booker.check("t", tick(100), NOW) is StopCheck.CLOSED
     assert booker.on_tick("t", tick(100), NOW) is TickStatus.CLOSED
-    with pytest.raises(KeyError):
+    refusal = booker.request("t", D(200), "trade_mgmt")
+    assert refusal is not None
+    assert "closed" in refusal.reason
+    with pytest.raises(StopClosedError):
+        booker.resting_order("t")
+    with pytest.raises(StopClosedError):
         booker.current("t")
     with pytest.raises(ValueError, match="already"):
         booker.open("t", D(100), 1)

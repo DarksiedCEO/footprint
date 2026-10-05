@@ -81,7 +81,8 @@ class BidTick:
 
 class TickStatus(Enum):
     USED = "USED"
-    STALE = "STALE"  # too old, from the future, or not newer than the last tick used
+    STALE = "STALE"  # too old, or from the future: the feed is not confirming prices
+    DUPLICATE = "DUPLICATE"  # not newer than the last tick used: ignored, not an alarm
     NO_BID = "NO_BID"
     CLOSED = "CLOSED"  # the position's stop has been retired
 
@@ -110,6 +111,10 @@ class Refusal:
 class StopOrderSpec:
     trigger: Decimal
     limit: Decimal
+
+
+class StopClosedError(KeyError):
+    """The position's stop has been retired; nothing about it can change."""
 
 
 class StopKeeper:
@@ -161,6 +166,8 @@ class StopKeeper:
         return replace(level)
 
     def current(self, position_id: str) -> StopLevel:
+        if position_id in self._closed:
+            raise StopClosedError(position_id)
         return replace(self._stops[position_id])
 
     def close(self, position_id: str) -> StopLevel:
@@ -178,6 +185,11 @@ class StopKeeper:
 
     def request(self, position_id: str, price: Decimal, source: str) -> Refusal | None:
         """Move the stop to `price` if that is no further from entry and on the tick."""
+        if position_id in self._closed:
+            log.warning(
+                "stop change refused for %s: %s asked %s (closed)", position_id, source, price
+            )
+            return Refusal(position_id, price, price, source, "the stop is closed")
         stop = self._stops[position_id]
         tick = self._instrument.option_tick_size
         reason = ""
@@ -209,7 +221,7 @@ class StopKeeper:
             return status
         last_ts = self._last_ts.get(position_id)
         if last_ts is not None and tick.ts <= last_ts:
-            return TickStatus.STALE  # a repeat or an out-of-order tick confirms nothing
+            return TickStatus.DUPLICATE  # a repeat or out-of-order tick confirms nothing
         stop = self._stops[position_id]
         # The peak only advances to a level two consecutive, distinct ticks agree on,
         # so one bad print cannot drag the trail up and stop out a healthy position.
@@ -254,6 +266,8 @@ class StopKeeper:
         return StopCheck.CLEAR
 
     def resting_order(self, position_id: str) -> StopOrderSpec:
+        if position_id in self._closed:
+            raise StopClosedError(position_id)
         stop = self._stops[position_id]
         tick = self._instrument.option_tick_size
         limit = stop.price - tick * self._execution.stop_order.limit_offset_ticks
