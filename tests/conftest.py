@@ -3,9 +3,11 @@ from pathlib import Path
 import pytest
 
 from footprint.core.config import (
+    ExecutionProfile,
     InstrumentProfile,
     RiskProfile,
     StrategyProfile,
+    load_execution,
     load_instrument,
     load_risk,
     load_strategy,
@@ -27,6 +29,16 @@ def risk_path() -> Path:
 @pytest.fixture
 def strategy_path() -> Path:
     return REPO_ROOT / "config" / "strategy.yaml"
+
+
+@pytest.fixture
+def execution_path() -> Path:
+    return REPO_ROOT / "config" / "execution.yaml"
+
+
+@pytest.fixture
+def execution(execution_path: Path) -> ExecutionProfile:
+    return load_execution(execution_path)
 
 
 @pytest.fixture
