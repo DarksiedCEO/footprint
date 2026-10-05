@@ -36,3 +36,10 @@ zeroday:
   volume_trip_multiple: 10   # DEVIATION from G9 (4x): a 4x volume bar is a normal momentum
                              # trigger, so 4x here would veto the strategy's own entries.
                              # Andre to confirm.
+console:
+  levels_weight: 2           # spec: levels count double
+  range_weight: 1
+  fire_threshold: 3          # spec: fire at >= +3; v1 scores only levels + range (max 3),
+                             # so both must be positive (G13: measure trade count first)
+  close_lead_minutes: 5      # DEFAULT (G8): no new entries in the last minutes of prime;
+                             # trade management flattens from the same moment

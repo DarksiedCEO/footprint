@@ -320,6 +320,14 @@ class ZeroDaySettings:
 
 
 @dataclass(frozen=True, slots=True)
+class ConsoleSettings:
+    levels_weight: int
+    range_weight: int
+    fire_threshold: int
+    close_lead_minutes: int
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyProfile:
     trend: TrendSettings
     volume: VolumeSettings
@@ -328,6 +336,7 @@ class StrategyProfile:
     levels: LevelsSettings
     options: OptionsSettings
     zeroday: ZeroDaySettings
+    console: ConsoleSettings
 
 
 def load_strategy(path: Path) -> StrategyProfile:
@@ -409,6 +418,17 @@ def load_strategy(path: Path) -> StrategyProfile:
     if zeroday.trip_multiple <= 1 or zeroday.volume_trip_multiple <= 1:
         raise ConfigError(f"{z_where}: trip multiples must be > 1")
 
+    k_where = f"{where}: console"
+    k = _check_keys(raw["console"], {f.name for f in fields(ConsoleSettings)}, k_where)
+    console = ConsoleSettings(
+        levels_weight=_integer(k, "levels_weight", k_where, minimum=1),
+        range_weight=_integer(k, "range_weight", k_where, minimum=1),
+        fire_threshold=_integer(k, "fire_threshold", k_where, minimum=1),
+        close_lead_minutes=_integer(k, "close_lead_minutes", k_where, minimum=0),
+    )
+    if console.fire_threshold > console.levels_weight + console.range_weight:
+        raise ConfigError(f"{k_where}: fire_threshold is above the highest possible score")
+
     return StrategyProfile(
         trend=trend,
         volume=volume,
@@ -417,6 +437,7 @@ def load_strategy(path: Path) -> StrategyProfile:
         levels=levels,
         options=options,
         zeroday=zeroday,
+        console=console,
     )
 
 
