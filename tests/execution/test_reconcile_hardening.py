@@ -700,3 +700,59 @@ def test_reconcile_never_books_a_guessed_exit(stack: Stack) -> None:
     assert sum("book it with Ledger.book_by_hand" in a.message for a in stack.alarms) == 1
     stack.ledger.book_by_hand(t, position.position_id, D(-500), "Andre")
     assert stack.ledger.open_position_id is None
+
+
+def test_r12_1_an_old_flatten_fill_never_confirms_a_new_positions_exit(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reconcile flatten sold this contract earlier in the session (another trade).
+    A new position on the same contract then reads 'flat' once at its exit: the old
+    fill must not be booked as this trade's exit price."""
+    from footprint.core.calendar import SessionKind
+    from footprint.execution.executor.diego import Position
+    from footprint.execution.management.malik import NeedsReconcile
+
+    first = filled_position(stack)
+    t = FILLED_AT + 60 * SEC
+    for k in range(6):  # a restart flattens it: a reconcile SELL fills at 160
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    assert stack.broker.positions() == {}
+    stack.ledger.book_by_hand(t, first.position_id, D(165), "Andre")
+    # A new position on the same contract (held at the broker, protected by nothing).
+    later = t + 600 * SEC
+    second = Position(
+        "second", stack.contract, first.direction, 1, D("151.5"), later, SessionKind.PRIME, None
+    )
+    stack.broker._positions[stack.contract] = 1
+    stack.ledger.on_entry_filled(later, "second", SessionKind.PRIME)
+    real = stack.broker.positions
+    bad = {"reads": 1}
+
+    def flicker() -> dict[str, int]:
+        if bad["reads"] > 0:
+            bad["reads"] -= 1
+            return {}
+        return real()
+
+    monkeypatch.setattr(stack.broker, "positions", flicker)
+    with pytest.raises(NeedsReconcile):
+        stack.step(second, stack.quote(150, 152, later), (), later)
+    assert stack.ledger.open_position_id == "second"  # not booked at the old 160
+
+
+def test_reconcile_books_its_own_flatten_at_the_real_fill(stack: Stack) -> None:
+    """A position reconcile flattens itself (a stray order made it disagree) is booked
+    at the price of the flatten that sold it."""
+    position = filled_position(stack)
+    stray = Order("stray", "OTHER", Side.BUY, 1, OrderType.LIMIT, D(1))
+    stack.broker.place(stray)
+    t = FILLED_AT + 60 * SEC
+    for k in range(8):
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(position, t + k * SEC)
+    assert stack.broker.positions() == {}
+    closes = stack.manager.take_reconcile_closes()
+    assert [(c.position_id, c.exit_price) for c in closes] == [(position.position_id, D(160))]
+    expected = stack.profiles.risk.bankroll + (D(160) - D("151.5")) * 20 - 5
+    assert stack.ledger.account(t).equity == expected

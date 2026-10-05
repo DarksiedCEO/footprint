@@ -117,7 +117,9 @@ class Manager:
         self._exit_attempts: dict[str, int] = {}
         self._reconcile_round = 0
         self._closed: set[str] = set()
-        self._reconcile_orders: list[str] = []
+        # Reconcile's flatten orders, by the position they were sent for (None after a
+        # restart): only a position's own orders can confirm its exit price.
+        self._reconcile_orders: dict[str | None, list[str]] = {}
         self._seen: dict[str, tuple[object, datetime]] = {}
         self._reconcile_prices: dict[tuple[str, Side], Decimal] = {}
         self._alarmed_mismatch: object = None
@@ -595,7 +597,8 @@ class Manager:
                 order_type=OrderType.LIMIT,
                 limit_price=price,
             )
-            self._reconcile_orders.append(order.order_id)
+            owner = position.position_id if position is not None else None
+            self._reconcile_orders.setdefault(owner, []).append(order.order_id)
             self._broker.place(order)  # recorded and followed by id from now on
         if not remaining and position is not None and ledger_open == position.position_id:
             price, actual_fill = self._actual_exit(position)
@@ -751,13 +754,14 @@ class Manager:
         self._cancels_stuck_since, self._cancel_escalated = None, False
 
     def _actual_exit(self, position: Position) -> tuple[Decimal, bool]:
-        """The price of the order that really closed the position, or an estimate."""
+        """The price of the order that really closed THIS position (its stop, its
+        exits, or reconcile orders sent for it), and whether one was found."""
         candidates = [position.stop_order_id, f"{position.position_id}-stop"]
         candidates += [
             f"{position.position_id}-exit-{n}"
             for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)
         ]
-        candidates += list(reversed(self._reconcile_orders))
+        candidates += list(reversed(self._reconcile_orders.get(position.position_id, [])))
         for order_id in candidates:
             if order_id is None:
                 continue
