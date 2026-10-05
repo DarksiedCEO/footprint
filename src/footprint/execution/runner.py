@@ -99,6 +99,7 @@ class Runner:
         self._max_unmanaged = timedelta(seconds=settings.max_unmanaged_seconds)
         self._managed_at: datetime | None = None
         self._failsafe_alarmed = False
+        self._reconcile_flattening = False  # the last reconcile disagreed: it is acting
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -180,6 +181,7 @@ class Runner:
             self._executor.abandon(self._ticket)
             self._ticket = None
         agreed = self._manager.reconcile(self._position, now)
+        self._reconcile_flattening = not agreed
         for closed in self._manager.take_reconcile_closes():
             if self._position is not None and closed.position_id == self._position.position_id:
                 self._trade_done(self._position, closed, now)
@@ -264,9 +266,10 @@ class Runner:
 
     def _failsafe(self, now: datetime) -> None:
         """Flatten a position that normal management has not reached for too long.
-        Skipped while reconciling: reconcile flattens on its own when it disagrees, and
-        two sellers could sell the contract twice."""
-        if self._position is None or self._managed_at is None or self._reconciling:
+        Stands aside only while reconcile is flattening on its own (its last round
+        disagreed): two sellers could sell the contract twice. Merely being sent back
+        to reconcile, where it agrees, never disarms the failsafe."""
+        if self._position is None or self._managed_at is None or self._reconcile_flattening:
             return
         if now - self._managed_at <= self._max_unmanaged:
             return

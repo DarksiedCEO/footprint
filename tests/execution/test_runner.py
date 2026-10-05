@@ -11,7 +11,14 @@ from footprint.core.models import Bar
 from footprint.core.options import OptionChain
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.management.malik import Alarm, ExitReason
-from footprint.execution.orders import Order, OrderState, OrderStatus, OrderType, SimulatedBroker
+from footprint.execution.orders import (
+    Order,
+    OrderState,
+    OrderStatus,
+    OrderType,
+    Side,
+    SimulatedBroker,
+)
 from footprint.execution.runner import Runner
 from tests.decision.scenario import DECISION_TIME, chain_for
 from tests.execution.conftest import Stack
@@ -362,7 +369,7 @@ def test_a_position_that_cannot_be_managed_is_flattened_by_the_failsafe(
     monkeypatch.setattr(stack.stops, "check", broken)
     limit = stack.profiles.execution.runner.max_unmanaged_seconds
     t = fill
-    while (t - fill).total_seconds() <= limit:
+    while (t - fill).total_seconds() < limit:  # up to exactly the limit
         t += SEC
         stack.quote(150, 152, t)
         runner.step(t)
@@ -375,9 +382,10 @@ def test_a_position_that_cannot_be_managed_is_flattened_by_the_failsafe(
     assert runner.closed[-1].reason is ExitReason.FAILSAFE
     assert stack.ledger.open_position_id is None
     assert sum("unmanaged since" in a.message for a in alarms) == 1
+    assert not runner._failsafe_alarmed  # T5: the next position gets its own alarm
 
 
-def test_the_failsafe_never_runs_while_reconciling(
+def test_the_failsafe_stands_aside_while_reconcile_is_flattening(
     stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner, _, _ = runner_for(stack, bars, tmp_path)
@@ -385,7 +393,7 @@ def test_the_failsafe_never_runs_while_reconciling(
     calls: list[object] = []
     monkeypatch.setattr(stack.manager, "flatten", lambda *a: calls.append(a))
     runner._managed_at = fill - timedelta(hours=1)
-    runner.doubt()
+    runner._reconcile_flattening = True  # reconcile disagreed and is selling
     runner._failsafe(fill + SEC)
     assert calls == []
 
@@ -539,3 +547,102 @@ def test_a_failsafe_that_cannot_get_out_alarms_once_and_keeps_trying(
     assert sum("unmanaged since" in a.message for a in alarms) == 1  # ... said once
     assert stack.halt.tripped
     assert tries["n"] > before  # ... and it never stops trying
+
+
+# --- review round 4 ---------------------------------------------------------------------
+
+
+def test_a_failing_ledger_read_never_disarms_the_failsafe(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4-1: every step goes back to reconcile, which agrees; the failsafe still acts."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+
+    def broken(now: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(stack.ledger, "account", broken)
+    limit = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, limit + 10):
+        t = fill + second * SEC
+        stack.quote(150, 152, t)
+        runner.step(t)
+    assert stack.broker.positions() == {}  # out, at the bid
+    assert stack.broker.open_orders() == []
+
+
+def test_a_healthy_position_is_never_flattened_by_the_failsafe(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """T1: management that keeps succeeding keeps the failsafe away."""
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    limit = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, 3 * limit):
+        t = fill + second * SEC
+        stack.quote(150, 152, t)
+        runner.step(t)
+    assert runner.position is not None
+    assert not any("unmanaged since" in a.message for a in alarms)
+
+
+def test_the_failsafe_clock_starts_at_the_fill(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T2: a position whose very first management fails is still covered."""
+
+    def broken(*args: object) -> None:
+        raise OSError("stop keeper broken")
+
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    for second in range(1, 12):
+        runner.step(DECISION_TIME + second * SEC)
+    monkeypatch.setattr(stack.stops, "check", broken)  # before the first manage
+    fill = DECISION_TIME + 12 * SEC
+    stack.quote(150, D("151.5"), fill)
+    runner.step(fill)
+    limit = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, limit + 5):
+        t = fill + second * SEC
+        stack.quote(150, 152, t)
+        runner.step(t)
+    assert stack.broker.positions() == {}
+    assert runner.closed[-1].reason is ExitReason.FAILSAFE
+
+
+def test_a_failsafe_that_raises_halts_and_doubts(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T3."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+
+    def broken(*args: object) -> None:
+        raise ConnectionError("broker gone")
+
+    monkeypatch.setattr(stack.manager, "flatten", broken)
+    runner._managed_at = fill - timedelta(hours=1)
+    runner._failsafe(fill + SEC)  # must not raise
+    assert runner.reconciling
+    assert "failsafe flatten failed: ConnectionError" in stack.halt.reasons
+
+
+def test_the_failsafe_never_sells_beside_a_reconcile_flatten(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Reconcile disagrees and posts its own sell; an overdue failsafe must not add a
+    second one (it would sell the contract twice and leave a short option)."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    stray = Order("stray", "OTHER", Side.BUY, 1, OrderType.LIMIT, D(1))
+    stack.broker.place(stray)  # an order nobody expects: reconcile will disagree
+    runner._managed_at = fill - timedelta(hours=1)  # and the failsafe is overdue
+    runner.doubt()
+    t = fill + 10 * SEC  # the feed is quiet: reconcile's sell rests
+    runner.step(t)
+    sells = [o for o in stack.broker.open_orders() if o.side is Side.SELL]
+    assert [o.order_id.startswith("reconcile-") for o in sells] == [True]
+    stack.quote(150, 152, t + SEC)  # a live bid: everything that rests can fill
+    assert all(qty >= 0 for qty in stack.broker.positions().values())
