@@ -42,6 +42,7 @@ class LedgerState:
     kill_switch_latched: bool
     day: date | None
     week: tuple[int, int] | None
+    booked_by_hand: tuple[str, ...] = ()
 
 
 class StateStore:
@@ -70,6 +71,7 @@ class StateStore:
             kill_switch_latched=bool(raw["kill_switch_latched"]),
             day=date.fromisoformat(raw["day"]) if raw["day"] else None,
             week=(int(raw["week"][0]), int(raw["week"][1])) if raw["week"] else None,
+            booked_by_hand=tuple(raw.get("booked_by_hand", ())),
         )
 
     def save(self, state: LedgerState) -> None:
@@ -161,11 +163,14 @@ class Ledger:
         """
         if not by.strip():
             raise ValueError("booking by hand needs the name of who booked it")
+        if position_id in self._state.booked_by_hand:
+            raise ValueError(f"{position_id!r} was already booked by hand")
         log.critical("%s booked %s by hand at %s", by, position_id, net_pnl)
         if self._state.open_position_id == position_id:
             self.on_trade_closed(now, position_id, net_pnl)
         else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
             self._book(now, net_pnl, close_position=False)
+        self._save(replace(self._state, booked_by_hand=(*self._state.booked_by_hand, position_id)))
 
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
         self._roll(now)

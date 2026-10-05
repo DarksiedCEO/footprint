@@ -315,6 +315,17 @@ class Manager:
     def _work_exit(self, position: Position, quote: Quote, now: datetime) -> Closed | None:
         assert position.exit_order_id is not None
         reason = self._exit_reason.get(position.position_id, ExitReason.STOP)
+        try:
+            return self._work_exit_once(position, quote, now, reason)
+        except Exception as exc:  # broker error: halt, keep the exit recorded, retry
+            self._alarm(now, f"{position.position_id}: broker error working the exit: {exc!r}")
+            self._stand_down(now, f"{position.position_id}: broker error working the exit")
+            return None
+
+    def _work_exit_once(
+        self, position: Position, quote: Quote, now: datetime, reason: ExitReason
+    ) -> Closed | None:
+        assert position.exit_order_id is not None
         status = self._broker.status(position.exit_order_id)
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)

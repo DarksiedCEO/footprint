@@ -854,6 +854,11 @@ def test_book_by_hand_books_a_trade_the_ledger_never_recorded(stack: Stack) -> N
     stack.ledger.book_by_hand(t, "lost-1", D(-825), "Andre")
     acct = stack.ledger.account(t)
     assert (acct.realized_pnl_today, acct.stopouts_today) == (D(-825), 1)
+    with pytest.raises(ValueError, match="already booked"):
+        stack.ledger.book_by_hand(t, "lost-1", D(-825), "Andre")
+    reloaded = Ledger(stack.profiles.risk, stack.profiles.instrument, StateStore(stack.state_path))
+    with pytest.raises(ValueError, match="already booked"):
+        reloaded.book_by_hand(t, "lost-1", D(-825), "Andre")
 
 
 def test_a_broker_error_mid_exit_halts_and_retries(
@@ -901,3 +906,29 @@ def test_a_stop_that_filled_before_its_answer_is_adopted(
     assert closed is not None
     assert closed.reason is ExitReason.STOP
     assert stack.broker.positions() == {}
+
+
+def test_a_broker_error_while_working_the_exit_halts_and_retries(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    seen = stack.quote(160, 161, t)
+    stack.broker.on_quote(replace(seen, bid=D(159)))
+    assert stack.manager.manage(position, seen, (), t) is None  # exit rests at 160
+    original = stack.broker.status
+    calls = {"n": 0}
+
+    def flaky(order_id: str) -> OrderStatus:
+        if order_id.endswith("-exit-1"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionError("gateway dropped")
+        return original(order_id)
+
+    monkeypatch.setattr(stack.broker, "status", flaky)
+    later = t + SEC
+    assert stack.manager.manage(position, stack.quote(159, 160, later), (), later) is None
+    assert stack.halt.tripped
+    closed = stack.manager.manage(position, stack.quote(159, 160, later + SEC), (), later + SEC)
+    assert closed is not None
