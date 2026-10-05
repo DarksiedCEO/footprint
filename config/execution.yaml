@@ -40,3 +40,9 @@ alarms:
   retry_seconds: 5            # DEFAULT: wait between tries while the alarm line is down
   max_pending: 500            # DEFAULT: alarms kept while the line is down; beyond this
                               #   the oldest are dropped and the count is reported
+ibkr:
+  ack_timeout_seconds: 5      # DEFAULT: wait this long for IBKR's answer to a send, modify
+                              #   or cancel before treating the answer as lost
+  positions_disagree_alarm_seconds: 10  # DEFAULT: IBKR's position report and the fills
+                              #   disagreeing this long is alarmed (meanwhile only what both
+                              #   agree on is acted on)

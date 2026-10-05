@@ -27,6 +27,7 @@ Each is a config value or a one-line change; nothing here is hidden in code.
 | D20 | Alarms | Which channel is the primary alarm line (push, SMS, email) and which is the fallback | The code supports a fallback line; the channels are a deployment choice | Pick both channels |
 | D21 | Exits on a dead feed | With no fresh quote, a closing exit (and reconcile's flatten) walks its sell limit down one tick a step, to a floor of one tick | Never rest on a dead quote. The cost: a resting sell at a walked-down limit fills AT that limit when the market returns (the exchange trades at the resting order's price), so a long gap can give the option away cheaply | Keep, or put a floor under the walk (e.g. a share of the last known bid) and escalate instead |
 | D22 | Backtest option model | ATM premium 150 points at 1 day (time value falls with the square root of time), spread 2 points, strikes every 25 points, daily expiries, fixed delta 0.45, no gamma | No historical NQ options data; every number is UNVERIFIED and printed in each readout | Check against real NQ option quotes (a week of snapshots) before trusting any backtest result |
+| D23 | IBKR adapter | Wait 5 s for IBKR's answer before treating it as lost; alarm when IBKR's position report and the fills disagree for 10 s | Not in the spec | Confirm `ibkr.ack_timeout_seconds`, `ibkr.positions_disagree_alarm_seconds`; re-measure in paper |
 
 ## Before paper trading (from the independent reviews)
 
@@ -60,3 +61,12 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 5. Re-confirm reconcile's stale-price walk-down against the real adapter.
 6. Order and position ids become UUIDs (a restart restarts the sequence).
 7. Integration tests against an IBKR-style stub: late cancels, lost acknowledgements, rejected modifies, partial fills, reordered quotes, lagging position reports, a flickering position report.
+
+## To verify in the IBKR paper account (the adapter is built and tested against a fake)
+
+1. A resend under the same order id modifies in place (never a second order); 103/104/105 come back as documented.
+2. A stop-limit and limit exits in one OCA group (type 1, with block): only one can fill.
+3. The position subscription keeps sending changes after its first snapshot.
+4. Which client id can cancel orders placed by hand in TWS (the master API client id), and that a hand-placed order shows with no orderRef.
+5. Order and execution events arrive for orders cancelled or filled while disconnected, after 1101.
+6. The NQ option contract details (trading class per daily expiry, multiplier 20, tick size): D9.
