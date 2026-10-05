@@ -56,7 +56,7 @@ class Stack:
 def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
     pipeline = Pipeline(profiles)
     store_path = tmp_path / "ledger.json"
-    ledger = Ledger(profiles.risk, profiles.instrument, StateStore(store_path))
+    ledger = Ledger(profiles.risk, profiles.instrument, StateStore(store_path), create=True)
     decision = pipeline.decide(
         bars, chain_for(bars[-1].close), ledger.account(DECISION_TIME), (), DECISION_TIME
     )

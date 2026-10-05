@@ -50,6 +50,10 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self._path = path
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def load(self) -> LedgerState | None:
         if not self._path.exists():
             return None
@@ -86,11 +90,24 @@ class StateStore:
 
 
 class Ledger:
-    def __init__(self, risk: RiskProfile, instrument: InstrumentProfile, store: StateStore) -> None:
+    def __init__(
+        self,
+        risk: RiskProfile,
+        instrument: InstrumentProfile,
+        store: StateStore,
+        *,
+        create: bool = False,
+    ) -> None:
+        """Open the ledger. A missing state file is an error unless `create` is set
+        (the very first run): silently starting fresh would clear breakers and a latched
+        kill switch that only Andre may clear.
+        """
         self._risk = risk
         self._instrument = instrument
         self._store = store
         loaded = store.load()
+        if loaded is None and not create:
+            raise FileNotFoundError("ledger state file is missing; pass create=True on first run")
         self._state = loaded or LedgerState(
             equity=risk.bankroll,
             peak_equity=risk.bankroll,

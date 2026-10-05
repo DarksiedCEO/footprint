@@ -224,7 +224,7 @@ def test_g8_flat_by_the_close_and_nb07_never_held_outside_prime(
     closed = stack.manager.manage(position, stack.quote(160, 161, t), (), t)
     assert closed is not None
     assert closed.reason is reason
-    exit_order = stack.broker.status(f"{position.position_id}-exit").order
+    exit_order = stack.broker.status(f"{position.position_id}-exit-1").order
     assert exit_order.order_type is OrderType.LIMIT  # never a market order
     assert stack.broker.status(f"{position.position_id}-stop").state is OrderState.CANCELLED
 
@@ -283,16 +283,13 @@ def test_stale_or_missing_bids_alarm_but_leave_the_resting_stop(stack: Stack) ->
 def test_an_unfilled_exit_is_repriced_to_the_bid(stack: Stack) -> None:
     position = filled_position(stack)
     t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
-    exit_quote = stack.quote(160, 161, t)
-    # Make the exit miss: the bid drops just as the exit is placed.
-    stack.broker.on_quote(replace(exit_quote, bid=D(159), ts=t))
-    closed = stack.manager.manage(position, replace(exit_quote, bid=D(160)), (), t)
-    assert closed is None or closed.exit_price <= D(160)
-    if closed is None:
-        later = t + 2 * SEC
-        closed = stack.manager.manage(position, stack.quote(159, 160, later), (), later)
-        assert closed is not None
-        assert closed.exit_price == D(159)
+    seen = stack.quote(160, 161, t)
+    stack.broker.on_quote(replace(seen, bid=D(159)))  # the bid drops as the exit goes in
+    assert stack.manager.manage(position, seen, (), t) is None  # the sell at 160 rests
+    later = t + 2 * SEC
+    closed = stack.manager.manage(position, stack.quote(159, 160, later), (), later)
+    assert closed is not None
+    assert closed.exit_price == D(159)
 
 
 def test_a_stop_filled_at_the_broker_closes_the_trade(stack: Stack) -> None:
@@ -307,26 +304,187 @@ def test_a_stop_filled_at_the_broker_closes_the_trade(stack: Stack) -> None:
 # --- reconcile (NB-16) ------------------------------------------------------------
 
 
-def test_nb16_a_mismatch_flattens_alarms_and_latches(stack: Stack) -> None:
-    position = filled_position(stack)
-    t = SEND + 60 * SEC
-    quotes = {stack.contract: stack.quote(160, 161, t)}
-    # After a restart the system believes it is flat; the broker holds a contract.
-    agreed = stack.manager.reconcile({}, quotes, stack.broker.working_orders(), t)
-    assert not agreed
-    assert stack.broker.positions() == {}
-    assert stack.broker.working_orders() == []
-    assert stack.ledger.account(t).kill_switch_latched
-    assert "reconcile mismatch" in stack.alarms[-1].message
-    assert position.position_id
-
-
-def test_nb16_agreement_changes_nothing(stack: Stack) -> None:
+def test_nb16_after_a_restart_anything_held_is_flattened(stack: Stack) -> None:
     filled_position(stack)
     t = SEND + 60 * SEC
     quotes = {stack.contract: stack.quote(160, 161, t)}
-    assert stack.manager.reconcile({stack.contract: 1}, quotes, stack.broker.working_orders(), t)
+    # After a restart the system has no position record: the broker holds a contract.
+    assert not stack.manager.reconcile(None, quotes, t)
+    assert stack.broker.positions() == {}
+    assert stack.broker.open_orders() == []  # the broker's own resting stop was cancelled
+    assert stack.ledger.account(t).kill_switch_latched
+    assert "reconcile mismatch" in stack.alarms[0].message
+
+
+def test_nb16_agreement_changes_nothing(stack: Stack) -> None:
+    position = filled_position(stack)
+    t = SEND + 60 * SEC
+    quotes = {stack.contract: stack.quote(160, 161, t)}
+    assert stack.manager.reconcile(position, quotes, t)
     assert not stack.ledger.account(t).kill_switch_latched
+    assert stack.broker.status(f"{position.position_id}-stop").state is OrderState.WORKING
+
+
+def test_nb16_a_stop_that_fills_during_the_cancel_is_never_sold_twice(stack: Stack) -> None:
+    filled_position(stack)
+
+    class FillsOnCancel(SimulatedBroker):
+        pass
+
+    broker = stack.broker
+    original_cancel = broker.cancel
+
+    def racing_cancel(order_id: str) -> OrderStatus:
+        status = broker.status(order_id)
+        if status.order.order_type is OrderType.STOP_LIMIT:
+            # The stop fills at the broker a moment before the cancel arrives.
+            broker._positions.pop(status.order.contract_id, None)
+            filled = replace(status, state=OrderState.FILLED, filled=1, avg_price=D(114))
+            broker._orders[order_id] = filled
+            return filled
+        return original_cancel(order_id)
+
+    broker.cancel = racing_cancel  # type: ignore[method-assign]
+    t = SEND + 60 * SEC
+    stack.manager.reconcile(None, {stack.contract: stack.quote(160, 161, t)}, t)
+    assert broker.positions() == {}  # flat, not short
+
+
+def test_nb16_reconcile_keeps_working_until_flat(stack: Stack) -> None:
+    filled_position(stack)
+    t = SEND + 60 * SEC
+    stack.quote(160, 161, t)
+    stale = {stack.contract: replace(stack.quote(160, 161, t), bid=D(170), ask=D(171))}
+    assert not stack.manager.reconcile(None, stale, t)
+    assert stack.broker.positions() == {stack.contract: 1}  # the sell at 170 rests
+    later = t + 5 * SEC
+    assert not stack.manager.reconcile(None, {stack.contract: stack.quote(159, 160, later)}, later)
+    assert stack.broker.positions() == {}  # re-priced to the real bid and filled
+    assert stack.manager.reconcile(None, {}, later + SEC) is False  # ledger still shows it
+    assert "book it by hand" in stack.alarms[-1].message
+
+
+# --- failure paths ------------------------------------------------------------------
+
+
+def test_a_ledger_failure_after_the_fill_still_leaves_the_stop(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(stack.ledger, "on_entry_filled", broken)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    ticket = stack.executor.on_time(ticket, FILLED_AT)
+    stack.quote(150, D("151.5"), FILLED_AT)
+    ticket = stack.executor.on_time(ticket, FILLED_AT)
+    assert ticket.outcome is EntryOutcome.PROTECTED
+    assert any(o.order_type is OrderType.STOP_LIMIT for o in stack.broker.open_orders())
+
+
+def test_a_broker_error_on_the_stop_means_unprotected_and_flattened(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker.place
+
+    def flaky(order: Order) -> OrderStatus:
+        if order.order_type is OrderType.STOP_LIMIT:
+            raise ConnectionError("gateway dropped")
+        return original(order)
+
+    monkeypatch.setattr(stack.broker, "place", flaky)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position is not None
+    closed = stack.manager.manage(
+        ticket.position, stack.quote(150, 152, SEND + SEC), (), SEND + SEC
+    )
+    assert closed is not None
+    assert closed.reason is ExitReason.UNPROTECTED
+    assert stack.broker.positions() == {}
+
+
+def test_an_off_tick_fill_is_flattened_without_crashing(stack: Stack) -> None:
+    stack.quote(150, D("150.9"), SEND)  # the fill comes back off the option tick
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position is not None
+    closed = stack.manager.manage(
+        ticket.position, stack.quote(150, 152, SEND + SEC), (), SEND + SEC
+    )
+    assert closed is not None
+    assert stack.broker.positions() == {}
+
+
+def test_an_unprotected_position_is_flattened_even_on_a_stale_quote(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker.place
+
+    def no_stops(order: Order) -> OrderStatus:
+        if order.order_type is OrderType.STOP_LIMIT:
+            return OrderStatus(order, OrderState.REJECTED, 0, None)
+        return original(order)
+
+    monkeypatch.setattr(stack.broker, "place", no_stops)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.position is not None
+    t = SEND + 30 * SEC
+    stale = stack.quote(150, 152, t - 20 * SEC)
+    stack.manager.manage(ticket.position, stale, (), t)
+    assert ticket.position.exit_order_id is not None  # a flatten was sent, not just an alarm
+
+
+def test_a_rejected_exit_halts_entries_and_is_retried(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    original = stack.broker.place
+    attempts: list[str] = []
+
+    def reject_first_exit(order: Order) -> OrderStatus:
+        if "-exit-" in order.order_id:
+            attempts.append(order.order_id)
+            if len(attempts) == 1:
+                return OrderStatus(order, OrderState.REJECTED, 0, None)
+        return original(order)
+
+    monkeypatch.setattr(stack.broker, "place", reject_first_exit)
+    stack.broker._orders  # noqa: B018
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    assert stack.manager.manage(position, stack.quote(160, 161, t), (), t) is None
+    assert stack.ledger.account(t).kill_switch_latched
+    later = t + SEC
+    closed = stack.manager.manage(position, stack.quote(160, 161, later), (), later)
+    assert closed is not None
+    assert len(attempts) == 2
+    assert attempts[0] != attempts[1]
+
+
+def test_a_rejected_trail_raise_is_alarmed(stack: Stack, monkeypatch: pytest.MonkeyPatch) -> None:
+    position = filled_position(stack)
+    monkeypatch.setattr(stack.broker, "modify", lambda *a, **k: stack.broker.status(a[0]))
+    for i, bid in enumerate((D("201.75"), D("201.75"))):
+        t = FILLED_AT + (1 + i) * SEC
+        stack.manager.manage(position, stack.quote(bid, bid + 1, t), (), t)
+    assert "did not raise the resting stop" in stack.alarms[-1].message
+
+
+def test_weekly_loss_counts_the_open_trade(stack: Stack) -> None:
+    stack.ledger._state = replace(stack.ledger._state, realized_week=D(-3000))
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    # Open (125.5 - 151.5) x 20 - 5 = -525: week -3525, past the -3500 limit.
+    closed = stack.manager.manage(position, stack.quote(D("125.5"), D("126.5"), t), (), t)
+    assert closed is not None
+    assert closed.reason is ExitReason.WEEKLY_LOSS
+
+
+def test_a_missing_ledger_file_is_an_error(stack: Stack, tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="create=True"):
+        Ledger(stack.profiles.risk, stack.profiles.instrument, StateStore(tmp_path / "gone.json"))
 
 
 # --- ledger -----------------------------------------------------------------------
@@ -338,7 +496,7 @@ def at(day: int, hour: int, minute: int) -> datetime:
 
 def test_ledger_counts_resets_and_persists(stack: Stack, tmp_path: Path) -> None:
     risk, inst = stack.profiles.risk, stack.profiles.instrument
-    ledger = Ledger(risk, inst, StateStore(tmp_path / "l.json"))
+    ledger = Ledger(risk, inst, StateStore(tmp_path / "l.json"), create=True)
     ledger.on_entry_filled(at(15, 7, 0), "a", SessionKind.PRIME)
     ledger.on_trade_closed(at(15, 7, 30), "a", D(100))  # a winner is not a stop-out
     ledger.on_entry_filled(at(15, 8, 0), "b", SessionKind.PRIME)
@@ -360,7 +518,7 @@ def test_ledger_counts_resets_and_persists(stack: Stack, tmp_path: Path) -> None
 
 def test_ledger_latches_the_kill_switch_on_drawdown(stack: Stack, tmp_path: Path) -> None:
     risk, inst = stack.profiles.risk, stack.profiles.instrument
-    ledger = Ledger(risk, inst, StateStore(tmp_path / "k.json"))
+    ledger = Ledger(risk, inst, StateStore(tmp_path / "k.json"), create=True)
     ledger.on_entry_filled(at(15, 7, 0), "a", SessionKind.PRIME)
     ledger.on_trade_closed(at(15, 7, 30), "a", -risk.bankroll * D("0.2"))
     assert ledger.account(at(15, 8, 0)).kill_switch_latched
@@ -376,7 +534,9 @@ def test_ledger_latches_the_kill_switch_on_drawdown(stack: Stack, tmp_path: Path
 
 
 def test_ledger_refuses_overlapping_positions(stack: Stack, tmp_path: Path) -> None:
-    ledger = Ledger(stack.profiles.risk, stack.profiles.instrument, StateStore(tmp_path / "o.json"))
+    ledger = Ledger(
+        stack.profiles.risk, stack.profiles.instrument, StateStore(tmp_path / "o.json"), create=True
+    )
     ledger.on_entry_filled(at(15, 7, 0), "a", SessionKind.PRIME)
     with pytest.raises(RuntimeError, match="is open"):
         ledger.on_entry_filled(at(15, 7, 1), "b", SessionKind.PRIME)
@@ -446,24 +606,37 @@ def test_g5_at_most_max_steps_even_below_the_ceiling(
     assert max(seen) == plan.limit_floor + 4 * D("0.25")  # four steps, then it waits
 
 
-def test_the_software_stop_exits_even_if_the_broker_has_not_triggered(stack: Stack) -> None:
-    from footprint.execution.orders import Quote
-
-    position = filled_position(stack)  # stop 114
+def test_g1_watchdog_flattens_when_the_bid_gaps_through_the_stop_limit(stack: Stack) -> None:
+    position = filled_position(stack)  # stop 114, resting limit 109
     t = SEND + 30 * SEC
-    seen_only_by_us = Quote(stack.contract, D(114), D(116), t)  # the broker missed it
-    closed = stack.manager.manage(position, seen_only_by_us, (), t)
-    assert stack.broker.status(f"{position.position_id}-stop").state is OrderState.CANCELLED
-    exit_order = stack.broker.status(f"{position.position_id}-exit").order
-    assert exit_order.order_type is OrderType.LIMIT
-    assert exit_order.limit_price == D(114)
+    gap = stack.quote(108, 110, t)  # the broker's stop triggers but its 109 limit can't fill
+    assert stack.broker.positions() == {stack.contract: 1}
+    closed = stack.manager.manage(position, gap, (), t)
     assert closed is not None
-    assert closed.reason is ExitReason.STOP
+    assert (closed.reason, closed.exit_price) == (ExitReason.GAP, D(108))
+    assert closed.net_pnl == (D(108) - D("151.5")) * 20 - 5
+    assert stack.broker.positions() == {}
 
 
 def test_the_trading_day_turns_over_at_the_prime_open(stack: Stack, tmp_path: Path) -> None:
-    ledger = Ledger(stack.profiles.risk, stack.profiles.instrument, StateStore(tmp_path / "d.json"))
+    ledger = Ledger(
+        stack.profiles.risk, stack.profiles.instrument, StateStore(tmp_path / "d.json"), create=True
+    )
     ledger.on_entry_filled(at(15, 7, 0), "a", SessionKind.PRIME)
     ledger.on_trade_closed(at(15, 7, 30), "a", D(-800))
     assert ledger.account(at(16, 3, 59)).stopouts_today == 1  # still dark before 04:00
     assert ledger.account(at(16, 4, 0)).stopouts_today == 0
+
+
+def test_an_exit_the_broker_cancels_is_replaced(stack: Stack) -> None:
+    position = filled_position(stack)
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    seen = stack.quote(160, 161, t)
+    stack.broker.on_quote(replace(seen, bid=D(159)))
+    assert stack.manager.manage(position, seen, (), t) is None  # exit-1 rests at 160
+    stack.broker.cancel(f"{position.position_id}-exit-1")  # the broker drops it
+    later = t + SEC
+    closed = stack.manager.manage(position, stack.quote(159, 160, later), (), later)
+    assert closed is not None
+    assert position.exit_order_id == f"{position.position_id}-exit-2"
+    assert stack.ledger.account(later).kill_switch_latched

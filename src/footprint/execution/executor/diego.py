@@ -149,15 +149,17 @@ class Executor:
         e = self._p.execution.entry
         elapsed = now - ticket.started
         if elapsed >= timedelta(seconds=e.timeout_seconds):
-            status = self._broker.cancel(ticket.order_id)
+            self._broker.cancel(ticket.order_id)
+            status = self._broker.status(ticket.order_id)  # the broker's word, not the reply
             return self._after(ticket, status.state, status.filled, status.avg_price, now)
         steps = min(e.max_steps, int(elapsed.total_seconds() // e.step_seconds))
         tick = self._p.instrument.option_tick_size
         plan = ticket.approved.plan
         target = min(plan.limit_floor + tick * e.step_ticks * steps, plan.limit_ceiling)
         if target > ticket.limit:
-            status = self._broker.modify(ticket.order_id, target, None)
-            ticket.limit = target
+            self._broker.modify(ticket.order_id, target, None)
+            status = self._broker.status(ticket.order_id)
+            ticket.limit = status.order.limit_price
             if status.state is not OrderState.WORKING:
                 return self._after(ticket, status.state, status.filled, status.avg_price, now)
         return ticket
@@ -178,9 +180,8 @@ class Executor:
             return ticket
         plan = ticket.approved.plan
         session = session_at(now, self._p.instrument)
-        self._ledger.on_entry_filled(now, ticket.position_id, session)
         protected = False
-        stop = None
+        stop: Order | None = None
         try:
             self._stops.open(ticket.position_id, price, filled)
             spec = self._stops.resting_order(ticket.position_id)
@@ -195,8 +196,14 @@ class Executor:
             )
             stop_status = self._broker.place(stop)
             protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
-        except (ValueError, KeyError) as exc:  # the fill cannot carry a valid stop
-            log.critical("no resting stop for %s: %s", ticket.position_id, exc)
+        except Exception as exc:  # any failure here means no stop: flatten
+            log.critical("no resting stop for %s: %r", ticket.position_id, exc)
+        try:
+            self._ledger.on_entry_filled(now, ticket.position_id, session)
+        except Exception as exc:  # the broker still holds the stop
+            log.critical(
+                "ledger did not record %s: %r; reconcile will flatten", ticket.position_id, exc
+            )
         ticket.position = Position(
             position_id=ticket.position_id,
             contract_id=plan.choice.quote.contract_id,

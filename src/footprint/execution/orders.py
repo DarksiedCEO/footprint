@@ -105,6 +105,8 @@ class OrderBroker(Protocol):
 
     def positions(self) -> dict[str, int]: ...
 
+    def open_orders(self) -> list[Order]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class Quote:
@@ -210,5 +212,7 @@ class SimulatedBroker:
     def positions(self) -> dict[str, int]:
         return dict(self._positions)
 
-    def working_orders(self) -> list[Order]:
+    def open_orders(self) -> list[Order]:
         return [s.order for s in self._orders.values() if s.state is OrderState.WORKING]
+
+    working_orders = open_orders

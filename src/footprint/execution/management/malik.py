@@ -28,6 +28,7 @@ the broker holds, latches the kill switch (only Andre restarts) and raises an al
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -62,6 +63,7 @@ class ExitReason(Enum):
     NEWS = "NEWS"
     NEWS_TIME_STOP = "NEWS_TIME_STOP"
     DAILY_LOSS = "DAILY_LOSS"
+    WEEKLY_LOSS = "WEEKLY_LOSS"
     KILL_SWITCH = "KILL_SWITCH"
     UNPROTECTED = "UNPROTECTED"
     RECONCILE = "RECONCILE"
@@ -97,6 +99,8 @@ class Manager:
         self._ledger = ledger
         self._on_alarm = on_alarm or (lambda alarm: None)
         self._exit_reason: dict[str, ExitReason] = {}
+        self._exit_attempts: dict[str, int] = {}
+        self._reconcile_round = 0
 
     @property
     def agent_id(self) -> str:
@@ -120,6 +124,9 @@ class Manager:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
+        if position.stop_order_id is None:
+            # No resting stop at the broker: get out now, whatever the quote looks like.
+            return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
 
         tick = BidTick(quote.bid, quote.ask, quote.ts)
         check = self._stops.check(pid, tick, now)
@@ -140,6 +147,13 @@ class Manager:
         if after.price > before and position.stop_order_id is not None:
             spec = self._stops.resting_order(pid)
             self._broker.modify(position.stop_order_id, spec.limit, spec.trigger)
+            confirmed = self._broker.status(position.stop_order_id)
+            if confirmed.order.stop_price != spec.trigger and confirmed.state is OrderState.WORKING:
+                self._alarm(
+                    now,
+                    f"{pid}: broker did not raise the resting stop to {spec.trigger} "
+                    f"(still {confirmed.order.stop_price})",
+                )
             position.events.append(f"{now.isoformat()} stop raised to {spec.trigger}")
         return None
 
@@ -152,8 +166,6 @@ class Manager:
         now: datetime,
     ) -> ExitReason | None:
         p = self._p
-        if position.stop_order_id is None:
-            return ExitReason.UNPROTECTED
         if check is StopCheck.GAPPED:
             return ExitReason.GAP
         if check is StopCheck.HIT:
@@ -182,6 +194,8 @@ class Manager:
         account = self._ledger.account(now)
         if account.realized_pnl_today + net_open <= -p.risk.daily_max_loss:
             return ExitReason.DAILY_LOSS
+        if account.realized_pnl_week + net_open <= -p.risk.weekly_max_loss:
+            return ExitReason.WEEKLY_LOSS
         if account.kill_switch_latched:
             return ExitReason.KILL_SWITCH
         return None
@@ -191,28 +205,50 @@ class Manager:
     ) -> Closed | None:
         pid = position.position_id
         if position.stop_order_id is not None:
-            cancelled = self._broker.cancel(position.stop_order_id)
+            self._broker.cancel(position.stop_order_id)
+            cancelled = self._broker.status(position.stop_order_id)
             if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
                 return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
             if cancelled.state is not OrderState.CANCELLED:
                 self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
                 return None
+            position.stop_order_id = None
         self._exit_reason[pid] = reason
+        if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
+            self._alarm(now, f"{pid}: flattening ({reason.value})")
+        return self._place_exit(position, quote, now, reason)
+
+    def _place_exit(
+        self, position: Position, quote: Quote, now: datetime, reason: ExitReason
+    ) -> Closed | None:
+        pid = position.position_id
+        self._exit_attempts[pid] = self._exit_attempts.get(pid, 0) + 1
+        tick = self._p.instrument.option_tick_size
+        # A sell limit at the bid; with no bid, at one tick (the floor of any sale).
+        price = quote.bid if quote.bid > 0 else tick
         order = Order(
-            order_id=f"{pid}-exit",
+            order_id=f"{pid}-exit-{self._exit_attempts[pid]}",
             contract_id=position.contract_id,
             side=Side.SELL,
             quantity=position.contracts,
             order_type=OrderType.LIMIT,
-            limit_price=max(quote.bid, self._p.instrument.option_tick_size),
+            limit_price=price,
         )
         position.exit_order_id = order.order_id
-        position.events.append(f"{now.isoformat()} exit {reason.value} at {order.limit_price}")
-        if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
-            self._alarm(now, f"{pid}: flattening ({reason.value})")
-        status = self._broker.place(order)
+        position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
+        try:
+            status = self._broker.place(order)
+        except Exception as exc:  # the exit did not reach the broker: retry next call
+            self._alarm(now, f"{pid}: exit order failed to send: {exc!r}")
+            position.exit_order_id = None
+            self._ledger.latch_kill_switch(f"{pid}: exit failed to send")
+            return None
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)
+        if status.state is not OrderState.WORKING:
+            self._alarm(now, f"{pid}: exit {status.state.value}; retrying and halting entries")
+            position.exit_order_id = None
+            self._ledger.latch_kill_switch(f"{pid}: exit {status.state.value}")
         return None
 
     def _work_exit(self, position: Position, quote: Quote, now: datetime) -> Closed | None:
@@ -221,13 +257,16 @@ class Manager:
         status = self._broker.status(position.exit_order_id)
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)
-        if status.state is OrderState.WORKING and quote.bid > 0:
-            if quote.bid < status.order.limit_price:
-                status = self._broker.modify(position.exit_order_id, quote.bid, None)
-                if status.state is OrderState.FILLED and status.avg_price is not None:
-                    return self._close(position, status.avg_price, now, reason)
-        elif status.state is not OrderState.WORKING:
-            self._alarm(now, f"{position.position_id}: exit order {status.state.value}")
+        if status.state is not OrderState.WORKING:
+            self._alarm(now, f"{position.position_id}: exit {status.state.value}; retrying")
+            self._ledger.latch_kill_switch(f"{position.position_id}: exit {status.state.value}")
+            return self._place_exit(position, quote, now, reason)
+        target = quote.bid if quote.bid > 0 else self._p.instrument.option_tick_size
+        if target < status.order.limit_price:
+            self._broker.modify(position.exit_order_id, target, None)
+            status = self._broker.status(position.exit_order_id)
+            if status.state is OrderState.FILLED and status.avg_price is not None:
+                return self._close(position, status.avg_price, now, reason)
         return None
 
     def _net_pnl(self, position: Position, price: Decimal) -> Decimal:
@@ -239,8 +278,12 @@ class Manager:
         self, position: Position, price: Decimal, now: datetime, reason: ExitReason
     ) -> Closed:
         net = self._net_pnl(position, price)
-        self._ledger.on_trade_closed(now, position.position_id, net)
-        self._stops.close(position.position_id)
+        if self._ledger.open_position_id == position.position_id:
+            self._ledger.on_trade_closed(now, position.position_id, net)
+        else:
+            self._alarm(now, f"{position.position_id}: closed but the ledger never recorded it")
+        with contextlib.suppress(KeyError):  # Booker never held a stop (unprotected case)
+            self._stops.close(position.position_id)
         position.events.append(f"{now.isoformat()} closed {reason.value} at {price}, net {net}")
         log.info("closed %s at %s (%s), net %s", position.position_id, price, reason.value, net)
         return Closed(position.position_id, price, now, reason, net)
@@ -251,40 +294,51 @@ class Manager:
 
     def reconcile(
         self,
-        expected: Mapping[str, int],
+        position: Position | None,
         quotes: Mapping[str, Quote],
-        working_orders: Iterable[Order],
         now: datetime,
     ) -> bool:
-        """True if the broker agrees with `expected`. On any doubt: cancel every working
-        order, flatten every broker position with limit orders, latch the kill switch.
+        """True if the broker, the ledger and `position` all agree. On any doubt:
+        cancel every order the BROKER lists, re-read what it still holds, post limit
+        orders to flatten exactly that, latch the kill switch and alarm. Call again
+        every few seconds until it returns True: each round re-reads the broker and
+        re-prices the flatten, so it never sells what is no longer held.
 
-        Booker's stops live in memory. After a restart, call this with `expected={}`
-        (nothing the system can manage), so any position the broker still holds is
-        flattened rather than run without its stop and trail.
+        Booker's stops live in memory. After a restart, pass `position=None` (nothing
+        the system can manage), so anything the broker still holds is flattened rather
+        than run without its stop and trail.
         """
+        expected = {position.contract_id: position.contracts} if position else {}
+        ledger_open = self._ledger.open_position_id
+        ledger_ok = ledger_open == (position.position_id if position else None)
         actual = self._broker.positions()
-        if dict(actual) == {k: v for k, v in expected.items() if v}:
+        if actual == expected and ledger_ok:
             return True
-        self._alarm(now, f"reconcile mismatch: broker {actual} vs expected {dict(expected)}")
-        for order in working_orders:
+        self._alarm(
+            now,
+            f"reconcile mismatch: broker {actual}, expected {expected}, ledger open {ledger_open}",
+        )
+        self._ledger.latch_kill_switch("unclear recovery: broker, ledger and records disagree")
+        for order in self._broker.open_orders():
             self._broker.cancel(order.order_id)
-        for contract_id, qty in actual.items():
+        remaining = self._broker.positions()  # after the cancels: what is really held
+        self._reconcile_round += 1
+        tick = self._p.instrument.option_tick_size
+        for contract_id, qty in remaining.items():
             quote = quotes.get(contract_id)
-            tick = self._p.instrument.option_tick_size
-            price: Decimal | None
             if qty > 0:
-                price = quote.bid if quote is not None and quote.bid > 0 else tick
-                side = Side.SELL
+                side, price = (
+                    Side.SELL,
+                    (quote.bid if quote is not None and quote.bid > 0 else tick),
+                )
+            elif quote is not None and quote.ask > 0:
+                side, price = Side.BUY, quote.ask
             else:
-                price = quote.ask if quote is not None and quote.ask > 0 else None
-                side = Side.BUY
-            if price is None:
-                self._alarm(now, f"cannot price a flatten for {contract_id}: no quote")
+                self._alarm(now, f"cannot price a buy-back for {contract_id}: no ask")
                 continue
             self._broker.place(
                 Order(
-                    order_id=f"reconcile-{now:%Y%m%dT%H%M%S}-{contract_id}",
+                    order_id=f"reconcile-{self._reconcile_round}-{contract_id}",
                     contract_id=contract_id,
                     side=side,
                     quantity=abs(qty),
@@ -292,5 +346,15 @@ class Manager:
                     limit_price=price,
                 )
             )
-        self._ledger.latch_kill_switch("unclear recovery: broker and ledger disagree")
+        if not remaining and position is not None and ledger_open == position.position_id:
+            quote = quotes.get(position.contract_id)
+            estimate = quote.bid if quote is not None and quote.bid > 0 else tick
+            self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {estimate}")
+            self._close(position, estimate, now, ExitReason.RECONCILE)
+        elif not remaining and ledger_open is not None and position is None:
+            self._alarm(
+                now,
+                f"ledger shows {ledger_open} open but nothing is held and no record survives: "
+                "book it by hand",
+            )
         return False
