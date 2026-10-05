@@ -1,0 +1,13 @@
+# Money model. Amounts are in account currency.
+bankroll: 25000
+position_cap: 5000
+overnight_position_cap: 2500
+profit_target: 1000
+stop_min: 750
+stop_max: 1000
+daily_max_stopouts: 2
+daily_max_loss: 2000
+weekly_max_loss: 3500
+kill_switch_drawdown_pct: 20
+max_trades_prime: 4
+max_trades_overnight: 1

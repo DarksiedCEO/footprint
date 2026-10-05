@@ -1,0 +1,16 @@
+# Instrument profile. Every instrument-specific number lives here, never in code.
+symbol: NQ
+exchange: CME
+point_value: 20
+tick_size: 0.25
+round_number_step: 100
+prime_session:
+  start: "04:00"
+  end: "14:00"
+  timezone: America/Los_Angeles
+overnight_session:
+  start: "15:00"
+  end: "03:59"
+  timezone: America/Los_Angeles
+dte_min: 1
+dte_max: 3
