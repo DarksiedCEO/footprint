@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Sequence
+from datetime import time
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 from footprint.core.models import Bar, Score
 from footprint.core.series import require_series
+from footprint.core.timecache import local_time
 
 __all__ = [
     "candle_direction",
@@ -38,15 +40,36 @@ def ema(values: Sequence[Decimal], period: int) -> list[Decimal]:
     return out
 
 
+# Per tuple of bars: local clock time -> ascending positions. Tuples only (they cannot
+# change); kept alive here so an id is never reused while cached.
+_CLOCK_INDEX: list[tuple[tuple[Bar, ...], str, dict[time, list[int]]]] = []
+_KEEP = 4
+
+
+def _clock_index(bars: tuple[Bar, ...], timezone: str) -> dict[time, list[int]]:
+    for seen, zone, index in _CLOCK_INDEX:
+        if seen is bars and zone == timezone:
+            return index
+    built: dict[time, list[int]] = {}
+    for i, bar in enumerate(bars):
+        built.setdefault(local_time(bar.ts, timezone).time(), []).append(i)
+    _CLOCK_INDEX.append((bars, timezone, built))
+    del _CLOCK_INDEX[:-_KEEP]
+    return built
+
+
 def same_time_indices(bars: Sequence[Bar], index: int, lookback: int, timezone: str) -> list[int]:
     """Indices of up to `lookback` earlier bars sharing bars[index]'s local clock time,
     most recent first (the same time of day on earlier sessions).
     """
-    zone = ZoneInfo(timezone)
-    clock = bars[index].ts.astimezone(zone).time()
+    clock = local_time(bars[index].ts, timezone).time()
+    if isinstance(bars, tuple) and lookback >= 1 and 0 <= index < len(bars):
+        positions = _clock_index(bars, timezone)[clock]
+        earlier = positions[: bisect_left(positions, index)]
+        return earlier[-lookback:][::-1]
     found: list[int] = []
     for i in range(index - 1, -1, -1):
-        if bars[i].ts.astimezone(zone).time() == clock:
+        if local_time(bars[i].ts, timezone).time() == clock:
             found.append(i)
             if len(found) == lookback:
                 break

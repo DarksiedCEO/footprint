@@ -32,6 +32,7 @@ from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score, Signal, require_utc
 from footprint.core.options import OptionChain, Right
 from footprint.core.series import require_series
+from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed, resample, session_days
 from footprint.decision.console.desmond import Console, ConsoleInputs, ConsoleVerdict
 from footprint.decision.risk.gate import (
@@ -193,7 +194,9 @@ class Pipeline:
 
     def _verdict(self, minute_bars: Sequence[Bar], as_of: datetime) -> ConsoleVerdict:
         p = self._p
-        minutes = completed(minute_bars, as_of, 1)
+        # One immutable tuple shared by every reader this decision: the series helpers
+        # cache their work per tuple (a tuple of frozen Bars cannot change underneath).
+        minutes = tuple(completed(minute_bars, as_of, 1))
         if minutes:
             require_series(minutes, 1, "minute bars")
             if minutes[0].symbol != p.instrument.symbol:
@@ -238,7 +241,8 @@ class Pipeline:
         after = [
             b
             for b in minutes
-            if b.ts.astimezone(zone).date() == today and b.ts.astimezone(zone).time() >= cash.end
+            if local_time(b.ts, cash.timezone).date() == today
+            and local_time(b.ts, cash.timezone).time() >= cash.end
         ]
         if after:
             session = Bar(

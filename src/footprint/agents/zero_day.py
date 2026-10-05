@@ -36,6 +36,7 @@ from footprint.core.calendar import is_trading_day
 from footprint.core.config import DataSettings, InstrumentProfile, ZeroDaySettings
 from footprint.core.models import Bar, require_utc
 from footprint.core.series import require_series
+from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed
 
 _MINUTE = timedelta(minutes=1)
@@ -140,7 +141,7 @@ class ZeroDayAgent:
         cutoff = local_now.time()
         by_day: dict[date, list[Bar]] = {}
         for bar in bars:
-            local = bar.ts.astimezone(zone)
+            local = local_time(bar.ts, prime.timezone)
             if prime.start <= local.time() < cutoff and is_trading_day(
                 local.date(), self._instrument
             ):
