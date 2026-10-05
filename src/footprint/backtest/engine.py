@@ -184,16 +184,18 @@ class Backtest:
                     skipped += 1
                     break
                 self._price = path_price(bar, second, against)
-                self._publish(t, full_chain=second == 0)
+                # Whenever the runner may decide (idle), the whole chain it will see is
+                # in the book at that moment, so Diego can send what it approves (R12).
+                self._publish(t, full_chain=second == 0 or self._idle())
                 self._mark(t)  # the new quote, before anything fills against it
+                before = self.runner.exposure
                 self.runner.step(t)
                 steps += 1
                 self._mark(t)
                 ended = self._stopped(t)
                 if ended is not None:
                     break
-                if second == 0:
-                    against = self._against()
+                against = self._next_order(second, before, against)
                 if self._idle() and self._decided(newest_closed, t):
                     break
                 second += substep
@@ -252,6 +254,16 @@ class Backtest:
             return True
         last = self.runner.last_decided
         return last is not None and last >= newest_closed
+
+    def _next_order(
+        self, second: int, before: Direction | None, against: Direction | None
+    ) -> Direction | None:
+        """The path's order is chosen after the open, and chosen again when something
+        new goes live inside the bar (a fresh entry after a close): worst case for it.
+        An entry filling into a position keeps the order it had."""
+        if second == 0 or (before is None and self.runner.exposure is not None):
+            return self._against()
+        return against
 
     def _against(self) -> Direction | None:
         """The path's order for the rest of this bar, worst case for what is live:

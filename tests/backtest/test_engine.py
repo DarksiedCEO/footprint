@@ -11,6 +11,7 @@ from footprint.backtest.readout import read_out
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.config import Profiles
 from footprint.core.models import Bar
+from footprint.core.options import OptionChain
 from tests.backtest.conftest import TRADE_FROM, extend, workdir
 from tests.decision.scenario import DECISION_TIME
 
@@ -254,3 +255,51 @@ def test_an_entry_still_working_when_the_data_ends_is_cancelled(
     assert result.trades == []
     assert bt.broker.open_orders() == []
     assert not result.open_at_end
+
+
+def test_every_chain_a_decision_sees_is_the_book_at_that_moment(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review B3-r2 (R12 in the backtest): whenever the runner decides, at the open or
+    later in a minute after a close, every quote of its chain is in the book, fresh
+    and equal, so Diego can send whatever the decision approves."""
+    checked: list[datetime] = []
+
+    class Spy(Backtest):
+        def _chain(self, now: datetime) -> OptionChain:
+            chain = super()._chain(now)
+            for q in chain.quotes:
+                live = self.book.latest(q.contract_id)
+                assert live is not None
+                assert (live.bid, live.ask, live.ts) == (q.bid, q.ask, now)
+            checked.append(now)
+            return chain
+
+    bt = Spy(
+        profiles, settings, extend(history, [D(-10)] * 15), workdir(tmp_path), trade_from=TRADE_FROM
+    )
+    result = bt.run()
+    trade = only_trade(result)
+    exit_ts = datetime.fromisoformat(str(trade["exit_ts"]))
+    assert any(t.second != 0 for t in checked)  # a decision later in a minute was checked
+    assert any(exit_ts < t < exit_ts + timedelta(minutes=1) for t in checked)
+
+
+class _FakeRunner:
+    def __init__(self, position: object, exposure: object) -> None:
+        self.position = position
+        self.exposure = exposure
+
+
+def test_a_new_entry_inside_a_bar_gets_its_own_worst_case_order(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review B3-r2: a long stopped out mid-bar left the order low-first; a new long
+    entry in the same bar must see the high first, not inherit the old order."""
+    from footprint.core.models import Direction
+
+    bt = Backtest(profiles, settings, list(history), workdir(tmp_path), trade_from=TRADE_FROM)
+    bt.runner = _FakeRunner(None, Direction.LONG)  # type: ignore[assignment]  # entry working
+    assert bt._next_order(30, None, Direction.LONG) is Direction.SHORT  # high first
+    bt.runner = _FakeRunner(object(), Direction.LONG)  # type: ignore[assignment]  # it filled
+    assert bt._next_order(35, Direction.LONG, Direction.SHORT) is Direction.SHORT  # kept
