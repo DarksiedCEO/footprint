@@ -52,6 +52,7 @@ from footprint.execution.orders import (
     OrderState,
     OrderStatus,
     OrderType,
+    PositionsUncertain,
     Quote,
     Side,
     TrackedBroker,
@@ -116,6 +117,7 @@ class Manager:
         self._reconcile_closes: list[Closed] = []
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
+        self._stop_stuck_since: dict[str, datetime] = {}
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -154,6 +156,16 @@ class Manager:
             stop_status = self._broker.status(position.stop_order_id)
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
+            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
+                # Gone at the broker without this system cancelling it (by hand, or
+                # by the broker): the position is unprotected. Get out.
+                self._alarm(
+                    now,
+                    f"{pid}: resting stop {stop_status.state.value} at the broker; "
+                    "unprotected, flattening",
+                )
+                position.stop_order_id = None
+                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
         if position.stop_order_id is None:
@@ -268,6 +280,17 @@ class Manager:
     ) -> Closed | None:
         pid = position.position_id
         try:
+            # What is held is read once, BEFORE the stop comes down: a broker in doubt
+            # about its positions keeps the stop, and the exit waits. The exit is sized
+            # from this read; nothing of this system's can change what is held after
+            # it (the stop and every other order on the contract are confirmed
+            # cancelled, unfilled, below), so a later read could only open a window
+            # with no stop and no exit.
+            try:
+                held = self._broker.positions().get(position.contract_id, 0)
+            except PositionsUncertain as exc:
+                log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
+                return None
             if position.stop_order_id is not None:
                 self._broker.cancel(position.stop_order_id)
                 cancelled = self._broker.status(position.stop_order_id)
@@ -275,7 +298,24 @@ class Manager:
                     return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
                 if cancelled.state is not OrderState.CANCELLED:
                     self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
+                    since = self._stop_stuck_since.setdefault(pid, now)
+                    escalate = timedelta(
+                        seconds=self._p.execution.reconcile.cancel_escalate_seconds
+                    )
+                    if now - since >= escalate:
+                        # The exit cannot go out beside it: reconcile takes over (it
+                        # re-prices a stuck stop to the market, and escalates to Andre).
+                        del self._stop_stuck_since[pid]
+                        message = f"{pid}: resting stop will not cancel; reconcile"
+                        self._stand_down(now, f"{pid}: stop will not cancel")
+                        raise NeedsReconcile(message)
                     return None
+                self._stop_stuck_since.pop(pid, None)
+                if cancelled.filled > 0:  # part of it sold before the cancel landed
+                    message = f"{pid}: stop filled {cancelled.filled} before its cancel; reconcile"
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: stop partly filled")
+                    raise NeedsReconcile(message)
                 position.stop_order_id = None
             else:
                 # Unprotected: a stop may have reached the broker unacknowledged. If it
@@ -338,18 +378,13 @@ class Manager:
             ExitReason.FAILSAFE,
         ):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
-        return self._place_exit(position, quote, now, reason)
+        return self._place_exit(position, quote, now, reason, held)
 
     def _place_exit(
-        self, position: Position, quote: Quote, now: datetime, reason: ExitReason
+        self, position: Position, quote: Quote, now: datetime, reason: ExitReason, held: int
     ) -> Closed | None:
+        """`held`: what the broker held before the stop came down (see _start_exit)."""
         pid = position.position_id
-        try:
-            held = self._broker.positions().get(position.contract_id, 0)
-        except Exception as exc:
-            self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
-            self._stand_down(now, f"{pid}: cannot read positions")
-            return None
         if 0 < held != position.contracts:
             # More (or fewer) held than this position: selling its size would leave
             # contracts nobody manages, or sell short. Stop and reconcile.
@@ -381,6 +416,7 @@ class Manager:
             quantity=quantity,
             order_type=OrderType.LIMIT,
             limit_price=price,
+            oca_group=pid,  # with its stop: the broker lets only one of them fill
         )
         position.exit_order_id = order.order_id
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
@@ -523,7 +559,12 @@ class Manager:
         )
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
-        actual = self._broker.positions()
+        try:
+            actual = self._broker.positions()
+        except PositionsUncertain:
+            # Not a failure: the report is not settled yet (bounded by _unsettled).
+            self._unsettled(now, "the broker's positions")
+            return False
         working = self._working_orders(position)
         working_ids = set(working)
         if actual == expected and ledger_ok and working_ids == expected_orders:
@@ -557,7 +598,12 @@ class Manager:
                 log.critical("reconcile could not cancel %s: %r", order_id, exc)
         pending = list(self._working_orders(position).values())
         self._watch_stuck_cancels(pending, now)
-        remaining = self._broker.positions()  # what is really held after the cancels
+        try:
+            remaining = self._broker.positions()  # what is really held after the cancels
+        except PositionsUncertain:
+            self._unsettled(now, "the broker's positions")
+            self._stand_down(now, "unclear recovery")
+            return False
         held = (
             tuple(sorted(remaining.items())),
             tuple(sorted(status.order.order_id for status in pending)),

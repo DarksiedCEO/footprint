@@ -27,6 +27,8 @@ Each is a config value or a one-line change; nothing here is hidden in code.
 | D20 | Alarms | Which channel is the primary alarm line (push, SMS, email) and which is the fallback | The code supports a fallback line; the channels are a deployment choice | Pick both channels |
 | D21 | Exits on a dead feed | With no fresh quote, a closing exit (and reconcile's flatten) walks its sell limit down one tick a step, to a floor of one tick | Never rest on a dead quote. The cost: a resting sell at a walked-down limit fills AT that limit when the market returns (the exchange trades at the resting order's price), so a long gap can give the option away cheaply | Keep, or put a floor under the walk (e.g. a share of the last known bid) and escalate instead |
 | D22 | Backtest option model | ATM premium 150 points at 1 day (time value falls with the square root of time), spread 2 points, strikes every 25 points, daily expiries, fixed delta 0.45, no gamma | No historical NQ options data; every number is UNVERIFIED and printed in each readout | Check against real NQ option quotes (a week of snapshots) before trusting any backtest result |
+| D23 | IBKR adapter | Wait 5 s for IBKR's answer before treating it as lost. While IBKR's position report and the fills disagree, no position is reported at all (exits wait, the stop stays); after 10 s the disagreement is alarmed and a fresh resync taken. A resync not complete after 10 s is alarmed | Not in the spec | Confirm `ibkr.ack_timeout_seconds`, `ibkr.positions_disagree_alarm_seconds`; re-measure in paper |
+| D24 | IBKR account | The system treats every NQ futures option in the account as its own. One held or worked by hand would be flattened by reconcile, which fails on the unregistered contract and halts the system | Telling a hand-held NQ option from the system's own after a restart needs a record the system does not keep yet | Do not trade NQ options by hand in the account the system uses (simplest: a dedicated account or sub-account), or ask for a persisted record of the system's own contracts |
 
 ## Before paper trading (from the independent reviews)
 
@@ -60,3 +62,19 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 5. Re-confirm reconcile's stale-price walk-down against the real adapter.
 6. Order and position ids become UUIDs (a restart restarts the sequence).
 7. Integration tests against an IBKR-style stub: late cancels, lost acknowledgements, rejected modifies, partial fills, reordered quotes, lagging position reports, a flickering position report.
+
+## To verify in the IBKR paper account (the adapter is built and tested against a fake)
+
+1. A resend under the same order id modifies in place (never a second order); 103/104/105 come back as documented.
+2. A stop-limit and limit exits in one OCA group (type 1, with block): only one can fill.
+3. The position subscription keeps sending changes after its first snapshot.
+4. Which client id can cancel orders placed by hand in TWS (the master API client id), and that a hand-placed order shows with no orderRef.
+5. Order and execution events arrive for orders cancelled or filled while disconnected, after 1101. reqAllOpenOrders lists EVERY live order, including one still PendingSubmit/ApiPending at TWS: the adapter settles any order of ours missing from that list as finished (an order left out while live would be taken as cancelled; it is alarmed "CHECK TWS", and taken back as live if IBKR reports it again).
+6. The NQ option contract details (trading class per daily expiry, multiplier 20, tick size): D9.
+7. An execution correction arrives as a new execId with the same prefix and a higher last segment (`...01.01` then `...01.02`), and replaces the original.
+8. An Inactive order: when IBKR reports it (margin, price outside limits, outside hours), whether it can become active again, and how a cancel of it is answered (Cancelled status, or 161/202).
+9. A cancel answered 135/161 on an order IBKR no longer holds; PendingCancel lasting; a fill arriving during PendingCancel.
+10. After 1101 and after 1102: are requests sent before the loss still answered (open orders, executions, positions ends)? The adapter assumes they may be, and waits for the end of the LAST request of each kind.
+11. The openOrder echo after a modify carries the new prices exactly (the binding converts with Decimal(str(price))).
+12. cancelPositions followed by reqPositions gives a fresh full snapshot and positionEnd.
+13. Which warning codes arrive on our orders (165, 399, 10167, 10349, 2100-2199 are treated as warnings, never as answers).
