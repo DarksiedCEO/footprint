@@ -79,12 +79,15 @@ def test_too_few_trades_is_not_a_result(settings: BacktestSettings) -> None:
 
 
 def test_the_held_out_trades_must_pass_too(settings: BacktestSettings) -> None:
-    pnls = passing(170) + [-1000 if i % 3 else 1000 for i in range(80)]  # the end decays
+    """The whole run clears every gate; only the held-out end fails. Still a FAIL."""
+    strong = [2000, 2000, -1000, 2000, -1000]  # 60% wins
+    head = [strong[i % 5] for i in range(170)]
+    tail = [1500 if i % 3 == 0 else -1000 for i in range(75)]  # 33% wins, PF 0.75
+    pnls: list[int | str] = [*head, *tail]
     r = read_out(run_of(pnls), settings, {})
     assert r.verdict == "FAIL"
     assert any(why.startswith("out of sample") for why in r.why)
-    whole = next(g for g in r.gates if g.segment == "all" and g.gate == "profit factor")
-    assert whole.passed  # the whole run alone would have passed
+    assert all(g.passed for g in r.gates if g.segment == "all")  # the whole run passes
 
 
 def test_drawdown_past_the_gate_fails(settings: BacktestSettings) -> None:
@@ -119,3 +122,27 @@ def test_the_report_carries_the_verdict_gates_and_assumptions(settings: Backtest
     assert "| out of sample | profit factor | >= 1.3 |" in text
     assert "option prices: MODELLED" in text
     assert to_json(r)["verdict"] == "PASS"
+
+
+def test_a_breakeven_trade_is_not_a_win() -> None:
+    m = measure([D(0), D(100), D(-100)], BANK)
+    assert (m.wins, m.losses, m.trades) == (1, 1, 3)
+
+
+def test_the_held_out_drawdown_is_measured_from_where_it_starts(
+    settings: BacktestSettings,
+) -> None:
+    """The held-out equity starts where the in-sample trades left it."""
+    head: list[int | str] = [5000] * 70  # equity 25,000 -> 375,000
+    tail: list[int | str] = [-15000] * 30  # 450,000 down from 375,000: 12% of 375,000
+    r = read_out(run_of([*head, *tail]), settings, {})
+    assert r.held_out.trades == 30
+    assert round(r.held_out.max_drawdown_pct, 2) == round(D(450000) / D(375000) * 100, 2)
+
+
+def test_trades_are_taken_in_exit_order(settings: BacktestSettings) -> None:
+    run = run_of(passing(240))
+    run = replace(run, trades=list(reversed(run.trades)))
+    r = read_out(run, settings, {})
+    ordered = read_out(run_of(passing(240)), settings, {})
+    assert r.held_out == ordered.held_out

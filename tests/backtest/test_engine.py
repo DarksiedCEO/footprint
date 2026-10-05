@@ -158,3 +158,48 @@ def test_bad_inputs_are_refused(
             tmp_path / "b",
             trade_from=DECISION_TIME + timedelta(days=1),
         )
+
+
+def test_the_decision_window_is_capped_at_history_minutes(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    small = replace(settings, engine=replace(settings.engine, history_minutes=500))
+    seen: list[int] = []
+
+    class Spy(Backtest):
+        def _closed_bars(self, now: datetime) -> tuple[Bar, ...]:
+            window = super()._closed_bars(now)
+            seen.append(len(window))
+            return window
+
+    Spy(
+        profiles, small, extend(history, [D(1)] * 3), workdir(tmp_path), trade_from=TRADE_FROM
+    ).run()
+    assert seen
+    assert max(seen) == 500
+
+
+def test_inside_a_minute_the_bad_extreme_comes_first_for_an_open_trade(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Long calls, then a falling bar that also spikes far up. Against the trade the
+    low comes first: the hard stop, not a trailed profit off the spike."""
+    bars = extend(history, [D(0)])  # the entry fills on this bar's dip
+    o = bars[-1].close
+    bars.append(Bar("NQ", bars[-1].ts + timedelta(minutes=1), o, o + 250, o - 120, o - 50, 100))
+    _, result = run(profiles, settings, bars, tmp_path)
+    trade = only_trade(result)
+    assert D(str(trade["net_pnl"])) < 0
+    assert -D(str(trade["net_pnl"])) >= profiles.risk.stop_loss
+
+
+def test_the_last_bar_is_decided_on_when_it_closes(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """The scenario ends with the follow-through bar: its close (07:01) fires."""
+    bt = Backtest(profiles, settings, list(history), workdir(tmp_path), trade_from=TRADE_FROM)
+    result = bt.run()
+    assert result.fired == 1
+    assert bt.journal.decisions()[-1]["as_of"] == DECISION_TIME.isoformat()

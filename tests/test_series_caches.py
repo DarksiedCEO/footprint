@@ -77,3 +77,32 @@ def test_validation_errors_are_identical_for_tuples_and_lists(make: type) -> Non
         require_series(make(backwards), 1, "bars")
     require_series(make(good), 1, "bars")  # valid either way
     require_series(make(good), 1, "bars")  # and again (cached for a tuple)
+
+
+def test_one_tuple_in_two_time_zones_is_cached_per_zone() -> None:
+    bars = random_bars(9, 3000)
+    as_tuple = tuple(bars)
+    for zone in (TZ, "Europe/London", TZ):
+        for index in (2999, 1500, 700):
+            assert same_time_indices(as_tuple, index, 5, zone) == same_time_indices(
+                bars, index, 5, zone
+            )
+
+
+def test_a_tuple_checked_without_a_timeframe_is_still_checked_with_one() -> None:
+    two_minute = tuple(random_bars(3, 10)[::2])
+    gappy = tuple(
+        Bar(b.symbol, START + timedelta(minutes=2 * i), b.open, b.high, b.low, b.close, b.volume)
+        for i, b in enumerate(two_minute)
+    )
+    require_series(gappy, None, "bars")  # fine without a timeframe
+    with pytest.raises(ValueError, match="not a multiple of 15"):
+        require_series(gappy, 15, "bars")
+
+
+def test_a_list_is_rechecked_even_after_it_passed() -> None:
+    bars = random_bars(4, 20)
+    require_series(bars, 1, "bars")
+    bars[5], bars[6] = bars[6], bars[5]  # mutated in place: now out of order
+    with pytest.raises(ValueError, match="strictly increasing"):
+        require_series(bars, 1, "bars")
