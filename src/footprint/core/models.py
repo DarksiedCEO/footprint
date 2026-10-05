@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum, IntEnum
+from types import MappingProxyType
 
 
 def _require_utc(ts: datetime, field: str) -> None:
@@ -37,8 +39,8 @@ class Bar:
             price = getattr(self, name)
             if not isinstance(price, Decimal):
                 raise TypeError(f"Bar.{name} must be a Decimal, got {type(price).__name__}")
-            if not price.is_finite():
-                raise ValueError(f"Bar.{name} must be finite, got {price}")
+            if not price.is_finite() or price <= 0:
+                raise ValueError(f"Bar.{name} must be a finite price > 0, got {price}")
         if isinstance(self.volume, bool) or not isinstance(self.volume, int):
             raise TypeError(f"Bar.volume must be an int, got {type(self.volume).__name__}")
         if self.volume < 0:
@@ -112,6 +114,30 @@ class TradeState(Enum):
     CLOSED = "CLOSED"
 
 
+ALLOWED_TRANSITIONS: Mapping[TradeState, frozenset[TradeState]] = MappingProxyType(
+    {
+        TradeState.SCANNING: frozenset({TradeState.SIGNAL}),
+        # SIGNAL -> CLOSED: vetoed or cancelled.
+        TradeState.SIGNAL: frozenset({TradeState.ENTERING, TradeState.CLOSED}),
+        # ENTERING -> CLOSED: unfilled or rejected.
+        TradeState.ENTERING: frozenset({TradeState.OPEN, TradeState.CLOSED}),
+        TradeState.OPEN: frozenset({TradeState.RUNNING, TradeState.EXITING}),
+        TradeState.RUNNING: frozenset({TradeState.EXITING}),
+        TradeState.EXITING: frozenset({TradeState.CLOSED}),
+        TradeState.CLOSED: frozenset(),
+    }
+)
+
+
+class IllegalTransitionError(ValueError):
+    """A trade was asked to move between two states that are not connected."""
+
+
+def _require_transition(current: TradeState, target: TradeState) -> None:
+    if target not in ALLOWED_TRANSITIONS[current]:
+        raise IllegalTransitionError(f"illegal transition {current.value} -> {target.value}")
+
+
 @dataclass(frozen=True, slots=True)
 class TradeEvent:
     ts: datetime
@@ -150,8 +176,16 @@ class Trade:
                 raise ValueError(
                     f"Trade.events must be in chronological order: {later.ts} follows {earlier.ts}"
                 )
+            _require_transition(earlier.state, later.state)
         if self.events and self.events[-1].state is not self.state:
             raise ValueError(
                 f"Trade.state ({self.state.value}) must match the last event "
                 f"({self.events[-1].state.value})"
             )
+
+    def transition(self, to: TradeState, ts: datetime, note: str = "") -> Trade:
+        """Return a new Trade moved to `to`, with the move appended to the log."""
+        if not isinstance(to, TradeState):
+            raise ValueError(f"Trade.transition target must be a TradeState, got {to!r}")
+        _require_transition(self.state, to)
+        return Trade(id=self.id, state=to, events=(*self.events, TradeEvent(ts, to, note)))

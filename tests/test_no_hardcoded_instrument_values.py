@@ -63,6 +63,25 @@ def violations(root: Path, numbers: set[Decimal], words: set[str]) -> list[str]:
     return found
 
 
+# Every exemption must be reviewed: adding a marker under src/ means bumping this.
+EXPECTED_ALLOW_MARKERS = 1
+
+
+def count_allow_markers(root: Path) -> int:
+    return sum(
+        path.read_text().count(ALLOW_MARKER)
+        for path in root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    )
+
+
+def test_allow_marker_count_matches_the_reviewed_number() -> None:
+    assert count_allow_markers(SRC) == EXPECTED_ALLOW_MARKERS, (
+        f"the number of '{ALLOW_MARKER}' exemptions under src/ changed; "
+        "justify the new one in review and update EXPECTED_ALLOW_MARKERS"
+    )
+
+
 def test_profiles_yield_the_expected_forbidden_values(
     instrument_path: Path, risk_path: Path
 ) -> None:

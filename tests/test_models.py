@@ -6,8 +6,10 @@ from typing import Any
 import pytest
 
 from footprint.core.models import (
+    ALLOWED_TRANSITIONS,
     Bar,
     Direction,
+    IllegalTransitionError,
     Read,
     Score,
     Signal,
@@ -17,6 +19,18 @@ from footprint.core.models import (
 )
 
 TS = datetime(2026, 1, 5, 14, 30, tzinfo=UTC)
+
+ALLOWED = [
+    (TradeState.SCANNING, TradeState.SIGNAL),
+    (TradeState.SIGNAL, TradeState.ENTERING),
+    (TradeState.SIGNAL, TradeState.CLOSED),
+    (TradeState.ENTERING, TradeState.OPEN),
+    (TradeState.ENTERING, TradeState.CLOSED),
+    (TradeState.OPEN, TradeState.RUNNING),
+    (TradeState.OPEN, TradeState.EXITING),
+    (TradeState.RUNNING, TradeState.EXITING),
+    (TradeState.EXITING, TradeState.CLOSED),
+]
 
 
 def make_bar(**overrides: Any) -> Bar:
@@ -63,6 +77,14 @@ class TestBar:
             {"open": Decimal("13")},  # above high
             {"close": Decimal("8")},  # below low
             {"volume": -1},
+            {"low": Decimal("0"), "open": Decimal("0")},
+            {"low": Decimal("-1")},
+            {
+                "open": Decimal("-10"),
+                "high": Decimal("-8"),
+                "low": Decimal("-11"),
+                "close": Decimal("-9"),
+            },
             {"close": Decimal("NaN")},
             {"high": Decimal("Infinity")},
         ],
@@ -162,6 +184,56 @@ class TestTrade:
             "EXITING",
             "CLOSED",
         ]
+
+    @pytest.mark.parametrize(("current", "target"), ALLOWED)
+    def test_allows_each_legal_transition(self, current: TradeState, target: TradeState) -> None:
+        moved = Trade(id="t-1", state=current).transition(target, TS, note="why")
+        assert moved.state is target
+        assert moved.events == (TradeEvent(ts=TS, state=target, note="why"),)
+        assert moved.id == "t-1"
+
+    def test_allowed_table_is_exactly_the_agreed_one(self) -> None:
+        table = {(a, b) for a, targets in ALLOWED_TRANSITIONS.items() for b in targets}
+        assert table == set(ALLOWED)
+        assert set(ALLOWED_TRANSITIONS) == set(TradeState)
+
+    @pytest.mark.parametrize(
+        ("current", "target"),
+        [(a, b) for a in TradeState for b in TradeState if (a, b) not in ALLOWED],
+    )
+    def test_rejects_every_other_transition(self, current: TradeState, target: TradeState) -> None:
+        with pytest.raises(IllegalTransitionError, match=f"{current.value} -> {target.value}"):
+            Trade(id="t-1", state=current).transition(target, TS)
+
+    @pytest.mark.parametrize("target", list(TradeState))
+    def test_closed_is_terminal(self, target: TradeState) -> None:
+        with pytest.raises(IllegalTransitionError):
+            Trade(id="t-1", state=TradeState.CLOSED).transition(target, TS)
+
+    def test_transition_does_not_mutate_and_keeps_the_log(self) -> None:
+        start = Trade(id="t-1", state=TradeState.SCANNING)
+        later = start.transition(TradeState.SIGNAL, TS).transition(
+            TradeState.CLOSED, TS + timedelta(minutes=1), note="vetoed"
+        )
+        assert start.events == ()
+        assert [event.state for event in later.events] == [TradeState.SIGNAL, TradeState.CLOSED]
+
+    def test_transition_rejects_going_back_in_time(self) -> None:
+        trade = Trade(id="t-1", state=TradeState.SCANNING).transition(TradeState.SIGNAL, TS)
+        with pytest.raises(ValueError, match="chronological"):
+            trade.transition(TradeState.ENTERING, TS - timedelta(seconds=1))
+
+    def test_transition_rejects_non_state_target(self) -> None:
+        with pytest.raises(ValueError, match="TradeState"):
+            Trade(id="t-1", state=TradeState.SCANNING).transition("SIGNAL", TS)  # type: ignore[arg-type]
+
+    def test_rejects_event_log_containing_an_illegal_jump(self) -> None:
+        events = (
+            TradeEvent(ts=TS, state=TradeState.SCANNING),
+            TradeEvent(ts=TS + timedelta(minutes=1), state=TradeState.OPEN),
+        )
+        with pytest.raises(IllegalTransitionError, match="SCANNING -> OPEN"):
+            Trade(id="t-1", state=TradeState.OPEN, events=events)
 
     def test_valid_with_ordered_events(self) -> None:
         events = (
