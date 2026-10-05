@@ -19,6 +19,7 @@ ibapi is GPL-3.0-or-later (see docs/decisions-pending.md, D25).
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,14 @@ VERSION = "10.50.2"  # ibapi's own version string for IBKR "Stable" API 10.50.02
 URL = "https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip"
 SHA256 = "0d6482032f17934025039623fa85dee6d0651727ba73d3dac977d8c50ebccedd"
 CLIENT = "twsapi_macunix/IBJts/source/pythonclient/"
+
+
+def _fail(message: str) -> int:
+    """Report a refusal (as an annotation too, when running in GitHub Actions)."""
+    print(f"REFUSED: {message}", file=sys.stderr)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::error title=install_ibapi::{message}")
+    return 1
 
 
 def _sha256(path: Path) -> str:
@@ -49,19 +58,24 @@ def main(argv: list[str]) -> int:
         else:
             archive = work / "twsapi.zip"
             print(f"downloading {URL}")
-            with urllib.request.urlopen(URL, timeout=120) as response, archive.open("wb") as f:
-                shutil.copyfileobj(response, f)
+            try:
+                with (
+                    urllib.request.urlopen(URL, timeout=120) as response,
+                    archive.open("wb") as f,
+                ):
+                    shutil.copyfileobj(response, f)
+            except OSError as exc:
+                return _fail(f"could not download {URL}: {exc!r}")
         actual = _sha256(archive)
         if actual != SHA256:
-            print(f"REFUSED: {archive} has SHA-256 {actual}, expected {SHA256}", file=sys.stderr)
-            return 1
+            size = archive.stat().st_size
+            return _fail(f"{archive.name} ({size} bytes) has SHA-256 {actual}, expected {SHA256}")
         with zipfile.ZipFile(archive) as z:
             members = [m for m in z.namelist() if m.startswith(CLIENT)]
             for member in members:
                 target = (work / member).resolve()
                 if not target.is_relative_to(work.resolve()):
-                    print(f"REFUSED: unsafe path in archive: {member}", file=sys.stderr)
-                    return 1
+                    return _fail(f"unsafe path in archive: {member}")
             z.extractall(work, members)
         source = work / CLIENT
         # Nothing is fetched here: protobuf (ibapi's one dependency) and setuptools
@@ -86,8 +100,7 @@ def main(argv: list[str]) -> int:
 
     installed = importlib.import_module("ibapi").get_version_string()
     if installed != VERSION:
-        print(f"REFUSED: installed ibapi {installed}, expected {VERSION}", file=sys.stderr)
-        return 1
+        return _fail(f"installed ibapi {installed}, expected {VERSION}")
     print(f"ibapi {installed} installed (SHA-256 verified)")
     return 0
 
