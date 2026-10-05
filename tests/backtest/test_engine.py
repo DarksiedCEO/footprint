@@ -50,7 +50,7 @@ def test_a_falling_market_stops_the_trade_out_at_the_resting_stop(
 def test_a_rising_market_is_ridden_and_the_trail_locks_profit(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    moves = [D(10)] * 16 + [D(-10)] * 12  # up ~160 points, then back down
+    moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12  # fill, up ~160 points, back down
     _, result = run(profiles, settings, extend(history, moves), tmp_path)
     trade = only_trade(result)
     assert trade["exit_reason"] == "STOP"  # the trailed resting stop
@@ -94,11 +94,11 @@ def test_with_nothing_live_outside_prime_the_runner_is_not_stepped(
 def test_a_gap_in_the_data_is_stepped_through_with_no_quotes(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    bars = extend(history, [D(5)] * 4)
+    bars = extend(history, [D(0)] + [D(5)] * 3)
     gap = timedelta(minutes=3)
     later = [
         Bar(b.symbol, b.ts + gap, b.open, b.high, b.low, b.close, b.volume)
-        for b in extend(history, [D(5)] * 8)[len(bars) :]
+        for b in extend(history, [D(0)] + [D(5)] * 7)[len(bars) :]
     ]
     _, result = run(profiles, settings, [*bars, *later], tmp_path)
     assert any("no fresh quote" in a.message for a in result.alarms)  # the feed went quiet
@@ -112,13 +112,18 @@ def test_the_ledger_and_the_journal_agree(
     assert read_out(result, settings, {}).ledger_matches_journal
 
 
-def test_a_trade_open_when_the_data_ends_is_reported_not_counted(
+def test_a_trade_open_when_the_data_ends_is_sold_and_counted(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    _, result = run(profiles, settings, extend(history, [D(2)] * 3), tmp_path)
-    assert result.open_at_end
-    assert result.trades == []
-    assert any("still open" in why for why in read_out(result, settings, {}).why)
+    """Review B2: a run that ends inside a trade carries that trade's result."""
+    _, result = run(profiles, settings, extend(history, [D(0), D(-20), D(-20)]), tmp_path)
+    assert not result.open_at_end
+    trade = only_trade(result)
+    assert trade["exit_reason"] == "END_OF_DATA"
+    assert D(str(trade["net_pnl"])) < 0  # the loss it was carrying
+    r = read_out(result, settings, {})
+    assert r.ledger_matches_journal
+    assert r.whole.trades == 1
 
 
 def test_a_halt_ends_the_run_early(
@@ -203,3 +208,49 @@ def test_the_last_bar_is_decided_on_when_it_closes(
     result = bt.run()
     assert result.fired == 1
     assert bt.journal.decisions()[-1]["as_of"] == DECISION_TIME.isoformat()
+
+
+def test_a_working_entry_sees_the_good_extreme_first(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review B1: the bar spikes 40 and dips 4. Worst case for a working long entry:
+    the high first, the dip only near the end of the minute, after the entry's
+    timeout: no fill, no trade (a low-first path would have filled before the spike)."""
+    o = history[-1].close
+    spike = Bar("NQ", DECISION_TIME, o, o + 40, o - 4, o, 100)
+    _, result = run(profiles, settings, [*history, spike], tmp_path)
+    assert result.trades == []
+    assert not result.open_at_end
+
+
+def test_the_minute_a_trade_closes_the_next_decision_is_made(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review B3: live, the runner decides a second after it is idle again."""
+    bt, result = run(profiles, settings, extend(history, [D(-10)] * 15), tmp_path)
+    trade = only_trade(result)
+    exit_ts = datetime.fromisoformat(str(trade["exit_ts"]))
+    minute_end = exit_ts.replace(second=0) + timedelta(minutes=1)
+    later = [datetime.fromisoformat(d["as_of"]) for d in bt.journal.decisions()]
+    assert any(exit_ts < t < minute_end for t in later)
+
+
+def test_equity_is_also_marked_inside_trades(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    _, result = run(profiles, settings, extend(history, [D(-10)] * 15), tmp_path)
+    trade = only_trade(result)
+    assert result.worst_open_loss <= D(str(trade["net_pnl"]))  # at least as bad as the exit
+    assert result.marked_max_drawdown >= -D(str(trade["net_pnl"]))
+
+
+def test_an_entry_still_working_when_the_data_ends_is_cancelled(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """The last bar's close fires an entry on the very last step: it is cancelled, not
+    left resting at the broker after the run."""
+    bt, result = run(profiles, settings, list(history), tmp_path)
+    assert result.fired == 1
+    assert result.trades == []
+    assert bt.broker.open_orders() == []
+    assert not result.open_at_end

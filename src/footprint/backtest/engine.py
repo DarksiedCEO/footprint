@@ -13,8 +13,17 @@ The clock, minute by minute:
   through the minute on the modelled path (adverse-first), the live contract quoted
   at each step. Through a gap in the data it keeps stepping with no new quotes, as
   it would on a dead feed.
+- In prime, once nothing is live again (a trade closed and reconcile agreed), it
+  keeps stepping inside the minute until the runner has decided on the newest
+  closed bar, as it would live a second later.
 - With nothing live, outside the prime session, the runner is not stepped: Diego
   sends no entry outside prime, so nothing can happen. Those minutes are counted.
+- The path's order is fixed per bar, worst case for what is live after the open:
+  an open trade sees its bad extreme first; a working entry sees its good extreme
+  first (it can fill only after the best price has passed).
+- When the history ends, a trade still open is sold at the bid through the normal
+  exit path and booked (END_OF_DATA). Equity is also marked to the bid at every
+  step, for the drawdown inside trades.
 
 The run ends early on any halt or a latched kill switch (live, those wait for
 Andre), and the readout says why.
@@ -34,8 +43,8 @@ from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.calendar import SessionKind, session_at
-from footprint.core.config import Profiles
-from footprint.core.models import Bar
+from footprint.core.config import _PERCENT_MAX, Profiles
+from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import require_series
 from footprint.decision.pipeline import Pipeline
@@ -52,6 +61,7 @@ from footprint.execution.runner import Runner
 
 _MINUTE = timedelta(minutes=1)
 _MINUTE_SECONDS = int(_MINUTE.total_seconds())
+_PCT = _PERCENT_MAX
 
 
 @dataclass
@@ -70,6 +80,9 @@ class BacktestRun:
     open_at_end: bool = False
     skipped_minutes: int = 0
     steps: int = 0
+    marked_max_drawdown_pct: Decimal = Decimal(0)  # equity marked to the bid each step
+    marked_max_drawdown: Decimal = Decimal(0)
+    worst_open_loss: Decimal = Decimal(0)  # the worst unrealized P&L of any trade
 
 
 class Backtest:
@@ -107,6 +120,8 @@ class Backtest:
         self._window_end = -1
         self._window: tuple[Bar, ...] = ()
         self.alarms: list[Alarm] = []
+        self._peak = profiles.risk.bankroll
+        self._worst = self._worst_pct = self._worst_open = Decimal(0)
 
         p = profiles
         self.book = QuoteBook()
@@ -160,24 +175,26 @@ class Backtest:
         bars = self._bars
         for i in range(self._first, len(bars)):
             bar = bars[i]
+            newest_closed = bars[i - 1].ts if i > 0 else None
+            against = None  # the path's order, fixed for the whole bar after the open
             second = 0
             while second < _MINUTE_SECONDS:
                 t = bar.ts + timedelta(seconds=second)
-                live = self.runner.exposure is not None
-                if (
-                    second == 0
-                    and not live
-                    and not self.runner.reconciling
-                    and session_at(t, self._p.instrument) is not SessionKind.PRIME
-                ):
+                if second == 0 and self._idle() and not self._prime(t):
                     skipped += 1
                     break
-                self._price = path_price(bar, second, self.runner.exposure)
+                self._price = path_price(bar, second, against)
                 self._publish(t, full_chain=second == 0)
+                self._mark(t)  # the new quote, before anything fills against it
                 self.runner.step(t)
                 steps += 1
+                self._mark(t)
                 ended = self._stopped(t)
-                if ended is not None or self.runner.exposure is None:
+                if ended is not None:
+                    break
+                if second == 0:
+                    against = self._against()
+                if self._idle() and self._decided(newest_closed, t):
                     break
                 second += substep
             if ended is not None:
@@ -186,14 +203,21 @@ class Backtest:
                 ended = self._through_gap(bar.ts + _MINUTE, bars[i + 1].ts)
                 if ended is not None:
                     break
+        open_at_end = False
         if ended is None:
-            # The last bar closes too: one more step sees it (and decides on it).
+            # The last bar closes too: one more step sees it (and decides on it). Then
+            # anything still open is sold at the bid and booked (END_OF_DATA), so a run
+            # that ends inside a losing trade carries that loss.
             t = bars[-1].ts + _MINUTE
             self._price = bars[-1].close
             self._publish(t, full_chain=True)
             self.runner.step(t)
             steps += 1
             ended = self._stopped(t)
+            if ended is None and self.runner.exposure is not None:
+                self._publish(t, full_chain=True)
+                open_at_end = not self.runner.close_out(t)
+            self._mark(t)
         trades = self.journal.trades()
         decisions = self.journal.decisions()
         return BacktestRun(
@@ -206,16 +230,67 @@ class Backtest:
             fired=sum(1 for d in decisions if d["fired"]),
             alarms=self.alarms,
             ended_early=ended,
-            open_at_end=self.runner.exposure is not None,
+            open_at_end=open_at_end,
             skipped_minutes=skipped,
             steps=steps,
+            marked_max_drawdown_pct=self._worst_pct,
+            marked_max_drawdown=self._worst,
+            worst_open_loss=self._worst_open,
         )
+
+    def _idle(self) -> bool:
+        return self.runner.exposure is None and not self.runner.reconciling
+
+    def _prime(self, t: datetime) -> bool:
+        return session_at(t, self._p.instrument) is SessionKind.PRIME
+
+    def _decided(self, newest_closed: datetime | None, t: datetime) -> bool:
+        """Live, the runner steps every second: once idle again (say, a trade closed
+        and reconcile agreed), it decides on the newest closed bar within the same
+        minute. Keep stepping until it has, in prime (outside it nothing can enter)."""
+        if newest_closed is None or not self._prime(t):
+            return True
+        last = self.runner.last_decided
+        return last is not None and last >= newest_closed
+
+    def _against(self) -> Direction | None:
+        """The path's order for the rest of this bar, worst case for what is live:
+        an open long sees the low first; a working long entry sees the high first
+        (it can fill only on the way down, after the bar's best price has passed).
+        Shorts mirrored; nothing live: by the bar's own direction."""
+        position = self.runner.position
+        if position is not None:
+            return position.direction
+        working = self.runner.exposure
+        if working is None:
+            return None
+        return Direction.SHORT if working is Direction.LONG else Direction.LONG
+
+    def _mark(self, t: datetime) -> None:
+        """Equity marked to the bid (less the round-trip fees), for the drawdown the
+        realized curve cannot show, and each trade's worst open loss."""
+        equity = self.ledger.account(t).equity
+        position = self.runner.position
+        if position is not None:
+            quote = self.book.latest(position.contract_id)
+            if quote is not None:
+                p = self._p
+                fees = 2 * p.risk.fee_per_contract_per_side * position.contracts
+                open_pnl = (quote.bid - position.entry_price) * p.instrument.point_value
+                open_pnl = open_pnl * position.contracts - fees
+                equity += open_pnl
+                self._worst_open = min(self._worst_open, open_pnl)
+        self._peak = max(self._peak, equity)
+        self._worst = max(self._worst, self._peak - equity)
+        if self._peak > 0:
+            self._worst_pct = max(self._worst_pct, (self._peak - equity) / self._peak * _PCT)
 
     def _through_gap(self, start: datetime, next_bar: datetime) -> str | None:
         """Missing minutes with a trade live: keep stepping, with no new quotes."""
         t = start
         while t < next_bar and self.runner.exposure is not None:
             self.runner.step(t)
+            self._mark(t)
             stopped = self._stopped(t)
             if stopped is not None:
                 return stopped

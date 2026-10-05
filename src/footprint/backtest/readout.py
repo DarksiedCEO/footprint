@@ -90,7 +90,11 @@ def _at_least(segment: str, gate: str, value: Decimal | None, floor: Decimal) ->
     return GateCheck(segment, gate, f">= {floor}", actual, value is not None and value >= floor)
 
 
-def check_gates(whole: Metrics, held_out: Metrics, gates: GateSettings) -> list[GateCheck]:
+def check_gates(
+    whole: Metrics, held_out: Metrics, gates: GateSettings, marked_drawdown_pct: Decimal
+) -> list[GateCheck]:
+    """The whole run's drawdown gate uses the worse of the realized curve and the
+    curve marked to the bid at every step (the loss inside a trade counts too)."""
     checks: list[GateCheck] = []
     checks.append(
         GateCheck(
@@ -114,13 +118,16 @@ def check_gates(whole: Metrics, held_out: Metrics, gates: GateSettings) -> list[
         checks.append(_at_least(segment, "win rate %", m.win_rate_pct, gates.min_win_rate_pct))
         checks.append(_at_least(segment, "payoff ratio", m.payoff_ratio, gates.min_payoff_ratio))
         checks.append(_at_least(segment, "profit factor", m.profit_factor, gates.min_profit_factor))
+        drawdown = m.max_drawdown_pct
+        if segment == "all":
+            drawdown = max(drawdown, marked_drawdown_pct)
         checks.append(
             GateCheck(
                 segment,
                 "max drawdown %",
                 f"<= {gates.max_drawdown_pct}",
-                _fmt(m.max_drawdown_pct),
-                m.max_drawdown_pct <= gates.max_drawdown_pct,
+                _fmt(drawdown),
+                drawdown <= gates.max_drawdown_pct,
             )
         )
     return checks
@@ -151,7 +158,7 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
     whole = measure(pnls, run.bankroll)
     in_sample = measure(pnls[:split], run.bankroll)
     held_out = measure(pnls[split:], run.bankroll + sum(pnls[:split], Decimal(0)))
-    gates = check_gates(whole, held_out, settings.gates)
+    gates = check_gates(whole, held_out, settings.gates, run.marked_max_drawdown_pct)
     matches = run.final_equity - run.bankroll == sum(pnls, Decimal(0))
     why: list[str] = []
     if not matches:
@@ -160,6 +167,9 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
             f"the ledger's equity change ({run.final_equity - run.bankroll}) does not equal "
             f"the journal's trades ({sum(pnls, Decimal(0))})"
         )
+    elif run.open_at_end:
+        verdict = "INVALID"  # its loss is unknown, so nothing can be concluded
+        why.append("a trade could not be closed when the data ended")
     elif run.ended_early is not None and run.ended_early.startswith("halted"):
         verdict = "INVALID"  # a halt in a backtest is a defect to find, not a result
         why.append(f"the run ended early: {run.ended_early}")
@@ -180,8 +190,6 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
         why += [
             f"{g.segment} {g.gate}: {g.actual} (need {g.required})" for g in gates if not g.passed
         ]
-    if run.open_at_end:
-        why.append("a trade was still open when the data ended; it is not counted")
     return Readout(
         verdict=verdict,
         why=tuple(why),
@@ -203,6 +211,9 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
             "open_at_end": run.open_at_end,
             "skipped_minutes": run.skipped_minutes,
             "steps": run.steps,
+            "marked_max_drawdown_pct": str(run.marked_max_drawdown_pct),
+            "marked_max_drawdown": str(run.marked_max_drawdown),
+            "worst_open_loss": str(run.worst_open_loss),
         },
         assumptions=assumptions,
     )
@@ -237,6 +248,9 @@ def to_markdown(readout: Readout) -> str:
         f"Ledger and journal agree: {'yes' if r.ledger_matches_journal else 'NO'}.",
         f"Decisions: {r.run['decisions']} ({r.run['fired']} fired). "
         f"Alarms: {r.run['alarms']}. Ended early: {r.run['ended_early'] or 'no'}.",
+        f"Drawdown marked to the bid: {_fmt(Decimal(r.run['marked_max_drawdown_pct']))}% "
+        f"({_fmt(Decimal(r.run['marked_max_drawdown']))}). Worst open loss in any trade: "
+        f"{_fmt(Decimal(r.run['worst_open_loss']))}.",
         "",
         "## Gates",
         "",

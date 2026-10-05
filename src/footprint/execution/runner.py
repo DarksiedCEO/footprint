@@ -51,7 +51,7 @@ from footprint.execution.executor.diego import (
 from footprint.execution.halt import Halt
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger
-from footprint.execution.management.malik import Alarm, Closed, Manager
+from footprint.execution.management.malik import Alarm, Closed, ExitReason, Manager
 from footprint.execution.market import QuoteBook
 
 log = logging.getLogger("footprint.runner")
@@ -128,6 +128,26 @@ class Runner:
     @property
     def reconciling(self) -> bool:
         return self._reconciling
+
+    @property
+    def last_decided(self) -> datetime | None:
+        """The newest completed bar a decision has been made on."""
+        return self._last_decided
+
+    def close_out(self, now: datetime) -> bool:
+        """Backtest only: the history has ended. Cancel a working entry and sell an open
+        position through the normal exit path (at the bid), so the trade is booked and
+        journaled like any other. True if nothing is left open."""
+        require_utc(now, "now")
+        if self._ticket is not None:
+            self._executor.abandon(self._ticket)
+            self._ticket = None
+        if self._position is not None:
+            position = self._position
+            closed = self._manager.flatten(position, now, ExitReason.END_OF_DATA)
+            if closed is not None:
+                self._trade_done(position, closed, now)
+        return self._position is None
 
     @property
     def exposure(self) -> Direction | None:

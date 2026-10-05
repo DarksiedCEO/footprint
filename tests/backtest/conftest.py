@@ -31,7 +31,7 @@ def history() -> tuple[Bar, ...]:
     return tuple(market())  # fires a long entry at DECISION_TIME (07:01 PT)
 
 
-ENTRY_DIP = D(4)
+ENTRY_DIP = D(8)  # reached by second ~25 even on the worst-case (high-first) path
 
 
 def extend(

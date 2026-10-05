@@ -146,3 +146,20 @@ def test_trades_are_taken_in_exit_order(settings: BacktestSettings) -> None:
     r = read_out(run, settings, {})
     ordered = read_out(run_of(passing(240)), settings, {})
     assert r.held_out == ordered.held_out
+
+
+def test_the_drawdown_gate_counts_the_loss_inside_trades(settings: BacktestSettings) -> None:
+    """Realized equity can look calm while an open trade was deep under water."""
+    calm = run_of(passing(240))
+    deep = replace(calm, marked_max_drawdown_pct=D(20))
+    assert read_out(calm, settings, {}).verdict == "PASS"
+    r = read_out(deep, settings, {})
+    assert r.verdict == "FAIL"
+    assert any("max drawdown" in why for why in r.why)
+
+
+def test_a_trade_that_could_not_be_closed_at_the_end_is_invalid(
+    settings: BacktestSettings,
+) -> None:
+    r = read_out(run_of(passing(240), open_at_end=True), settings, {})
+    assert r.verdict == "INVALID"
