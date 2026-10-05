@@ -68,7 +68,16 @@ class Stack:
         return self.manager.manage(position, blackouts, now)
 
     def reconcile(self, position: Position | None, _published: Quote, now: datetime) -> bool:
-        return self.manager.reconcile(position, now)
+        """Reconcile through its two settle waits, as the runner's steps would: the
+        first look, the disagreement holding still, then what is held holding still.
+        Returns the last answer; the last call is at `now + 2 * settle_seconds`."""
+        settle = timedelta(seconds=self.profiles.execution.reconcile.settle_seconds)
+        agreed = False
+        for k in range(3):
+            agreed = self.manager.reconcile(position, now + k * settle)
+            if agreed:
+                break
+        return agreed
 
 
 @pytest.fixture

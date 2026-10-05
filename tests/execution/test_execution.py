@@ -325,7 +325,7 @@ def test_nb16_after_a_restart_anything_held_is_flattened(stack: Stack) -> None:
     t = SEND + 60 * SEC
     stack.quote(160, 161, t)
     # After a restart the system has no position record: the broker holds a contract.
-    assert not stack.manager.reconcile(None, t)
+    assert not stack.reconcile(None, stack.quote(160, 161, t), t)
     assert stack.broker.positions() == {}
     assert stack.broker.open_orders() == []  # the broker's own resting stop was cancelled
     assert stack.ledger.account(t).kill_switch_latched
@@ -369,13 +369,13 @@ def test_nb16_a_stop_that_fills_during_the_cancel_is_never_sold_twice(stack: Sta
 def test_nb16_reconcile_keeps_working_until_flat(stack: Stack) -> None:
     filled_position(stack)
     t = SEND + 60 * SEC
-    stack.quote(0, 161, t)  # no bid: the flatten can only rest
-    assert not stack.manager.reconcile(None, t)
+    # no bid: the flatten can only rest
+    assert not stack.reconcile(None, stack.quote(0, 161, t), t)
     assert stack.broker.positions() == {stack.contract: 1}
     later = t + 5 * SEC
     stack.quote(159, 160, later)  # a bid returns: the resting flatten fills
     assert stack.broker.positions() == {}
-    assert not stack.manager.reconcile(None, later + SEC)  # the ledger still shows it
+    assert not stack.reconcile(None, stack.quote(159, 160, later + SEC), later + SEC)
     assert any("book_by_hand" in a.message for a in stack.alarms)
     stack.ledger.book_by_hand(later, stack.ledger.open_position_id or "", D(-100), "Andre")
     assert not stack.ledger.account(later).position_open
@@ -754,7 +754,8 @@ def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
 def test_nb16_a_working_entry_after_a_restart_is_a_mismatch(stack: Stack) -> None:
     stack.executor.submit(stack.approved, (), SEND)  # resting at 151, not filled
     t = SEND + 5 * SEC
-    assert not stack.reconcile(None, stack.quote(150, 152, t), t)
+    stack.reconcile(None, stack.quote(150, 152, t), t)  # agrees once the entry is gone
+    assert stack.halt.tripped  # but the disagreement halted entries
     assert stack.broker.open_orders() == []
     stack.quote(140, D(150), t + SEC)  # the old entry can no longer fill
     assert stack.broker.positions() == {}
