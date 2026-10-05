@@ -77,6 +77,7 @@ class ExitReason(Enum):
     UNPROTECTED = "UNPROTECTED"
     RECONCILE = "RECONCILE"
     FAILSAFE = "FAILSAFE"
+    END_OF_DATA = "END_OF_DATA"  # backtest only: the history ran out with a trade open
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +179,9 @@ class Manager:
         self._sync_stop(position, now)
         return None
 
-    def flatten(self, position: Position, now: datetime) -> Closed | None:
+    def flatten(
+        self, position: Position, now: datetime, reason: ExitReason = ExitReason.FAILSAFE
+    ) -> Closed | None:
         """Get out using the broker and the quote book alone: no stop keeper, no ledger
         read, no news calendar. The runner calls this when normal management keeps
         failing. Call again each step until it returns the close."""
@@ -188,7 +191,7 @@ class Manager:
         quote = self._book.latest_or_empty(position.contract_id)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
-        return self._start_exit(position, quote, now, ExitReason.FAILSAFE)
+        return self._start_exit(position, quote, now, reason)
 
     def _sync_stop(self, position: Position, now: datetime) -> None:
         """Make the broker's resting stop match Booker's, retrying every call until it

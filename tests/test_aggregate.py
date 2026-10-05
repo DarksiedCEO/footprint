@@ -28,8 +28,15 @@ def minutes(start: datetime, count: int, base: float = 100.0) -> list[Bar]:
 
 def test_completed_drops_the_bar_still_forming() -> None:
     bars = minutes(pt(1, 6, 30), 3)  # 06:30, 06:31, 06:32
+    assert completed(bars, pt(1, 6, 32, 59), 1) == tuple(bars[:2])
+    assert completed(bars, pt(1, 6, 33), 1) == tuple(bars)
+
+
+def test_completed_hands_back_the_same_tuple_when_nothing_is_dropped() -> None:
+    """The series caches key on the tuple, so every reader of one decision shares it."""
+    bars = tuple(minutes(pt(1, 6, 30), 3))
+    assert completed(bars, pt(1, 6, 33), 1) is bars
     assert completed(bars, pt(1, 6, 32, 59), 1) == bars[:2]
-    assert completed(bars, pt(1, 6, 33), 1) == bars
 
 
 def test_completed_requires_utc() -> None:

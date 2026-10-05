@@ -8,6 +8,12 @@ from itertools import pairwise
 
 from footprint.core.models import Bar
 
+# Tuples already validated (kept alive here, so an id is never reused while cached).
+# A tuple of frozen Bars cannot change, so validating it once is enough; lists are
+# always re-checked.
+_VALIDATED: list[tuple[tuple[Bar, ...], int | None]] = []
+_KEEP = 4
+
 
 def require_series(bars: Sequence[Bar], timeframe_minutes: int | None, field: str) -> None:
     """Reject input a reader could misread: empty, mixed symbols, out of order, wrong timeframe.
@@ -15,6 +21,17 @@ def require_series(bars: Sequence[Bar], timeframe_minutes: int | None, field: st
     With a timeframe, every gap between consecutive bars must be a whole number of
     bar lengths, so bars of a shorter timeframe handed to a slower reader are refused.
     """
+    if isinstance(bars, tuple) and any(
+        seen is bars and frame == timeframe_minutes for seen, frame in _VALIDATED
+    ):
+        return
+    _check(bars, timeframe_minutes, field)
+    if isinstance(bars, tuple):
+        _VALIDATED.append((bars, timeframe_minutes))
+        del _VALIDATED[:-_KEEP]
+
+
+def _check(bars: Sequence[Bar], timeframe_minutes: int | None, field: str) -> None:
     if not isinstance(bars, Sequence) or isinstance(bars, str | bytes):
         raise TypeError(f"{field} must be a sequence of Bar")
     if not bars:

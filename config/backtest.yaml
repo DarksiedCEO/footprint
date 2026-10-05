@@ -1,0 +1,28 @@
+# Backtest settings. Historical NQ OPTIONS data is not available, so option prices are
+# MODELLED from the futures price (G4: fixed, pessimistic delta from strategy.yaml).
+# Every option_model number is UNVERIFIED until checked against real NQ option quotes;
+# the readout prints them beside the results so no result is read without them.
+option_model:
+  atm_premium_points: 150     # UNVERIFIED: an at-the-money option with 1 day to expiry
+                              #   (time value shrinks with the square root of time left)
+  spread_points: 2            # UNVERIFIED: bid/ask spread near the money (cost on every trade)
+  strike_step: 25             # UNVERIFIED: strike spacing near the money
+  strikes_each_side: 6        # strikes listed above and below the money
+  open_interest: 500          # every modelled strike passes Felix's open-interest minimum
+  expiries_listed: 5          # daily expiries listed ahead (Felix takes 1-3 days out)
+engine:
+  substep_seconds: 5          # the runner steps this often inside a minute while an entry
+                              #   or a position is live (the minute's path is modelled
+                              #   adverse-first: against an open trade, the bad extreme
+                              #   comes before the good one)
+  history_minutes: 43200      # 1-minute bars handed to each decision (~30 sessions; the
+                              #   readers look back up to 20 sessions)
+gates:                        # the go-live gates (work order, section 4)
+  min_trades: 200
+  min_win_rate_pct: 45
+  min_payoff_ratio: 1.5
+  min_profit_factor: 1.3
+  max_drawdown_pct: 15
+  out_of_sample_pct: 30       # DEFAULT: the last 30% of the trades (by time) are held out;
+                              #   the gates must hold on them too
+  min_out_of_sample_trades: 60  # DEFAULT: fewer held-out trades than this = not proven

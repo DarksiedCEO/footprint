@@ -16,20 +16,45 @@ from zoneinfo import ZoneInfo
 from footprint.core.config import Session
 from footprint.core.models import Bar, require_utc
 from footprint.core.series import require_series
+from footprint.core.timecache import local_time
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-def completed(bars: Sequence[Bar], as_of: datetime, timeframe_minutes: int) -> list[Bar]:
-    """The bars of `timeframe_minutes` that had fully closed by `as_of`."""
+def completed(bars: Sequence[Bar], as_of: datetime, timeframe_minutes: int) -> tuple[Bar, ...]:
+    """The bars of `timeframe_minutes` that had fully closed by `as_of`, as a tuple.
+    A tuple whose bars have all closed is returned as the same object, so the series
+    caches (keyed on the tuple) are shared by every reader of one decision."""
     require_utc(as_of, "as_of")
     if timeframe_minutes < 1:
         raise ValueError("timeframe_minutes must be >= 1")
     length = timedelta(minutes=timeframe_minutes)
-    return [bar for bar in bars if bar.ts + length <= as_of]
+    if isinstance(bars, tuple) and all(bar.ts + length <= as_of for bar in bars):
+        return bars
+    return tuple(bar for bar in bars if bar.ts + length <= as_of)
+
+
+# Results per (tuple of bars, arguments). Tuples only (they cannot change); kept alive
+# here so an id is never reused while cached. Lists are always recomputed.
+_RESAMPLED: list[tuple[tuple[Bar, ...], int, datetime, tuple[Bar, ...]]] = []
+_SESSION_DAYS: list[tuple[tuple[Bar, ...], Session, datetime, SessionDays]] = []
+_KEEP = 4
 
 
 def resample(bars: Sequence[Bar], minutes: int, as_of: datetime) -> list[Bar]:
+    """See `_resample`; identical, with results remembered for a tuple of bars."""
+    if not isinstance(bars, tuple):
+        return _resample(bars, minutes, as_of)
+    for seen, size, moment, result in _RESAMPLED:
+        if seen is bars and size == minutes and moment == as_of:
+            return list(result)
+    out = _resample(bars, minutes, as_of)
+    _RESAMPLED.append((bars, minutes, as_of, tuple(out)))
+    del _RESAMPLED[:-_KEEP]
+    return out
+
+
+def _resample(bars: Sequence[Bar], minutes: int, as_of: datetime) -> list[Bar]:
     """Combine 1-minute bars into completed `minutes`-long bars.
 
     Buckets are aligned to whole multiples of `minutes` since the Unix epoch, so
@@ -96,12 +121,25 @@ def _in_session(clock: time, session: Session) -> bool:
 
 
 def session_days(bars: Sequence[Bar], session: Session, as_of: datetime) -> SessionDays:
+    """See `_session_days`; identical, with results remembered for a tuple of bars."""
+    if not isinstance(bars, tuple):
+        return _session_days(bars, session, as_of)
+    for seen, which, moment, result in _SESSION_DAYS:
+        if seen is bars and which == session and moment == as_of:
+            return result
+    out = _session_days(bars, session, as_of)
+    _SESSION_DAYS.append((bars, session, as_of, out))
+    del _SESSION_DAYS[:-_KEEP]
+    return out
+
+
+def _session_days(bars: Sequence[Bar], session: Session, as_of: datetime) -> SessionDays:
     """Daily bars from the session's completed 1-minute bars, grouped by local date."""
     require_utc(as_of, "as_of")
     zone = ZoneInfo(session.timezone)
     grouped: dict[date, list[Bar]] = {}
     for bar in completed(bars, as_of, 1):
-        local = bar.ts.astimezone(zone)
+        local = local_time(bar.ts, session.timezone)
         if _in_session(local.time(), session):
             grouped.setdefault(local.date(), []).append(bar)
     local_now = as_of.astimezone(zone)
