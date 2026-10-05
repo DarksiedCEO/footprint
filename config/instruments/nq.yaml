@@ -14,3 +14,10 @@ overnight_session:
   timezone: America/Los_Angeles
 dte_min: 1
 dte_max: 3
+# Days the PRIME session trades. Each OVERNIGHT session belongs to the next
+# trading day (it opens the evening before), so Friday evening and weekends
+# are closed.
+trading_days: [MON, TUE, WED, THU, FRI]
+# Full-day exchange closures (YYYY-MM-DD). REQUIRED before paper trading:
+# fill from the CME holiday calendar. Early closes are not modelled yet.
+holidays: []

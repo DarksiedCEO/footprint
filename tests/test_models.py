@@ -374,3 +374,15 @@ class TestTrade:
     def test_rejects_mutable_event_log(self) -> None:
         with pytest.raises(TypeError, match=r"Trade\.events"):
             Trade(id="t-1", state=TradeState.SCANNING, events=[])  # type: ignore[arg-type]
+
+
+def test_utc_check_requires_the_utc_object_not_just_offset_zero() -> None:
+    from zoneinfo import ZoneInfo
+
+    with pytest.raises(ValueError, match="UTC"):
+        Read(
+            agent_id="trend",
+            ts=datetime(2026, 1, 5, 14, 30, tzinfo=ZoneInfo("UTC")),
+            score=Score.BULLISH,
+            reason="r",
+        )

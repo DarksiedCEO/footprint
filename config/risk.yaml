@@ -10,4 +10,4 @@ daily_max_loss: 2000
 weekly_max_loss: 3500
 kill_switch_drawdown_pct: 20
 max_trades_prime: 4
-max_trades_overnight: 1
+max_trades_overnight: 0  # v1: no overnight trades (decided Oct 4, 2026)
