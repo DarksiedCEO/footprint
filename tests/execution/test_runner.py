@@ -99,3 +99,34 @@ def test_no_decisions_while_halted_entries_are_refused(
     runner.step(DECISION_TIME + SEC)
     assert journal.decisions()[0]["fired"] is True  # the setup was there ...
     assert stack.broker.open_orders() == []  # ... but nothing was sent
+    runner.step(DECISION_TIME + 20 * SEC)
+    assert len(journal.decisions()) == 1  # once per completed minute, not per step
+
+
+def test_a_forming_bar_never_triggers_a_new_decision(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    live = list(bars)
+    runner, journal, _ = runner_for(stack, live, tmp_path)
+    runner.step(DECISION_TIME)
+    stack.halt.trip("test")  # keep it deciding without trading
+    runner.step(DECISION_TIME + SEC)
+    last = live[-1]
+    live.append(Bar("NQ", DECISION_TIME, last.close, last.close + 1, last.close - 1, last.close, 1))
+    runner.step(DECISION_TIME + 30 * SEC)  # the 07:01 bar is still forming
+    assert len(journal.decisions()) == 1
+    runner.step(DECISION_TIME + 60 * SEC)  # now it has closed
+    assert len(journal.decisions()) == 2
+
+
+def test_a_drawdown_decision_latches_the_kill_switch(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    bankroll = stack.profiles.risk.bankroll
+    stack.ledger._state = replace(stack.ledger._state, equity=bankroll * D("0.8"))
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    runner.step(DECISION_TIME + SEC)
+    assert stack.ledger.account(DECISION_TIME + SEC).kill_switch_latched
