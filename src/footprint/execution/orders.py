@@ -13,6 +13,7 @@ and STOP_LIMIT. There is no market order type to send, by construction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
@@ -125,19 +126,26 @@ class Quote:
             raise ValueError("Quote is crossed")
 
 
+class QuoteSource(Protocol):
+    def subscribe(self, listener: Callable[[Quote], None]) -> None: ...
+
+    def latest(self, contract_id: str) -> Quote | None: ...
+
+
 class SimulatedBroker:
     """A pessimistic in-memory broker for backtests, paper rehearsal and tests."""
 
-    def __init__(self) -> None:
+    def __init__(self, book: QuoteSource) -> None:
+        """Fills only against `book`, the same quotes the rest of the system reads."""
         self._orders: dict[str, OrderStatus] = {}
         self._positions: dict[str, int] = {}
-        self._quotes: dict[str, Quote] = {}
+        self._book = book
+        book.subscribe(self._on_quote)
         self.log: list[str] = []
 
     # --- market --------------------------------------------------------------------
 
-    def on_quote(self, quote: Quote) -> None:
-        self._quotes[quote.contract_id] = quote
+    def _on_quote(self, quote: Quote) -> None:
         for order_id, status in list(self._orders.items()):
             if status.state is OrderState.WORKING and status.order.contract_id == quote.contract_id:
                 self._orders[order_id] = self._try_fill(status, quote, at_touch=False)
@@ -177,7 +185,7 @@ class SimulatedBroker:
             raise ValueError(f"duplicate order id {order.order_id!r}")
         status = OrderStatus(order, OrderState.WORKING, 0, None)
         self.log.append(f"placed {order.order_id} {order.order_type.value} {order.side.value}")
-        quote = self._quotes.get(order.contract_id)
+        quote = self._book.latest(order.contract_id)
         if quote is not None:
             status = self._try_fill(status, quote, at_touch=True)
         self._orders[order.order_id] = status
@@ -191,7 +199,7 @@ class SimulatedBroker:
             return status
         order = replace(status.order, limit_price=limit_price, stop_price=stop_price)
         status = replace(status, order=order)
-        quote = self._quotes.get(order.contract_id)
+        quote = self._book.latest(order.contract_id)
         if quote is not None:
             status = self._try_fill(status, quote, at_touch=True)
         self._orders[order_id] = status

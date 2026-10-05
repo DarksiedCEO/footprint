@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -8,11 +9,13 @@ import pytest
 from footprint.core.config import Profiles, load_profiles
 from footprint.core.models import Bar
 from footprint.decision.pipeline import ApprovedEntry, Pipeline
+from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
-from footprint.execution.executor.diego import Executor
+from footprint.execution.executor.diego import Executor, Position
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger, StateStore
-from footprint.execution.management.malik import Alarm, Manager
+from footprint.execution.management.malik import Alarm, Closed, Manager
+from footprint.execution.market import QuoteBook
 from footprint.execution.orders import Quote, SimulatedBroker
 from tests.conftest import REPO_ROOT
 from tests.decision.scenario import DECISION_TIME, chain_for, market
@@ -43,6 +46,7 @@ class Stack:
     alarms: list[Alarm]
     state_path: Path
     halt: Halt
+    book: QuoteBook
 
     @property
     def contract(self) -> str:
@@ -50,8 +54,21 @@ class Stack:
 
     def quote(self, bid: float | Decimal, ask: float | Decimal, ts: datetime) -> Quote:
         q = Quote(self.contract, D(str(bid)), D(str(ask)), ts)
-        self.broker.on_quote(q)
+        self.book.publish(q)
         return q
+
+    def step(
+        self,
+        position: Position,
+        _published: Quote,
+        blackouts: Iterable[NewsBlackout],
+        now: datetime,
+    ) -> Closed | None:
+        """Manage on the book's latest quote (the one `stack.quote` just published)."""
+        return self.manager.manage(position, blackouts, now)
+
+    def reconcile(self, position: Position | None, _published: Quote, now: datetime) -> bool:
+        return self.manager.reconcile(position, now)
 
 
 @pytest.fixture
@@ -63,12 +80,13 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
         bars, chain_for(bars[-1].close), ledger.account(DECISION_TIME), (), DECISION_TIME
     )
     assert decision.approved is not None, decision.reasons()
-    broker = SimulatedBroker()
+    book = QuoteBook()
+    broker = SimulatedBroker(book)
     stops = StopKeeper(profiles.risk, profiles.instrument, profiles.execution)
     alarms: list[Alarm] = []
     halt = Halt()
     executor = Executor(profiles, pipeline, broker, stops, ledger, halt)
-    manager = Manager(profiles, broker, stops, ledger, halt, alarms.append)
+    manager = Manager(profiles, broker, stops, ledger, halt, book, alarms.append)
     s = Stack(
         profiles,
         pipeline,
@@ -81,6 +99,7 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
         alarms,
         store_path,
         halt,
+        book,
     )
     s.quote(150, 152, DECISION_TIME)
     return s

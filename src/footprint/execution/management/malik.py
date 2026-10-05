@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -45,6 +45,7 @@ from footprint.decision.stop import BidTick, StopCheck, StopKeeper
 from footprint.execution.executor.diego import Position
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
+from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
     Order,
     OrderBroker,
@@ -93,6 +94,7 @@ class Manager:
         stops: StopKeeper,
         ledger: Ledger,
         halt: Halt,
+        book: QuoteBook,
         on_alarm: Callable[[Alarm], None] | None = None,
     ) -> None:
         self._p = profiles
@@ -100,6 +102,7 @@ class Manager:
         self._stops = stops
         self._ledger = ledger
         self._halt = halt
+        self._book = book
         self._on_alarm = on_alarm or (lambda alarm: None)
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
@@ -114,13 +117,12 @@ class Manager:
     def manage(
         self,
         position: Position,
-        quote: Quote,
         blackouts: Iterable[NewsBlackout],
         now: datetime,
     ) -> Closed | None:
+        """One management step on the latest quote in the shared book."""
         require_utc(now, "now")
-        if quote.contract_id != position.contract_id:
-            raise ValueError("quote is for a different contract than the position")
+        quote = self._book.latest_or_empty(position.contract_id)
         pid = position.position_id
         if pid in self._closed:
             raise RuntimeError(f"position {pid!r} is already closed")
@@ -381,12 +383,7 @@ class Manager:
         log.critical(message)
         self._on_alarm(Alarm(now, message))
 
-    def reconcile(
-        self,
-        position: Position | None,
-        quotes: Mapping[str, Quote],
-        now: datetime,
-    ) -> bool:
+    def reconcile(self, position: Position | None, now: datetime) -> bool:
         """True if the broker, the ledger and `position` all agree. On any doubt:
         cancel every order the BROKER lists, re-read what it still holds, post limit
         orders to flatten exactly that, latch the kill switch and alarm. Call again
@@ -423,7 +420,7 @@ class Manager:
         self._reconcile_round += 1
         tick = self._p.instrument.option_tick_size
         for contract_id, qty in remaining.items():
-            quote = quotes.get(contract_id)
+            quote = self._book.latest(contract_id)
             if qty > 0:
                 side, price = (
                     Side.SELL,
