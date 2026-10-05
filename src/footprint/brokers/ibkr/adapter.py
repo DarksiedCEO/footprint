@@ -417,6 +417,18 @@ class IbkrBroker:
                 ]
             return listed
 
+    @property
+    def ready(self) -> bool:
+        """Connected and resynced: calls will be answered."""
+        with self._cv:
+            return self._connected and self._ready
+
+    @property
+    def outside_open_orders(self) -> int:
+        """Live orders on anything outside the system's scope (seen at the last resync)."""
+        with self._cv:
+            return len(self._outside_orders)
+
     # --- IbEvents: called by the gateway binding, on its own thread --------------------
 
     def on_connection(self, state: Connection, next_valid_id: int | None = None) -> None:
