@@ -22,9 +22,10 @@ from typing import Any
 
 from footprint.backtest.engine import BacktestRun
 from footprint.backtest.settings import BacktestSettings, GateSettings
+from footprint.core.config import _PERCENT_MAX
 
 _CENT = Decimal("0.01")
-_PCT = Decimal(100)
+_PCT = _PERCENT_MAX
 
 
 @dataclass(frozen=True, slots=True)
