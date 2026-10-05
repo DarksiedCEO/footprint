@@ -2,7 +2,7 @@
 adversarial tests: each one tries to break the rule every way the owning agent allows."""
 
 from dataclasses import FrozenInstanceError, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -63,9 +63,15 @@ def test_nb01_falling_bids_never_lower_a_trailing_stop(
     booker = keeper(risk, instrument, execution)
     booker.open("t", D(150), 1)
     levels = []
-    for bid in (160, 210, 260, 230, 205, 201, 180, 120, D("0.25"), 0):
-        booker.on_tick("t", BidTick(D(bid), NOW), NOW)
+    bids = [
+        D(b)
+        for b in ("160", "210", "210", "260", "260", "230", "205", "201", "180", "120", "0.25", "0")
+    ]
+    for i, bid in enumerate(bids):
+        ts = NOW + timedelta(seconds=i)
+        booker.on_tick("t", BidTick(bid, bid + 1, ts), ts)
         levels.append(booker.current("t").price)
+    assert levels[-1] > levels[0]  # the trail did engage
     assert levels == sorted(levels), levels  # monotonically non-decreasing
 
 
@@ -75,8 +81,9 @@ def test_nb01_a_trail_never_drags_a_tightened_stop_down(
     booker = keeper(risk, instrument, execution)
     booker.open("t", D(150), 1)
     assert booker.request("t", D(190), "trade_mgmt") is None
-    for _ in range(2):
-        booker.on_tick("t", BidTick(D("200.25"), NOW), NOW)  # trail wants 175.25
+    for i in range(2):
+        ts = NOW + timedelta(seconds=i)
+        booker.on_tick("t", BidTick(D("200.25"), D("201.25"), ts), ts)  # trail wants 175.25
     assert booker.current("t").price == D(190)
 
 

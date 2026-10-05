@@ -307,13 +307,30 @@ def booker(
 
 
 def tick(bid: float, age_seconds: float = 0) -> BidTick:
-    return BidTick(D(str(bid)), NOW - timedelta(seconds=age_seconds))
+    b = D(str(bid))
+    return BidTick(b, b + 1, NOW - timedelta(seconds=age_seconds))
 
 
-def settle(booker: StopKeeper, position: str, bid: float) -> None:
-    """Two consecutive identical bids: the level is confirmed."""
-    booker.on_tick(position, tick(bid), NOW)
-    booker.on_tick(position, tick(bid), NOW)
+class Feed:
+    """Hands out ticks with strictly increasing timestamps, all fresh at `now`."""
+
+    def __init__(self, booker: StopKeeper) -> None:
+        self.booker = booker
+        self.now = NOW
+
+    def send(self, position: str, bid: float) -> TickStatus:
+        self.now += timedelta(seconds=1)
+        b = D(str(bid))
+        return self.booker.on_tick(position, BidTick(b, b + 1, self.now), self.now)
+
+    def settle(self, position: str, bid: float) -> None:
+        """Two consecutive distinct ticks at the same bid: the level is confirmed."""
+        self.send(position, bid)
+        self.send(position, bid)
+
+    def check(self, position: str, bid: float) -> StopCheck:
+        b = D(str(bid))
+        return self.booker.check(position, BidTick(b, b + 1, self.now), self.now)
 
 
 def test_hard_stop_is_stop_loss_below_the_fill(booker: StopKeeper) -> None:
@@ -349,36 +366,55 @@ def test_open_validates(booker: StopKeeper) -> None:
 def test_trail_engages_at_the_net_profit_target_and_follows_half_the_net_peak(
     booker: StopKeeper,
 ) -> None:
+    feed = Feed(booker)
     booker.open("t", D(150), 1)  # hard stop 112.5; round-trip fees $5
-    settle(booker, "t", 200)  # +$1,000 gross, $995 net: not yet
+    feed.settle("t", 200)  # +$1,000 gross, $995 net: not yet
     assert (booker.current("t").price, booker.current("t").trailing) == (D("112.5"), False)
-    settle(booker, "t", 200.25)  # $1,000 net: lock $500 net
+    feed.settle("t", 200.25)  # $1,000 net: lock $500 net
     assert booker.current("t").price == D("175.25")  # 150 + (500 + 5) / 20
     assert booker.current("t").trailing
-    settle(booker, "t", 220)  # $1,395 net: keep $697.50 -> 185.125 -> up
+    feed.settle("t", 220)  # $1,395 net: keep $697.50 -> 185.125 -> up
     assert booker.current("t").price == D("185.25")
-    settle(booker, "t", 190)  # pullback: the stop holds
+    feed.settle("t", 190)  # pullback: the stop holds
     assert booker.current("t").price == D("185.25")
     assert booker.current("t").peak_bid == D(220)
-    assert booker.check("t", tick(185.5), NOW) is StopCheck.CLEAR
-    assert booker.check("t", tick(185.25), NOW) is StopCheck.HIT
+    assert feed.check("t", 185.5) is StopCheck.CLEAR
+    assert feed.check("t", 185.25) is StopCheck.HIT
 
 
 def test_a_single_bad_print_cannot_drag_the_trail_up(booker: StopKeeper) -> None:
+    feed = Feed(booker)
     booker.open("t", D(150), 1)
-    booker.on_tick("t", tick(400), NOW)  # one bad print
-    booker.on_tick("t", tick(151), NOW)
+    feed.send("t", 400)  # one bad print
+    feed.send("t", 151)
     assert booker.current("t").price == D("112.5")
-    assert booker.current("t").peak_bid == D(151)  # both bids were at least 151
-    assert booker.check("t", tick(151), NOW) is StopCheck.CLEAR
+    assert booker.current("t").peak_bid == D(151)  # both ticks were at least 151
+    assert feed.check("t", 151) is StopCheck.CLEAR
+
+
+def test_repeated_or_late_ticks_confirm_nothing(booker: StopKeeper) -> None:
+    booker.open("t", D(150), 1)
+    bad = BidTick(D(400), D(401), NOW)
+    assert booker.on_tick("t", bad, NOW) is TickStatus.USED
+    assert booker.on_tick("t", bad, NOW) is TickStatus.STALE  # the same tick again
+    late = BidTick(D(400), D(401), NOW - timedelta(seconds=1))
+    assert booker.on_tick("t", late, NOW) is TickStatus.STALE  # older than the last
+    assert booker.current("t").price == D("112.5")
+    assert booker.current("t").peak_bid == D(150)
+
+
+def test_crossed_ticks_are_refused() -> None:
+    with pytest.raises(ValueError, match="crossed"):
+        BidTick(D(400), D(152), NOW)
 
 
 def test_locked_profit_is_at_least_the_keep_share_net_of_fees(
     booker: StopKeeper, risk: RiskProfile, instrument: InstrumentProfile
 ) -> None:
+    feed = Feed(booker)
     booker.open("t", D(150), 1)
     for peak in (D("200.25"), D("213.75"), D("250.5"), D(400)):
-        settle(booker, "t", float(peak))
+        feed.settle("t", float(peak))
         stop = booker.current("t")
         fees = 2 * risk.fee_per_contract_per_side
         net_locked = (stop.price - stop.entry) * instrument.point_value - fees
@@ -391,7 +427,7 @@ def test_stale_and_no_bid_ticks_never_move_the_stop_and_are_never_clear(
 ) -> None:
     booker.open("t", D(150), 1)
     assert booker.on_tick("t", tick(260, age_seconds=6), NOW) is TickStatus.STALE
-    future = BidTick(D(260), NOW + timedelta(seconds=1))
+    future = BidTick(D(260), D(261), NOW + timedelta(seconds=1))
     assert booker.on_tick("t", future, NOW) is TickStatus.STALE
     assert booker.current("t").peak_bid == D(150)
     assert booker.check("t", tick(100, age_seconds=6), NOW) is StopCheck.STALE
@@ -438,6 +474,8 @@ def test_copies_cannot_change_the_stop(booker: StopKeeper) -> None:
 def test_a_closed_position_can_never_reopen(booker: StopKeeper) -> None:
     booker.open("t", D(150), 1)
     assert booker.close("t").price == D("112.5")
+    assert booker.check("t", tick(100), NOW) is StopCheck.CLOSED
+    assert booker.on_tick("t", tick(100), NOW) is TickStatus.CLOSED
     with pytest.raises(KeyError):
         booker.current("t")
     with pytest.raises(ValueError, match="already"):
@@ -462,9 +500,9 @@ def test_keeper_refuses_a_limit_offset_that_breaks_stop_max(
 
 def test_bid_tick_validates() -> None:
     with pytest.raises(ValueError, match="bid"):
-        BidTick(D(-1), NOW)
+        BidTick(D(-1), D(1), NOW)
     with pytest.raises(ValueError, match="UTC"):
-        BidTick(D(1), datetime(2026, 9, 15, 7, 0, tzinfo=PT))
+        BidTick(D(1), D(2), datetime(2026, 9, 15, 7, 0, tzinfo=PT))
 
 
 def test_load_profiles_runs_the_cross_profile_check(tmp_path: Path) -> None:

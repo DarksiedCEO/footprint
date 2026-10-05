@@ -60,21 +60,30 @@ class StopLevel:
 
 @dataclass(frozen=True, slots=True)
 class BidTick:
-    """The option's best bid at `ts`. A bid of 0 means there is no bid."""
+    """The option's best bid and ask as the feed confirmed them at `ts`.
+
+    A bid of 0 means there is no bid. A crossed quote (bid above ask) is refused.
+    """
 
     bid: Decimal
+    ask: Decimal
     ts: datetime
 
     def __post_init__(self) -> None:
-        if not isinstance(self.bid, Decimal) or not self.bid.is_finite() or self.bid < 0:
-            raise ValueError(f"BidTick.bid must be a finite Decimal >= 0, got {self.bid!r}")
+        for name in ("bid", "ask"):
+            value = getattr(self, name)
+            if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
+                raise ValueError(f"BidTick.{name} must be a finite Decimal >= 0, got {value!r}")
+        if self.ask < self.bid:
+            raise ValueError(f"BidTick is crossed: bid {self.bid} > ask {self.ask}")
         require_utc(self.ts, "BidTick.ts")
 
 
 class TickStatus(Enum):
     USED = "USED"
-    STALE = "STALE"
+    STALE = "STALE"  # too old, from the future, or not newer than the last tick used
     NO_BID = "NO_BID"
+    CLOSED = "CLOSED"  # the position's stop has been retired
 
 
 class StopCheck(Enum):
@@ -85,6 +94,7 @@ class StopCheck(Enum):
     GAPPED = "GAPPED"  # bid below the resting order's limit: it may never fill; flatten
     STALE = "STALE"  # no fresh bid: the stop cannot be judged; escalate
     NO_BID = "NO_BID"  # the bid has vanished: treat as a gap; flatten and escalate
+    CLOSED = "CLOSED"  # the position's stop has been retired
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +122,7 @@ class StopKeeper:
         self._execution = execution
         self._stops: dict[str, StopLevel] = {}
         self._last_bid: dict[str, Decimal] = {}
+        self._last_ts: dict[str, datetime] = {}
         self._closed: set[str] = set()
 
     @property
@@ -158,6 +169,7 @@ class StopKeeper:
         """
         level = self._stops.pop(position_id)
         self._last_bid.pop(position_id, None)
+        self._last_ts.pop(position_id, None)
         self._closed.add(position_id)
         log.info("stop retired for %s at %s", position_id, level.price)
         return level
@@ -190,14 +202,20 @@ class StopKeeper:
 
     def on_tick(self, position_id: str, tick: BidTick, as_of: datetime) -> TickStatus:
         """Track the peak bid and move the trail. Never lowers the stop."""
+        if position_id in self._closed:
+            return TickStatus.CLOSED
         status = self._usable(tick, as_of)
         if status is not TickStatus.USED:
             return status
+        last_ts = self._last_ts.get(position_id)
+        if last_ts is not None and tick.ts <= last_ts:
+            return TickStatus.STALE  # a repeat or an out-of-order tick confirms nothing
         stop = self._stops[position_id]
-        # The peak only advances to a level two consecutive bids agree on, so one bad
-        # print cannot drag the trail up and stop out a healthy position.
+        # The peak only advances to a level two consecutive, distinct ticks agree on,
+        # so one bad print cannot drag the trail up and stop out a healthy position.
         confirmed = min(tick.bid, self._last_bid[position_id])
         self._last_bid[position_id] = tick.bid
+        self._last_ts[position_id] = tick.ts
         stop = replace(stop, peak_bid=max(stop.peak_bid, confirmed))
         self._stops[position_id] = stop
         pv = self._instrument.point_value
@@ -222,6 +240,8 @@ class StopKeeper:
         """Judge the stop on one bid. A single bid is enough to exit (the protective side
         errs toward getting out); anything but CLEAR needs action from the caller.
         """
+        if position_id in self._closed:
+            return StopCheck.CLOSED
         status = self._usable(tick, as_of)
         if status is TickStatus.STALE:
             return StopCheck.STALE
