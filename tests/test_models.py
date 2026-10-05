@@ -56,6 +56,9 @@ ROUTES = {
 }
 
 
+SCANNING_LOG = (TradeEvent(ts=TS, state=TradeState.SCANNING),)
+
+
 def trade_in(state: TradeState) -> Trade:
     trade = Trade.start("t-1", TS)
     for step in ROUTES[state]:
@@ -266,14 +269,20 @@ class TestTrade:
         with pytest.raises(TypeError, match="TradeState"):
             Trade.start("t-1", TS).transition("SIGNAL", TS)  # type: ignore[arg-type]
 
-    def test_transition_from_an_empty_log_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"Trade\.start"):
-            Trade(id="t-1", state=TradeState.SCANNING).transition(TradeState.SIGNAL, TS)
+    @pytest.mark.parametrize("state", list(TradeState))
+    def test_rejects_empty_log_in_every_state(self, state: TradeState) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            Trade(id="t-1", state=state, events=())
 
-    @pytest.mark.parametrize("state", [s for s in TradeState if s is not TradeState.SCANNING])
-    def test_rejects_empty_log_in_a_non_scanning_state(self, state: TradeState) -> None:
-        with pytest.raises(ValueError, match="must start at SCANNING"):
-            Trade(id="t-1", state=state)
+    def test_events_are_required(self) -> None:
+        with pytest.raises(TypeError, match="events"):
+            Trade(id="t-1", state=TradeState.SCANNING)  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("state", list(TradeState))
+    def test_every_reachable_trade_has_a_log_opening_with_scanning(self, state: TradeState) -> None:
+        trade = trade_in(state)
+        assert trade.state is state
+        assert trade.events[0].state is TradeState.SCANNING
 
     @pytest.mark.parametrize("state", [s for s in TradeState if s is not TradeState.SCANNING])
     def test_rejects_first_event_that_is_not_scanning(self, state: TradeState) -> None:
@@ -319,9 +328,6 @@ class TestTrade:
         trade = Trade(id="t-1", state=TradeState.SIGNAL, events=events)
         assert trade.events == events
 
-    def test_valid_without_events(self) -> None:
-        assert Trade(id="t-1", state=TradeState.SCANNING).events == ()
-
     def test_rejects_out_of_order_events(self) -> None:
         events = (
             TradeEvent(ts=TS, state=TradeState.SCANNING),
@@ -337,9 +343,11 @@ class TestTrade:
 
     def test_rejects_invalid_state_and_id(self) -> None:
         with pytest.raises(ValueError, match=r"Trade\.state"):
-            Trade(id="t-1", state="PENDING")  # type: ignore[arg-type]
+            Trade(id="t-1", state="PENDING", events=SCANNING_LOG)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match=r"Trade\.id"):
-            Trade(id="", state=TradeState.SCANNING)
+            Trade(id="", state=TradeState.SCANNING, events=SCANNING_LOG)
+        with pytest.raises(ValueError, match=r"Trade\.id"):
+            Trade.start("", TS)
 
     def test_rejects_mutable_event_log(self) -> None:
         with pytest.raises(TypeError, match=r"Trade\.events"):

@@ -154,11 +154,15 @@ class TradeEvent:
 
 @dataclass(frozen=True, slots=True)
 class Trade:
-    """A trade's identity, current state and the ordered log of how it got there."""
+    """A trade's identity, current state and the ordered log of how it got there.
+
+    The log is never empty and always opens with a SCANNING event. Create a trade
+    with Trade.start() and move it with transition().
+    """
 
     id: str
     state: TradeState
-    events: tuple[TradeEvent, ...] = ()
+    events: tuple[TradeEvent, ...]
 
     def __post_init__(self) -> None:
         _require_text(self.id, "Trade.id")
@@ -171,7 +175,9 @@ class Trade:
                 raise TypeError(
                     f"Trade.events must contain only TradeEvent, got {type(event).__name__}"
                 )
-        first = self.events[0].state if self.events else self.state
+        if not self.events:
+            raise ValueError("Trade.events must not be empty; create a trade with Trade.start()")
+        first = self.events[0].state
         if first is not TradeState.SCANNING:
             raise ValueError(f"Trade must start at {TradeState.SCANNING.value}, got {first.value}")
         for earlier, later in zip(self.events, self.events[1:], strict=False):
@@ -180,7 +186,7 @@ class Trade:
                     f"Trade.events must be in chronological order: {later.ts} follows {earlier.ts}"
                 )
             _require_transition(earlier.state, later.state)
-        if self.events and self.events[-1].state is not self.state:
+        if self.events[-1].state is not self.state:
             raise ValueError(
                 f"Trade.state ({self.state.value}) must match the last event "
                 f"({self.events[-1].state.value})"
@@ -198,9 +204,4 @@ class Trade:
         if not isinstance(to, TradeState):
             raise TypeError(f"Trade.transition target must be a TradeState, got {to!r}")
         _require_transition(self.state, to)
-        if not self.events:
-            raise ValueError(
-                "Trade has an empty event log; create it with Trade.start() so the log "
-                f"begins with a {TradeState.SCANNING.value} event before transitioning"
-            )
         return Trade(id=self.id, state=to, events=(*self.events, TradeEvent(ts, to, note)))
