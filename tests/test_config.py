@@ -41,6 +41,8 @@ def test_instrument_profile_loads(instrument_path: Path) -> None:
     )
     assert profile.overnight_session.timezone == "America/Los_Angeles"
     assert (profile.dte_min, profile.dte_max) == (1, 3)
+    assert (profile.cash_session.start, profile.cash_session.end) == (time(6, 30), time(13, 0))
+    assert profile.option_tick_size == Decimal("0.25")
 
 
 def test_risk_profile_loads(risk_path: Path) -> None:
@@ -80,6 +82,13 @@ def test_risk_profile_loads(risk_path: Path) -> None:
         {"prime_session": session(timezone="Mars/Olympus")},
         {"prime_session": {"start": "04:00", "end": "14:00"}},
         {"overnight_session": ...},
+        {"cash_session": ...},
+        {"cash_session": session(start="03:00", end="13:00")},  # starts before prime
+        {"cash_session": session(start="06:30", end="15:00")},  # ends after prime
+        {"cash_session": session(start="13:00", end="06:30")},  # backwards
+        {"cash_session": session(start="06:30", end="13:00", timezone="America/New_York")},
+        {"option_tick_size": 0},
+        {"option_tick_size": ...},
         {"unexpected": 1},
     ],
 )
@@ -121,7 +130,7 @@ def test_instrument_rejects_overlapping_sessions(
     [
         {"overnight_session": overnight(start="14:01")},  # adjacent to prime's end
         {"overnight_session": overnight(start="22:00", end="23:00")},
-        {"prime_session": session(start="04:00", end="04:30")},
+        {"prime_session": session(start="06:00", end="14:00")},
     ],
 )
 def test_instrument_accepts_adjacent_or_separate_sessions(
@@ -254,6 +263,12 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.volume.spike_multiple == Decimal("3")
     assert s.range.adr_days == 10
     assert (s.range.quiet_below_pct, s.range.extended_above_pct) == (Decimal(70), Decimal(100))
+    assert s.range.chase_zone_pct == Decimal(10)
+    assert (s.levels.room_multiple, s.levels.wall_multiple) == (Decimal("1.5"), Decimal(1))
+    assert s.levels.swing_lookback_bars == 96
+    assert s.options.assumed_delta == Decimal("0.45")
+    assert (s.zeroday.lookback_sessions, s.zeroday.trip_multiple) == (20, Decimal(4))
+    assert s.zeroday.volume_trip_multiple == Decimal(10)
 
 
 @pytest.mark.parametrize(
@@ -266,6 +281,14 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("volume", {"lookback_sessions": 0}),
         ("range", {"quiet_below_pct": 100}),
         ("range", {"adr_days": True}),
+        ("range", {"chase_zone_pct": 100}),
+        ("levels", {"wall_multiple": 2}),
+        ("levels", {"swing_lookback_bars": 0}),
+        ("options", {"assumed_delta": 1}),
+        ("options", {"assumed_delta": 0}),
+        ("zeroday", {"trip_multiple": 1}),
+        ("zeroday", {"volume_trip_multiple": 0.5}),
+        ("zeroday", {"lookback_sessions": 0}),
     ],
 )
 def test_bad_strategy_values_are_rejected(
