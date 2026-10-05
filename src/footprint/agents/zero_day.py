@@ -7,7 +7,9 @@ tripwire, or any reading that cannot be measured, trips her; a tripped Nia means
 stand down (no new entries), never tighten-and-trade.
 
 She judges only inside the prime session of a trading day, on a fresh feed;
-anywhere else she trips. Tripwires:
+anywhere else she trips. The bar tripwires look at each of the last `recent_bars`
+completed bars (the momentum trigger itself spans two bars), so an extreme bar
+still trips her for a few minutes after it prints. Tripwires:
 - range: today's range since the prime open vs the same clock window on earlier
   trading days,
 - volume: the bar's volume vs the same time of day (its own, higher multiple),
@@ -85,26 +87,25 @@ class ZeroDayAgent:
             else:
                 notes.append(f"{name} {ratio:.2f}x")
 
+        recent = range(max(0, last - s.recent_bars + 1), last + 1)
+
+        def worst(values: Sequence[Decimal]) -> Decimal | None:
+            """The highest same-time ratio among the recent bars (None if any is unmeasurable)."""
+            ratios = [
+                relative_to_same_time(values, bars, i, s.lookback_sessions, tz) for i in recent
+            ]
+            if any(r is None for r in ratios):
+                return None
+            return max(r for r in ratios if r is not None)
+
         volumes = [Decimal(bar.volume) for bar in bars]
-        judge(
-            "volume",
-            relative_to_same_time(volumes, bars, last, s.lookback_sessions, tz),
-            s.volume_trip_multiple,
-        )
+        judge("volume", worst(volumes), s.volume_trip_multiple)
         true_ranges = [bars[0].high - bars[0].low] + [
             max(cur.high, prev.close) - min(cur.low, prev.close) for prev, cur in pairwise(bars)
         ]
-        judge(
-            "volatility",
-            relative_to_same_time(true_ranges, bars, last, s.lookback_sessions, tz),
-            s.trip_multiple,
-        )
+        judge("volatility", worst(true_ranges), s.trip_multiple)
         jumps = [Decimal(0)] + [abs(cur.close - prev.close) for prev, cur in pairwise(bars)]
-        judge(
-            "jump",
-            relative_to_same_time(jumps, bars, last, s.lookback_sessions, tz),
-            s.trip_multiple,
-        )
+        judge("jump", worst(jumps), s.trip_multiple)
 
         today_range, typical = self._range_since_open(bars, as_of)
         judge("range", today_range / typical if typical else None, s.trip_multiple)

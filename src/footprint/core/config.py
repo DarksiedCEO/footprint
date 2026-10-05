@@ -317,6 +317,7 @@ class ZeroDaySettings:
     lookback_sessions: int
     trip_multiple: Decimal
     volume_trip_multiple: Decimal
+    recent_bars: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +415,7 @@ def load_strategy(path: Path) -> StrategyProfile:
         lookback_sessions=_integer(z, "lookback_sessions", z_where, minimum=1),
         trip_multiple=_positive_decimal(z, "trip_multiple", z_where),
         volume_trip_multiple=_positive_decimal(z, "volume_trip_multiple", z_where),
+        recent_bars=_integer(z, "recent_bars", z_where, minimum=2),
     )
     if zeroday.trip_multiple <= 1 or zeroday.volume_trip_multiple <= 1:
         raise ConfigError(f"{z_where}: trip multiples must be > 1")
@@ -428,6 +430,10 @@ def load_strategy(path: Path) -> StrategyProfile:
     )
     if console.fire_threshold > console.levels_weight + console.range_weight:
         raise ConfigError(f"{k_where}: fire_threshold is above the highest possible score")
+    if console.fire_threshold <= max(console.levels_weight, console.range_weight):
+        raise ConfigError(
+            f"{k_where}: fire_threshold must need both confirmers (above each weight alone)"
+        )
 
     return StrategyProfile(
         trend=trend,

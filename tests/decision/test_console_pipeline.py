@@ -14,11 +14,19 @@ from footprint.core.config import Profiles, load_profiles
 from footprint.core.models import Bar, Direction, Read, Score
 from footprint.core.options import Right
 from footprint.decision.console.desmond import Console, ConsoleInputs, ConsoleVerdict
-from footprint.decision.pipeline import Decision, Pipeline
+from footprint.decision.pipeline import ApprovedEntry, Decision, Pipeline
 from footprint.decision.risk.gate import AccountState, Veto
 from footprint.decision.session import NewsBlackout
 from tests.conftest import REPO_ROOT
-from tests.decision.scenario import DECISION_TIME, LAST_DAY, PT, at, chain_for, market
+from tests.decision.scenario import (
+    DECISION_TIME,
+    LAST_DAY,
+    PT,
+    at,
+    chain_for,
+    decision_time,
+    market,
+)
 
 D = Decimal
 
@@ -58,27 +66,35 @@ def decide(
 def test_everything_lined_up_fires_one_long(profiles: Profiles, up_market: list[Bar]) -> None:
     decision = decide(profiles, up_market)
     assert decision.fired, decision.reasons()
-    assert decision.signal is not None
-    assert decision.signal.direction is Direction.LONG
-    ids = [r.agent_id for r in decision.signal.reads]
-    assert ids == ["trend", "momentum", "volume", "levels", "range"]
-    assert all(r.ts <= decision.signal.ts for r in decision.signal.reads)
+    approved = decision.approved
+    assert approved is not None
+    signal = approved.signal
+    assert signal.direction is Direction.LONG
+    assert [r.agent_id for r in signal.reads] == ["trend", "momentum", "volume", "levels", "range"]
+    assert all(r.ts <= signal.ts for r in signal.reads)
+    assert decision.verdict is not None
     assert decision.verdict.score == 3
-    plan = decision.plan
-    assert plan is not None
-    assert not isinstance(plan, str)
-    assert plan.choice.quote.right is Right.CALL  # type: ignore[union-attr]
-    assert plan.contracts == 1  # type: ignore[union-attr]
-    assert decision.risk is not None
-    assert decision.risk.allowed
+    assert approved.plan.choice.quote.right is Right.CALL
+    assert approved.plan.contracts == 1
+    assert approved.entry.cost == approved.plan.cost  # Dolores saw the real sized cost
+    assert approved.risk.allowed
+    assert decision.precheck.allowed
     assert decision.reasons() == []
+
+
+def test_a_short_fires_in_a_downtrend(profiles: Profiles) -> None:
+    decision = decide(profiles, market(mirror=True, bearish_spike=True))
+    assert decision.fired, decision.reasons()
+    assert decision.approved is not None
+    assert decision.approved.signal.direction is Direction.SHORT
+    assert decision.approved.plan.choice.quote.right is Right.PUT
 
 
 def test_nb14_a_bullish_trigger_in_a_downtrend_is_blocked(profiles: Profiles) -> None:
     decision = decide(profiles, market(mirror=True))
     assert not decision.fired
-    names = [g.name for g in decision.verdict.failed]
-    assert "momentum_with_trend" in names
+    assert decision.verdict is not None
+    assert "momentum_with_trend" in [g.name for g in decision.verdict.failed]
     assert decision.verdict.direction is Direction.SHORT
     assert decision.plan is None  # nothing downstream ran
 
@@ -86,31 +102,83 @@ def test_nb14_a_bullish_trigger_in_a_downtrend_is_blocked(profiles: Profiles) ->
 def test_no_trigger_no_trade(profiles: Profiles) -> None:
     decision = decide(profiles, market(spike=False))
     assert not decision.fired
+    assert decision.verdict is not None
     assert "momentum_with_trend" in [g.name for g in decision.verdict.failed]
+
+
+def test_zero_day_trip_alone_blocks_the_trade(profiles: Profiles) -> None:
+    decision = decide(profiles, market(spike_volume=1100))  # an 11x bar
+    assert not decision.fired
+    assert decision.verdict is not None
+    assert [g.name for g in decision.verdict.failed] == ["zero_day_clear"]
+
+
+def test_resistance_between_one_and_one_and_a_half_n_scores_zero(profiles: Profiles) -> None:
+    n = profiles.risk.profit_target / (
+        profiles.strategy.options.assumed_delta * profiles.instrument.point_value
+    )
+    decision = decide(profiles, market(wall_above=(n * D("1.25")).quantize(D("0.25"))))
+    assert not decision.fired
+    assert decision.verdict is not None
+    levels = next(r for r in decision.verdict.reads if r.agent_id == "levels")
+    assert levels.score is Score.NEUTRAL
+    assert "prior_high" in levels.reason
+    assert decision.verdict.score == 1  # levels 0 + range +1
+    assert [g.name for g in decision.verdict.failed] == ["confirmer_score"]
+
+
+def test_range_is_judged_after_the_cash_close(profiles: Profiles) -> None:
+    late = 569  # 13:29: spike, 13:30 follow-through, decide at 13:31
+    bars = market(spike_minute=late)
+    decision = decide(profiles, bars, as_of=decision_time(late))
+    assert decision.verdict is not None
+    range_read = next(r for r in decision.verdict.reads if r.agent_id == "range")
+    assert "not open" not in range_read.reason
+    assert "of the 10-day ADR" in range_read.reason
 
 
 def test_a_forming_bar_cannot_change_the_decision(profiles: Profiles, up_market: list[Bar]) -> None:
     last = up_market[-1]
     forming = Bar("NQ", DECISION_TIME, last.close, last.close + 500, D(1), D(2), 10**6)
-    decision = decide(profiles, [*up_market, forming], as_of=DECISION_TIME + timedelta(seconds=59))
+    later = DECISION_TIME + timedelta(seconds=59)
+    decision = decide(profiles, [*up_market, forming], as_of=later)
     assert decision.fired, decision.reasons()
 
 
-def test_risk_veto_blocks_the_signal(profiles: Profiles, up_market: list[Bar]) -> None:
+def test_risk_precheck_is_always_on_the_record(profiles: Profiles) -> None:
+    bankroll = profiles.risk.bankroll
+    shut = AccountState(bankroll, bankroll, D(-2500), D(-4000), 2, 4, 0, True, True)
+    decision = decide(profiles, market(spike=False), account=shut)
+    assert not decision.fired
+    vetoes = set(decision.precheck.vetoes)
+    assert {
+        Veto.KILL_SWITCH,
+        Veto.DAILY_STOPOUTS,
+        Veto.DAILY_LOSS,
+        Veto.WEEKLY_LOSS,
+        Veto.POSITION_OPEN,
+        Veto.TRADE_CEILING,
+    } <= vetoes
+    assert "risk: KILL_SWITCH" in decision.reasons()
+
+
+def test_a_precheck_veto_blocks_an_otherwise_perfect_setup(
+    profiles: Profiles, up_market: list[Bar]
+) -> None:
     holding = replace(clean(profiles), position_open=True)
     decision = decide(profiles, up_market, account=holding)
     assert not decision.fired
-    assert decision.risk is not None
-    assert Veto.POSITION_OPEN in decision.risk.vetoes
-    assert any("POSITION_OPEN" in r for r in decision.reasons())
+    assert Veto.POSITION_OPEN in decision.precheck.vetoes
+    assert decision.verdict is not None
+    assert decision.verdict.go  # the setup itself was fine
+    assert decision.plan is None  # nothing was sized
 
 
 def test_news_blackout_blocks_the_signal(profiles: Profiles, up_market: list[Bar]) -> None:
     window = NewsBlackout("CPI", DECISION_TIME - timedelta(minutes=5), DECISION_TIME)
     decision = decide(profiles, up_market, blackouts=(window,))
     assert not decision.fired
-    assert decision.risk is not None
-    assert Veto.NEWS_BLACKOUT in decision.risk.vetoes
+    assert Veto.NEWS_BLACKOUT in decision.precheck.vetoes
 
 
 def test_no_chain_no_trade(profiles: Profiles, up_market: list[Bar]) -> None:
@@ -132,6 +200,24 @@ def test_no_data_no_trade(profiles: Profiles, up_market: list[Bar]) -> None:
     assert not decision.fired
     thin = decide(profiles, up_market[-300:])  # hours, not weeks, of history
     assert not thin.fired
+
+
+def test_malformed_feeds_are_refused_not_crashed_on(
+    profiles: Profiles, up_market: list[Bar]
+) -> None:
+    foreign = [replace(b, symbol="ES") for b in up_market]
+    assert "not the traded instrument" in (decide(profiles, foreign).data_error or "")
+    shuffled = [*up_market[:-2], up_market[-1], up_market[-2]]
+    out_of_order = decide(profiles, shuffled)
+    assert not out_of_order.fired
+    assert out_of_order.data_error is not None
+
+
+def test_only_the_pipeline_can_approve_an_entry(profiles: Profiles, up_market: list[Bar]) -> None:
+    approved = decide(profiles, up_market).approved
+    assert approved is not None
+    with pytest.raises(PermissionError, match="only the decision pipeline"):
+        ApprovedEntry(approved.signal, approved.plan, approved.entry, approved.risk, object())
 
 
 # --- console unit tests ---------------------------------------------------------
@@ -226,7 +312,10 @@ def test_nb14_momentum_must_point_with_the_trend(
         inputs(trend=read("trend", trend), momentum=read("momentum", momentum))
     )
     assert not verdict.go
-    assert "momentum_with_trend" in failed(verdict)
+    if trend is Score.BULLISH:
+        assert failed(verdict) == ["momentum_with_trend"]  # the only reason
+    else:
+        assert "momentum_with_trend" in failed(verdict)
 
 
 @pytest.mark.parametrize(

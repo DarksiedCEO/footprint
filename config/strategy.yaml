@@ -36,6 +36,7 @@ zeroday:
   volume_trip_multiple: 10   # DEVIATION from G9 (4x): a 4x volume bar is a normal momentum
                              # trigger, so 4x here would veto the strategy's own entries.
                              # Andre to confirm.
+  recent_bars: 5             # DEFAULT: bar tripwires check each of the last N closed bars
 console:
   levels_weight: 2           # spec: levels count double
   range_weight: 1

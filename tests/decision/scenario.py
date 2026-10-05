@@ -57,33 +57,59 @@ def _bar(ts: datetime, o: Decimal, c: Decimal, volume: int = 100) -> Bar:
     return Bar("NQ", ts, o, max(o, c) + 1, min(o, c) - 1, c, volume)
 
 
-def market(*, mirror: bool = False, spike: bool = True) -> list[Bar]:
+def market(
+    *,
+    mirror: bool = False,
+    spike: bool = True,
+    spike_minute: int = SPIKE_MINUTE,
+    spike_volume: int = 300,
+    bearish_spike: bool = False,
+    wall_above: Decimal | None = None,
+) -> list[Bar]:
+    """The synthetic market up to the follow-through bar after the spike.
+
+    `wall_above` plants a high that many points above the final close in the
+    previous day's 10:00 bar: a prior-day resistance level.
+    """
     days = trading_days()
     sign = D(-1) if mirror else D(1)
+    push = D(-3) if bearish_spike else D(3)
+    follow = D(-1) if bearish_spike else D(1)
     bars: list[Bar] = []
     for i, day in enumerate(days):
         base = BASE + DAY_STEP * i * sign
         last = i == len(days) - 1
         # The overnight session that led into `day`, then its prime session.
-        minutes = [*range(660 - 1440, 0), *range(600 if not last else SPIKE_MINUTE + 2)]
+        minutes = [*range(660 - 1440, 0), *range(600 if not last else spike_minute + 2)]
         for x in minutes:
             o = base + sign * cycle_value(x)
             c = base + sign * cycle_value(x + 1)
             ts = at(day, x)
-            if last and spike and x == SPIKE_MINUTE:
-                o2 = o
-                c2 = o + 3
-                bars.append(Bar("NQ", ts, o2, c2 + 1, o2 - 1, c2, 300))
+            if last and spike and x == spike_minute:
+                c2 = o + push
+                bars.append(Bar("NQ", ts, o, max(o, c2) + 1, min(o, c2) - 1, c2, spike_volume))
                 continue
-            if last and spike and x == SPIKE_MINUTE + 1:
+            if last and spike and x == spike_minute + 1:
                 prev_close = bars[-1].close
-                bars.append(_bar(ts, prev_close, prev_close + 1))
+                bars.append(_bar(ts, prev_close, prev_close + follow))
                 continue
             bars.append(_bar(ts, o, c))
+    if wall_above is not None:
+        target = at(days[-2], 360)
+        level = bars[-1].close + wall_above
+        bars = [
+            Bar(b.symbol, b.ts, b.open, level, b.low, b.close, b.volume) if b.ts == target else b
+            for b in bars
+        ]
     return bars
 
 
-DECISION_TIME = at(LAST_DAY, SPIKE_MINUTE + 2)  # 07:01 PT
+def decision_time(spike_minute: int = SPIKE_MINUTE) -> datetime:
+    """Just after the follow-through bar closes."""
+    return at(LAST_DAY, spike_minute + 2)
+
+
+DECISION_TIME = decision_time()  # 07:01 PT
 
 
 def chain_for(price: Decimal, ts: datetime = DECISION_TIME) -> OptionChain:

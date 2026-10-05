@@ -49,7 +49,7 @@ class ConsoleInputs:
     volume: Read
     zero_day: ZeroDayCheck
     levels: LevelsSnapshot | Unavailable
-    range_days: Sequence[Bar] | None  # completed cash days + today so far; None if not open
+    range_days: Sequence[Bar] | None  # completed cash days + today; None before the cash open
     n_points: Decimal
 
 
@@ -166,7 +166,7 @@ class Console:
             if inputs.range_days:
                 range_read = self._range.assess(inputs.range_days, direction)
             else:
-                range_read = Read("range", as_of, Score.NEUTRAL, "cash session not open")
+                range_read = Read("range", as_of, Score.NEUTRAL, "cash session not open yet")
             reads.append(range_read)
             score += int(range_read.score) * s.range_weight
 
