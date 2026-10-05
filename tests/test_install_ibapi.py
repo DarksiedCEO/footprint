@@ -48,9 +48,9 @@ def test_the_pin_names_one_release() -> None:
     assert len(module.TREE_SHA256) == 64
 
 
-def client_zip(path: Path, content: bytes, compression: int) -> zipfile.ZipFile:
+def client_zip(path: Path, content: bytes, compression: int, folder: str = "") -> zipfile.ZipFile:
     with zipfile.ZipFile(path, "w", compression) as z:
-        z.writestr("twsapi_macunix/IBJts/source/pythonclient/ibapi/client.py", content)
+        z.writestr(f"{folder}IBJts/source/pythonclient/ibapi/client.py", content)
         z.writestr("__MACOSX/twsapi_macunix/._x", b"finder noise")  # never installed
     return zipfile.ZipFile(path)
 
@@ -58,9 +58,19 @@ def client_zip(path: Path, content: bytes, compression: int) -> zipfile.ZipFile:
 def test_the_pin_is_on_the_files_not_on_the_zip(tmp_path: Path) -> None:
     module = installer()
     stored = client_zip(tmp_path / "a.zip", b"code", zipfile.ZIP_STORED)
-    rezipped = client_zip(tmp_path / "b.zip", b"code", zipfile.ZIP_DEFLATED)
+    rezipped = client_zip(tmp_path / "b.zip", b"code", zipfile.ZIP_DEFLATED, "twsapi_macunix/")
     changed = client_zip(tmp_path / "c.zip", b"codE", zipfile.ZIP_STORED)
     pinned = module.tree_sha256(stored, module.client_files(stored))
     assert (tmp_path / "a.zip").read_bytes() != (tmp_path / "b.zip").read_bytes()
     assert module.tree_sha256(rezipped, module.client_files(rezipped)) == pinned
     assert module.tree_sha256(changed, module.client_files(changed)) != pinned
+
+
+def test_two_python_clients_in_one_zip_are_refused(tmp_path: Path) -> None:
+    module = installer()
+    path = tmp_path / "two.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("a/IBJts/source/pythonclient/ibapi/client.py", b"one")
+        z.writestr("b/IBJts/source/pythonclient/ibapi/client.py", b"two")
+    with zipfile.ZipFile(path) as z:
+        assert module.client_files(z) == []

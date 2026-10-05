@@ -34,7 +34,7 @@ from pathlib import Path
 VERSION = "10.50.2"  # ibapi's own version string for IBKR "Stable" API 10.50.02 (2026-09-09)
 URL = "https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip"
 TREE_SHA256 = "24ce67883549a200867eef0c535fcc951718b43a1f448b9e5ed6a9e1bc76652c"
-CLIENT = "twsapi_macunix/IBJts/source/pythonclient/"
+CLIENT = "IBJts/source/pythonclient/"  # under whatever folder the zip was made from
 
 
 def _fail(message: str) -> int:
@@ -45,16 +45,31 @@ def _fail(message: str) -> int:
     return 1
 
 
+def client_root(archive: zipfile.ZipFile) -> str | None:
+    """The one folder in the zip ending in IBJts/source/pythonclient/ (IBKR's zip and a
+    copy zipped again on a Mac put it under different folders); None unless exactly one."""
+    roots = {
+        m[: m.index(CLIENT) + len(CLIENT)]
+        for m in archive.namelist()
+        if CLIENT in m and not m.startswith("__MACOSX/")
+    }
+    return roots.pop() if len(roots) == 1 else None
+
+
 def client_files(archive: zipfile.ZipFile) -> list[str]:
-    return sorted(m for m in archive.namelist() if m.startswith(CLIENT) and not m.endswith("/"))
+    root = client_root(archive)
+    if root is None:
+        return []
+    return sorted(m for m in archive.namelist() if m.startswith(root) and not m.endswith("/"))
 
 
 def tree_sha256(archive: zipfile.ZipFile, members: list[str]) -> str:
     """One hash over each file's path (inside pythonclient/) and content."""
+    root = client_root(archive) or ""
     digest = hashlib.sha256()
     for member in members:
         content = hashlib.sha256(archive.read(member)).hexdigest()
-        digest.update(f"{member[len(CLIENT) :]}\0{content}\n".encode())
+        digest.update(f"{member[len(root) :]}\0{content}\n".encode())
     return digest.hexdigest()
 
 
@@ -77,7 +92,7 @@ def main(argv: list[str]) -> int:
         with zipfile.ZipFile(archive) as z:
             members = client_files(z)
             if not members:
-                return _fail(f"{archive.name} has no {CLIENT}")
+                return _fail(f"{archive.name} has no single {CLIENT}")
             actual = tree_sha256(z, members)
             if actual != TREE_SHA256:
                 return _fail(
@@ -89,7 +104,7 @@ def main(argv: list[str]) -> int:
                 if not target.is_relative_to(work.resolve()):
                     return _fail(f"unsafe path in archive: {member}")
             z.extractall(work, members)
-        source = work / CLIENT
+        source = work / members[0][: members[0].index(CLIENT) + len(CLIENT)]
         # Nothing is fetched here: protobuf (ibapi's one dependency) and setuptools
         # (which builds it) are locked, with hashes, in the "ibkr" dependency group;
         # --no-build-isolation builds with that locked setuptools, and --offline makes
