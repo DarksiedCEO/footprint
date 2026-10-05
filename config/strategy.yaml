@@ -37,6 +37,9 @@ zeroday:
                              # trigger, so 4x here would veto the strategy's own entries.
                              # Andre to confirm.
   recent_bars: 5             # DEFAULT: bar tripwires check each of the last N closed bars
+  spike_bar_trip_multiple: 8 # DEFAULT: jump/volatility limit for the trigger's spike
+                             # candle (the bar before the last); 4x would veto big
+                             # spike candles, the strategy's own trigger
 console:
   levels_weight: 2           # spec: levels count double
   range_weight: 1

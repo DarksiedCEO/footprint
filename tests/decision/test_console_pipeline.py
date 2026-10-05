@@ -403,3 +403,80 @@ def test_a_negative_range_read_subtracts(desmond: Console) -> None:
     assert chasing.score == 1
     range_read = next(r for r in chasing.reads if r.agent_id == "range")
     assert "chasing" in range_read.reason
+
+
+# --- approval hardening ---------------------------------------------------------
+
+
+def approved_and_pipeline(profiles: Profiles, bars: list[Bar]) -> tuple[ApprovedEntry, Pipeline]:
+    pipeline = Pipeline(profiles)
+    decision = pipeline.decide(bars, chain_for(bars[-1].close), clean(profiles), (), DECISION_TIME)
+    assert decision.approved is not None
+    return decision.approved, pipeline
+
+
+def test_only_the_issued_approval_object_counts(profiles: Profiles, up_market: list[Bar]) -> None:
+    approved, pipeline = approved_and_pipeline(profiles, up_market)
+    assert pipeline.issued(approved)
+    assert not pipeline.issued(replace(approved))  # an identical copy is not issued
+    assert not Pipeline(profiles).issued(approved)  # another pipeline never issued it
+
+
+def test_a_tampered_approval_cannot_be_built(profiles: Profiles, up_market: list[Bar]) -> None:
+    approved, _ = approved_and_pipeline(profiles, up_market)
+    bigger_plan = replace(approved.plan, contracts=50, cost=D(250000))
+    bigger_entry = replace(approved.entry, cost=D(250000))
+    with pytest.raises(PermissionError, match="different entry"):
+        replace(approved, plan=bigger_plan, entry=bigger_entry)
+    with pytest.raises(PermissionError, match="sized plan"):
+        replace(approved, plan=bigger_plan)
+    short = replace(approved.signal, direction=Direction.SHORT)
+    with pytest.raises(PermissionError):
+        replace(approved, signal=short)
+    vetoed = replace(approved.risk, vetoes=(Veto.KILL_SWITCH,))
+    with pytest.raises(PermissionError, match="vetoed"):
+        replace(approved, risk=vetoed)
+    later = replace(approved.signal, ts=approved.signal.ts + timedelta(minutes=1))
+    with pytest.raises(PermissionError, match="different moments"):
+        replace(approved, signal=later)
+
+
+def test_the_contract_right_must_match_the_direction(
+    profiles: Profiles, up_market: list[Bar]
+) -> None:
+    approved, _ = approved_and_pipeline(profiles, up_market)
+    put = replace(approved.plan.choice.quote, right=Right.PUT)
+    wrong = replace(approved.plan, choice=replace(approved.plan.choice, quote=put))
+    with pytest.raises(PermissionError, match="right"):
+        replace(approved, plan=wrong)
+
+
+# --- after the cash close, the spike candle, NB-14 in isolation ------------------
+
+
+def test_after_the_cash_close_today_extends_to_the_live_price(profiles: Profiles) -> None:
+    late = 569  # 13:29: spike, 13:30 follow-through, decide at 13:31
+    bars = market(spike_minute=late)
+    as_of = decision_time(late)
+    pipeline = Pipeline(profiles)
+    days = pipeline._range_days(bars, as_of)
+    assert days is not None
+    today = days[-1]
+    since_open = [b for b in bars if at(LAST_DAY, 150) <= b.ts < as_of]
+    assert today.high == max(b.high for b in since_open)
+    assert today.low == min(b.low for b in since_open)
+    assert today.close == bars[-1].close  # the live price, not the 12:59 close
+    decision = pipeline.decide(bars, chain_for(bars[-1].close, as_of), clean(profiles), (), as_of)
+    assert decision.verdict is not None
+    gates = {g.name: g.passed for g in decision.verdict.gates}
+    assert gates["zero_day_clear"], decision.verdict.failed  # a 6x spike candle is allowed
+
+
+def test_nb14_alone_blocks_a_bearish_trigger_in_an_uptrend(profiles: Profiles) -> None:
+    spike = 187  # 07:07, at a cycle peak: price stays above every wall
+    bars = market(spike_minute=spike, bearish_spike=True)
+    decision = decide(profiles, bars, as_of=decision_time(spike))
+    assert not decision.fired
+    assert decision.verdict is not None
+    assert decision.verdict.direction is Direction.LONG
+    assert [g.name for g in decision.verdict.failed] == ["momentum_with_trend"]

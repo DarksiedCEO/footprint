@@ -30,7 +30,7 @@ from footprint.agents.volume_reader import VolumeReader
 from footprint.agents.zero_day import ZeroDayAgent
 from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score, Signal, require_utc
-from footprint.core.options import OptionChain
+from footprint.core.options import OptionChain, Right
 from footprint.core.series import require_series
 from footprint.data.aggregate import completed, resample, session_days
 from footprint.decision.console.desmond import Console, ConsoleInputs, ConsoleVerdict
@@ -64,8 +64,14 @@ class ApprovedEntry:
             raise PermissionError("only the decision pipeline can approve an entry")
         if not self.risk.allowed:
             raise PermissionError("an entry the risk layer vetoed cannot be approved")
+        if self.risk.entry != self.entry:
+            raise PermissionError("the risk layer judged a different entry")
         if self.entry.cost != self.plan.cost or self.entry.direction is not self.signal.direction:
             raise PermissionError("approval does not match the sized plan")
+        if self.entry.ts != self.signal.ts:
+            raise PermissionError("approval and signal are from different moments")
+        if self.plan.choice.quote.right is not Right.for_direction(self.signal.direction):
+            raise PermissionError("the contract's right does not match the direction")
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +124,7 @@ class Pipeline:
         self._range = RangeReader(s.range)
         self._console = Console(s.console, inst, self._levels, self._range)
         self._contract = ContractPicker(profiles.execution, inst)
+        self._issued: dict[int, ApprovedEntry] = {}
         self._n_points = points_for_target(
             profiles.risk.profit_target,
             s.options.assumed_delta,
@@ -173,9 +180,16 @@ class Pipeline:
             return stop(verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk)
         signal = Signal(ts=as_of, direction=direction, reads=verdict.reads)
         approved = ApprovedEntry(signal, plan, entry, risk, _APPROVAL)
+        self._issued[id(approved)] = approved
         return stop(
             verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, approved=approved
         )
+
+    def issued(self, approved: ApprovedEntry) -> bool:
+        """True only for the exact object this pipeline approved. A copy, a
+        dataclasses.replace() of it, or anything built elsewhere is not issued.
+        """
+        return self._issued.get(id(approved)) is approved
 
     def _verdict(self, minute_bars: Sequence[Bar], as_of: datetime) -> ConsoleVerdict:
         p = self._p
@@ -208,18 +222,35 @@ class Pipeline:
         )
 
     def _range_days(self, minutes: Sequence[Bar], as_of: datetime) -> list[Bar] | None:
-        """Completed cash days plus today's cash session (in progress, or finished if
-        the cash session has already closed). None before today's cash open.
+        """Completed cash days plus today. Today is the cash session so far; after the
+        cash close it is the finished cash session extended by every bar since, so the
+        range and the chase rule see the live price. None before today's cash open.
         """
         cash = self._p.instrument.cash_session
         days = session_days(minutes, cash, as_of)
         if days.today is not None:
             return [*days.days, days.today]
-        if days.days:
-            zone = ZoneInfo(cash.timezone)
-            if days.days[-1].ts.astimezone(zone).date() == as_of.astimezone(zone).date():
-                return list(days.days)
-        return None
+        zone = ZoneInfo(cash.timezone)
+        today = as_of.astimezone(zone).date()
+        if not days.days or days.days[-1].ts.astimezone(zone).date() != today:
+            return None
+        session = days.days[-1]
+        after = [
+            b
+            for b in minutes
+            if b.ts.astimezone(zone).date() == today and b.ts.astimezone(zone).time() >= cash.end
+        ]
+        if after:
+            session = Bar(
+                symbol=session.symbol,
+                ts=session.ts,
+                open=session.open,
+                high=max(session.high, *(b.high for b in after)),
+                low=min(session.low, *(b.low for b in after)),
+                close=after[-1].close,
+                volume=session.volume + sum(b.volume for b in after),
+            )
+        return [*days.days[:-1], session]
 
 
 def _blind(agent_id: str, as_of: datetime) -> Read:

@@ -112,6 +112,7 @@ class RiskDecision:
     session: SessionKind
     blackout: NewsBlackout | None
     latch_kill_switch: bool
+    entry: EntryRequest | None = None  # the sized entry judged; None for a precheck
 
     @property
     def allowed(self) -> bool:
@@ -194,4 +195,5 @@ def evaluate(
         session=base.session,
         blackout=base.blackout,
         latch_kill_switch=base.latch_kill_switch,
+        entry=entry,
     )

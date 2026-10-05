@@ -318,6 +318,7 @@ class ZeroDaySettings:
     trip_multiple: Decimal
     volume_trip_multiple: Decimal
     recent_bars: int
+    spike_bar_trip_multiple: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -416,7 +417,10 @@ def load_strategy(path: Path) -> StrategyProfile:
         trip_multiple=_positive_decimal(z, "trip_multiple", z_where),
         volume_trip_multiple=_positive_decimal(z, "volume_trip_multiple", z_where),
         recent_bars=_integer(z, "recent_bars", z_where, minimum=2),
+        spike_bar_trip_multiple=_positive_decimal(z, "spike_bar_trip_multiple", z_where),
     )
+    if zeroday.spike_bar_trip_multiple < zeroday.trip_multiple:
+        raise ConfigError(f"{z_where}: spike_bar_trip_multiple must be >= trip_multiple")
     if zeroday.trip_multiple <= 1 or zeroday.volume_trip_multiple <= 1:
         raise ConfigError(f"{z_where}: trip multiples must be > 1")
 

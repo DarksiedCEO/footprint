@@ -277,6 +277,7 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert (s.zeroday.lookback_sessions, s.zeroday.trip_multiple) == (20, Decimal(4))
     assert s.zeroday.volume_trip_multiple == Decimal(10)
     assert s.zeroday.recent_bars == 5
+    assert s.zeroday.spike_bar_trip_multiple == Decimal(8)
     assert (s.console.levels_weight, s.console.range_weight) == (2, 1)
     assert (s.console.fire_threshold, s.console.close_lead_minutes) == (3, 5)
 
@@ -304,6 +305,7 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("zeroday", {"volume_trip_multiple": 0.5}),
         ("zeroday", {"lookback_sessions": 0}),
         ("zeroday", {"recent_bars": 1}),  # must cover the two-bar trigger
+        ("zeroday", {"spike_bar_trip_multiple": 3}),  # below trip_multiple
         ("console", {"fire_threshold": 4}),  # above the maximum score
         ("console", {"fire_threshold": 2}),  # levels alone could fire
         ("console", {"levels_weight": 0}),
