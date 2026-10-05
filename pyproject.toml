@@ -25,6 +25,7 @@ dev = [
 # What IBKR's ibapi needs (ibapi itself: scripts/install_ibapi.py, pinned by hash).
 ibkr = [
     "protobuf==5.29.5",
+    "setuptools>=80",  # builds ibapi (it has only a setup.py) without fetching anything
 ]
 
 [tool.uv]

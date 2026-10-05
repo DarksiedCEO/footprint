@@ -5,7 +5,13 @@ This layer only translates. Every decision about what to trust lives in the adap
 (IbkrBroker), which is tested against a fake IBKR. What the binding adds:
 
 - One account. Orders are sent for `account` only; orders, executions and positions
-  of any other account on the same login never reach the adapter.
+  of any other account on the same login (or with no account at all) never reach the
+  adapter, and a broker-wide cancel is refused while any such order is open (it
+  would cancel them too).
+- One instrument read exactly. Fills and positions outside the system's scope are
+  dropped before any number in them is read, and an order outside it is passed on
+  only so the adapter knows it is open: a fractional stock holding of Andre's can
+  never upset the system.
 - Paper only (while `require_paper` is set): the connection is refused, and never
   retried, unless the login manages `account` and that account is a paper account.
   The adapter hears CONNECTED only after that check, with IBKR's next valid order id.
@@ -46,10 +52,11 @@ from footprint.core.config import IbkrConfig
 log = logging.getLogger("footprint.ibkr.binding")
 
 _STOP_TYPES = frozenset({"STP", "STP LMT", "TRAIL", "TRAIL LIMIT"})
+_FINISHED = frozenset({"Filled", "Cancelled", "ApiCancelled", "Inactive"})
 
 
-class AccountRefused(RuntimeError):
-    """The login is not the configured (paper) account: nothing is connected."""
+class ForeignOrdersOpen(PermissionError):
+    """A broker-wide cancel would reach orders of another account on the login."""
 
 
 class UnreadableValue(ValueError):
@@ -165,10 +172,12 @@ class IbBinding:
     def __init__(
         self,
         settings: IbConnectionSettings,
+        scope: tuple[str, str],
         on_alarm: Callable[[str], None] = lambda message: None,
         client_factory: Callable[[EWrapper], Any] | None = None,
     ) -> None:
         self._s = settings
+        self._scope = scope
         self._on_alarm = on_alarm
         self._factory: Callable[[EWrapper], Any] = client_factory or EClient
         self._events: IbEvents | None = None
@@ -197,6 +206,12 @@ class IbBinding:
         self._call().cancelOrder(ib_id, OrderCancel())
 
     def global_cancel(self) -> None:
+        foreign = self._wrapper.foreign_open()
+        if foreign:
+            raise ForeignOrdersOpen(
+                f"a broker-wide cancel would also cancel {foreign} order(s) of other "
+                "accounts on this login: cancel by hand"
+            )
         self._call().reqGlobalCancel(OrderCancel())
 
     def request_open_orders(self) -> None:
@@ -289,6 +304,12 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._announced = False
             self._open = False
             self._foreign: set[int] = set()  # permIds of other accounts' orders
+            self._foreign_live: set[int] = set()  # ...still open
+            self._outside: set[int] = set()  # permIds of orders outside the scope
+
+    def foreign_open(self) -> int:
+        with self._session_lock:
+            return len(self._foreign_live)
 
     def closed(self) -> None:
         """The session ended (run returned, or the connect failed)."""
@@ -361,9 +382,35 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         order: Order,
         orderState: OrderState,
     ) -> None:
-        if order.account and order.account != self._b._s.account:
+        if order.account != self._b._s.account:
+            if not order.account:
+                log.critical("IBKR order %s arrived with no account: ignored", order.permId)
             with self._session_lock:
                 self._foreign.add(order.permId)
+                if orderState.status in _FINISHED:
+                    self._foreign_live.discard(order.permId)
+                else:
+                    self._foreign_live.add(order.permId)
+            return
+        if (contract.symbol, contract.secType) != self._b._scope:
+            with self._session_lock:
+                self._outside.add(order.permId)
+            # Passed on only so the adapter knows it is open; no number in it is read.
+            self._b._forward().on_open_order(
+                orderId,
+                order.permId,
+                order.orderRef,
+                contract.conId,
+                contract.symbol,
+                contract.secType,
+                order.action,
+                0,
+                order.orderType,
+                Decimal(0),
+                None,
+                order.ocaGroup or None,
+                orderState.status,
+            )
             return
 
         def forward() -> None:
@@ -405,16 +452,20 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
     ) -> None:
         with self._session_lock:
             if permId in self._foreign:
+                if status in _FINISHED:
+                    self._foreign_live.discard(permId)
                 return
+            outside = permId in self._outside
 
         def forward() -> None:
+            # `remaining` is never used; an unset `filled` is unknown (the adapter
+            # counts fills from the executions); outside the scope nothing is read.
+            if outside or (isinstance(filled, Decimal) and filled == UNSET_DECIMAL):
+                done = 0
+            else:
+                done = to_quantity(filled)
             self._b._forward().on_order_status(
-                orderId,
-                permId,
-                status,
-                to_quantity(filled),
-                to_quantity(remaining),
-                to_price(avgFillPrice) or Decimal(0),
+                orderId, permId, status, done, 0, to_price(avgFillPrice) or Decimal(0)
             )
 
         self._guard("order status", forward)
@@ -422,8 +473,10 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
     # --- fills and positions ------------------------------------------------------------
 
     def execDetails(self, reqId: int, contract: Contract, execution: Execution) -> None:
-        if execution.acctNumber and execution.acctNumber != self._b._s.account:
+        if execution.acctNumber != self._b._s.account:
             return
+        if (contract.symbol, contract.secType) != self._b._scope:
+            return  # not the system's: nothing in it is read
 
         def forward() -> None:
             price = to_price(execution.price)
@@ -455,6 +508,8 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
     ) -> None:
         if account != self._b._s.account:
             return
+        if (contract.symbol, contract.secType) != self._b._scope:
+            return  # not the system's: nothing in it is read
         self._guard(
             "position",
             lambda: self._b._forward().on_position(

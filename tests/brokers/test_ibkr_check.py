@@ -105,7 +105,9 @@ def run_check(
         return gateways[-1]
 
     out = io.StringIO()
-    code = check(profiles, s, wait, out, lambda st, alarm: IbBinding(st, alarm, factory))
+    code = check(
+        profiles, s, wait, out, lambda st, scope, alarm: IbBinding(st, scope, alarm, factory)
+    )
     return code, out.getvalue(), gateways
 
 

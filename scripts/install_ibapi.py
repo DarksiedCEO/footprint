@@ -7,8 +7,11 @@ so it comes from IBKR's own download, checked against the SHA-256 recorded below
     uv run python scripts/install_ibapi.py                 # downloads from IBKR
     uv run python scripts/install_ibapi.py path/to/zip     # a copy you downloaded
 
-A different file is refused. To move to another IBKR release, change VERSION, URL and
-SHA256 together, in a reviewed change.
+A different file is refused. `uv sync` removes ibapi (it is not in the lock): run this
+again after any `uv sync`. `uv run` leaves it in place.
+
+To move to another IBKR release, change VERSION, URL and SHA256 together, in a
+reviewed change.
 
 ibapi is GPL-3.0-or-later (see docs/decisions-pending.md, D25).
 """
@@ -61,10 +64,22 @@ def main(argv: list[str]) -> int:
                     return 1
             z.extractall(work, members)
         source = work / CLIENT
-        # No dependency resolution here: protobuf is pinned and locked by the project
-        # (dependency group "ibkr"), so nothing unlocked is installed.
+        # Nothing is fetched here: protobuf (ibapi's one dependency) and setuptools
+        # (which builds it) are locked, with hashes, in the "ibkr" dependency group;
+        # --no-build-isolation builds with that locked setuptools, and --offline makes
+        # any attempt to fetch fail.
         subprocess.run(
-            ["uv", "pip", "install", "--no-deps", "--python", sys.executable, str(source)],
+            [
+                "uv",
+                "pip",
+                "install",
+                "--offline",
+                "--no-deps",
+                "--no-build-isolation",
+                "--python",
+                sys.executable,
+                str(source),
+            ],
             check=True,
         )
     import importlib

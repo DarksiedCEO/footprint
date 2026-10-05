@@ -333,7 +333,12 @@ class IbkrBroker:
                 with self._cv:
                     return self._status(order_id)
             self._alarm(f"broker-wide cancel to reach {order_id}")
-            self._gw.global_cancel()
+            try:
+                self._gw.global_cancel()
+            except PermissionError as exc:  # it would reach orders that are not ours
+                self._alarm(f"CANCEL BY HAND: {order_id} needs a broker-wide cancel: {exc}")
+                with self._cv:
+                    return self._status(order_id)
             with self._cv:
                 self._cv.wait_for(lambda: not self._is_live(order_id), self._timeout)
                 return self._status(order_id)

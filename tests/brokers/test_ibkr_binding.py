@@ -22,6 +22,7 @@ from ibapi.order_state import OrderState
 
 from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
 from footprint.brokers.ibkr.binding import (
+    ForeignOrdersOpen,
     IbBinding,
     IbConnectionSettings,
     UnreadableValue,
@@ -35,6 +36,7 @@ from footprint.core.config import IbkrConfig
 
 D = Decimal
 ACCOUNT = "DUR239136"
+SCOPE = ("NQ", "FOP")
 NQ_CALL = IbContract(501, "NQ", "FOP", "CME", "USD", "20260916", D(23725), "C", "20", "Q3C")
 
 
@@ -103,7 +105,7 @@ def bound(**changes: Any) -> tuple[IbBinding, Recording, Events, list[str]]:
         clients.append(Recording(wrapper))
         return clients[-1]
 
-    binding = IbBinding(settings(**changes), alarms.append, factory)
+    binding = IbBinding(settings(**changes), SCOPE, alarms.append, factory)
     events = Events()
     binding.attach(events)
     binding._client = factory(binding._wrapper)
@@ -190,7 +192,7 @@ def test_cancels_and_requests_use_ibapi_10_50_calls() -> None:
 
 
 def test_nothing_is_sent_without_a_connection() -> None:
-    binding = IbBinding(settings())
+    binding = IbBinding(settings(), SCOPE)
     with pytest.raises(ConnectionError):
         binding.place_order(request())
 
@@ -401,7 +403,7 @@ def test_the_supervisor_reconnects_after_a_drop_until_stopped() -> None:
         clients.append(client)
         return client
 
-    binding = IbBinding(settings(reconnect_seconds=0.05), alarms.append, factory)
+    binding = IbBinding(settings(reconnect_seconds=0.05), SCOPE, alarms.append, factory)
     events = Events()
     binding.attach(events)
     started = time.monotonic()
@@ -424,7 +426,7 @@ def test_a_failed_connect_is_retried_without_telling_the_adapter_anything() -> N
             stop.set()
         return client
 
-    binding = IbBinding(settings(), client_factory=factory)
+    binding = IbBinding(settings(), SCOPE, client_factory=factory)
     events = Events()
     binding.attach(events)
     binding.run(stop)
@@ -519,7 +521,7 @@ def test_the_supervisor_stops_for_good_when_the_account_is_refused() -> None:
         clients.append(client)
         return client
 
-    binding = IbBinding(settings(account="U1234567"), client_factory=factory)
+    binding = IbBinding(settings(account="U1234567"), SCOPE, client_factory=factory)
     events = Events()
     binding.attach(events)
     worker = threading.Thread(target=binding.run, args=(threading.Event(),), daemon=True)
@@ -536,3 +538,99 @@ def test_a_limit_order_with_a_zero_aux_price_has_no_stop() -> None:
     order.auxPrice = 0.0  # IBKR often reports an unused aux price as 0
     binding._wrapper.openOrder(8, ib_contract(), order, state("Submitted"))
     assert events.got[0][1][10] is None
+
+
+# --- review round 1 -----------------------------------------------------------------------
+
+
+def stock() -> Contract:
+    c = Contract()
+    c.conId, c.symbol, c.secType = 900, "XYZ", "STK"
+    return c
+
+
+def test_a_fractional_holding_outside_the_scope_never_drops_the_connection() -> None:
+    binding, client, events, alarms = opened()
+    binding._wrapper.position(ACCOUNT, stock(), D("10.5"), 0.0)  # dividend reinvestment
+    e = Execution()
+    e.execId, e.permId, e.side, e.shares, e.price = "s.01", 55, "BOT", D("0.5"), 101.0
+    e.acctNumber = ACCOUNT
+    binding._wrapper.execDetails(-1, stock(), e)
+    fractional = ib_order("LMT", perm=55)
+    fractional.totalQuantity, fractional.lmtPrice = D("2.5"), UNSET_DOUBLE
+    binding._wrapper.openOrder(0, stock(), fractional, state("Submitted"))
+    binding._wrapper.orderStatus(0, "Submitted", D("0.5"), D(2), 0.0, 55, 0, 0.0, 0, "", 0.0)
+    assert client.connected
+    assert alarms == []
+    names = [name for name, _ in events.got]
+    assert names == ["on_open_order", "on_order_status"]  # only so the adapter knows it is open
+    assert events.got[0][1][4:6] == ("XYZ", "STK")
+
+
+def test_a_broker_wide_cancel_is_refused_while_another_accounts_order_is_open() -> None:
+    binding, client, _, _ = opened()
+    binding._wrapper.openOrder(
+        9, ib_contract(), ib_order(account="DU0000002", perm=77), state("Submitted")
+    )
+    with pytest.raises(ForeignOrdersOpen):
+        binding.global_cancel()
+    assert not any(name == "reqGlobalCancel" for name, _ in client.calls)
+    binding._wrapper.orderStatus(9, "Cancelled", D(0), D(1), 0.0, 77, 0, 0.0, 0, "", 0.0)
+    binding.global_cancel()  # nothing of theirs is open any more
+    assert any(name == "reqGlobalCancel" for name, _ in client.calls)
+
+
+def test_the_adapter_asks_for_a_hand_cancel_when_the_broker_wide_cancel_is_refused() -> None:
+    binding, _, _, alarms = bound()
+    adapter = IbkrBroker(
+        binding, ContractBook(), IbkrSettings.from_config(ibkr_config()), SCOPE, alarms.append
+    )
+    binding.attach(adapter)
+    binding._wrapper.managedAccounts(ACCOUNT)
+    binding._wrapper.nextValidId(100)
+    binding._wrapper.openOrder(
+        9, ib_contract(), ib_order(account="DU0000002", perm=77), state("Submitted")
+    )
+    hand = ib_order("LMT", perm=88)
+    hand.orderRef = ""  # placed by hand in TWS: only a broker-wide cancel reaches it
+    binding._wrapper.openOrder(0, ib_contract(), hand, state("Submitted"))
+    binding._wrapper.openOrderEnd()
+    binding._wrapper.execDetailsEnd(1)
+    binding._wrapper.positionEnd()
+    status = adapter.cancel("ib-88")
+    assert status.order.order_id == "ib-88"
+    assert any("CANCEL BY HAND" in a for a in alarms)
+
+
+def test_a_status_with_unset_quantities_keeps_the_connection() -> None:
+    binding, client, events, _ = opened()
+    binding._wrapper.orderStatus(
+        7, "Submitted", UNSET_DECIMAL, UNSET_DECIMAL, 0.0, 9001, 0, 0.0, 0, "", 0.0
+    )
+    assert client.connected
+    assert events.got == [("on_order_status", (7, 9001, "Submitted", 0, 0, D(0)))]
+
+
+def test_a_fractional_fill_on_the_systems_own_instrument_is_unreadable() -> None:
+    binding, client, _, alarms = opened()
+    binding._wrapper.orderStatus(7, "Filled", D("0.5"), D("0.5"), 1.0, 9001, 0, 1.0, 0, "", 0.0)
+    assert not client.connected
+    assert any("unreadable order status" in a for a in alarms)
+
+
+def test_anything_with_no_account_never_reaches_the_adapter() -> None:
+    binding, _, events, _ = opened()
+    binding._wrapper.openOrder(9, ib_contract(), ib_order(account="", perm=66), state("Submitted"))
+    e = Execution()
+    e.execId, e.permId, e.side, e.shares, e.price = "n.01", 66, "BOT", D(1), 1.0
+    binding._wrapper.execDetails(-1, ib_contract(), e)  # acctNumber left empty
+    assert events.got == []
+
+
+def test_another_accounts_finished_order_does_not_block_the_broker_wide_cancel() -> None:
+    binding, client, _, _ = opened()
+    binding._wrapper.openOrder(
+        9, ib_contract(), ib_order(account="DU0000002", perm=78), state("Filled")
+    )
+    binding.global_cancel()
+    assert any(name == "reqGlobalCancel" for name, _ in client.calls)

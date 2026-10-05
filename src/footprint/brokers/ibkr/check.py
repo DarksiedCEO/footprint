@@ -27,7 +27,13 @@ from footprint.brokers.ibkr.adapter import (
     IbkrSettings,
     PositionsInDoubt,
 )
-from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings, read_env_file
+
+try:
+    from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings, read_env_file
+except ModuleNotFoundError as missing:  # pragma: no cover - only without ibapi
+    if missing.name != "ibapi" and not (missing.name or "").startswith("ibapi."):
+        raise
+    sys.exit("ibapi is not installed: run  uv run python scripts/install_ibapi.py")
 from footprint.brokers.ibkr.gateway import IbGateway, IbOrderRequest
 from footprint.core.config import Profiles, load_profiles
 
@@ -64,15 +70,15 @@ def check(
     settings: IbConnectionSettings,
     wait_seconds: float,
     out: TextIO,
-    binding_factory: Callable[[IbConnectionSettings, Callable[[str], None]], IbBinding] = (
-        lambda s, alarm: IbBinding(s, alarm)
-    ),
+    binding_factory: Callable[
+        [IbConnectionSettings, tuple[str, str], Callable[[str], None]], IbBinding
+    ] = IbBinding,
 ) -> int:
     def say(message: str) -> None:
         print(message, file=out, flush=True)
 
-    binding = binding_factory(settings, lambda message: say(f"ALARM: {message}"))
     scope = (profiles.instrument.symbol, profiles.execution.ibkr.option_security_type)
+    binding = binding_factory(settings, scope, lambda message: say(f"ALARM: {message}"))
     adapter = IbkrBroker(
         ReadOnlyGateway(binding),
         ContractBook(),
