@@ -185,6 +185,7 @@ class IbBinding:
         self._lock = threading.Lock()
         self._client: Any = None
         self._next_request = 1
+        self._sent_ids: set[int] = set()  # IBKR order ids this binding has sent
         self._refused: str | None = None
         self._wrapper = _Wrapper(self)
 
@@ -199,6 +200,8 @@ class IbBinding:
     # --- IbGateway --------------------------------------------------------------------
 
     def place_order(self, request: IbOrderRequest) -> None:
+        with self._lock:
+            self._sent_ids.add(request.ib_id)
         self._call().placeOrder(
             request.ib_id, build_contract(request), build_order(request, self._s.account)
         )
@@ -265,6 +268,10 @@ class IbBinding:
             client = self._client
         if client is not None:
             client.disconnect()
+
+    def _sent(self, ib_id: int) -> bool:
+        with self._lock:
+            return ib_id in self._sent_ids
 
     def _call(self) -> Any:
         with self._lock:
@@ -474,16 +481,24 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                 if status in _FINISHED:
                     self._foreign_live.discard(permId)
                 return
-            known = permId in self._in_scope
+            outside = permId in self._outside
+            known = permId in self._in_scope or self._b._sent(orderId)
 
         def forward() -> None:
-            # `remaining` is never used. `filled` is read only for an order known to
-            # be in scope (an order not yet seen, or outside it, may be in fractional
-            # shares); unset is unknown. The adapter counts fills from the executions.
-            if not known or (isinstance(filled, Decimal) and filled == UNSET_DECIMAL):
+            # `remaining` is never used; an unset `filled` is unknown (the adapter
+            # counts fills from the executions). For an order of the system's own
+            # instrument (seen in scope, or sent by this binding), `filled` must be
+            # read exactly. Outside the scope nothing is read; for an order not seen
+            # yet, an unreadable `filled` (fractional shares) is passed as unknown.
+            if outside or (isinstance(filled, Decimal) and filled == UNSET_DECIMAL):
                 done = 0
-            else:
+            elif known:
                 done = to_quantity(filled)
+            else:
+                try:
+                    done = to_quantity(filled)
+                except UnreadableValue:
+                    done = 0
             self._b._forward().on_order_status(
                 orderId, permId, status, done, 0, to_price(avgFillPrice) or Decimal(0)
             )

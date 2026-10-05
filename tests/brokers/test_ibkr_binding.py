@@ -665,3 +665,39 @@ def test_another_accounts_inactive_order_still_blocks_the_broker_wide_cancel() -
     )
     with pytest.raises(ForeignOrdersOpen):
         binding.global_cancel()
+
+
+# --- review round 3 -----------------------------------------------------------------------
+
+
+def test_our_own_fill_told_before_its_open_order_keeps_its_quantity() -> None:
+    binding, _, events, _ = opened()
+    binding.place_order(request())  # ib id 7, sent by this binding
+    binding._wrapper.orderStatus(7, "Filled", D(1), D(0), 114.25, 9001, 0, 114.25, 0, "", 0.0)
+    assert events.got == [("on_order_status", (7, 9001, "Filled", 1, 0, D("114.25")))]
+
+
+def test_a_fractional_fill_on_our_own_order_is_unreadable_even_before_its_open_order() -> None:
+    binding, client, _, alarms = opened()
+    binding.place_order(request())
+    binding._wrapper.orderStatus(7, "Filled", D("0.5"), D(0), 1.0, 9001, 0, 1.0, 0, "", 0.0)
+    assert not client.connected
+    assert any("unreadable order status" in a for a in alarms)
+
+
+def test_an_unseen_orders_whole_fill_is_passed_on() -> None:
+    binding, _, events, _ = opened()
+    binding._wrapper.orderStatus(3, "Filled", D(2), D(0), 1.5, 4343, 0, 1.5, 0, "", 0.0)
+    assert events.got == [("on_order_status", (3, 4343, "Filled", 2, 0, D("1.5")))]
+
+
+def test_another_clients_stock_order_sharing_our_order_id_reads_no_quantity() -> None:
+    """Order ids are per client: Andre's TWS order can carry the same id as one of ours."""
+    binding, client, events, _ = opened()
+    binding.place_order(request())  # our ib id 7
+    fractional = ib_order("LMT", perm=56)
+    fractional.totalQuantity = D("2.5")
+    binding._wrapper.openOrder(7, stock(), fractional, state("Submitted"))
+    binding._wrapper.orderStatus(7, "Submitted", D("0.5"), D(2), 0.0, 56, 0, 0.0, 0, "", 0.0)
+    assert client.connected
+    assert events.got[-1] == ("on_order_status", (7, 56, "Submitted", 0, 0, D(0)))

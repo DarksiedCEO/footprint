@@ -704,3 +704,19 @@ def test_the_open_orders_are_listed_afresh_before_a_broker_wide_cancel(ib: Ib) -
     ib.adapter.cancel("p1-exit-1")
     assert ib.fake.global_cancels == 0
     assert any("CANCEL BY HAND" in a for a in ib.alarms)
+
+
+def test_a_fill_told_before_its_open_order_is_a_fill(ib: Ib) -> None:
+    ib.fake.status_first = True
+    status = ib.adapter.place(buy(price=152))  # fills at once; status first
+    assert (status.state, status.filled, status.avg_price) == (OrderState.FILLED, 1, D(152))
+
+
+def test_no_broker_wide_cancel_when_the_fresh_listing_does_not_come(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-exit-1", group="p1"))
+    ib.fake.degraded = True
+    ib.adapter.modify("p1-exit-1", D(199), None)  # a duplicate copy: needs a global cancel
+    ib.fake.mute_listing = True
+    ib.adapter.cancel("p1-exit-1")
+    assert ib.fake.global_cancels == 0
+    assert any("could not be listed afresh" in a for a in ib.alarms)

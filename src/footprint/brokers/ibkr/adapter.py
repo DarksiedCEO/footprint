@@ -324,10 +324,17 @@ class IbkrBroker:
             # would also cancel orders on anything else in the account, so it is not
             # sent while any are open: Andre cancels by hand instead. The open orders
             # are listed afresh first (one placed since the last listing may be unseen).
-            self._audit(order_id)
+            listed = self._audit(order_id)
             with self._cv:
                 self._require_ready()
                 outside = len(self._outside_orders)
+            if not listed:
+                self._alarm(
+                    f"CANCEL BY HAND: {order_id} needs a broker-wide cancel, but IBKR's "
+                    "open orders could not be listed afresh to check what else it would reach"
+                )
+                with self._cv:
+                    return self._status(order_id)
             if outside:
                 self._alarm(
                     f"CANCEL BY HAND: {order_id} needs a broker-wide cancel, but "
@@ -832,13 +839,13 @@ class IbkrBroker:
             self._bump(copy.ib_id)
         return alarms
 
-    def _audit(self, order_id: str) -> None:
-        """Ask IBKR for every open order, and settle ours it no longer lists. Called
-        without the lock."""
+    def _audit(self, order_id: str) -> bool:
+        """Ask IBKR for every open order, and settle ours it no longer lists. True if
+        the listing completed. Called without the lock."""
         with self._cv:
             self._cv.wait_for(lambda: self._listing is None, self._timeout)
             if self._listing is not None or not self._ready:
-                return
+                return False
             listing = _Listing({c.perm_id for c in self._copies.values() if c.live}, False)
             self._listing = listing
             self._ask("orders")
@@ -848,6 +855,7 @@ class IbkrBroker:
             self._cv.wait_for(lambda: listing.done or not self._connected, self._timeout)
             if self._listing is listing:
                 self._listing = None  # no answer: the next audit asks again
+            return listing.done
 
     def _rebuild(
         self,
