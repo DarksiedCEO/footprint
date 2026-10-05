@@ -58,6 +58,11 @@ from footprint.execution.orders import (
 log = logging.getLogger("footprint.trade_mgmt")
 
 
+class NeedsReconcile(RuntimeError):
+    """The broker shows something the manager cannot account for (an unexpected fill
+    on the contract). Nothing is booked; the runner must halt and reconcile."""
+
+
 class ExitReason(Enum):
     STOP = "STOP"
     GAP = "GAP"
@@ -269,11 +274,28 @@ class Manager:
                     continue
                 self._broker.cancel(order.order_id)
                 gone = self._broker.status(order.order_id)
-                if gone.state is OrderState.FILLED and gone.avg_price is not None:
-                    return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                if gone.filled > 0:
+                    if (
+                        gone.state is OrderState.FILLED
+                        and gone.avg_price is not None
+                        and gone.order.side is Side.SELL
+                        and gone.filled == position.contracts
+                    ):  # it sold exactly this position: the trade is over
+                        return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                    # Anything else (a buy, a partial, another size) changes what is
+                    # held in a way this position cannot book: stop and reconcile.
+                    message = (
+                        f"{pid}: {order.order_id} filled {gone.filled} "
+                        f"{gone.order.side.value} during the cancel; reconcile"
+                    )
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: unexpected fill on the contract")
+                    raise NeedsReconcile(message)
                 if gone.state is OrderState.WORKING:
                     self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
                     return None
+        except NeedsReconcile:
+            raise
         except Exception as exc:  # the broker failed mid-exit: halt, retry next call
             self._alarm(now, f"{pid}: broker error while exiting: {exc!r}; retrying")
             self._stand_down(now, f"{pid}: broker error while exiting")
@@ -340,6 +362,8 @@ class Manager:
         reason = self._exit_reason.get(position.position_id, ExitReason.STOP)
         try:
             return self._work_exit_once(position, quote, now, reason)
+        except NeedsReconcile:
+            raise
         except Exception as exc:  # broker error: halt, keep the exit recorded, retry
             self._alarm(now, f"{position.position_id}: broker error working the exit: {exc!r}")
             self._stand_down(now, f"{position.position_id}: broker error working the exit")
@@ -355,7 +379,9 @@ class Manager:
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{position.position_id}: exit {status.state.value}; retrying")
             self._stand_down(now, f"{position.position_id}: exit {status.state.value}")
-            return self._place_exit(position, quote, now, reason)
+            position.exit_order_id = None
+            # Through the same sweep as any exit: never re-place beside another seller.
+            return self._start_exit(position, quote, now, reason)
         tick = self._p.instrument.option_tick_size
         target = quote.bid if quote.bid > 0 else tick
         if self._stale(quote, now):

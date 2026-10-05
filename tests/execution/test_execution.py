@@ -1006,3 +1006,48 @@ def test_an_exit_never_sits_beside_another_seller(stack: Stack) -> None:
     assert stack.broker.status("other-sell").state is OrderState.CANCELLED
     assert closed is not None  # the exit sold the one contract at the bid
     assert stack.broker.positions() == {}  # never short
+
+
+def test_a_replaced_exit_goes_through_the_sweep(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R6 LOW: an exit the broker dropped is re-placed only after every other order on
+    the contract is cancelled, never beside another seller."""
+    position = filled_position(stack)
+    exit_rests_on_arrival(stack, monkeypatch)
+    t = FILLED_AT + SEC
+    stack.quote(150, D("151.5"), t)
+    assert stack.manager.flatten(position, t) is None  # exit-1 rests
+    assert position.exit_order_id is not None
+    stack.broker.cancel(position.exit_order_id)  # the broker drops it
+    other = Order("other-sell", position.contract_id, Side.SELL, 1, OrderType.LIMIT, D(200))
+    stack.broker.place(other)
+    stack.manager.flatten(position, t + SEC)
+    assert stack.broker.status("other-sell").state is OrderState.CANCELLED
+    assert all(qty >= 0 for qty in stack.broker.positions().values())
+
+
+def test_a_sell_of_another_size_that_fills_during_the_sweep_is_not_the_exit(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R6-1: only a sell of exactly this position closes it; a 2-lot leaves a short."""
+    from footprint.execution.management.malik import NeedsReconcile
+
+    position = filled_position(stack)
+    contract = position.contract_id
+    stack.broker.place(Order("big-sell", contract, Side.SELL, 2, OrderType.LIMIT, D(200)))
+    original = stack.broker.cancel
+
+    def races(order_id: str) -> OrderStatus:
+        if order_id == "big-sell":
+            held = stack.broker._orders[order_id]
+            stack.broker._orders[order_id] = OrderStatus(held.order, OrderState.FILLED, 2, D(200))
+            stack.broker._positions[contract] -= 2
+            return stack.broker._orders[order_id]
+        return original(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", races)
+    with pytest.raises(NeedsReconcile):
+        stack.manager.flatten(position, FILLED_AT + SEC)
+    assert stack.ledger.open_position_id == position.position_id  # nothing booked
+    assert stack.halt.tripped

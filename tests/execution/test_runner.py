@@ -696,3 +696,39 @@ def test_the_failsafe_stands_aside_when_reconcile_raises(
     runner.doubt()
     runner.step(fill + SEC)
     assert calls == []
+
+
+# --- review round 6 ---------------------------------------------------------------------
+
+
+def test_a_buy_that_fills_during_the_exit_sweep_is_reconciled_not_booked(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R6-1: someone's BUY on the contract fills as the exit cancels it. That is not
+    the exit: nothing is booked, the runner reconciles, and it ends flat."""
+    runner, journal, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    contract = stack.contract
+    stack.broker.place(Order("andre-buy", contract, Side.BUY, 1, OrderType.LIMIT, D(100)))
+    original = stack.broker.cancel
+
+    def races(order_id: str) -> OrderStatus:
+        if order_id == "andre-buy":  # it fills at the exchange before the cancel lands
+            held = stack.broker._orders[order_id]
+            stack.broker._orders[order_id] = OrderStatus(held.order, OrderState.FILLED, 1, D(100))
+            stack.broker._positions[contract] += 1
+            return stack.broker._orders[order_id]
+        return original(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", races)
+    stack.ledger.latch_kill_switch("test")  # management starts a kill-switch exit
+    t = fill + SEC
+    stack.quote(150, 152, t)
+    runner.step(t)
+    assert journal.trades() == []  # never booked at the buy's price
+    assert runner.reconciling
+    assert any("during the cancel" in a.message for a in alarms)
+    for second in range(2, 8):  # reconcile flattens what is really held: 2
+        stack.quote(150, 152, fill + second * SEC)
+        runner.step(fill + second * SEC)
+    assert stack.broker.positions() == {}
