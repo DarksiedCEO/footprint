@@ -171,6 +171,9 @@ class Trade:
                 raise TypeError(
                     f"Trade.events must contain only TradeEvent, got {type(event).__name__}"
                 )
+        first = self.events[0].state if self.events else self.state
+        if first is not TradeState.SCANNING:
+            raise ValueError(f"Trade must start at {TradeState.SCANNING.value}, got {first.value}")
         for earlier, later in zip(self.events, self.events[1:], strict=False):
             if later.ts < earlier.ts:
                 raise ValueError(
@@ -183,9 +186,21 @@ class Trade:
                 f"({self.events[-1].state.value})"
             )
 
+    @classmethod
+    def start(cls, id: str, ts: datetime, note: str = "") -> Trade:
+        """Open a new Trade whose log begins with a SCANNING event at `ts`."""
+        return cls(
+            id=id, state=TradeState.SCANNING, events=(TradeEvent(ts, TradeState.SCANNING, note),)
+        )
+
     def transition(self, to: TradeState, ts: datetime, note: str = "") -> Trade:
         """Return a new Trade moved to `to`, with the move appended to the log."""
         if not isinstance(to, TradeState):
-            raise ValueError(f"Trade.transition target must be a TradeState, got {to!r}")
+            raise TypeError(f"Trade.transition target must be a TradeState, got {to!r}")
         _require_transition(self.state, to)
+        if not self.events:
+            raise ValueError(
+                "Trade has an empty event log; create it with Trade.start() so the log "
+                f"begins with a {TradeState.SCANNING.value} event before transitioning"
+            )
         return Trade(id=self.id, state=to, events=(*self.events, TradeEvent(ts, to, note)))

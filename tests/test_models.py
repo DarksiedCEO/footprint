@@ -32,6 +32,36 @@ ALLOWED = [
     (TradeState.EXITING, TradeState.CLOSED),
 ]
 
+LATER = TS + timedelta(minutes=1)
+
+# The shortest legal route from SCANNING to each state.
+ROUTES = {
+    TradeState.SCANNING: [],
+    TradeState.SIGNAL: [TradeState.SIGNAL],
+    TradeState.ENTERING: [TradeState.SIGNAL, TradeState.ENTERING],
+    TradeState.OPEN: [TradeState.SIGNAL, TradeState.ENTERING, TradeState.OPEN],
+    TradeState.RUNNING: [
+        TradeState.SIGNAL,
+        TradeState.ENTERING,
+        TradeState.OPEN,
+        TradeState.RUNNING,
+    ],
+    TradeState.EXITING: [
+        TradeState.SIGNAL,
+        TradeState.ENTERING,
+        TradeState.OPEN,
+        TradeState.EXITING,
+    ],
+    TradeState.CLOSED: [TradeState.SIGNAL, TradeState.CLOSED],
+}
+
+
+def trade_in(state: TradeState) -> Trade:
+    trade = Trade.start("t-1", TS)
+    for step in ROUTES[state]:
+        trade = trade.transition(step, TS)
+    return trade
+
 
 def make_bar(**overrides: Any) -> Bar:
     values: dict[str, Any] = {
@@ -187,10 +217,11 @@ class TestTrade:
 
     @pytest.mark.parametrize(("current", "target"), ALLOWED)
     def test_allows_each_legal_transition(self, current: TradeState, target: TradeState) -> None:
-        moved = Trade(id="t-1", state=current).transition(target, TS, note="why")
+        before = trade_in(current)
+        moved = before.transition(target, LATER, note="why")
         assert moved.state is target
-        assert moved.events == (TradeEvent(ts=TS, state=target, note="why"),)
-        assert moved.id == "t-1"
+        assert moved.events == (*before.events, TradeEvent(ts=LATER, state=target, note="why"))
+        assert moved.id == before.id
 
     def test_allowed_table_is_exactly_the_agreed_one(self) -> None:
         table = {(a, b) for a, targets in ALLOWED_TRANSITIONS.items() for b in targets}
@@ -203,29 +234,74 @@ class TestTrade:
     )
     def test_rejects_every_other_transition(self, current: TradeState, target: TradeState) -> None:
         with pytest.raises(IllegalTransitionError, match=f"{current.value} -> {target.value}"):
-            Trade(id="t-1", state=current).transition(target, TS)
+            trade_in(current).transition(target, LATER)
 
     @pytest.mark.parametrize("target", list(TradeState))
     def test_closed_is_terminal(self, target: TradeState) -> None:
         with pytest.raises(IllegalTransitionError):
-            Trade(id="t-1", state=TradeState.CLOSED).transition(target, TS)
+            trade_in(TradeState.CLOSED).transition(target, LATER)
+
+    def test_start_opens_the_log_with_a_scanning_event(self) -> None:
+        trade = Trade.start("t-1", TS, note="watching")
+        assert trade.state is TradeState.SCANNING
+        assert trade.events == (TradeEvent(ts=TS, state=TradeState.SCANNING, note="watching"),)
 
     def test_transition_does_not_mutate_and_keeps_the_log(self) -> None:
-        start = Trade(id="t-1", state=TradeState.SCANNING)
+        start = Trade.start("t-1", TS)
         later = start.transition(TradeState.SIGNAL, TS).transition(
-            TradeState.CLOSED, TS + timedelta(minutes=1), note="vetoed"
+            TradeState.CLOSED, LATER, note="vetoed"
         )
-        assert start.events == ()
-        assert [event.state for event in later.events] == [TradeState.SIGNAL, TradeState.CLOSED]
+        assert len(start.events) == 1
+        assert [event.state for event in later.events] == [
+            TradeState.SCANNING,
+            TradeState.SIGNAL,
+            TradeState.CLOSED,
+        ]
 
     def test_transition_rejects_going_back_in_time(self) -> None:
-        trade = Trade(id="t-1", state=TradeState.SCANNING).transition(TradeState.SIGNAL, TS)
         with pytest.raises(ValueError, match="chronological"):
-            trade.transition(TradeState.ENTERING, TS - timedelta(seconds=1))
+            Trade.start("t-1", TS).transition(TradeState.SIGNAL, TS - timedelta(seconds=1))
 
     def test_transition_rejects_non_state_target(self) -> None:
-        with pytest.raises(ValueError, match="TradeState"):
-            Trade(id="t-1", state=TradeState.SCANNING).transition("SIGNAL", TS)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="TradeState"):
+            Trade.start("t-1", TS).transition("SIGNAL", TS)  # type: ignore[arg-type]
+
+    def test_transition_from_an_empty_log_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"Trade\.start"):
+            Trade(id="t-1", state=TradeState.SCANNING).transition(TradeState.SIGNAL, TS)
+
+    @pytest.mark.parametrize("state", [s for s in TradeState if s is not TradeState.SCANNING])
+    def test_rejects_empty_log_in_a_non_scanning_state(self, state: TradeState) -> None:
+        with pytest.raises(ValueError, match="must start at SCANNING"):
+            Trade(id="t-1", state=state)
+
+    @pytest.mark.parametrize("state", [s for s in TradeState if s is not TradeState.SCANNING])
+    def test_rejects_first_event_that_is_not_scanning(self, state: TradeState) -> None:
+        with pytest.raises(ValueError, match="must start at SCANNING"):
+            Trade(id="t-1", state=state, events=(TradeEvent(ts=TS, state=state),))
+
+    def test_rejects_log_that_skips_scanning_even_if_otherwise_legal(self) -> None:
+        events = (
+            TradeEvent(ts=TS, state=TradeState.SIGNAL),
+            TradeEvent(ts=LATER, state=TradeState.ENTERING),
+        )
+        with pytest.raises(ValueError, match="must start at SCANNING"):
+            Trade(id="t-1", state=TradeState.ENTERING, events=events)
+
+    @pytest.mark.parametrize(
+        "ts",
+        [
+            datetime(2026, 1, 5, 14, 30),  # noqa: DTZ001 - naive on purpose
+            datetime(2026, 1, 5, 14, 30, tzinfo=timezone(timedelta(hours=-8))),
+        ],
+    )
+    def test_event_rejects_naive_or_non_utc_timestamp(self, ts: datetime) -> None:
+        with pytest.raises(ValueError, match=r"TradeEvent\.ts"):
+            TradeEvent(ts=ts, state=TradeState.SCANNING)
+        with pytest.raises(ValueError, match=r"TradeEvent\.ts"):
+            Trade.start("t-1", ts)
+        with pytest.raises(ValueError, match=r"TradeEvent\.ts"):
+            Trade.start("t-1", TS).transition(TradeState.SIGNAL, ts)
 
     def test_rejects_event_log_containing_an_illegal_jump(self) -> None:
         events = (

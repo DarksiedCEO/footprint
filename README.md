@@ -24,7 +24,8 @@ tests/
 ## Rules the tests enforce
 
 - Models reject invalid data (naive or non-UTC timestamps, high < low, prices <= 0, bad scores).
-- A `Trade` can only move along the allowed state transitions; `CLOSED` is terminal.
+- A `Trade` starts at `SCANNING` and can only move along the allowed state transitions;
+  `CLOSED` is terminal.
 - A `Read` is an opinion only: its fields are exactly `agent_id, ts, score, reason`.
 - Profiles fail loudly on missing, unknown or out-of-range values.
 - No value from the YAML profiles is hardcoded anywhere under `src/`, and the number of
