@@ -381,6 +381,7 @@ class Manager:
             quantity=quantity,
             order_type=OrderType.LIMIT,
             limit_price=price,
+            oca_group=pid,  # with its stop: the broker lets only one of them fill
         )
         position.exit_order_id = order.order_id
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")

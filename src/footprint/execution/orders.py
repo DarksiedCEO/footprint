@@ -52,6 +52,10 @@ class Order:
     order_type: OrderType
     limit_price: Decimal
     stop_price: Decimal | None = None
+    # One-cancels-all: orders sharing a group can never both fill. When one fills the
+    # broker cancels the rest, and holds them back while one is routed ("with block").
+    # A position's stop and exits share one group (its position id).
+    oca_group: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("order_id", "contract_id"):
@@ -252,9 +256,31 @@ class SimulatedBroker:
     # --- market --------------------------------------------------------------------
 
     def _on_quote(self, quote: Quote) -> None:
-        for order_id, status in list(self._orders.items()):
+        for order_id in list(self._orders):
+            status = self._orders[order_id]  # re-read: a group fill may have cancelled it
             if status.state is OrderState.WORKING and status.order.contract_id == quote.contract_id:
-                self._orders[order_id] = self._try_fill(status, quote, at_touch=False)
+                self._store(order_id, self._try_fill(status, quote, at_touch=False))
+
+    def _store(self, order_id: str, status: OrderStatus) -> None:
+        """Record a status; a fill cancels the rest of its one-cancels-all group."""
+        self._orders[order_id] = status
+        group = status.order.oca_group
+        if status.state is not OrderState.FILLED or group is None:
+            return
+        for other_id, other in list(self._orders.items()):
+            if (
+                other_id != order_id
+                and other.order.oca_group == group
+                and other.state is OrderState.WORKING
+            ):
+                self._orders[other_id] = replace(other, state=OrderState.CANCELLED)
+                self.log.append(f"oca-cancelled {other_id} (group {group} filled)")
+
+    def _group_filled(self, group: str | None) -> bool:
+        return group is not None and any(
+            s.order.oca_group == group and s.state is OrderState.FILLED
+            for s in self._orders.values()
+        )
 
     def _try_fill(self, status: OrderStatus, quote: Quote, *, at_touch: bool) -> OrderStatus:
         order = status.order
@@ -294,10 +320,16 @@ class SimulatedBroker:
             raise DuplicateOrderId(f"duplicate order id {order.order_id!r}")
         status = OrderStatus(order, OrderState.WORKING, 0, None)
         self.log.append(f"placed {order.order_id} {order.order_type.value} {order.side.value}")
+        if self._group_filled(order.oca_group):
+            # A member of its one-cancels-all group already filled: it is cancelled.
+            status = replace(status, state=OrderState.CANCELLED)
+            self.log.append(f"oca-cancelled {order.order_id} (group {order.oca_group} filled)")
+            self._orders[order.order_id] = status
+            return status
         quote = self._book.latest(order.contract_id)
         if quote is not None:
             status = self._try_fill(status, quote, at_touch=True)
-        self._orders[order.order_id] = status
+        self._store(order.order_id, status)
         return status
 
     def modify(
@@ -311,7 +343,7 @@ class SimulatedBroker:
         quote = self._book.latest(order.contract_id)
         if quote is not None:
             status = self._try_fill(status, quote, at_touch=True)
-        self._orders[order_id] = status
+        self._store(order_id, status)
         self.log.append(f"modified {order_id} limit {limit_price} stop {stop_price}")
         return status
 

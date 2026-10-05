@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from footprint.core.calendar import SessionKind, session_at
@@ -140,7 +141,9 @@ class Executor:
             raise EntryRefused("outside the entry window at send time")
 
         self._sequence += 1
-        position_id = f"{now:%Y%m%dT%H%M%S}-{self._sequence}"
+        # Unique across restarts too (the sequence restarts at 1): a new position can
+        # never share its order ids with a previous run's.
+        position_id = f"{now:%Y%m%dT%H%M%S}-{self._sequence}-{uuid4().hex[:8]}"
         plan = approved.plan
         order = Order(
             order_id=f"{position_id}-entry",
@@ -217,6 +220,7 @@ class Executor:
                 order_type=OrderType.STOP_LIMIT,
                 limit_price=spec.limit,
                 stop_price=spec.trigger,
+                oca_group=ticket.position_id,
             )
             stop_status = self._broker.place(stop)
             protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
