@@ -322,8 +322,11 @@ class IbkrBroker:
             # Extra copies share their order id at IBKR, and a hand-placed order may
             # not be ours to cancel by id: only a broker-wide cancel reaches them. It
             # would also cancel orders on anything else in the account, so it is not
-            # sent while any are open: Andre cancels by hand instead.
+            # sent while any are open: Andre cancels by hand instead. The open orders
+            # are listed afresh first (one placed since the last listing may be unseen).
+            self._audit(order_id)
             with self._cv:
+                self._require_ready()
                 outside = len(self._outside_orders)
             if outside:
                 self._alarm(

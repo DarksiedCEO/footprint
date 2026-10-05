@@ -325,6 +325,8 @@ def test_a_limit_order_arrives_without_a_stop_and_an_empty_group_as_none() -> No
 
 def test_order_status_and_execution_arrive_as_whole_contracts_and_exact_prices() -> None:
     binding, _, events, _ = opened()
+    binding._wrapper.openOrder(7, ib_contract(), ib_order(), state("Submitted"))
+    events.got.clear()
     binding._wrapper.orderStatus(7, "Filled", D(1), D(0), 114.25, 9001, 0, 114.25, 0, "", 0.0)
     e = Execution()
     e.execId, e.orderId, e.permId = "0000e0d5.65a1b2c3.01.01", 7, 9001
@@ -613,6 +615,7 @@ def test_a_status_with_unset_quantities_keeps_the_connection() -> None:
 
 def test_a_fractional_fill_on_the_systems_own_instrument_is_unreadable() -> None:
     binding, client, _, alarms = opened()
+    binding._wrapper.openOrder(7, ib_contract(), ib_order(), state("Submitted"))
     binding._wrapper.orderStatus(7, "Filled", D("0.5"), D("0.5"), 1.0, 9001, 0, 1.0, 0, "", 0.0)
     assert not client.connected
     assert any("unreadable order status" in a for a in alarms)
@@ -634,3 +637,31 @@ def test_another_accounts_finished_order_does_not_block_the_broker_wide_cancel()
     )
     binding.global_cancel()
     assert any(name == "reqGlobalCancel" for name, _ in client.calls)
+
+
+# --- review round 2 -----------------------------------------------------------------------
+
+
+def test_a_login_with_other_accounts_never_sends_a_broker_wide_cancel() -> None:
+    binding, client, _, _ = bound()
+    binding._wrapper.managedAccounts(f"{ACCOUNT},DU0000002")
+    binding._wrapper.nextValidId(100)
+    with pytest.raises(ForeignOrdersOpen, match="DU0000002"):
+        binding.global_cancel()  # even with none of their orders seen
+    assert not any(name == "reqGlobalCancel" for name, _ in client.calls)
+
+
+def test_a_status_for_an_order_not_yet_seen_reads_no_quantity() -> None:
+    binding, client, events, _ = opened()
+    binding._wrapper.orderStatus(0, "Submitted", D("0.5"), D(2), 0.0, 4242, 0, 0.0, 0, "", 0.0)
+    assert client.connected
+    assert events.got == [("on_order_status", (0, 4242, "Submitted", 0, 0, D(0)))]
+
+
+def test_another_accounts_inactive_order_still_blocks_the_broker_wide_cancel() -> None:
+    binding, _, _, _ = opened()
+    binding._wrapper.openOrder(
+        9, ib_contract(), ib_order(account="DU0000002", perm=79), state("Inactive")
+    )
+    with pytest.raises(ForeignOrdersOpen):
+        binding.global_cancel()

@@ -691,3 +691,16 @@ def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: I
     assert ib.adapter.status("p1-stop").state is OrderState.WORKING
     assert any("LIVE again" in a for a in ib.alarms)
     assert ib.resyncs == [1, 1, 1]  # and the runner is sent to reconcile
+
+
+def test_the_open_orders_are_listed_afresh_before_a_broker_wide_cancel(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-exit-1", group="p1"))
+    ib.fake.degraded = True
+    ib.adapter.modify("p1-exit-1", D(199), None)  # a duplicate copy: needs a global cancel
+    ib.fake.connected = False  # (so its events are not told)
+    with_a_stock(ib)  # Andre places a stock order now, from another client: unseen
+    ib.fake.connected = True
+    assert ib.adapter.outside_open_orders == 0  # the adapter does not know of it yet
+    ib.adapter.cancel("p1-exit-1")
+    assert ib.fake.global_cancels == 0
+    assert any("CANCEL BY HAND" in a for a in ib.alarms)

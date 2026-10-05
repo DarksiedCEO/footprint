@@ -52,7 +52,8 @@ from footprint.core.config import IbkrConfig
 log = logging.getLogger("footprint.ibkr.binding")
 
 _STOP_TYPES = frozenset({"STP", "STP LMT", "TRAIL", "TRAIL LIMIT"})
-_FINISHED = frozenset({"Filled", "Cancelled", "ApiCancelled", "Inactive"})
+# Inactive is not finished: an inactive order can become active again.
+_FINISHED = frozenset({"Filled", "Cancelled", "ApiCancelled"})
 
 
 class ForeignOrdersOpen(PermissionError):
@@ -206,6 +207,13 @@ class IbBinding:
         self._call().cancelOrder(ib_id, OrderCancel())
 
     def global_cancel(self) -> None:
+        others = self._wrapper.other_accounts()
+        if others:
+            # Orders placed in those accounts since the last listing may be unseen.
+            raise ForeignOrdersOpen(
+                f"this login also manages {list(others)}: a broker-wide cancel would "
+                "reach their orders: cancel by hand"
+            )
         foreign = self._wrapper.foreign_open()
         if foreign:
             raise ForeignOrdersOpen(
@@ -306,10 +314,17 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._foreign: set[int] = set()  # permIds of other accounts' orders
             self._foreign_live: set[int] = set()  # ...still open
             self._outside: set[int] = set()  # permIds of orders outside the scope
+            self._in_scope: set[int] = set()  # permIds of orders in the scope
+            self._accounts: tuple[str, ...] = ()
 
     def foreign_open(self) -> int:
         with self._session_lock:
             return len(self._foreign_live)
+
+    def other_accounts(self) -> tuple[str, ...]:
+        """Accounts on this login other than the system's."""
+        with self._session_lock:
+            return tuple(a for a in self._accounts if a != self._b._s.account)
 
     def closed(self) -> None:
         """The session ended (run returned, or the connect failed)."""
@@ -338,6 +353,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             return
         with self._session_lock:
             self._accounts_ok = True
+            self._accounts = tuple(accounts)
         self._announce()
 
     def nextValidId(self, orderId: int) -> None:
@@ -413,6 +429,9 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             )
             return
 
+        with self._session_lock:
+            self._in_scope.add(order.permId)
+
         def forward() -> None:
             stop = to_price(order.auxPrice) if order.orderType in _STOP_TYPES else None
             self._b._forward().on_open_order(
@@ -455,12 +474,13 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                 if status in _FINISHED:
                     self._foreign_live.discard(permId)
                 return
-            outside = permId in self._outside
+            known = permId in self._in_scope
 
         def forward() -> None:
-            # `remaining` is never used; an unset `filled` is unknown (the adapter
-            # counts fills from the executions); outside the scope nothing is read.
-            if outside or (isinstance(filled, Decimal) and filled == UNSET_DECIMAL):
+            # `remaining` is never used. `filled` is read only for an order known to
+            # be in scope (an order not yet seen, or outside it, may be in fractional
+            # shares); unset is unknown. The adapter counts fills from the executions.
+            if not known or (isinstance(filled, Decimal) and filled == UNSET_DECIMAL):
                 done = 0
             else:
                 done = to_quantity(filled)
