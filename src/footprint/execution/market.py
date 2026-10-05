@@ -49,9 +49,15 @@ class QuoteBook:
                 log.exception("a quote listener failed")
         return True
 
+    def mark_time(self, now: datetime) -> None:
+        """The driver's clock: quotes older than this are judged stale even when no
+        newer quote has arrived for any contract (a dead feed)."""
+        if self._newest is None or now > self._newest:
+            self._newest = now
+
     @property
     def newest(self) -> datetime | None:
-        """The latest quote time across all contracts: the book's sense of now."""
+        """The book's sense of now: the latest quote time or marked time."""
         return self._newest
 
     def latest(self, contract_id: str) -> Quote | None:

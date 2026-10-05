@@ -61,3 +61,24 @@ def test_the_simulator_fills_only_at_the_published_market() -> None:
 def test_the_simulator_cannot_be_built_without_the_shared_book() -> None:
     with pytest.raises(TypeError):
         SimulatedBroker()  # type: ignore[call-arg]
+
+
+def test_a_dead_single_contract_feed_fills_nothing_once_the_clock_moves_on() -> None:
+    """Review N4: with one contract and no other quotes, the clock alone marks it stale."""
+    book = QuoteBook()
+    broker = SimulatedBroker(book, 5)
+    book.publish(Quote("C", D(6), D(7), T))
+    book.mark_time(T + timedelta(seconds=6))  # the feed went quiet
+    status = broker.place(Order("x", "C", Side.SELL, 1, OrderType.LIMIT, D(6)))
+    assert status.filled == 0
+    book.mark_time(T)  # the clock never runs backwards
+    assert book.newest == T + timedelta(seconds=6)
+
+
+def test_a_fresh_single_contract_feed_still_fills() -> None:
+    book = QuoteBook()
+    broker = SimulatedBroker(book, 5)
+    book.publish(Quote("C", D(6), D(7), T))
+    book.mark_time(T + timedelta(seconds=5))  # exactly at the limit: still fresh
+    status = broker.place(Order("x", "C", Side.SELL, 1, OrderType.LIMIT, D(6)))
+    assert status.filled == 1

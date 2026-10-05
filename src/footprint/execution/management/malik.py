@@ -391,7 +391,10 @@ class Manager:
 
     def _alarm(self, now: datetime, message: str) -> None:
         log.critical(message)
-        self._on_alarm(Alarm(now, message))
+        try:
+            self._on_alarm(Alarm(now, message))
+        except Exception:  # an alarm must never stop the safety action it announces
+            log.exception("could not deliver an alarm")
 
     def reconcile(self, position: Position | None, now: datetime) -> bool:
         """True if the broker, the ledger and `position` all agree. On any doubt:

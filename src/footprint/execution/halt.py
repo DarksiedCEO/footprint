@@ -18,11 +18,12 @@ log = logging.getLogger("footprint.halt")
 class Halt:
     def __init__(self) -> None:
         self._reasons: list[str] = []
-        self._sinks: list[Callable[[str], None]] = []
+        self._sink: Callable[[str], None] | None = None
 
     def route(self, sink: Callable[[str], None]) -> None:
-        """Every future trip is also sent to `sink` (the runner's alarm to Andre)."""
-        self._sinks.append(sink)
+        """Every future trip is also sent to `sink` (the runner's alarm to Andre).
+        A later route replaces the earlier one."""
+        self._sink = sink
 
     @property
     def tripped(self) -> bool:
@@ -33,7 +34,12 @@ class Halt:
         return tuple(self._reasons)
 
     def trip(self, reason: str) -> None:
+        if reason in self._reasons:
+            return  # already halted for this: no repeat alarm
         log.critical("halt: %s", reason)
         self._reasons.append(reason)
-        for sink in self._sinks:
-            sink(f"HALT: {reason}")
+        if self._sink is not None:
+            try:
+                self._sink(f"HALT: {reason}")
+            except Exception:  # the halt itself must never fail
+                log.exception("could not deliver a halt alarm")

@@ -12,10 +12,12 @@ live, or on a simulated clock in a backtest); the runner then, in order:
    decision says so, and submits an approved entry.
 Every alarm and halt is passed to `on_alarm`, which must reach Andre.
 
-Every start is treated as a restart: a new Runner latches the kill switch and
-starts in reconcile with no position (`reconcile(None)`), so anything the broker
-still holds is flattened. Entries resume only after Andre clears the kill switch
-by name. Every alarm, halt and latch goes to the one `on_alarm` line to Andre.
+Every start is treated as a restart: a new Runner starts in reconcile with no
+position (`reconcile(None)`), so anything the broker still holds is flattened, and
+it sends no entry until Andre clears it to trade by name (`clear_to_trade`). This
+start-up gate is separate from the kill switch, so a restart never resets the
+drawdown peak. Every alarm, halt and latch goes to the one `on_alarm` line to
+Andre; an alarm that cannot be delivered is retried and never blocks a safety step.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from footprint.execution.halt import Halt
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger
 from footprint.execution.management.malik import Alarm, Closed, Manager
+from footprint.execution.market import QuoteBook
 
 log = logging.getLogger("footprint.runner")
 
@@ -59,9 +62,10 @@ class Runner:
         blackouts: Callable[[datetime], Iterable[NewsBlackout]],
         on_alarm: Callable[[Alarm], None],
         started: datetime,
+        book: QuoteBook,
     ) -> None:
-        """Start (or restart) the system. It starts reconciling with the kill switch
-        latched: entries resume only after Andre clears it by name.
+        """Start (or restart) the system. It starts reconciling and sends no entry
+        until Andre clears it to trade by name (`clear_to_trade`).
         """
         require_utc(started, "started")
         self._pipeline = pipeline
@@ -75,6 +79,9 @@ class Runner:
         self._blackouts = blackouts
         self._on_alarm = on_alarm
         self._now = started
+        self._book = book
+        self._cleared_by: str | None = None
+        self._undelivered: list[Alarm] = []
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -85,8 +92,15 @@ class Runner:
         self._last_decided: datetime | None = None
         self._latched = False
         self.closed: list[Closed] = []
-        ledger.latch_kill_switch("start-up: Andre must clear the kill switch to trade")
+        self._alarm(started, "STARTED: reconciling; no entries until Andre clears to trade")
         self._watch_latch(started)
+
+    def clear_to_trade(self, by: str) -> None:
+        """Andre only: allow entries after a start or restart."""
+        if not by.strip():
+            raise ValueError("clearing to trade needs the name of who cleared it")
+        self._cleared_by = by
+        self._alarm(self._now, f"cleared to trade by {by}")
 
     @property
     def position(self) -> Position | None:
@@ -106,13 +120,15 @@ class Runner:
         """
         require_utc(now, "now")
         self._now = now
+        self._retry_alarms()
         try:
+            self._book.mark_time(now)
             self._step(now)
+            self._watch_latch(now)
         except Exception as exc:
-            self._alarm(now, f"step failed: {exc!r}; halting and reconciling")
-            self._halt.trip(f"step failed: {exc!r}")
+            self._halt.trip(f"step failed: {exc!r}")  # safety first, then the alarm
             self.doubt()
-        self._watch_latch(now)
+            self._alarm(now, f"step failed: {exc!r}; halting and reconciling")
 
     def _step(self, now: datetime) -> None:
         if self._reconciling:
@@ -188,6 +204,9 @@ class Runner:
             self._alarm(now, f"journal failed for a decision: {exc!r}")
         if decision.approved is None:
             return
+        if self._cleared_by is None:
+            log.warning("approved entry not sent: not cleared to trade since the start")
+            return
         try:
             ticket = self._executor.submit(decision.approved, blackouts, now)
         except EntryRefused as exc:
@@ -210,8 +229,18 @@ class Runner:
         self._latched = latched
 
     def _deliver(self, alarm: Alarm) -> None:
+        """Never raises: an undeliverable alarm is kept and retried every step."""
         log.critical(alarm.message)
-        self._on_alarm(alarm)
+        try:
+            self._on_alarm(alarm)
+        except Exception:
+            log.exception("alarm channel failed; will retry")
+            self._undelivered.append(alarm)
+
+    def _retry_alarms(self) -> None:
+        pending, self._undelivered = self._undelivered, []
+        for alarm in pending:
+            self._deliver(alarm)
 
     def _alarm(self, now: datetime, message: str) -> None:
         self._deliver(Alarm(now, message))
