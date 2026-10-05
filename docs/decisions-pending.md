@@ -21,3 +21,15 @@ Each is a config value or a one-line change; nothing here is hidden in code.
 | D14 | Felix | Skip if the nearest strike is more than 50 points from the underlying | Guards against a gappy chain; not in the spec | Confirm or change `contract.max_strike_distance` |
 | D15 | Darius (momentum) | Follow-through = the next bar CLOSES beyond the spike bar's CLOSE | The spec says "a confirming follow-through bump the same direction"; beyond the spike's high is the stricter reading | Close beyond the spike's close, or beyond its high? |
 | D16 | Nia | Bar tripwires check each of the last 5 closed bars; the trigger's spike candle (the bar before the last) is judged for jump/volatility at 8x, not 4x | Without the window, an extreme spike one minute old no longer tripped her and the trade fired (found by test). Without the 8x, a big spike candle (the strategy's own trigger) would trip her | Confirm `zeroday.recent_bars` and `zeroday.spike_bar_trip_multiple` |
+
+## Before paper trading (from the independent reviews)
+
+1. Verify the NQ option tick (D9) and the per-contract fee (D7). An off-tick fill cannot carry a stop and is flattened at once.
+2. Fill in the CME holidays and early closes (D6).
+3. The runner PR, which does not exist yet, must:
+   - make the simulated broker fill against the same quote the decision used (review R12). Until then, no backtest or paper P&L is trustworthy;
+   - call `manage` every few seconds while a position or exit order exists;
+   - call `reconcile` until it returns True at startup and on any doubt;
+   - send every alarm and halt to Andre;
+   - after a restart, call `reconcile(None)`; entries resume only after Andre clears the kill switch;
+   - include integration tests against an IBKR-style stub: cancels acknowledged late, orders sent but never acknowledged, a rejected modify that leaves the original working, and broker exceptions on every call.

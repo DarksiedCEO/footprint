@@ -478,11 +478,19 @@ class StopOrderSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class NewsSettings:
+    time_stop_minutes: int
+    time_stop_min_gain: Decimal
+    window_minutes: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionProfile:
     quotes: QuoteSettings
     contract: ContractSettings
     entry: EntrySettings
     stop_order: StopOrderSettings
+    news: NewsSettings
 
 
 def load_execution(path: Path) -> ExecutionProfile:
@@ -524,7 +532,16 @@ def load_execution(path: Path) -> ExecutionProfile:
     stop_order = StopOrderSettings(
         limit_offset_ticks=_integer(so, "limit_offset_ticks", s_where, minimum=1)
     )
-    return ExecutionProfile(quotes=quotes, contract=contract, entry=entry, stop_order=stop_order)
+    n_where = f"{where}: news"
+    n = _check_keys(raw["news"], {f.name for f in fields(NewsSettings)}, n_where)
+    news = NewsSettings(
+        time_stop_minutes=_integer(n, "time_stop_minutes", n_where, minimum=1),
+        time_stop_min_gain=_positive_decimal(n, "time_stop_min_gain", n_where),
+        window_minutes=_integer(n, "window_minutes", n_where, minimum=0),
+    )
+    return ExecutionProfile(
+        quotes=quotes, contract=contract, entry=entry, stop_order=stop_order, news=news
+    )
 
 
 def check_consistency(
