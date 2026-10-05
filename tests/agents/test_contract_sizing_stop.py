@@ -5,6 +5,7 @@ import logging
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,7 +16,7 @@ from footprint.core.config import ConfigError, ExecutionProfile, InstrumentProfi
 from footprint.core.models import Direction
 from footprint.core.options import OptionChain, OptionQuote, Right
 from footprint.decision.sizing import EntryPlan, NoSize, size
-from footprint.decision.stop import BidTick, StopKeeper, TickStatus
+from footprint.decision.stop import BidTick, StopCheck, StopKeeper, TickStatus
 
 PT = ZoneInfo("America/Los_Angeles")
 D = Decimal
@@ -309,6 +310,12 @@ def tick(bid: float, age_seconds: float = 0) -> BidTick:
     return BidTick(D(str(bid)), NOW - timedelta(seconds=age_seconds))
 
 
+def settle(booker: StopKeeper, position: str, bid: float) -> None:
+    """Two consecutive identical bids: the level is confirmed."""
+    booker.on_tick(position, tick(bid), NOW)
+    booker.on_tick(position, tick(bid), NOW)
+
+
 def test_hard_stop_is_stop_loss_below_the_fill(booker: StopKeeper) -> None:
     stop = booker.open("t1", D("151.5"), 1)
     assert stop.price == D("114.0")  # 151.5 - 750/20
@@ -343,18 +350,27 @@ def test_trail_engages_at_the_net_profit_target_and_follows_half_the_net_peak(
     booker: StopKeeper,
 ) -> None:
     booker.open("t", D(150), 1)  # hard stop 112.5; round-trip fees $5
-    booker.on_tick("t", tick(200), NOW)  # +$1,000 gross, $995 net: not yet
+    settle(booker, "t", 200)  # +$1,000 gross, $995 net: not yet
     assert (booker.current("t").price, booker.current("t").trailing) == (D("112.5"), False)
-    booker.on_tick("t", tick(200.25), NOW)  # $1,000 net: lock $500 net
+    settle(booker, "t", 200.25)  # $1,000 net: lock $500 net
     assert booker.current("t").price == D("175.25")  # 150 + (500 + 5) / 20
     assert booker.current("t").trailing
-    booker.on_tick("t", tick(220), NOW)  # $1,395 net: keep $697.50 -> 185.125 -> up
+    settle(booker, "t", 220)  # $1,395 net: keep $697.50 -> 185.125 -> up
     assert booker.current("t").price == D("185.25")
-    booker.on_tick("t", tick(190), NOW)  # pullback: the stop holds
+    settle(booker, "t", 190)  # pullback: the stop holds
     assert booker.current("t").price == D("185.25")
     assert booker.current("t").peak_bid == D(220)
-    assert not booker.hit("t", tick(185.5), NOW)
-    assert booker.hit("t", tick(185.25), NOW)
+    assert booker.check("t", tick(185.5), NOW) is StopCheck.CLEAR
+    assert booker.check("t", tick(185.25), NOW) is StopCheck.HIT
+
+
+def test_a_single_bad_print_cannot_drag_the_trail_up(booker: StopKeeper) -> None:
+    booker.open("t", D(150), 1)
+    booker.on_tick("t", tick(400), NOW)  # one bad print
+    booker.on_tick("t", tick(151), NOW)
+    assert booker.current("t").price == D("112.5")
+    assert booker.current("t").peak_bid == D(151)  # both bids were at least 151
+    assert booker.check("t", tick(151), NOW) is StopCheck.CLEAR
 
 
 def test_locked_profit_is_at_least_the_keep_share_net_of_fees(
@@ -362,7 +378,7 @@ def test_locked_profit_is_at_least_the_keep_share_net_of_fees(
 ) -> None:
     booker.open("t", D(150), 1)
     for peak in (D("200.25"), D("213.75"), D("250.5"), D(400)):
-        booker.on_tick("t", BidTick(peak, NOW), NOW)
+        settle(booker, "t", float(peak))
         stop = booker.current("t")
         fees = 2 * risk.fee_per_contract_per_side
         net_locked = (stop.price - stop.entry) * instrument.point_value - fees
@@ -370,15 +386,18 @@ def test_locked_profit_is_at_least_the_keep_share_net_of_fees(
         assert net_locked >= net_peak / 2
 
 
-def test_stale_and_no_bid_ticks_never_move_or_trigger(booker: StopKeeper) -> None:
+def test_stale_and_no_bid_ticks_never_move_the_stop_and_are_never_clear(
+    booker: StopKeeper,
+) -> None:
     booker.open("t", D(150), 1)
     assert booker.on_tick("t", tick(260, age_seconds=6), NOW) is TickStatus.STALE
-    assert booker.on_tick("t", BidTick(D(260), NOW + timedelta(seconds=1)), NOW) is TickStatus.STALE
+    future = BidTick(D(260), NOW + timedelta(seconds=1))
+    assert booker.on_tick("t", future, NOW) is TickStatus.STALE
     assert booker.current("t").peak_bid == D(150)
-    assert not booker.hit("t", tick(100, age_seconds=6), NOW)
+    assert booker.check("t", tick(100, age_seconds=6), NOW) is StopCheck.STALE
+    assert booker.check("t", tick(200, age_seconds=6), NOW) is StopCheck.STALE
     assert booker.on_tick("t", tick(0), NOW) is TickStatus.NO_BID
-    assert not booker.hit("t", tick(0), NOW)
-    assert not booker.gapped_through("t", tick(0), NOW)
+    assert booker.check("t", tick(0), NOW) is StopCheck.NO_BID
     assert booker.on_tick("t", tick(151, age_seconds=5), NOW) is TickStatus.USED
 
 
@@ -386,8 +405,9 @@ def test_resting_stop_limit_and_gap_watchdog(booker: StopKeeper) -> None:
     booker.open("t", D("151.5"), 1)
     order = booker.resting_order("t")
     assert (order.trigger, order.limit) == (D(114), D(109))  # 20 ticks of 0.25 below
-    assert booker.gapped_through("t", tick(108.75), NOW)
-    assert not booker.gapped_through("t", tick(109), NOW)
+    assert booker.check("t", tick(108.75), NOW) is StopCheck.GAPPED
+    assert booker.check("t", tick(109), NOW) is StopCheck.HIT  # at the limit: still fillable
+    assert booker.check("t", tick(114.25), NOW) is StopCheck.CLEAR
 
 
 def test_requests_are_ratcheted_on_the_tick_and_logged(
@@ -409,13 +429,24 @@ def test_requests_are_ratcheted_on_the_tick_and_logged(
 
 def test_copies_cannot_change_the_stop(booker: StopKeeper) -> None:
     copy = booker.open("t", D(150), 1)
-    widened = replace(copy, price=D("0.25"))
-    assert widened.price == D("0.25")
+    assert replace(copy, price=D("0.25")).price == D("0.25")
+    object.__setattr__(booker.current("t"), "price", D("0.25"))  # forcing a copy
     assert booker.current("t").price == D("112.5")
     assert booker.resting_order("t").trigger == D("112.5")
+
+
+def test_a_closed_position_can_never_reopen(booker: StopKeeper) -> None:
+    booker.open("t", D(150), 1)
     assert booker.close("t").price == D("112.5")
     with pytest.raises(KeyError):
         booker.current("t")
+    with pytest.raises(ValueError, match="already"):
+        booker.open("t", D(100), 1)
+
+
+def test_open_refuses_more_than_max_contracts(booker: StopKeeper) -> None:
+    with pytest.raises(ValueError, match="max_contracts"):
+        booker.open("t", D(150), 2)
 
 
 def test_keeper_refuses_a_limit_offset_that_breaks_stop_max(
@@ -434,3 +465,22 @@ def test_bid_tick_validates() -> None:
         BidTick(D(-1), NOW)
     with pytest.raises(ValueError, match="UTC"):
         BidTick(D(1), datetime(2026, 9, 15, 7, 0, tzinfo=PT))
+
+
+def test_load_profiles_runs_the_cross_profile_check(tmp_path: Path) -> None:
+    import shutil
+
+    import yaml
+
+    from footprint.core.config import load_profiles
+    from tests.conftest import REPO_ROOT
+
+    profiles = load_profiles(REPO_ROOT / "config", "nq.yaml")
+    assert profiles.risk.max_contracts == 1
+    shutil.copytree(REPO_ROOT / "config", tmp_path / "config")
+    path = tmp_path / "config" / "execution.yaml"
+    data = yaml.safe_load(path.read_text())
+    data["stop_order"]["limit_offset_ticks"] = 100
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="stop_max"):
+        load_profiles(tmp_path / "config", "nq.yaml")

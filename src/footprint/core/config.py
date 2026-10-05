@@ -516,3 +516,23 @@ def check_consistency(
             f"a stop filled at its limit loses {worst}, over stop_max {risk.stop_max}: "
             "reduce stop_order.limit_offset_ticks or stop_loss"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Profiles:
+    instrument: InstrumentProfile
+    risk: RiskProfile
+    strategy: StrategyProfile
+    execution: ExecutionProfile
+
+
+def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
+    """The one start-up path: every profile, plus the rules that span profiles."""
+    profiles = Profiles(
+        instrument=load_instrument(config_dir / "instruments" / instrument_file),
+        risk=load_risk(config_dir / "risk.yaml"),
+        strategy=load_strategy(config_dir / "strategy.yaml"),
+        execution=load_execution(config_dir / "execution.yaml"),
+    )
+    check_consistency(profiles.instrument, profiles.risk, profiles.execution)
+    return profiles

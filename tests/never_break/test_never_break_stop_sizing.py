@@ -43,8 +43,14 @@ def test_nb01_bypass_attempts_change_nothing(
     copy = booker.open("t", D(150), 1)
     original = copy.price
     replace(copy, price=D("0.25"))  # editing a copy
+    object.__setattr__(booker.current("t"), "price", D("0.25"))  # forcing a copy
     with pytest.raises(ValueError, match="already"):
         booker.open("t", D(100), 1)  # re-opening with a lower entry
+    booker.close("t")
+    with pytest.raises(ValueError, match="already"):
+        booker.open("t", D(100), 1)  # closing, then re-opening
+    booker = keeper(risk, instrument, execution)
+    copy = booker.open("t", D(150), 1)
     with pytest.raises(FrozenInstanceError):
         copy.price = D("0.25")  # type: ignore[misc]
     assert booker.current("t").price == original
@@ -69,7 +75,8 @@ def test_nb01_a_trail_never_drags_a_tightened_stop_down(
     booker = keeper(risk, instrument, execution)
     booker.open("t", D(150), 1)
     assert booker.request("t", D(190), "trade_mgmt") is None
-    booker.on_tick("t", BidTick(D("200.25"), NOW), NOW)  # trail wants 175.25
+    for _ in range(2):
+        booker.on_tick("t", BidTick(D("200.25"), NOW), NOW)  # trail wants 175.25
     assert booker.current("t").price == D(190)
 
 

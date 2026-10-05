@@ -16,8 +16,12 @@ nothing Booker uses, so it cannot reach the broker (NB-01).
   adjustment until those agents exist.
 - Every change goes through the ratchet: a request that would move the stop
   further from entry, or off the tick, is refused, logged, and changes nothing.
-- Quotes older than quotes.max_age_seconds, or with no bid, never move or trigger
-  a stop; the resting order at the broker protects the position meanwhile.
+- A tick's `ts` is when the feed last CONFIRMED that bid (a snapshot/heartbeat
+  time), not when the price last changed. Stale ticks never move a stop and are
+  reported as STALE; a vanished bid is reported as NO_BID (treat as a gap). Only
+  CLEAR from `check` means nothing needs doing.
+- The peak (and so the trail) only advances to a level two consecutive bids agree
+  on; the stop itself triggers on a single bid.
 - Resting order (G1): a stop-limit at the stop with its limit limit_offset_ticks
   below. If the bid falls below that limit, trade management must flatten.
 """
@@ -73,6 +77,16 @@ class TickStatus(Enum):
     NO_BID = "NO_BID"
 
 
+class StopCheck(Enum):
+    """What one bid says about a stop. Only CLEAR means "nothing to do"."""
+
+    CLEAR = "CLEAR"  # bid above the stop
+    HIT = "HIT"  # bid at or below the stop: exit
+    GAPPED = "GAPPED"  # bid below the resting order's limit: it may never fill; flatten
+    STALE = "STALE"  # no fresh bid: the stop cannot be judged; escalate
+    NO_BID = "NO_BID"  # the bid has vanished: treat as a gap; flatten and escalate
+
+
 @dataclass(frozen=True, slots=True)
 class Refusal:
     position_id: str
@@ -97,6 +111,8 @@ class StopKeeper:
         self._instrument = instrument
         self._execution = execution
         self._stops: dict[str, StopLevel] = {}
+        self._last_bid: dict[str, Decimal] = {}
+        self._closed: set[str] = set()
 
     @property
     def agent_id(self) -> str:
@@ -108,10 +124,12 @@ class StopKeeper:
         """Set the hard stop for a new position. Once per position id."""
         if not isinstance(position_id, str) or not position_id.strip():
             raise ValueError("position_id must be a non-empty string")
-        if position_id in self._stops:
-            raise ValueError(f"position {position_id!r} already has a stop")
+        if position_id in self._stops or position_id in self._closed:
+            raise ValueError(f"position {position_id!r} already has (or had) a stop")
         if isinstance(contracts, bool) or not isinstance(contracts, int) or contracts < 1:
             raise ValueError("contracts must be an int >= 1")
+        if contracts > self._risk.max_contracts:
+            raise ValueError(f"contracts {contracts} > max_contracts {self._risk.max_contracts}")
         tick = self._instrument.option_tick_size
         if not isinstance(fill, Decimal) or not fill.is_finite() or fill <= 0:
             raise ValueError(f"fill must be a finite Decimal > 0, got {fill!r}")
@@ -128,13 +146,21 @@ class StopKeeper:
             trailing=False,
         )
         self._stops[position_id] = level
-        return level
+        self._last_bid[position_id] = fill
+        return replace(level)
 
     def current(self, position_id: str) -> StopLevel:
-        return self._stops[position_id]
+        return replace(self._stops[position_id])
 
     def close(self, position_id: str) -> StopLevel:
-        return self._stops.pop(position_id)
+        """Retire a position's stop once the position is flat. The id can never be
+        reused, so closing and reopening cannot widen a stop.
+        """
+        level = self._stops.pop(position_id)
+        self._last_bid.pop(position_id, None)
+        self._closed.add(position_id)
+        log.info("stop retired for %s at %s", position_id, level.price)
+        return level
 
     # --- changes --------------------------------------------------------------------
 
@@ -168,7 +194,11 @@ class StopKeeper:
         if status is not TickStatus.USED:
             return status
         stop = self._stops[position_id]
-        stop = replace(stop, peak_bid=max(stop.peak_bid, tick.bid))
+        # The peak only advances to a level two consecutive bids agree on, so one bad
+        # print cannot drag the trail up and stop out a healthy position.
+        confirmed = min(tick.bid, self._last_bid[position_id])
+        self._last_bid[position_id] = tick.bid
+        stop = replace(stop, peak_bid=max(stop.peak_bid, confirmed))
         self._stops[position_id] = stop
         pv = self._instrument.point_value
         fees = 2 * self._risk.fee_per_contract_per_side * stop.contracts
@@ -188,22 +218,26 @@ class StopKeeper:
 
     # --- questions ------------------------------------------------------------------
 
-    def hit(self, position_id: str, tick: BidTick, as_of: datetime) -> bool:
-        if self._usable(tick, as_of) is not TickStatus.USED:
-            return False
-        return tick.bid <= self._stops[position_id].price
+    def check(self, position_id: str, tick: BidTick, as_of: datetime) -> StopCheck:
+        """Judge the stop on one bid. A single bid is enough to exit (the protective side
+        errs toward getting out); anything but CLEAR needs action from the caller.
+        """
+        status = self._usable(tick, as_of)
+        if status is TickStatus.STALE:
+            return StopCheck.STALE
+        if status is TickStatus.NO_BID:
+            return StopCheck.NO_BID
+        if tick.bid < self.resting_order(position_id).limit:
+            return StopCheck.GAPPED
+        if tick.bid <= self._stops[position_id].price:
+            return StopCheck.HIT
+        return StopCheck.CLEAR
 
     def resting_order(self, position_id: str) -> StopOrderSpec:
         stop = self._stops[position_id]
         tick = self._instrument.option_tick_size
         limit = stop.price - tick * self._execution.stop_order.limit_offset_ticks
         return StopOrderSpec(trigger=stop.price, limit=max(limit, tick))
-
-    def gapped_through(self, position_id: str, tick: BidTick, as_of: datetime) -> bool:
-        """The bid is below the resting order's limit: it may never fill; flatten now."""
-        if self._usable(tick, as_of) is not TickStatus.USED:
-            return False
-        return tick.bid < self.resting_order(position_id).limit
 
     def _usable(self, tick: BidTick, as_of: datetime) -> TickStatus:
         require_utc(as_of, "as_of")
