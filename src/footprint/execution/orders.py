@@ -101,6 +101,11 @@ class DuplicateOrderId(ValueError):
     lost answer is resolved safely (see TrackedBroker.place)."""
 
 
+class PositionsUncertain(ConnectionError):
+    """The broker cannot say right now what is held (its fills and its position
+    report disagree). Nothing may be sold or booked on it: wait and ask again."""
+
+
 @runtime_checkable
 class OrderBroker(Protocol):
     """What execution needs from a broker. The broker is the source of truth for

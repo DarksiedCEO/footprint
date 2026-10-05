@@ -69,7 +69,7 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 2. A stop-limit and limit exits in one OCA group (type 1, with block): only one can fill.
 3. The position subscription keeps sending changes after its first snapshot.
 4. Which client id can cancel orders placed by hand in TWS (the master API client id), and that a hand-placed order shows with no orderRef.
-5. Order and execution events arrive for orders cancelled or filled while disconnected, after 1101.
+5. Order and execution events arrive for orders cancelled or filled while disconnected, after 1101. reqAllOpenOrders lists EVERY live order, including one still PendingSubmit/ApiPending at TWS: the adapter settles any order of ours missing from that list as finished (an order left out while live would be taken as cancelled; it is alarmed "CHECK TWS", and taken back as live if IBKR reports it again).
 6. The NQ option contract details (trading class per daily expiry, multiplier 20, tick size): D9.
 7. An execution correction arrives as a new execId with the same prefix and a higher last segment (`...01.01` then `...01.02`), and replaces the original.
 8. An Inactive order: when IBKR reports it (margin, price outside limits, outside hours), whether it can become active again, and how a cancel of it is answered (Cancelled status, or 161/202).

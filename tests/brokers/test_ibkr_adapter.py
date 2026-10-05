@@ -665,3 +665,28 @@ def test_a_new_session_forgets_requests_the_old_one_never_answered(ib: Ib) -> No
     ib.fake.connect(next_valid_id=100)  # a new socket: the old request is gone
     ib.fake.flush_executions()  # the new session's replay ends once
     assert ib.adapter.positions() == {}
+
+
+def test_a_report_a_moment_behind_a_fill_is_waited_for(ib: Ib) -> None:
+    ib.fake.position_lag = True
+    ib.adapter.place(buy(price=152))  # filled; the report follows a moment later
+    later = threading.Timer(FAST.total_seconds() / 4, ib.fake.flush_positions)
+    later.start()
+    assert ib.adapter.positions() == {C: 1}  # waited, not raised
+    later.join()
+
+
+def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))
+    (stop,) = ib.fake.copies.values()
+    ib.fake.lose()
+    ib.fake.connected = True  # IBKR leaves it out of the list (it is still live)
+    real = ib.fake.request_open_orders
+    ib.fake.request_open_orders = lambda: ib.fake._emit("on_open_orders_end", ())  # type: ignore[method-assign]
+    ib.fake.restore(data_lost=True)
+    ib.fake.request_open_orders = real  # type: ignore[method-assign]
+    assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+    assert any("CHECK TWS" in a for a in ib.alarms)
+    ib.fake._report(force=stop.ib_id)  # IBKR reports it live after all
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    assert any("LIVE again" in a for a in ib.alarms)

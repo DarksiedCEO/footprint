@@ -52,6 +52,7 @@ from footprint.execution.orders import (
     OrderState,
     OrderStatus,
     OrderType,
+    PositionsUncertain,
     Quote,
     Side,
     TrackedBroker,
@@ -155,6 +156,16 @@ class Manager:
             stop_status = self._broker.status(position.stop_order_id)
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
+            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
+                # Gone at the broker without this system cancelling it (by hand, or
+                # by the broker): the position is unprotected. Get out.
+                self._alarm(
+                    now,
+                    f"{pid}: resting stop {stop_status.state.value} at the broker; "
+                    "unprotected, flattening",
+                )
+                position.stop_order_id = None
+                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
         if position.stop_order_id is None:
@@ -271,7 +282,11 @@ class Manager:
         try:
             # What is held must be readable BEFORE the stop comes down: a broker in
             # doubt about its positions keeps the stop, and the exit waits.
-            self._broker.positions()
+            try:
+                self._broker.positions()
+            except PositionsUncertain as exc:
+                log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
+                return None
             if position.stop_order_id is not None:
                 self._broker.cancel(position.stop_order_id)
                 cancelled = self._broker.status(position.stop_order_id)
@@ -362,6 +377,9 @@ class Manager:
         pid = position.position_id
         try:
             held = self._broker.positions().get(position.contract_id, 0)
+        except PositionsUncertain as exc:  # a report catching up: the exit waits
+            log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
+            return None
         except Exception as exc:
             self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
             self._stand_down(now, f"{pid}: cannot read positions")
@@ -540,7 +558,12 @@ class Manager:
         )
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
-        actual = self._broker.positions()
+        try:
+            actual = self._broker.positions()
+        except PositionsUncertain:
+            # Not a failure: the report is not settled yet (bounded by _unsettled).
+            self._unsettled(now, "the broker's positions")
+            return False
         working = self._working_orders(position)
         working_ids = set(working)
         if actual == expected and ledger_ok and working_ids == expected_orders:
@@ -574,7 +597,12 @@ class Manager:
                 log.critical("reconcile could not cancel %s: %r", order_id, exc)
         pending = list(self._working_orders(position).values())
         self._watch_stuck_cancels(pending, now)
-        remaining = self._broker.positions()  # what is really held after the cancels
+        try:
+            remaining = self._broker.positions()  # what is really held after the cancels
+        except PositionsUncertain:
+            self._unsettled(now, "the broker's positions")
+            self._stand_down(now, "unclear recovery")
+            return False
         held = (
             tuple(sorted(remaining.items())),
             tuple(sorted(status.order.order_id for status in pending)),

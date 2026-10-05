@@ -79,6 +79,7 @@ from footprint.execution.orders import (
     OrderState,
     OrderStatus,
     OrderType,
+    PositionsUncertain,
     Side,
 )
 
@@ -106,7 +107,7 @@ class BrokerUnavailable(ConnectionError):
     """Disconnected, or not yet resynced: nothing is sent and nothing is trusted."""
 
 
-class PositionsInDoubt(BrokerUnavailable):
+class PositionsInDoubt(BrokerUnavailable, PositionsUncertain):
     """The fills and IBKR's position report disagree: no position can be trusted."""
 
 
@@ -158,6 +159,7 @@ class _Copy:
     avg_price: Decimal | None = None
     cancel_sent: bool = False  # an Inactive copy the adapter asked IBKR to cancel
     cancel_confirmed: bool = False  # ...and IBKR answered that cancel
+    settled_unseen: bool = False  # taken as finished because IBKR stopped listing it
 
     @property
     def live(self) -> bool:
@@ -368,14 +370,19 @@ class IbkrBroker:
             return self._status(order_id)
 
     def positions(self) -> dict[str, int]:
-        """What the executions and IBKR's position report agree is held. While they
+        """What the executions and IBKR's position report agree is held. A report a
+        moment behind a fill is waited for (up to `ack_timeout`); while they still
         disagree nothing is reported: PositionsInDoubt."""
         resync = False
         alarm: str | None = None
         with self._cv:
             self._require_ready()
+            self._cv.wait_for(
+                lambda: not self._ready or self._counted() == self._reported(), self._timeout
+            )
+            self._require_ready()
             counted = self._counted()
-            reported = {k: v for k, v in self._ib_positions.items() if v}
+            reported = self._reported()
             if counted == reported:
                 self._disagree_since, self._disagree_alarmed = None, False
                 return counted
@@ -468,6 +475,7 @@ class IbkrBroker:
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             else:
                 copy.order, copy.status = order, status
+            alarms += self._came_back(copy)
             alarms += self._check_duplicates(order_id)
             cancel = self._inactive(copy, alarms)
             self._bump(ib_id)
@@ -519,6 +527,7 @@ class IbkrBroker:
                     return  # an order we know nothing of yet: its openOrder will follow
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             copy.status = status
+            alarms += self._came_back(copy)
             copy.filled = max(filled, self._exec_filled(perm_id))
             copy.avg_price = avg_fill_price if filled else self._exec_price(perm_id)
             alarms += self._check_duplicates(copy.order_id)
@@ -760,6 +769,13 @@ class IbkrBroker:
         alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
         return copy.ib_id
 
+    def _came_back(self, copy: _Copy) -> list[str]:
+        """An order taken as finished unseen that IBKR now reports live again."""
+        if not copy.settled_unseen or copy.status not in _LIVE:
+            return []
+        copy.settled_unseen = copy.cancel_confirmed = False
+        return [f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"]
+
     def _after_event(self, alarms: list[str], cancel: int | None) -> None:
         """Outside the lock: the alarms an event raised, and a cancel it needs."""
         for message in alarms:
@@ -777,11 +793,15 @@ class IbkrBroker:
             copy.filled = max(copy.filled, self._exec_filled(perm))
             copy.avg_price = self._exec_price(perm) or copy.avg_price
             copy.status = _FILLED if copy.filled >= copy.order.quantity else _CANCELLED_STATUS
-            copy.cancel_confirmed = True
-            alarms.append(
-                f"{copy.order_id} is no longer open at IBKR: it finished unseen "
-                f"({copy.status}, {copy.filled} filled)"
-            )
+            copy.cancel_confirmed = copy.settled_unseen = True
+            if copy.status == _FILLED:
+                alarms.append(f"{copy.order_id} filled while unseen ({copy.filled} filled)")
+            else:
+                alarms.append(
+                    f"{copy.order_id} is no longer open at IBKR and no status said why: it "
+                    f"finished unseen, taken as cancelled ({copy.filled} filled). CHECK TWS: "
+                    "if it is still working there, cancel it by hand"
+                )
             self._bump(copy.ib_id)
         return alarms
 
@@ -860,6 +880,9 @@ class IbkrBroker:
         for contract_id, delta in self._delta.items():
             counted[contract_id] = counted.get(contract_id, 0) + delta
         return {k: v for k, v in counted.items() if v}
+
+    def _reported(self) -> dict[str, int]:
+        return {k: v for k, v in self._ib_positions.items() if v}
 
     def _begin_resync(self) -> None:
         self._ready = False
