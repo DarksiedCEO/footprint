@@ -280,10 +280,14 @@ class Manager:
     ) -> Closed | None:
         pid = position.position_id
         try:
-            # What is held must be readable BEFORE the stop comes down: a broker in
-            # doubt about its positions keeps the stop, and the exit waits.
+            # What is held is read once, BEFORE the stop comes down: a broker in doubt
+            # about its positions keeps the stop, and the exit waits. The exit is sized
+            # from this read; nothing of this system's can change what is held after
+            # it (the stop and every other order on the contract are confirmed
+            # cancelled, unfilled, below), so a later read could only open a window
+            # with no stop and no exit.
             try:
-                self._broker.positions()
+                held = self._broker.positions().get(position.contract_id, 0)
             except PositionsUncertain as exc:
                 log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
                 return None
@@ -307,6 +311,11 @@ class Manager:
                         raise NeedsReconcile(message)
                     return None
                 self._stop_stuck_since.pop(pid, None)
+                if cancelled.filled > 0:  # part of it sold before the cancel landed
+                    message = f"{pid}: stop filled {cancelled.filled} before its cancel; reconcile"
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: stop partly filled")
+                    raise NeedsReconcile(message)
                 position.stop_order_id = None
             else:
                 # Unprotected: a stop may have reached the broker unacknowledged. If it
@@ -369,21 +378,13 @@ class Manager:
             ExitReason.FAILSAFE,
         ):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
-        return self._place_exit(position, quote, now, reason)
+        return self._place_exit(position, quote, now, reason, held)
 
     def _place_exit(
-        self, position: Position, quote: Quote, now: datetime, reason: ExitReason
+        self, position: Position, quote: Quote, now: datetime, reason: ExitReason, held: int
     ) -> Closed | None:
+        """`held`: what the broker held before the stop came down (see _start_exit)."""
         pid = position.position_id
-        try:
-            held = self._broker.positions().get(position.contract_id, 0)
-        except PositionsUncertain as exc:  # a report catching up: the exit waits
-            log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
-            return None
-        except Exception as exc:
-            self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
-            self._stand_down(now, f"{pid}: cannot read positions")
-            return None
         if 0 < held != position.contracts:
             # More (or fewer) held than this position: selling its size would leave
             # contracts nobody manages, or sell short. Stop and reconcile.

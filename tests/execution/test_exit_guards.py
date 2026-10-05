@@ -1,6 +1,7 @@
 """The exit never takes the stop down blind, and a stop that will not cancel cannot
 hold the exit up for ever."""
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from footprint.execution.management.malik import ExitReason, NeedsReconcile
 from footprint.execution.orders import OrderState, OrderStatus, PositionsUncertain
 from tests.execution.conftest import SEND, Stack
-from tests.execution.test_execution import filled_position
+from tests.execution.test_execution import exit_rests_on_arrival, filled_position
 
 SEC = timedelta(seconds=1)
 
@@ -119,19 +120,43 @@ def uncertain_on(stack: Stack, monkeypatch: pytest.MonkeyPatch, *reads: int) -> 
     monkeypatch.setattr(stack.broker, "positions", reading)
 
 
-def test_an_uncertain_held_read_at_the_exit_waits_then_exits(
+def test_the_exit_goes_out_in_the_same_call_that_takes_the_stop_down(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 3: once the stop is cancelled, nothing may leave the position
+    with neither a working stop nor a working exit, even if every later positions
+    read is uncertain."""
+    position = filled_position(stack)
+    exit_rests_on_arrival(stack, monkeypatch)  # the exit rests: we can look at it
+    uncertain_on(stack, monkeypatch, *range(2, 50))  # every read after the first
+    t = SEND + 60 * SEC
+    stack.quote(160, 161, t)
+    assert stack.manager.flatten(position, t) is None
+    pid = position.position_id
+    assert stack.broker.status(f"{pid}-stop").state is OrderState.CANCELLED
+    assert position.exit_order_id is not None
+    assert stack.broker.status(position.exit_order_id).state is OrderState.WORKING
+
+
+def test_a_stop_partly_filled_before_its_cancel_hands_over_to_reconcile(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     position = filled_position(stack)
-    uncertain_on(stack, monkeypatch, 2)  # the pre-check reads, the held read does not
+    stop_id = f"{position.position_id}-stop"
+    real_status = stack.broker.status
+
+    def partly(order_id: str) -> OrderStatus:
+        status = real_status(order_id)
+        if order_id == stop_id and status.state is OrderState.CANCELLED:
+            return replace(status, filled=1)
+        return status
+
+    monkeypatch.setattr(stack.broker, "status", partly)
     t = SEND + 60 * SEC
     stack.quote(160, 161, t)
-    assert stack.manager.flatten(position, t) is None  # waits: nothing sent, no halt
-    assert position.exit_order_id is None
-    assert not stack.ledger.account(t).kill_switch_latched
-    closed = stack.manager.flatten(position, t + SEC)
-    assert closed is not None
-    assert stack.broker.positions() == {}
+    with pytest.raises(NeedsReconcile, match="before its cancel"):
+        stack.manager.flatten(position, t)
+    assert position.exit_order_id is None  # never sized from a stale read
 
 
 def test_reconcile_waits_when_what_is_held_after_its_cancels_is_uncertain(

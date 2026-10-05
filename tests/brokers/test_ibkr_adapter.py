@@ -690,3 +690,4 @@ def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: I
     ib.fake._report(force=stop.ib_id)  # IBKR reports it live after all
     assert ib.adapter.status("p1-stop").state is OrderState.WORKING
     assert any("LIVE again" in a for a in ib.alarms)
+    assert ib.resyncs == [1, 1, 1]  # and the runner is sent to reconcile

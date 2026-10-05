@@ -956,12 +956,9 @@ def test_a_single_flickering_read_at_exit_never_corrupts_the_ledger(
     runner, _, _ = runner_for(stack, bars, tmp_path)
     fill = open_trade(stack, runner)
     real = stack.broker.positions
-    bad = {"good_first": 1, "reads": 1}  # the exit's pre-check reads true, then the flicker
+    bad = {"reads": 1}
 
     def flicker() -> dict[str, int]:
-        if bad["good_first"] > 0:
-            bad["good_first"] -= 1
-            return real()
         if bad["reads"] > 0:
             bad["reads"] -= 1
             return {}

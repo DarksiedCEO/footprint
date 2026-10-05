@@ -453,6 +453,7 @@ class IbkrBroker:
         status: str,
     ) -> None:
         alarms: list[str] = []
+        back: list[str] = []
         cancel: int | None = None
         with self._cv:
             if (symbol, sec_type) != self._scope:
@@ -475,11 +476,12 @@ class IbkrBroker:
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             else:
                 copy.order, copy.status = order, status
-            alarms += self._came_back(copy)
+            back = self._came_back(copy)
+            alarms += back
             alarms += self._check_duplicates(order_id)
             cancel = self._inactive(copy, alarms)
             self._bump(ib_id)
-        self._after_event(alarms, cancel)
+        self._after_event(alarms, cancel, doubt=bool(back))
 
     def on_open_orders_end(self) -> None:
         resynced = False
@@ -512,6 +514,7 @@ class IbkrBroker:
         avg_fill_price: Decimal,
     ) -> None:
         alarms: list[str] = []
+        back: list[str] = []
         cancel: int | None = None
         with self._cv:
             if perm_id in self._outside_orders:
@@ -527,13 +530,14 @@ class IbkrBroker:
                     return  # an order we know nothing of yet: its openOrder will follow
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             copy.status = status
-            alarms += self._came_back(copy)
+            back = self._came_back(copy)
+            alarms += back
             copy.filled = max(filled, self._exec_filled(perm_id))
             copy.avg_price = avg_fill_price if filled else self._exec_price(perm_id)
             alarms += self._check_duplicates(copy.order_id)
             cancel = self._inactive(copy, alarms)
             self._bump(ib_id)
-        self._after_event(alarms, cancel)
+        self._after_event(alarms, cancel, doubt=bool(back))
 
     def on_execution(
         self,
@@ -776,12 +780,15 @@ class IbkrBroker:
         copy.settled_unseen = copy.cancel_confirmed = False
         return [f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"]
 
-    def _after_event(self, alarms: list[str], cancel: int | None) -> None:
-        """Outside the lock: the alarms an event raised, and a cancel it needs."""
+    def _after_event(self, alarms: list[str], cancel: int | None, *, doubt: bool = False) -> None:
+        """Outside the lock: the alarms an event raised, a cancel it needs, and the
+        runner sent to reconcile when what IBKR holds is not what we believed."""
         for message in alarms:
             self._alarm(message)
         if cancel is not None:
             self._gw.cancel_order(cancel)
+        if doubt:
+            self._on_resync()
 
     def _settle_unlisted(self, perms: set[int]) -> list[str]:
         """Our copies IBKR no longer lists as open finished unseen: by the fills."""
