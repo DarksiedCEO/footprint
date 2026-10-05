@@ -174,6 +174,20 @@ class LevelsReader:
                 if session_at(missing + _MINUTE, inst) is not SessionKind.CLOSED:
                     return Unavailable(as_of, f"gap in trend bars: no bucket at {missing}")
                 missing += frame
+        present = {bar.ts for bar in minutes if bar.ts >= recent[0].ts}
+        need_share = self._data.min_session_coverage_pct.scaleb(-2)
+        for bucket in recent:
+            open_minutes = [
+                bucket.ts + _MINUTE * i
+                for i in range(tf_minutes)
+                if session_at(bucket.ts + _MINUTE * i, inst) is not SessionKind.CLOSED
+            ]
+            have = sum(1 for ts in open_minutes if ts in present)
+            if Decimal(have) < Decimal(len(open_minutes)) * need_share:
+                return Unavailable(
+                    as_of,
+                    f"thin trend bar at {bucket.ts}: {have} of {len(open_minutes)} minutes",
+                )
         strength = self._trend.swing_strength
 
         walls = [

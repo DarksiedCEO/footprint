@@ -562,3 +562,22 @@ def test_nia_range_needs_full_trading_day_history(
     check = ZeroDayAgent(strategy.zeroday, strategy.data, closed).check(bars, at(bars, 50))
     assert check.tripped
     assert "range: cannot establish a typical value" in check.findings
+
+
+def test_a_trend_bar_built_from_too_few_minutes_is_rejected(grant: LevelsReader) -> None:
+    # 13:00-14:00 is outside the cash session, so only the trend check sees this hole.
+    bars = [b for b in session_data(MON, TUE) if not pt(MON, 13, 16) <= b.ts < pt(MON, 13, 30)]
+    s = grant.snapshot(bars, pt(TUE, 6, 33))
+    assert isinstance(s, Unavailable)
+    assert "thin trend bar" in s.reason
+
+
+def test_a_bucket_straddling_the_daily_halt_counts_only_open_minutes(
+    grant: LevelsReader,
+) -> None:
+    # A print in the 14:00 minute makes a 14:00 bucket with one open minute; the other
+    # fourteen are the exchange's daily halt and must not count as missing.
+    bars = sorted(
+        [*session_data(MON, TUE), bar(pt(MON, 14, 0), 1004, 1005, 1003, 1004)], key=lambda b: b.ts
+    )
+    assert isinstance(grant.snapshot(bars, pt(TUE, 6, 33)), LevelsSnapshot)
