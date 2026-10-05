@@ -226,3 +226,101 @@ def test_the_live_line_reads_its_settings_from_config(stack: Stack) -> None:
     assert line._retry == settings.retry_seconds
     assert line._max_pending == settings.max_pending
     assert line.close(WAIT)
+
+
+def test_retries_are_paced_even_while_new_alarms_arrive() -> None:
+    """A down pager is retried every `retry`, not once per new alarm."""
+    tries: list[float] = []
+
+    def down(a: Alarm) -> None:
+        tries.append(time.monotonic())
+        raise ConnectionError("pager down")
+
+    line = AlarmLine(down, retry=timedelta(milliseconds=200), max_pending=100)
+    started = time.monotonic()
+    for n in range(40):
+        line.submit(alarm(n))
+        time.sleep(0.01)
+    elapsed = time.monotonic() - started
+    assert len(tries) <= elapsed / 0.2 + 2  # paced by retry, not by submits
+    line.close(WAIT)
+
+
+def test_a_hung_pager_hands_the_backlog_to_the_fallback() -> None:
+    """The primary never answers and never fails. Without any new alarm, the backlog
+    reaches the fallback channel; later alarms go there too."""
+    hung = threading.Event()
+    backup: list[str] = []
+
+    def pager(a: Alarm) -> None:
+        hung.wait(WAIT.total_seconds())
+
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(pager, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(0))
+    line.submit(alarm(1))
+    assert eventually(lambda: backup == ["alarm 0", "alarm 1"])  # the watchdog did it
+    line.submit(alarm(2))
+    assert eventually(lambda: backup == ["alarm 0", "alarm 1", "alarm 2"])
+    hung.set()
+    line.close(WAIT)
+    assert fallback.close(WAIT)
+
+
+def test_a_failing_pager_also_uses_the_fallback() -> None:
+    backup: list[str] = []
+
+    def down(a: Alarm) -> None:
+        raise ConnectionError("pager down")
+
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(down, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(0))
+    assert eventually(lambda: "alarm 0" in backup)
+    line.submit(alarm(1))
+    assert eventually(lambda: "alarm 1" in backup)
+    line.close(WAIT)
+    assert fallback.close(WAIT)
+
+
+def test_a_healthy_pager_never_uses_the_fallback() -> None:
+    backup: list[str] = []
+    heard: list[str] = []
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(
+        lambda a: heard.append(a.message),
+        retry=timedelta(milliseconds=50),
+        max_pending=10,
+        fallback=fallback,
+    )
+    for n in range(5):
+        line.submit(alarm(n))
+    assert eventually(lambda: len(heard) == 5)
+    time.sleep(0.2)  # several watchdog rounds
+    assert backup == []
+    assert line.close(WAIT)
+    assert fallback.close(WAIT)
+
+
+def test_a_second_outage_hands_its_backlog_over_again() -> None:
+    backup: list[str] = []
+    state = {"down": True}
+    heard: list[str] = []
+
+    def pager(a: Alarm) -> None:
+        if state["down"]:
+            raise ConnectionError("pager down")
+        heard.append(a.message)
+
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(pager, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(0))
+    assert eventually(lambda: "alarm 0" in backup)  # first outage
+    state["down"] = False
+    assert eventually(lambda: "alarm 0" in heard)  # recovered
+    state["down"] = True
+    line.submit(alarm(1))  # fails on the primary
+    line.submit(alarm(2))
+    assert eventually(lambda: "alarm 1" in backup and "alarm 2" in backup)  # second outage
+    line.close(WAIT)
+    assert fallback.close(WAIT)

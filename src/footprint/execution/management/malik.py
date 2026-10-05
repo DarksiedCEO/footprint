@@ -125,6 +125,10 @@ class Manager:
         self._cancels_stuck_since: datetime | None = None
         self._cancel_escalated = False
         self._acting = False
+        self._disagree_since: datetime | None = None
+        self._settle_escalated = False
+        self._stuck_ids: set[str] = set()
+        self._reconcile_sent: dict[str, Order] = {}  # sent by reconcile, not yet finished
 
     @property
     def agent_id(self) -> str:
@@ -460,20 +464,25 @@ class Manager:
 
     def reconcile(self, position: Position | None, now: datetime) -> bool:
         """True if the broker, the ledger and `position` all agree. Call again every
-        step until it returns True. On a disagreement, each round:
+        step until it returns True. The broker's order LIST is never trusted alone (a
+        live broker can list a new order late): every order the system itself sent is
+        followed by its id through `status`, and one that cannot be confirmed finished
+        is counted as still working. On a disagreement, each round:
 
-        1. Settle: the disagreement must hold still for `settle_seconds` before
-           anything is done (a live broker's position report can lag its fills).
-        2. Alarm (once per distinct disagreement), halt, and cancel every order the
-           broker lists. A cancel that fails or is not confirmed is chased again next
-           round; one unconfirmed for `cancel_escalate_seconds` escalates to Andre.
-        3. Re-read what is held; it too must hold still for `settle_seconds`.
-        4. Post limit orders for what is held, less what still-working orders on the
-           same side already cover, so the flatten can never sell (or buy) twice even
-           while a cancel is stuck. Priced at the bid (sells) or ask (buys) when the
-           quote is fresh; on a stale or missing quote the price walks one tick per
-           round from the last price, never resting on a dead quote.
-        5. Latch the kill switch.
+        1. Settle: before the first action the disagreement must hold still for
+           `settle_seconds`; before any flatten, what is held must too. A report that
+           will not hold still for `max_settle_seconds` escalates to Andre and halts;
+           it is never acted on unsettled (a sell on an untrusted report can go short).
+        2. Alarm (when holdings or the ledger change), halt, and cancel every working
+           order: those the broker lists and those the system sent. A cancel that
+           fails or is not confirmed is chased every round, and escalates once after
+           `cancel_escalate_seconds`. A stuck order on the reducing side is re-priced
+           toward the market instead (never beyond what is held).
+        3. Post a limit order for what is held, less what still-working orders on the
+           same side cover, so the flatten never sells (or buys) twice. Priced at the
+           touch on a fresh quote; on a stale or missing quote the price walks one tick
+           a round from the last price, never resting on a dead quote.
+        4. Latch the kill switch.
 
         Booker's stops live in memory. After a restart, pass `position=None` (nothing
         the system can manage), so anything the broker still holds is flattened rather
@@ -490,18 +499,20 @@ class Manager:
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
         actual = self._broker.positions()
-        open_ids = {o.order_id for o in self._broker.open_orders()}
-        if actual == expected and ledger_ok and open_ids == expected_orders:
+        working = self._working_orders(position)
+        working_ids = set(working)
+        if actual == expected and ledger_ok and working_ids == expected_orders:
             self._reset_reconcile()
             return True
-        listed = sorted(open_ids)
-        mismatch = (tuple(sorted(actual.items())), tuple(listed), ledger_open)
+        if self._disagree_since is None:
+            self._disagree_since = now
+        mismatch = (tuple(sorted(actual.items())), tuple(sorted(working_ids)), ledger_open)
         if not self._acting:
             # Only the first action waits for the disagreement to hold still; once
             # reconcile is acting, its own cancels change the picture, and the wait
             # on what is held (below) guards every flatten.
             if not self._settled("mismatch", mismatch, now):
-                log.warning("reconcile: disagreement seen, waiting for it to settle: %s", mismatch)
+                self._unsettled(now, "the disagreement")
                 return False
             self._acting = True
         # Alarm when what is held or booked changes, not when reconcile's own cancels
@@ -511,16 +522,16 @@ class Manager:
             self._alarmed_mismatch = alarm_key
             self._alarm(
                 now,
-                f"reconcile mismatch: broker {actual} with orders {listed}, expected "
-                f"{expected} with {sorted(expected_orders)}, ledger open {ledger_open}",
+                f"reconcile mismatch: broker {actual} with orders {sorted(working_ids)}, "
+                f"expected {expected} with {sorted(expected_orders)}, ledger open {ledger_open}",
             )
         self._halt.trip("unclear recovery: broker, ledger and records disagree")
-        for order in self._broker.open_orders():
+        for order_id in working:
             try:
-                self._broker.cancel(order.order_id)
+                self._broker.cancel(order_id)
             except Exception as exc:  # chased again next round
-                log.critical("reconcile could not cancel %s: %r", order.order_id, exc)
-        pending = self._still_working()
+                log.critical("reconcile could not cancel %s: %r", order_id, exc)
+        pending = list(self._working_orders(position).values())
         self._watch_stuck_cancels(pending, now)
         remaining = self._broker.positions()  # what is really held after the cancels
         held = (
@@ -528,35 +539,45 @@ class Manager:
             tuple(sorted(status.order.order_id for status in pending)),
         )
         if not self._settled("remaining", held, now):
+            self._unsettled(now, "what the broker holds")
             self._stand_down(now, "unclear recovery")
             return False
         self._reconcile_round += 1
+        stuck_before = self._stuck_ids
+        self._stuck_ids = {status.order.order_id for status in pending}
         for contract_id, qty in remaining.items():
             side = Side.SELL if qty > 0 else Side.BUY
-            covered = sum(
-                status.order.quantity - status.filled
+            reducing = [
+                status
                 for status in pending
                 if status.order.contract_id == contract_id and status.order.side is side
-            )
+            ]
+            covered = sum(status.order.quantity - status.filled for status in reducing)
             needed = abs(qty) - covered
-            if needed <= 0:
-                continue  # orders that would not cancel already cover it
+            if covered > abs(qty):
+                self._alarm(
+                    now,
+                    f"stuck orders on {contract_id} would {side.value} {covered} against "
+                    f"{abs(qty)} held: flatten by hand",
+                )
             price = self._reconcile_price(contract_id, side, now)
             if price is None:
                 self._alarm(now, f"cannot price a buy-back for {contract_id}: no ask")
                 continue
-            order_id = f"reconcile-{self._reconcile_round}-{contract_id}"
-            self._reconcile_orders.append(order_id)
-            self._broker.place(
-                Order(
-                    order_id=order_id,
-                    contract_id=contract_id,
-                    side=side,
-                    quantity=needed,
-                    order_type=OrderType.LIMIT,
-                    limit_price=price,
-                )
+            self._reprice_stuck(reducing, stuck_before, abs(qty), price)
+            if needed <= 0:
+                continue  # orders that would not cancel already cover it
+            order = Order(
+                order_id=f"reconcile-{self._reconcile_round}-{contract_id}",
+                contract_id=contract_id,
+                side=side,
+                quantity=needed,
+                order_type=OrderType.LIMIT,
+                limit_price=price,
             )
+            self._reconcile_orders.append(order.order_id)
+            self._reconcile_sent[order.order_id] = order  # followed by id from now on
+            self._broker.place(order)
         if not remaining and position is not None and ledger_open == position.position_id:
             price, actual_fill = self._actual_exit(position)
             if not actual_fill:
@@ -580,18 +601,81 @@ class Manager:
             return settle <= timedelta(0)
         return now - seen[1] >= settle
 
-    def _still_working(self) -> list[OrderStatus]:
-        """Every order the broker still lists, with what is left of it. One whose
-        status cannot be read counts as wholly unfilled (it covers its full size, so
-        the flatten errs toward selling too little, never too much)."""
-        working: list[OrderStatus] = []
-        for order in self._broker.open_orders():
+    def _unsettled(self, now: datetime, what: str) -> None:
+        """Still waiting for the broker's report to hold still: bounded."""
+        assert self._disagree_since is not None
+        limit = timedelta(seconds=self._p.execution.reconcile.max_settle_seconds)
+        log.warning("reconcile: waiting for %s to hold still", what)
+        if not self._settle_escalated and now - self._disagree_since >= limit:
+            self._settle_escalated = True
+            self._alarm(
+                now,
+                f"BROKER REPORT NOT SETTLING since {self._disagree_since.isoformat()}: "
+                f"{what} keeps changing. Nothing is sold on an untrusted report; check the "
+                "broker's own platform and flatten by hand",
+            )
+            self._stand_down(now, "broker report not settling")
+
+    def _working_orders(self, position: Position | None) -> dict[str, OrderStatus]:
+        """Every order that may still be working, by id: those the broker lists, every
+        order reconcile sent that is not confirmed finished, and the position's own
+        stop and exit. An order whose status cannot be read counts as wholly unfilled
+        and working (it covers its full size, so a flatten errs toward selling too
+        little, never too much)."""
+        known: dict[str, Order | None] = {}
+        for listed in self._broker.open_orders():
+            known[listed.order_id] = listed
+        for sent_id, sent in self._reconcile_sent.items():
+            known.setdefault(sent_id, sent)
+        if position is not None:
+            for own_id in (position.stop_order_id, position.exit_order_id):
+                if own_id is not None:
+                    known.setdefault(own_id, None)
+        working: dict[str, OrderStatus] = {}
+        for order_id, maybe in known.items():
             try:
-                working.append(self._broker.status(order.order_id))
+                status = self._broker.status(order_id)
             except Exception as exc:
-                log.critical("reconcile cannot read %s: %r", order.order_id, exc)
-                working.append(OrderStatus(order, OrderState.WORKING, 0, None))
+                log.critical("reconcile cannot read %s: %r", order_id, exc)
+                order = maybe
+                if order is None:
+                    assert position is not None  # only the position's own ids lack an Order
+                    order = Order(
+                        order_id=order_id,
+                        contract_id=position.contract_id,
+                        side=Side.SELL,
+                        quantity=position.contracts,
+                        order_type=OrderType.LIMIT,
+                        limit_price=self._p.instrument.option_tick_size,
+                    )
+                status = OrderStatus(order, OrderState.WORKING, 0, None)
+            if status.state is OrderState.WORKING:
+                working[order_id] = status
+            else:
+                self._reconcile_sent.pop(order_id, None)  # confirmed finished
         return working
+
+    def _reprice_stuck(
+        self,
+        reducing: list[OrderStatus],
+        stuck_before: set[str],
+        held: int,
+        price: Decimal,
+    ) -> None:
+        """An order that would not cancel last round is moved to the flatten price
+        instead (a stop is moved to trigger at once). Only orders whose sizes add up to
+        no more than what is held: re-pricing more could sell short."""
+        total = 0
+        for status in reducing:
+            remaining = status.order.quantity - status.filled
+            if status.order.order_id not in stuck_before or total + remaining > held:
+                continue
+            total += remaining
+            stop = price if status.order.order_type is OrderType.STOP_LIMIT else None
+            try:
+                self._broker.modify(status.order.order_id, price, stop)
+            except Exception as exc:
+                log.critical("could not re-price stuck %s: %r", status.order.order_id, exc)
 
     def _watch_stuck_cancels(self, pending: list[OrderStatus], now: datetime) -> None:
         if not pending:
@@ -610,8 +694,8 @@ class Manager:
             self._alarm(
                 now,
                 f"CANCEL STUCK since {self._cancels_stuck_since.isoformat()}: {list(ids)}. "
-                "Flatten by hand in the broker's own platform; reconcile keeps selling only "
-                "what those orders cannot cover",
+                "Reconcile is re-pricing them to the market; if they do not fill, flatten "
+                "by hand in the broker's own platform",
             )
 
     def _reconcile_price(self, contract_id: str, side: Side, now: datetime) -> Decimal | None:
@@ -642,6 +726,8 @@ class Manager:
 
     def _reset_reconcile(self) -> None:
         self._acting = False
+        self._disagree_since, self._settle_escalated = None, False
+        self._stuck_ids = set()
         self._seen.clear()
         self._reconcile_prices.clear()
         self._alarmed_mismatch = None

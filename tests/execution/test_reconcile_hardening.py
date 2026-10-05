@@ -9,7 +9,15 @@ from pathlib import Path
 import pytest
 
 from footprint.core.models import Bar
-from footprint.execution.orders import Order, OrderState, OrderStatus, OrderType, Side
+from footprint.execution.market import QuoteBook
+from footprint.execution.orders import (
+    Order,
+    OrderState,
+    OrderStatus,
+    OrderType,
+    Side,
+    SimulatedBroker,
+)
 from tests.execution.conftest import Stack
 from tests.execution.test_execution import FILLED_AT, filled_position
 from tests.execution.test_runner import open_trade, runner_for
@@ -106,11 +114,36 @@ def stuck_cancels(stack: Stack, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stack.broker, "cancel", lambda order_id: stack.broker.status(order_id))
 
 
+def frozen_modifies(stack: Stack, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The broker accepts a modify but never applies it (as when it is unreachable)."""
+    monkeypatch.setattr(stack.broker, "modify", lambda order_id, *a: stack.broker.status(order_id))
+
+
+def test_a_stuck_stop_is_repriced_to_the_market_not_sold_beside(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R9-3: the stop will not cancel, so reconcile moves it to trigger at the bid.
+    It fills; no second seller was ever sent; the account ends flat, never short."""
+    filled_position(stack)
+    stuck_cancels(stack, monkeypatch)
+    t = FILLED_AT + 60 * SEC
+    for k in range(8):
+        now = t + k * SEC
+        stack.quote(160, 161, now)
+        stack.manager.reconcile(None, now)
+    assert reconcile_orders(stack) == []
+    assert stack.broker.positions() == {}
+    stop = stack.broker.status(f"{stack.ledger.open_position_id}-stop")
+    assert stop.state is OrderState.FILLED
+    assert stop.avg_price == D(160)
+
+
 def test_a_stuck_stop_cancel_escalates_once_and_never_sells_beside_it(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     filled_position(stack)
     stuck_cancels(stack, monkeypatch)
+    frozen_modifies(stack, monkeypatch)
     t = FILLED_AT + 60 * SEC
     escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
     for k in range(escalate + 10):
@@ -164,6 +197,7 @@ def test_a_cancel_that_raises_is_chased_not_fatal(
         raise ConnectionError("broker gone")
 
     monkeypatch.setattr(stack.broker, "cancel", unreachable)
+    monkeypatch.setattr(stack.broker, "modify", unreachable)
     t = FILLED_AT + 60 * SEC
     escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
     for k in range(escalate + 10):
@@ -242,6 +276,7 @@ def test_an_order_whose_status_cannot_be_read_still_counts_as_covering(
             raise ConnectionError("no answer")
         return real_status(order_id)
 
+    frozen_modifies(stack, monkeypatch)
     t = FILLED_AT + 60 * SEC
     stack.quote(160, 161, t)
     monkeypatch.setattr(stack.broker, "status", blind)
@@ -281,3 +316,252 @@ def test_a_new_episode_starts_fresh_after_agreement(stack: Stack) -> None:
     fresh = reconcile_orders(stack)[placed_before:]
     assert fresh
     assert fresh[0].order.limit_price == D(150)  # from the last touch, not the old walk
+
+
+# --- a broker that lists late and reports unsteadily (review R9-1, R9-2) ----------------
+
+
+class LaggyBroker(SimulatedBroker):
+    """A simulator that misbehaves the way a live broker can: a newly placed order is
+    left out of `open_orders` for the next `list_lag_reads` reads, and `positions`
+    can flicker between the truth and nothing on alternate reads."""
+
+    def __init__(self, book: QuoteBook, max_age: int, *, list_lag_reads: int = 0) -> None:
+        super().__init__(book, max_age)
+        self.list_lag_reads = list_lag_reads
+        self.flicker = False
+        self._hidden: dict[str, int] = {}
+        self._reads = 0
+
+    def place(self, order: Order) -> OrderStatus:
+        status = super().place(order)
+        if self.list_lag_reads:
+            self._hidden[order.order_id] = self.list_lag_reads
+        return status
+
+    def open_orders(self) -> list[Order]:
+        shown = []
+        for order in super().open_orders():
+            left = self._hidden.get(order.order_id, 0)
+            if left > 0:
+                self._hidden[order.order_id] = left - 1
+                continue
+            shown.append(order)
+        return shown
+
+    def positions(self) -> dict[str, int]:
+        """With `flicker`, every third read reports nothing (out of step with any
+        fixed number of reads per round, so every snapshot keeps changing)."""
+        if self.flicker:
+            self._reads += 1
+            if self._reads % 3 == 0:
+                return {}
+        return super().positions()
+
+    def truth(self) -> dict[str, int]:
+        return dict(self._positions)
+
+    def working_sells(self, contract_id: str) -> int:
+        return sum(
+            s.order.quantity - s.filled
+            for s in self._orders.values()
+            if s.state is OrderState.WORKING
+            and s.order.side is Side.SELL
+            and s.order.contract_id == contract_id
+        )
+
+
+def use(stack: Stack, broker: SimulatedBroker) -> None:
+    stack.executor._broker = broker
+    stack.manager._broker = broker
+    stack.broker = broker
+
+
+def test_r9_1_a_late_listed_flatten_never_gets_a_second_seller(stack: Stack) -> None:
+    broker = LaggyBroker(
+        stack.book, stack.profiles.execution.quotes.max_age_seconds, list_lag_reads=4
+    )
+    use(stack, broker)
+    filled_position(stack)  # a leftover long of 1, then a "restart"
+    t = FILLED_AT + 60 * SEC  # the feed is dead: every flatten rests
+    for k in range(14):
+        now = t + k * SEC
+        stack.book.mark_time(now)
+        stack.manager.reconcile(None, now)
+        assert broker.working_sells(stack.contract) <= 1  # never two sellers
+    assert reconcile_orders(stack)  # it did try to flatten
+    stack.quote(150, 152, t + 14 * SEC)  # a live bid: whatever rests can fill
+    assert all(qty >= 0 for qty in broker.truth().values())
+
+
+def test_r9_1_an_own_order_the_broker_cannot_report_yet_still_covers(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flatten reached the broker, but asking for it by id fails for a while: it
+    is counted as working, so nothing is sent beside it."""
+    filled_position(stack)
+    real_status = stack.broker.status
+    blind_for = {"reads": 0}
+
+    def late(order_id: str) -> OrderStatus:
+        if order_id.startswith("reconcile-") and blind_for["reads"] < 30:
+            blind_for["reads"] += 1
+            raise KeyError(order_id)
+        return real_status(order_id)
+
+    monkeypatch.setattr(stack.broker, "status", late)
+    monkeypatch.setattr(
+        stack.broker,
+        "open_orders",
+        lambda: [
+            o
+            for o in SimulatedBroker.open_orders(stack.broker)
+            if not o.order_id.startswith("reconcile-")
+        ],
+    )
+    t = FILLED_AT + 60 * SEC
+    for k in range(10):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    placed = [line for line in stack.broker.log if line.startswith("placed reconcile-")]
+    assert len(placed) == 1  # one flatten, then waiting on it
+
+
+def test_r9_2_a_flickering_report_escalates_and_is_never_acted_on(stack: Stack) -> None:
+    broker = LaggyBroker(stack.book, stack.profiles.execution.quotes.max_age_seconds)
+    use(stack, broker)
+    filled_position(stack)
+    broker.flicker = True
+    t = FILLED_AT + 60 * SEC
+    limit = stack.profiles.execution.reconcile.max_settle_seconds
+    for k in range(limit + 20):
+        now = t + k * SEC
+        stack.quote(160, 161, now)
+        stack.manager.reconcile(None, now)
+        if k < limit:
+            assert not any("NOT SETTLING" in a.message for a in stack.alarms)
+    messages = [a.message for a in stack.alarms]
+    assert sum("NOT SETTLING" in m for m in messages) == 1
+    assert stack.halt.tripped
+    assert stack.ledger.account(t).kill_switch_latched
+    assert reconcile_orders(stack) == []  # nothing sold on an untrusted report
+    assert broker.truth() == {stack.contract: 1}  # the resting stop still protects it
+
+
+# --- this round's own mutants -------------------------------------------------------------
+
+
+def test_finished_flatten_orders_stop_being_followed(stack: Stack) -> None:
+    filled_position(stack)
+    t = FILLED_AT + 60 * SEC
+    for k in range(6):
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)  # the flatten fills at 160
+    assert stack.broker.positions() == {}
+    assert stack.manager._reconcile_sent == {}  # nothing finished is chased forever
+
+
+def test_holdings_that_will_not_settle_after_the_cancels_escalate(stack: Stack) -> None:
+    broker = LaggyBroker(stack.book, stack.profiles.execution.quotes.max_age_seconds)
+    use(stack, broker)
+    filled_position(stack)
+    t = FILLED_AT + 60 * SEC
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    limit = stack.profiles.execution.reconcile.max_settle_seconds
+    stack.book.mark_time(t)
+    for k in range(settle + 1):  # the disagreement settles; reconcile starts acting
+        stack.manager.reconcile(None, t + k * SEC)
+    assert stack.manager._acting
+    broker.flicker = True  # now what is held keeps changing
+    for k in range(settle + 1, limit + 10):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    assert sum("NOT SETTLING" in a.message for a in stack.alarms) == 1
+    assert all(qty >= 0 for qty in broker.truth().values())
+
+
+def test_an_order_merely_slow_to_cancel_is_not_repriced(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel confirmed one round late is normal: no modify is sent at it."""
+    filled_position(stack)
+    real_cancel = stack.broker.cancel
+    requested: set[str] = set()
+
+    def late_cancel(order_id: str) -> OrderStatus:
+        if order_id in requested:
+            return real_cancel(order_id)  # confirmed on the second ask
+        requested.add(order_id)
+        return stack.broker.status(order_id)
+
+    modifies: list[str] = []
+    real_modify = stack.broker.modify
+
+    def counting(order_id: str, limit: Decimal, stop: Decimal | None) -> OrderStatus:
+        modifies.append(order_id)
+        return real_modify(order_id, limit, stop)
+
+    monkeypatch.setattr(stack.broker, "cancel", late_cancel)
+    monkeypatch.setattr(stack.broker, "modify", counting)
+    t = FILLED_AT + 60 * SEC  # a dead feed: each flatten rests, then is re-priced
+    for k in range(12):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    assert len(reconcile_orders(stack)) >= 2  # flatten orders came and went
+    assert modifies == []  # each was cancelled (late) and replaced, never modified
+
+
+def test_stuck_sells_are_repriced_only_up_to_what_is_held(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two stuck sells against one contract held: only one is moved to the market,
+    or both would fill and leave a short."""
+    filled_position(stack)
+    stack.broker.place(Order("andre-sell", stack.contract, Side.SELL, 1, OrderType.LIMIT, D(200)))
+    stuck_cancels(stack, monkeypatch)
+    t = FILLED_AT + 60 * SEC
+    for k in range(10):
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    assert stack.broker.positions() == {}  # flat via one repriced sell
+    assert stack.broker.status("andre-sell").order.limit_price == D(200)  # untouched
+    assert any("flatten by hand" in a.message and "would SELL 2" in a.message for a in stack.alarms)
+
+
+def test_with_no_settle_wait_a_slow_cancel_is_still_not_repriced(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """settle_seconds may be configured to 0; then only the one-round rule keeps a
+    merely slow cancel from being modified."""
+    from dataclasses import replace
+
+    p = stack.profiles
+    stack.manager._p = replace(
+        p,
+        execution=replace(p.execution, reconcile=replace(p.execution.reconcile, settle_seconds=0)),
+    )
+    filled_position(stack)
+    real_cancel = stack.broker.cancel
+    requested: set[str] = set()
+
+    def late_cancel(order_id: str) -> OrderStatus:
+        if order_id in requested:
+            return real_cancel(order_id)
+        requested.add(order_id)
+        return stack.broker.status(order_id)
+
+    modifies: list[str] = []
+    real_modify = stack.broker.modify
+
+    def counting(order_id: str, limit: Decimal, stop: Decimal | None) -> OrderStatus:
+        modifies.append(order_id)
+        return real_modify(order_id, limit, stop)
+
+    monkeypatch.setattr(stack.broker, "cancel", late_cancel)
+    monkeypatch.setattr(stack.broker, "modify", counting)
+    t = FILLED_AT + 60 * SEC
+    for k in range(8):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    assert reconcile_orders(stack)
+    assert modifies == []
