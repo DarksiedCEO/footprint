@@ -13,6 +13,7 @@ and STOP_LIMIT. There is no market order type to send, by construction.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -21,6 +22,8 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 
 from footprint.core.models import require_utc
+
+log = logging.getLogger("footprint.orders")
 
 
 class Side(Enum):
@@ -88,6 +91,12 @@ class OrderStatus:
     triggered: bool = False
 
 
+class DuplicateOrderId(ValueError):
+    """The broker already has an order with this id. A broker adapter must raise this
+    (and only this) for a duplicate id: re-sending an order under its own id is how a
+    lost answer is resolved safely (see TrackedBroker.place)."""
+
+
 @runtime_checkable
 class OrderBroker(Protocol):
     """What execution needs from a broker. The broker is the source of truth for
@@ -107,6 +116,97 @@ class OrderBroker(Protocol):
     def positions(self) -> dict[str, int]: ...
 
     def open_orders(self) -> list[Order]: ...
+
+
+class TrackedBroker:
+    """The one record of every order the system sends, wrapped around the broker.
+
+    An order is recorded BEFORE it is sent (so a send whose answer is lost is still
+    known) and forgotten only when `status` confirms it finished. `working()` is the
+    set every sweep reads: the broker's list, plus every recorded order not confirmed
+    finished. An order whose status cannot be read counts as working for its full
+    size (it errs toward selling too little, never too much). A live broker can list
+    a new order late; this record never depends on the list alone.
+    """
+
+    def __init__(self, inner: OrderBroker) -> None:
+        self._inner = inner
+        self._sent: dict[str, Order] = {}
+
+    @property
+    def inner(self) -> OrderBroker:
+        return self._inner
+
+    @property
+    def unfinished(self) -> dict[str, Order]:
+        """Recorded orders not yet confirmed finished (a copy)."""
+        return dict(self._sent)
+
+    def place(self, order: Order) -> OrderStatus:
+        """Record, then send. If the send fails, the order may or may not have reached
+        the broker; it is sent once more under the SAME id, which is safe either way:
+        the broker takes it (the first never arrived) or refuses the duplicate id (the
+        first did). Only if that second send also fails is the outcome unknown; the
+        error is raised, and the order stays recorded as possibly working."""
+        self._sent[order.order_id] = order  # recorded before it can reach the broker
+        try:
+            return self._seen(self._inner.place(order))
+        except DuplicateOrderId:
+            raise  # the caller reused an id: a bug, never a lost answer
+        except Exception as first:
+            log.critical(
+                "send of %s failed (%r); sending again under its id", order.order_id, first
+            )
+            try:
+                return self._seen(self._inner.place(order))
+            except DuplicateOrderId:
+                log.critical("%s had reached the broker after all", order.order_id)
+                return self.status_or_working(order.order_id, order)
+            except Exception:
+                raise first from None
+
+    def modify(
+        self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
+    ) -> OrderStatus:
+        return self._seen(self._inner.modify(order_id, limit_price, stop_price))
+
+    def cancel(self, order_id: str) -> OrderStatus:
+        return self._seen(self._inner.cancel(order_id))
+
+    def status(self, order_id: str) -> OrderStatus:
+        return self._seen(self._inner.status(order_id))
+
+    def _seen(self, status: OrderStatus) -> OrderStatus:
+        """Any answer from the broker that an order is finished ends its record."""
+        if status.state is not OrderState.WORKING:
+            self._sent.pop(status.order.order_id, None)
+        return status
+
+    def positions(self) -> dict[str, int]:
+        return self._inner.positions()
+
+    def open_orders(self) -> list[Order]:
+        return self._inner.open_orders()
+
+    def working(self) -> dict[str, OrderStatus]:
+        """Every order that may still be working, by id (see the class docstring)."""
+        known: dict[str, Order] = {o.order_id: o for o in self._inner.open_orders()}
+        for order_id, order in self._sent.items():
+            known.setdefault(order_id, order)
+        working: dict[str, OrderStatus] = {}
+        for order_id, order in known.items():
+            status = self.status_or_working(order_id, order)
+            if status.state is OrderState.WORKING:
+                working[order_id] = status
+        return working
+
+    def status_or_working(self, order_id: str, order: Order) -> OrderStatus:
+        """The broker's status, or (if it cannot be read) `order` as wholly working."""
+        try:
+            return self.status(order_id)
+        except Exception as exc:
+            log.critical("cannot read the status of %s: %r", order_id, exc)
+            return OrderStatus(order, OrderState.WORKING, 0, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +291,7 @@ class SimulatedBroker:
 
     def place(self, order: Order) -> OrderStatus:
         if order.order_id in self._orders:
-            raise ValueError(f"duplicate order id {order.order_id!r}")
+            raise DuplicateOrderId(f"duplicate order id {order.order_id!r}")
         status = OrderStatus(order, OrderState.WORKING, 0, None)
         self.log.append(f"placed {order.order_id} {order.order_type.value} {order.side.value}")
         quote = self._book.latest(order.contract_id)

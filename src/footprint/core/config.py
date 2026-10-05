@@ -490,6 +490,19 @@ class RunnerSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class ReconcileSettings:
+    settle_seconds: int
+    max_settle_seconds: int
+    cancel_escalate_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class AlarmSettings:
+    retry_seconds: int
+    max_pending: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionProfile:
     quotes: QuoteSettings
     contract: ContractSettings
@@ -497,6 +510,8 @@ class ExecutionProfile:
     stop_order: StopOrderSettings
     news: NewsSettings
     runner: RunnerSettings
+    reconcile: ReconcileSettings
+    alarms: AlarmSettings
 
 
 def load_execution(path: Path) -> ExecutionProfile:
@@ -550,6 +565,21 @@ def load_execution(path: Path) -> ExecutionProfile:
     runner = RunnerSettings(
         max_unmanaged_seconds=_integer(r, "max_unmanaged_seconds", r_where, minimum=1)
     )
+    rc_where = f"{where}: reconcile"
+    rc = _check_keys(raw["reconcile"], {f.name for f in fields(ReconcileSettings)}, rc_where)
+    reconcile = ReconcileSettings(
+        settle_seconds=_integer(rc, "settle_seconds", rc_where, minimum=0),
+        max_settle_seconds=_integer(rc, "max_settle_seconds", rc_where, minimum=1),
+        cancel_escalate_seconds=_integer(rc, "cancel_escalate_seconds", rc_where, minimum=1),
+    )
+    if reconcile.max_settle_seconds <= reconcile.settle_seconds:
+        raise ConfigError(f"{rc_where}: max_settle_seconds must exceed settle_seconds")
+    a_where = f"{where}: alarms"
+    al = _check_keys(raw["alarms"], {f.name for f in fields(AlarmSettings)}, a_where)
+    alarms = AlarmSettings(
+        retry_seconds=_integer(al, "retry_seconds", a_where, minimum=1),
+        max_pending=_integer(al, "max_pending", a_where, minimum=1),
+    )
     return ExecutionProfile(
         quotes=quotes,
         contract=contract,
@@ -557,6 +587,8 @@ def load_execution(path: Path) -> ExecutionProfile:
         stop_order=stop_order,
         news=news,
         runner=runner,
+        reconcile=reconcile,
+        alarms=alarms,
     )
 
 

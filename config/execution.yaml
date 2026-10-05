@@ -26,3 +26,17 @@ runner:
   max_unmanaged_seconds: 30   # DEFAULT: an open position that has not been managed for
                               #   this long (inputs failing, step crashing) is flattened
                               #   through the broker alone
+reconcile:
+  settle_seconds: 2           # DEFAULT: a broker/ledger mismatch, and what is held after
+                              #   the cancels, must hold still this long before reconcile
+                              #   acts (a live broker's position report can lag its fills)
+  max_settle_seconds: 10      # DEFAULT: a broker report that will not hold still this
+                              #   long escalates to Andre and halts (it is never acted on
+                              #   unsettled: any sell on an untrusted report could go short)
+  cancel_escalate_seconds: 10 # DEFAULT: a cancel unconfirmed this long escalates to Andre
+                              #   ("flatten by hand"); reconcile still sells what the stuck
+                              #   orders cannot cover
+alarms:
+  retry_seconds: 5            # DEFAULT: wait between tries while the alarm line is down
+  max_pending: 500            # DEFAULT: alarms kept while the line is down; beyond this
+                              #   the oldest are dropped and the count is reported

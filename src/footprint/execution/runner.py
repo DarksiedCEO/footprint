@@ -10,7 +10,8 @@ live, or on a simulated clock in a backtest); the runner then, in order:
 4. with nothing open or working, and at most once per newly completed minute bar,
    asks the pipeline for a decision, journals it, latches the kill switch if the
    decision says so, and submits an approved entry.
-Every alarm and halt is passed to `on_alarm`, which must reach Andre.
+Every alarm and halt is passed to `on_alarm`, which must reach Andre. Live, that is an
+`AlarmLine` (execution/alarms.py), so a slow or broken pager never delays a step.
 
 Failing safe:
 - a news calendar that cannot be read is treated as a blackout in force now: the

@@ -58,6 +58,22 @@ def runner_for(
     return runner, journal, alarms
 
 
+def through_settle(
+    stack: Stack, runner: Runner, start: datetime, quote: tuple[float, float] | None = None
+) -> datetime:
+    """Step once a second from `start` through reconcile's two settle waits (the
+    disagreement holding still, then what is held holding still), publishing `quote`
+    each second if given. Returns the time of the last step."""
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    t = start
+    for second in range(2 * settle + 1):
+        t = start + second * SEC
+        if quote is not None:
+            stack.quote(quote[0], quote[1], t)
+        runner.step(t)
+    return t
+
+
 def test_one_trade_from_decision_to_journal(stack: Stack, bars: list[Bar], tmp_path: Path) -> None:
     runner, journal, _ = runner_for(stack, bars, tmp_path)
     runner.step(DECISION_TIME)  # start-up reconcile: everything agrees
@@ -93,9 +109,7 @@ def test_start_up_flattens_whatever_the_broker_still_holds(
 
     filled_position(stack)  # a position from before the "restart"
     runner, _, alarms = runner_for(stack, bars, tmp_path, cleared=False)
-    t = DECISION_TIME + 60 * SEC
-    stack.quote(160, 161, t)
-    runner.step(t)
+    t = through_settle(stack, runner, DECISION_TIME + 60 * SEC, (160, 161))
     assert stack.broker.positions() == {}
     assert stack.broker.open_orders() == []
     assert runner.reconciling  # the ledger still shows the old position: stays dark
@@ -201,13 +215,13 @@ def test_a_broken_alarm_channel_never_stops_the_start_up_flatten(
 
     runner, _, _ = runner_for(stack, bars, tmp_path, cleared=False)
     runner._on_alarm = pager  # the channel breaks after start-up
-    t = DECISION_TIME + 60 * SEC
-    stack.quote(160, 161, t)
-    runner.step(t)  # must not raise
+    start = DECISION_TIME + 60 * SEC
+    t = through_settle(stack, runner, start, (160, 161))  # must not raise
     assert stack.broker.positions() == {}  # flattened anyway
     assert stack.broker.open_orders() == []
     failed = len(calls)
-    assert failed == 1  # one try while the line is down, however many alarms
+    steps = int((t - start).total_seconds()) + 1
+    assert 1 <= failed <= steps  # one try per step while the line is down, at most
     down = False
     runner.step(t + SEC)  # the channel is back: what failed is delivered
     first_failed = calls[0]
@@ -241,9 +255,13 @@ def test_a_broker_error_on_the_entry_reconciles_instead_of_crashing(
     runner.step(DECISION_TIME)
     original = stack.broker.place
 
+    sends = {"n": 0}
+
     def lost_ack(order: Order) -> OrderStatus:
-        original(order)  # it reached the broker ...
-        raise ConnectionError("... but the answer was lost")
+        sends["n"] += 1
+        if sends["n"] == 1:
+            original(order)  # it reached the broker ...
+        raise ConnectionError("... but the answer was lost")  # and the resend too
 
     monkeypatch.setattr(stack.broker, "place", lost_ack)
     runner.step(DECISION_TIME + SEC)  # must not raise
@@ -251,9 +269,9 @@ def test_a_broker_error_on_the_entry_reconciles_instead_of_crashing(
     assert stack.halt.tripped
     assert any("step failed" in a.message for a in alarms)
     monkeypatch.setattr(stack.broker, "place", original)
-    runner.step(DECISION_TIME + 2 * SEC)  # reconcile cancels the orphan entry
+    t = through_settle(stack, runner, DECISION_TIME + 2 * SEC)  # cancels the orphan entry
     assert stack.broker.open_orders() == []
-    stack.quote(150, D(151), DECISION_TIME + 3 * SEC)  # it can no longer fill
+    stack.quote(150, D(151), t + SEC)  # it can no longer fill
     assert stack.broker.positions() == {}
 
 
@@ -451,7 +469,7 @@ def test_a_close_found_by_reconcile_is_journaled(
     runner.doubt()
     drop = fill + SEC
     stack.quote(114, 116, drop)  # the resting stop fills while the runner is in doubt
-    runner.step(drop)
+    through_settle(stack, runner, drop, (114, 116))
     assert runner.position is None
     assert [c.reason for c in runner.closed] == [ExitReason.RECONCILE]
     (trade,) = journal.trades()
@@ -475,9 +493,7 @@ def test_an_immediate_unprotected_fill_is_flattened_on_the_same_step(
             return status
 
     broker = FillsAtOnceRefusesStops(stack.book, stack.profiles.execution.quotes.max_age_seconds)
-    stack.executor._broker = broker
-    stack.manager._broker = broker
-    stack.broker = broker
+    stack.use_broker(broker)
     runner, _, alarms = runner_for(stack, bars, tmp_path)
     runner.step(DECISION_TIME)
     runner.step(DECISION_TIME + SEC)
@@ -640,8 +656,7 @@ def test_the_failsafe_never_sells_beside_a_reconcile_flatten(
     stack.broker.place(stray)  # an order nobody expects: reconcile will disagree
     runner._managed_at = fill - timedelta(hours=1)  # and the failsafe is overdue
     runner.doubt()
-    t = fill + 10 * SEC  # the feed is quiet: reconcile's sell rests
-    runner.step(t)
+    t = through_settle(stack, runner, fill + 10 * SEC)  # quiet feed: reconcile's sell rests
     sells = [o for o in stack.broker.open_orders() if o.side is Side.SELL]
     assert [o.order_id.startswith("reconcile-") for o in sells] == [True]
     stack.quote(150, 152, t + SEC)  # a live bid: everything that rests can fill
