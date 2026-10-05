@@ -10,7 +10,11 @@ Status strings and error codes are IBKR's, from its documentation (TWS API messa
 codes): 103 duplicate order id, 104 cannot modify a filled order, 105 modified order
 does not match the original, 110 price precision, 135 order not found, 161 cannot
 cancel in the current state, 201 rejected, 202 cancelled, 1100 connectivity lost,
-1101 restored (data lost), 1102 restored (data maintained).
+1101 restored (data lost), 1102 restored (data maintained). Warnings that are not an
+order's answer: 165, 399, 10167, 10349 and the 2100-2199 notices.
+
+The binding passes order prices as exact decimals (Decimal(str(price))), so the
+adapter can compare IBKR's echo of a modify with what it asked for.
 """
 
 from __future__ import annotations
@@ -72,7 +76,9 @@ class IbGateway(Protocol):
     def request_executions(self) -> None: ...
 
     def request_positions(self) -> None:
-        """Subscribe to positions: a snapshot, positions_end, then every change."""
+        """Subscribe to positions: a snapshot, positions_end, then every change. Asked
+        again (a snapshot can be retaken), the binding cancels the subscription
+        (cancelPositions) and subscribes anew."""
 
 
 class IbEvents(Protocol):

@@ -4,23 +4,42 @@ IBKR is asynchronous; the system's broker seam is not. Each call sends, then wai
 (up to `ack_timeout`) for IBKR's answer about that order. What the adapter adds,
 each for a failure IBKR is known to have:
 
-- Nothing is sent while the connection is down, or until a full resync (open
-  orders of every client, executions, positions) has completed after any connect
-  or reconnect. A modify sent while IBKR's connectivity is degraded can come back as
-  a SECOND live order under the same order id (a new permId) while the first stays
-  live; so every call fails fast (BrokerUnavailable) instead, and the system's
-  reconcile, with its escalation to Andre, takes over.
+- Nothing is sent while the connection is down, or until a full resync has
+  completed after any connect or reconnect: open orders of every client and the
+  day's executions, THEN a position snapshot. A modify sent while IBKR's
+  connectivity is degraded can come back as a SECOND live order under the same order
+  id (a new permId) while the first stays live; so every call fails fast
+  (BrokerUnavailable) instead, and the system's reconcile takes over.
+- The position snapshot is taken only after the execution replay has ended, so
+  every replayed fill is inside it. A fill that arrives WHILE the snapshot is being
+  taken may or may not be inside it, so that snapshot is thrown away and taken
+  again. Fills after the resync are counted on top of the snapshot.
+- Positions are counted from executions and checked against IBKR's own position
+  stream. They are reported only when the two agree; while they disagree (a report
+  lagging a fill, or a miscount) `positions()` raises PositionsInDoubt, so nothing
+  is sold or booked on a number that may be wrong. A disagreement that lasts
+  `positions_disagree_alarm` is alarmed and a fresh resync is started.
+- Executions are keyed by execId without its correction suffix: a correction
+  replaces the fill it corrects instead of adding to it.
 - Every live copy of an order is tracked by its permId. Two live copies of one
   order are alarmed, both count as working (so a flatten covers them), and
   cancelling the extra copy uses a broker-wide cancel (IBKR cancels by order id,
   which both copies share).
+- An order of ours that IBKR no longer lists as open after a resync finished while
+  the system could not see it: it is settled from the executions (FILLED if they
+  fill it, otherwise CANCELLED) and alarmed. A cancel IBKR answers with "not found"
+  or "cannot cancel" is checked the same way, against a fresh list of open orders.
+- "Inactive" is not trusted as finished (an inactive order can become active
+  again): it counts as working, it is cancelled, and it is finished only once IBKR
+  confirms the cancel.
+- A modify is confirmed only by IBKR echoing the new prices on a live copy (an
+  unrelated status already on its way is not an answer). What is reported for an
+  order is always what IBKR says it holds, never what was asked for.
+- IBKR's warnings (TIF set from a preset, order message warnings, farm notices) are
+  logged, never taken as an order's answer or as an error.
 - Our order id travels in IBKR's orderRef, so after a restart every open order is
   matched back to ours; orders with no orderRef (placed by hand) are listed as
   foreign, so reconcile sees them.
-- Positions are counted from executions (deduplicated by execId) on top of the
-  snapshot taken at the last resync, and checked against IBKR's own position
-  stream. Where the two disagree, only what both agree on is reported, so nothing
-  can be sold that may already be gone; a disagreement that lasts is alarmed.
 - A resend under the same order id is safe at IBKR (an open order is modified in
   place, not duplicated); IBKR's answers that the order already exists (103 duplicate
   id, 104 cannot modify a filled order, 105 does not match the original) raise
@@ -28,10 +47,13 @@ each for a failure IBKR is known to have:
 - A position's stop and exits go out as one one-cancels-all group, type 1 (cancel
   the rest, with block): IBKR itself lets only one of them fill.
 - The system sees only its own instrument (`scope`: symbol and security type, e.g.
-  the configured futures options). Positions, orders and fills in anything else in the account
-  (a stock Andre holds, an order he placed by hand on something else) are invisible
-  to it, so reconcile can never sell or cancel them; and the broker-wide cancel is
-  refused while any such order is open (Andre is asked to cancel by hand instead).
+  the configured futures options). Positions, orders and fills in anything else in
+  the account (a stock Andre holds, an order he placed by hand on something else)
+  are invisible to it, so reconcile can never sell or cancel them; and the
+  broker-wide cancel is refused while any such order is open (Andre is asked to
+  cancel by hand instead). An option of the system's own instrument held by hand
+  IS in scope: reconcile will try to flatten it and fail on the unregistered
+  contract, halting the system. Do not trade the instrument by hand in this account.
 """
 
 from __future__ import annotations
@@ -40,7 +62,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from decimal import Decimal
 
@@ -65,17 +87,27 @@ log = logging.getLogger("footprint.ibkr")
 _LIVE = frozenset({"ApiPending", "PendingSubmit", "PreSubmitted", "Submitted", "PendingCancel"})
 _CANCELLED = frozenset({"Cancelled", "ApiCancelled"})
 _FILLED = "Filled"
+_INACTIVE = "Inactive"
+_CANCELLED_STATUS = "Cancelled"
 _CANNOT_MODIFY_FILLED = 104
 _EXISTS = frozenset({103, _CANNOT_MODIFY_FILLED, 105})  # the order is already at IBKR
 _REJECTED = frozenset({110, 201})
 _CANCEL_SETTLED = frozenset({135, 161, 202})  # not found / not cancellable / cancelled
 _LOST, _RESTORED_DATA_LOST, _RESTORED = 1100, 1101, 1102
+# Warnings and notices, not answers: farm status (2100-2199), order message warning,
+# delayed data, TIF set from a preset (the order stays live).
+_WARNINGS = frozenset({165, 399, 10167, 10349})
+_NOTICES = range(2100, 2200)
 _OCA_CANCEL_WITH_BLOCK = 1
 _EXTRA = "#"  # an extra live copy of an order is listed as "<order id>#<permId>"
 
 
 class BrokerUnavailable(ConnectionError):
     """Disconnected, or not yet resynced: nothing is sent and nothing is trusted."""
+
+
+class PositionsInDoubt(BrokerUnavailable):
+    """The fills and IBKR's position report disagree: no position can be trusted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,13 +152,17 @@ class _Copy:
     perm_id: int
     ib_id: int
     order_id: str
-    order: Order
+    order: Order  # as IBKR holds it
     status: str
     filled: int = 0
     avg_price: Decimal | None = None
+    cancel_sent: bool = False  # an Inactive copy the adapter asked IBKR to cancel
+    cancel_confirmed: bool = False  # ...and IBKR answered that cancel
 
     @property
     def live(self) -> bool:
+        if self.status == _INACTIVE:
+            return not self.cancel_confirmed
         return self.status in _LIVE
 
     @property
@@ -137,7 +173,38 @@ class _Copy:
             return OrderState.FILLED
         if self.status in _CANCELLED:
             return OrderState.CANCELLED
-        return OrderState.REJECTED  # Inactive, or anything unrecognised and not live
+        return OrderState.REJECTED  # an Inactive copy confirmed cancelled, or unrecognised
+
+
+@dataclass
+class _Fill:
+    exec_id: str  # the latest version (corrections bump the suffix)
+    contract_id: str
+    perm_id: int
+    signed: int
+    price: Decimal
+
+
+@dataclass
+class _Listing:
+    """One request for every open order: which of ours were live when it was asked."""
+
+    expected: set[int]
+    resync: bool
+    listed: set[int] = field(default_factory=set)
+    done: bool = False
+
+
+def _exec_key(exec_id: str) -> tuple[str, str]:
+    """(the fill, its version): IBKR corrects a fill under a new last segment."""
+    base, dot, version = exec_id.rpartition(".")
+    return (base, version) if dot else (exec_id, "")
+
+
+def _later(version: str, than: str) -> bool:
+    if version.isdigit() and than.isdigit():
+        return int(version) > int(than)
+    return version > than
 
 
 class IbkrBroker:
@@ -155,13 +222,22 @@ class IbkrBroker:
         self._scope = scope
         self._outside_orders: set[int] = set()  # live orders on other instruments (permId)
         self._timeout = settings.ack_timeout.total_seconds()
-        self._disagree_limit = settings.positions_disagree_alarm.total_seconds()
+        self._doubt_limit = settings.positions_disagree_alarm.total_seconds()
         self._on_alarm = on_alarm
         self._on_resync = on_resync
         self._cv = threading.Condition()
         self._connected = False
         self._ready = False
         self._awaiting: set[str] = set()
+        self._positions_round = False  # the snapshot has been asked for, not yet ended
+        self._round_dirty = False  # a fill arrived while the snapshot was being taken
+        self._resync_since: float | None = None
+        self._resync_alarmed = False
+        self._listing: _Listing | None = None
+        self._unlisted_at_resync: set[int] = set()
+        # Requests asked and not yet ended, by kind: only the end of the LAST one asked
+        # completes a listing, a replay or a snapshot (IBKR's ends carry no request id).
+        self._outstanding: dict[str, int] = {}
         self._next_id: int | None = None
         self._ids: dict[str, int] = {}
         self._order_of_ib: dict[int, str] = {}
@@ -169,7 +245,7 @@ class IbkrBroker:
         self._copies: dict[int, _Copy] = {}
         self._updates: dict[int, int] = {}
         self._errors: dict[int, list[int]] = {}
-        self._exec_seen: set[str] = set()
+        self._fills: dict[str, _Fill] = {}
         self._base: dict[str, int] = {}
         self._delta: dict[str, int] = {}
         self._snapshot: dict[str, int] = {}
@@ -198,6 +274,8 @@ class IbkrBroker:
                 raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
             if _REJECTED & set(codes) and not self._copies_of(order.order_id):
                 return OrderStatus(order, OrderState.REJECTED, 0, None)
+            # Rejected with a copy at IBKR (Inactive): it reports working until its
+            # cancel is confirmed.
             unknown = [c for c in codes if c not in _REJECTED]
             if unknown and not self._copies_of(order.order_id):
                 raise RuntimeError(f"IBKR error {unknown} placing {order.order_id}")
@@ -215,16 +293,19 @@ class IbkrBroker:
             order = replace(current.order, limit_price=limit_price, stop_price=stop_price)
             contract = self._contracts.ib(order.contract_id)
             self._errors[ib_id] = []
-            seen = self._updates.get(ib_id, 0)
         self._gw.place_order(self._request(ib_id, order, contract))
         with self._cv:
-            self._wait(lambda: self._answered(ib_id, seen), f"modifying {order_id}")
+            # Only IBKR echoing the new prices confirms a modify; a status already on
+            # its way is not its answer.
+            self._wait(
+                lambda: self._modified(order_id, ib_id, limit_price, stop_price),
+                f"modifying {order_id}",
+            )
             codes = self._errors.get(ib_id, [])
             if _CANNOT_MODIFY_FILLED in codes:  # filled before the modify arrived
                 return self._status(order_id)
             if codes:
                 raise RuntimeError(f"IBKR error {codes} modifying {order_id}")
-            self._sent[order_id] = order
             return self._status(order_id)
 
     def cancel(self, order_id: str) -> OrderStatus:
@@ -255,6 +336,10 @@ class IbkrBroker:
                 self._cv.wait_for(lambda: not self._is_live(order_id), self._timeout)
                 return self._status(order_id)
         assert ib_id is not None
+        with self._cv:
+            for copy in self._copies_of(order_id):
+                if copy.status == _INACTIVE:
+                    copy.cancel_sent = True
         self._gw.cancel_order(ib_id)
         with self._cv:
             self._cv.wait_for(
@@ -266,6 +351,15 @@ class IbkrBroker:
                 self._timeout,
             )
             self._require_ready()
+            # "Not found" / "cannot cancel" while we still think it live: IBKR's own
+            # list of open orders decides.
+            unsure = self._is_live(order_id) and bool(
+                _CANCEL_SETTLED & set(self._errors.get(ib_id, []))
+            )
+        if unsure:
+            self._audit(order_id)
+        with self._cv:
+            self._require_ready()
             return self._status(order_id)
 
     def status(self, order_id: str) -> OrderStatus:
@@ -274,23 +368,32 @@ class IbkrBroker:
             return self._status(order_id)
 
     def positions(self) -> dict[str, int]:
-        """What both the executions and IBKR's position report agree is held."""
+        """What the executions and IBKR's position report agree is held. While they
+        disagree nothing is reported: PositionsInDoubt."""
+        resync = False
+        alarm: str | None = None
         with self._cv:
             self._require_ready()
             counted = self._counted()
             reported = {k: v for k, v in self._ib_positions.items() if v}
-            agreed: dict[str, int] = {}
-            for contract_id in set(counted) | set(reported):
-                a, b = counted.get(contract_id, 0), reported.get(contract_id, 0)
-                if a == b or (a > 0 and b > 0) or (a < 0 and b < 0):
-                    held = a if a == b else (min(a, b) if a > 0 else max(a, b))
-                    if held:
-                        agreed[contract_id] = held
-            disagree = counted != reported
-            alarm = self._track_disagreement(disagree, counted, reported)
+            if counted == reported:
+                self._disagree_since, self._disagree_alarmed = None, False
+                return counted
+            now = time.monotonic()
+            if self._disagree_since is None:
+                self._disagree_since = now
+            if not self._disagree_alarmed and now - self._disagree_since >= self._doubt_limit:
+                self._disagree_alarmed = resync = True
+                alarm = (
+                    f"IBKR positions {reported} disagree with the fills {counted}: "
+                    "nothing is acted on; resyncing"
+                )
+                self._begin_resync()
         if alarm is not None:
             self._alarm(alarm)
-        return agreed
+        if resync:
+            self._request_resync()
+        raise PositionsInDoubt(f"IBKR positions {reported} disagree with the fills {counted}")
 
     def open_orders(self) -> list[Order]:
         with self._cv:
@@ -301,10 +404,9 @@ class IbkrBroker:
                     (c for c in self._copies.values() if c.order_id == order_id and c.live),
                     key=lambda c: c.perm_id,
                 )
-                listed.append(self._order_for(live[0], order_id))
+                listed.append(live[0].order)
                 listed += [
-                    replace(self._order_for(c, order_id), order_id=f"{order_id}{_EXTRA}{c.perm_id}")
-                    for c in live[1:]
+                    replace(c.order, order_id=f"{order_id}{_EXTRA}{c.perm_id}") for c in live[1:]
                 ]
             return listed
 
@@ -315,19 +417,17 @@ class IbkrBroker:
             if state is Connection.LOST:
                 self._connected = self._ready = False
                 self._cv.notify_all()
-                lost = True
             else:
-                lost = False
                 self._connected = True
+                if state is Connection.CONNECTED:
+                    self._outstanding = {}  # a new session: no old request can answer
                 if next_valid_id is not None:
                     self._next_id = max(next_valid_id, self._next_id or 0)
                 self._begin_resync()
-        if lost:
+        if state is Connection.LOST:
             self._alarm("IBKR connection lost: nothing is sent until it is back and resynced")
             return
-        self._gw.request_open_orders()
-        self._gw.request_executions()
-        self._gw.request_positions()
+        self._request_resync()
 
     def on_open_order(
         self,
@@ -346,13 +446,16 @@ class IbkrBroker:
         status: str,
     ) -> None:
         alarms: list[str] = []
+        cancel: int | None = None
         with self._cv:
             if (symbol, sec_type) != self._scope:
-                if status in _LIVE:
+                if status in _LIVE or status == _INACTIVE:
                     self._outside_orders.add(perm_id)
                 else:
                     self._outside_orders.discard(perm_id)
                 return
+            if self._listing is not None:
+                self._listing.listed.add(perm_id)
             order_id = order_ref or self._order_of_ib.get(ib_id) or f"ib-{perm_id}"
             if order_ref:
                 self._ids.setdefault(order_ref, ib_id)
@@ -366,12 +469,30 @@ class IbkrBroker:
             else:
                 copy.order, copy.status = order, status
             alarms += self._check_duplicates(order_id)
+            cancel = self._inactive(copy, alarms)
             self._bump(ib_id)
-        for message in alarms:
-            self._alarm(message)
+        self._after_event(alarms, cancel)
 
     def on_open_orders_end(self) -> None:
-        self._end("orders")
+        resynced = False
+        alarms: list[str] = []
+        with self._cv:
+            listing = self._listing
+            if not self._last_end("orders") or listing is None:
+                return
+            self._listing = None
+            listing.done = True
+            unlisted = listing.expected - listing.listed
+            if listing.resync:
+                self._unlisted_at_resync = unlisted
+                self._awaiting.discard("orders")
+                resynced = self._maybe_ready(alarms)
+            else:
+                alarms += self._settle_unlisted(unlisted)
+            self._cv.notify_all()
+        self._after_event(alarms, None)
+        if resynced:
+            self._resynced()
 
     def on_order_status(
         self,
@@ -383,9 +504,10 @@ class IbkrBroker:
         avg_fill_price: Decimal,
     ) -> None:
         alarms: list[str] = []
+        cancel: int | None = None
         with self._cv:
             if perm_id in self._outside_orders:
-                if status not in _LIVE:
+                if status not in _LIVE and status != _INACTIVE:
                     self._outside_orders.discard(perm_id)
                 return
             copy = self._copies.get(perm_id)
@@ -396,12 +518,13 @@ class IbkrBroker:
                     self._bump(ib_id)
                     return  # an order we know nothing of yet: its openOrder will follow
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
-            copy.status, copy.filled = status, filled
-            copy.avg_price = avg_fill_price if filled else None
+            copy.status = status
+            copy.filled = max(filled, self._exec_filled(perm_id))
+            copy.avg_price = avg_fill_price if filled else self._exec_price(perm_id)
             alarms += self._check_duplicates(copy.order_id)
+            cancel = self._inactive(copy, alarms)
             self._bump(ib_id)
-        for message in alarms:
-            self._alarm(message)
+        self._after_event(alarms, cancel)
 
     def on_execution(
         self,
@@ -417,37 +540,77 @@ class IbkrBroker:
     ) -> None:
         if (symbol, sec_type) != self._scope:
             return
+        key, version = _exec_key(exec_id)
+        signed = shares if side == "BOT" else -shares
         with self._cv:
-            if exec_id in self._exec_seen:
-                return
-            self._exec_seen.add(exec_id)
+            known = self._fills.get(key)
+            if known is not None:
+                if known.exec_id == exec_id or not _later(version, _exec_key(known.exec_id)[1]):
+                    return  # told again, or an older version of a corrected fill
+                change = signed - known.signed  # a correction replaces the fill
+                known.exec_id, known.signed, known.price = exec_id, signed, price
+                contract_id = known.contract_id
+            else:
+                contract_id = self._contracts.contract_id(con_id)
+                self._fills[key] = _Fill(exec_id, contract_id, perm_id, signed, price)
+                change = signed
             if self._awaiting:
-                return  # resyncing: already inside the position snapshot being taken
-            contract_id = self._contracts.contract_id(con_id)
-            signed = shares if side == "BOT" else -shares
-            self._delta[contract_id] = self._delta.get(contract_id, 0) + signed
+                # Before the snapshot is asked for, the snapshot will include it. While
+                # it is being taken, it may or may not: that snapshot is taken again.
+                if self._positions_round:
+                    self._round_dirty = True
+            elif change:
+                self._delta[contract_id] = self._delta.get(contract_id, 0) + change
+            copy = self._copies.get(perm_id)
+            if copy is not None:
+                copy.filled = max(copy.filled, self._exec_filled(perm_id))
             self._cv.notify_all()
 
     def on_executions_end(self) -> None:
-        self._end("executions")
+        with self._cv:
+            if not self._last_end("executions") or "executions" not in self._awaiting:
+                return
+            self._awaiting.discard("executions")
+            # Every replayed fill is in: only now can a snapshot be known to hold them.
+            self._positions_round, self._round_dirty, self._snapshot = True, False, {}
+            self._ask("positions")
+        self._gw.request_positions()
 
     def on_position(self, con_id: int, symbol: str, sec_type: str, position: int) -> None:
         if (symbol, sec_type) != self._scope:
             return
         with self._cv:
             contract_id = self._contracts.contract_id(con_id)
-            if "positions" in self._awaiting:
+            if self._positions_round:
                 self._snapshot[contract_id] = position
             else:
                 self._ib_positions[contract_id] = position
             self._cv.notify_all()
 
     def on_positions_end(self) -> None:
+        resynced, again = False, False
+        alarms: list[str] = []
         with self._cv:
-            self._base = {k: v for k, v in self._snapshot.items() if v}
-            self._ib_positions = dict(self._base)
-            self._delta = {}
-        self._end("positions")
+            if not self._last_end("positions") or not self._positions_round:
+                return
+            if self._round_dirty:
+                self._round_dirty, self._snapshot = False, {}
+                self._ask("positions")
+                again = True
+            else:
+                self._positions_round = False
+                self._base = {k: v for k, v in self._snapshot.items() if v}
+                self._ib_positions = dict(self._base)
+                self._delta = {}
+                self._disagree_since, self._disagree_alarmed = None, False
+                self._awaiting.discard("positions")
+                resynced = self._maybe_ready(alarms)
+        if again:
+            log.warning("IBKR: a fill arrived during the position snapshot; taking it again")
+            self._gw.request_positions()
+        self._after_event(alarms, None)
+        if resynced:
+            self._resynced()
 
     def on_error(self, req_id: int, code: int, message: str) -> None:
         if code == _LOST:
@@ -459,19 +622,32 @@ class IbkrBroker:
         if code == _RESTORED:
             self.on_connection(Connection.RESTORED)
             return
-        if req_id <= 0:
-            log.info("IBKR notice %s: %s", code, message)
+        if req_id <= 0 or code in _WARNINGS or code in _NOTICES:
+            log.info("IBKR notice %s on %s: %s", code, req_id, message)
             return
         with self._cv:
             self._errors.setdefault(req_id, []).append(code)
+            if code in _CANCEL_SETTLED:
+                for copy in self._copies.values():
+                    if copy.ib_id == req_id and copy.status == _INACTIVE and copy.cancel_sent:
+                        copy.cancel_confirmed = True  # IBKR answered the cancel
             self._bump(req_id)
         log.warning("IBKR error %s on %s: %s", code, req_id, message)
 
     # --- internals (callers hold the lock unless noted) --------------------------------
 
     def _require_ready(self) -> None:
-        if not (self._connected and self._ready):
-            raise BrokerUnavailable("IBKR is disconnected or not yet resynced")
+        if self._connected and self._ready:
+            return
+        if (
+            self._connected
+            and self._resync_since is not None
+            and not self._resync_alarmed
+            and time.monotonic() - self._resync_since >= self._doubt_limit
+        ):
+            self._resync_alarmed = True
+            self._alarm("IBKR resync is not completing: nothing is sent or trusted")
+        raise BrokerUnavailable("IBKR is disconnected or not yet resynced")
 
     def _allocate(self, order_id: str) -> int:
         if self._next_id is None:
@@ -500,6 +676,18 @@ class IbkrBroker:
     def _answered(self, ib_id: int, seen: int) -> bool:
         return not self._connected or self._updates.get(ib_id, 0) > seen
 
+    def _modified(
+        self, order_id: str, ib_id: int, limit_price: Decimal, stop_price: Decimal | None
+    ) -> bool:
+        if not self._connected or self._errors.get(ib_id):
+            return True
+        live = [c for c in self._copies_of(order_id) if c.live]
+        if not live:
+            return True  # finished meanwhile: its status says how
+        return any(
+            c.order.limit_price == limit_price and c.order.stop_price == stop_price for c in live
+        )
+
     def _wait(self, predicate: Callable[[], bool], what: str) -> None:
         if not self._cv.wait_for(predicate, self._timeout):
             raise TimeoutError(f"no answer from IBKR {what}")
@@ -524,17 +712,14 @@ class IbkrBroker:
 
     def _status(self, order_id: str) -> OrderStatus:
         if _EXTRA in order_id:
-            base, perm = order_id.rsplit(_EXTRA, 1)
-            copy = self._copies[int(perm)]
-            order = replace(self._order_for(copy, base), order_id=order_id)
+            copy = self._copies[int(order_id.rsplit(_EXTRA, 1)[1])]
+            order = replace(copy.order, order_id=order_id)
             return OrderStatus(order, copy.state, copy.filled, copy.avg_price)
-        copies = self._copies_of(order_id)
+        copies = sorted(self._copies_of(order_id), key=lambda c: c.perm_id)
         if not copies:
             raise KeyError(order_id)  # IBKR has not acknowledged it (yet)
-        order = self._sent.get(order_id) or copies[0].order
         live = [c for c in copies if c.live]
-        if live:
-            order = live[0].order if order_id not in self._sent else self._sent[order_id]
+        order = (live or copies)[0].order  # as IBKR holds it, never as asked
         filled = sum(c.filled for c in copies)
         priced = [c for c in copies if c.filled and c.avg_price is not None]
         avg = (
@@ -553,8 +738,69 @@ class IbkrBroker:
             state = OrderState.REJECTED
         return OrderStatus(order, state, filled, avg)
 
-    def _order_for(self, copy: _Copy, order_id: str) -> Order:
-        return self._sent.get(order_id, copy.order)
+    def _exec_filled(self, perm_id: int) -> int:
+        return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)
+
+    def _exec_price(self, perm_id: int) -> Decimal | None:
+        fills = [f for f in self._fills.values() if f.perm_id == perm_id and f.signed]
+        if not fills:
+            return None
+        return sum((f.price * abs(f.signed) for f in fills), Decimal(0)) / sum(
+            abs(f.signed) for f in fills
+        )
+
+    def _inactive(self, copy: _Copy, alarms: list[str]) -> int | None:
+        """An Inactive order of ours is cancelled (it could become active again); the
+        id to cancel, sent by the caller once the lock is released."""
+        if copy.status != _INACTIVE or copy.cancel_sent:
+            return None
+        if copy.ib_id <= 0 or self._ids.get(copy.order_id) != copy.ib_id:
+            return None  # not ours to cancel by id
+        copy.cancel_sent = True
+        alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
+        return copy.ib_id
+
+    def _after_event(self, alarms: list[str], cancel: int | None) -> None:
+        """Outside the lock: the alarms an event raised, and a cancel it needs."""
+        for message in alarms:
+            self._alarm(message)
+        if cancel is not None:
+            self._gw.cancel_order(cancel)
+
+    def _settle_unlisted(self, perms: set[int]) -> list[str]:
+        """Our copies IBKR no longer lists as open finished unseen: by the fills."""
+        alarms: list[str] = []
+        for perm in sorted(perms):
+            copy = self._copies.get(perm)
+            if copy is None or not copy.live:
+                continue  # its status arrived meanwhile
+            copy.filled = max(copy.filled, self._exec_filled(perm))
+            copy.avg_price = self._exec_price(perm) or copy.avg_price
+            copy.status = _FILLED if copy.filled >= copy.order.quantity else _CANCELLED_STATUS
+            copy.cancel_confirmed = True
+            alarms.append(
+                f"{copy.order_id} is no longer open at IBKR: it finished unseen "
+                f"({copy.status}, {copy.filled} filled)"
+            )
+            self._bump(copy.ib_id)
+        return alarms
+
+    def _audit(self, order_id: str) -> None:
+        """Ask IBKR for every open order, and settle ours it no longer lists. Called
+        without the lock."""
+        with self._cv:
+            self._cv.wait_for(lambda: self._listing is None, self._timeout)
+            if self._listing is not None or not self._ready:
+                return
+            listing = _Listing({c.perm_id for c in self._copies.values() if c.live}, False)
+            self._listing = listing
+            self._ask("orders")
+        log.warning("IBKR: checking the open orders for %s", order_id)
+        self._gw.request_open_orders()
+        with self._cv:
+            self._cv.wait_for(lambda: listing.done or not self._connected, self._timeout)
+            if self._listing is listing:
+                self._listing = None  # no answer: the next audit asks again
 
     def _rebuild(
         self,
@@ -615,39 +861,45 @@ class IbkrBroker:
             counted[contract_id] = counted.get(contract_id, 0) + delta
         return {k: v for k, v in counted.items() if v}
 
-    def _track_disagreement(
-        self, disagree: bool, counted: dict[str, int], reported: dict[str, int]
-    ) -> str | None:
-        if not disagree:
-            self._disagree_since, self._disagree_alarmed = None, False
-            return None
-        now = time.monotonic()
-        if self._disagree_since is None:
-            self._disagree_since = now
-        if not self._disagree_alarmed and now - self._disagree_since >= self._disagree_limit:
-            self._disagree_alarmed = True
-            return (
-                f"IBKR positions {reported} disagree with the fills {counted}; "
-                "only what both agree on is acted on"
-            )
-        return None
-
     def _begin_resync(self) -> None:
         self._ready = False
         self._outside_orders = set()  # relearned from the open orders
         self._awaiting = {"orders", "executions", "positions"}
-        self._snapshot = {}
+        self._positions_round, self._round_dirty, self._snapshot = False, False, {}
+        self._unlisted_at_resync = set()
+        self._listing = _Listing({c.perm_id for c in self._copies.values() if c.live}, True)
+        self._resync_since, self._resync_alarmed = time.monotonic(), False
+        self._ask("orders")
+        self._ask("executions")
+        self._cv.notify_all()
 
-    def _end(self, part: str) -> None:
-        resynced = False
-        with self._cv:
-            self._awaiting.discard(part)
-            if not self._awaiting and self._connected and not self._ready:
-                self._ready = resynced = True
-            self._cv.notify_all()
-        if resynced:
-            log.info("IBKR resynced")
-            self._on_resync()
+    def _ask(self, kind: str) -> None:
+        self._outstanding[kind] = self._outstanding.get(kind, 0) + 1
+
+    def _last_end(self, kind: str) -> bool:
+        """An end has arrived: True if it ends the last request asked of this kind."""
+        left = max(0, self._outstanding.get(kind, 0) - 1)
+        self._outstanding[kind] = left
+        return left == 0
+
+    def _request_resync(self) -> None:
+        """Without the lock: orders and executions first; positions after them."""
+        self._gw.request_open_orders()
+        self._gw.request_executions()
+
+    def _maybe_ready(self, alarms: list[str]) -> bool:
+        if self._awaiting or not self._connected or self._ready:
+            return False
+        alarms += self._settle_unlisted(self._unlisted_at_resync)
+        self._unlisted_at_resync = set()
+        self._ready = True
+        self._resync_since = None
+        self._cv.notify_all()
+        return True
+
+    def _resynced(self) -> None:
+        log.info("IBKR resynced")
+        self._on_resync()
 
     def _alarm(self, message: str) -> None:
         log.critical(message)

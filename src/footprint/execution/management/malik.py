@@ -116,6 +116,7 @@ class Manager:
         self._reconcile_closes: list[Closed] = []
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
+        self._stop_stuck_since: dict[str, datetime] = {}
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -268,6 +269,9 @@ class Manager:
     ) -> Closed | None:
         pid = position.position_id
         try:
+            # What is held must be readable BEFORE the stop comes down: a broker in
+            # doubt about its positions keeps the stop, and the exit waits.
+            self._broker.positions()
             if position.stop_order_id is not None:
                 self._broker.cancel(position.stop_order_id)
                 cancelled = self._broker.status(position.stop_order_id)
@@ -275,7 +279,19 @@ class Manager:
                     return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
                 if cancelled.state is not OrderState.CANCELLED:
                     self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
+                    since = self._stop_stuck_since.setdefault(pid, now)
+                    escalate = timedelta(
+                        seconds=self._p.execution.reconcile.cancel_escalate_seconds
+                    )
+                    if now - since >= escalate:
+                        # The exit cannot go out beside it: reconcile takes over (it
+                        # re-prices a stuck stop to the market, and escalates to Andre).
+                        del self._stop_stuck_since[pid]
+                        message = f"{pid}: resting stop will not cancel; reconcile"
+                        self._stand_down(now, f"{pid}: stop will not cancel")
+                        raise NeedsReconcile(message)
                     return None
+                self._stop_stuck_since.pop(pid, None)
                 position.stop_order_id = None
             else:
                 # Unprotected: a stop may have reached the broker unacknowledged. If it

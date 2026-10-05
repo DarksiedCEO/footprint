@@ -727,9 +727,12 @@ def test_r12_1_an_old_flatten_fill_never_confirms_a_new_positions_exit(
     stack.broker._positions[stack.contract] = 1
     stack.ledger.on_entry_filled(later, "second", SessionKind.PRIME)
     real = stack.broker.positions
-    bad = {"reads": 1}
+    bad = {"good_first": 1, "reads": 1}  # the exit's pre-check reads true, then the flicker
 
     def flicker() -> dict[str, int]:
+        if bad["good_first"] > 0:
+            bad["good_first"] -= 1
+            return real()
         if bad["reads"] > 0:
             bad["reads"] -= 1
             return {}

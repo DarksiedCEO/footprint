@@ -1,5 +1,6 @@
 """IbkrBroker against a fake IBKR that misbehaves the way IBKR can."""
 
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -7,7 +8,13 @@ from decimal import Decimal
 
 import pytest
 
-from footprint.brokers.ibkr.adapter import BrokerUnavailable, ContractBook, IbkrBroker, IbkrSettings
+from footprint.brokers.ibkr.adapter import (
+    BrokerUnavailable,
+    ContractBook,
+    IbkrBroker,
+    IbkrSettings,
+    PositionsInDoubt,
+)
 from footprint.brokers.ibkr.gateway import IbContract, IbOrderRequest
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
@@ -159,9 +166,17 @@ def test_a_rejection_is_a_rejected_status(ib: Ib, code: int) -> None:
 
 
 def test_an_unknown_error_on_a_send_is_not_called_a_rejection(ib: Ib) -> None:
-    ib.fake.reject_next = 399
-    with pytest.raises(RuntimeError, match="399"):
+    ib.fake.reject_next = 404
+    with pytest.raises(RuntimeError, match="404"):
         ib.adapter.place(buy())
+
+
+@pytest.mark.parametrize("code", [399, 10349, 2109, 165, 10167])
+def test_a_warning_is_neither_an_answer_nor_an_error(ib: Ib, code: int) -> None:
+    ib.fake.warn_on_send = code
+    assert ib.adapter.place(sell("p1-exit-1")).state is OrderState.WORKING
+    status = ib.adapter.modify("p1-exit-1", D(199), None)
+    assert status.order.limit_price == D(199)
 
 
 # --- lost answers ---------------------------------------------------------------------------
@@ -229,25 +244,28 @@ def test_two_copies_in_one_group_can_never_both_fill(ib: Ib) -> None:
 # --- positions -------------------------------------------------------------------------------
 
 
-def test_a_lagging_position_report_is_never_ahead_of_what_both_agree(ib: Ib) -> None:
-    ib.adapter.place(buy(price=152))  # filled; position report not yet sent
+def test_a_lagging_position_report_puts_positions_in_doubt(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))  # filled
     ib.fake.position_lag = True
     ib.adapter.place(sell("p1-exit-1", price=150))  # sold: fills say flat
     assert ib.fake.told_positions == {501: 1}  # the report still says long 1 (lagging)
-    assert ib.adapter.positions() == {}  # fills say 0, report says 1: agreed 0
+    with pytest.raises(PositionsInDoubt):
+        ib.adapter.positions()  # no number at all, not a guess
     ib.fake.flush_positions()
     assert ib.adapter.positions() == {}
 
 
-def test_fills_ahead_of_the_report_count_only_what_both_agree(ib: Ib) -> None:
+def test_a_lasting_disagreement_is_alarmed_and_resynced(ib: Ib) -> None:
     ib.fake.position_lag = True
     ib.adapter.place(buy(price=152))  # fills say 1; the report says nothing yet
-    assert ib.adapter.positions() == {}
+    with pytest.raises(PositionsInDoubt):
+        ib.adapter.positions()
     time.sleep(FAST.total_seconds() * 1.5)
-    ib.adapter.positions()
+    with pytest.raises(PositionsInDoubt):
+        ib.adapter.positions()
     assert sum("disagree" in a for a in ib.alarms) == 1
-    ib.fake.flush_positions()
-    assert ib.adapter.positions() == {C: 1}
+    assert ib.resyncs == [1, 1]  # a fresh resync, and the runner told to reconcile
+    assert ib.adapter.positions() == {C: 1}  # the fresh snapshot agrees
 
 
 def test_an_execution_replayed_on_resync_is_counted_once(ib: Ib) -> None:
@@ -345,10 +363,12 @@ def test_a_modify_that_arrives_after_an_unseen_fill_is_not_an_error(ib: Ib) -> N
 def test_a_brief_disagreement_is_not_alarmed(ib: Ib) -> None:
     ib.fake.position_lag = True
     ib.adapter.place(buy(price=152))
-    ib.adapter.positions()
+    with pytest.raises(PositionsInDoubt):
+        ib.adapter.positions()
     ib.fake.flush_positions()
-    ib.adapter.positions()
+    assert ib.adapter.positions() == {C: 1}
     assert not any("disagree" in a for a in ib.alarms)
+    assert ib.resyncs == [1]
 
 
 def test_a_fill_told_twice_is_counted_once(ib: Ib) -> None:
@@ -405,3 +425,243 @@ def test_other_instruments_orders_are_relearned_on_every_resync(ib: Ib) -> None:
     ib.adapter.modify("p1-exit-1", D(199), None)
     ib.adapter.cancel("p1-exit-1")
     assert ib.fake.global_cancels == 1  # nothing of Andre's is open any more
+
+
+# --- review round 2: fills during a resync ------------------------------------------------
+
+
+def test_positions_are_asked_only_after_the_execution_replay_ends(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    asked = ib.fake.position_requests
+    ib.fake.restore(data_lost=True)
+    assert ib.fake.position_requests == asked  # not before every replayed fill is in
+    ib.fake.flush_executions()
+    assert ib.fake.position_requests == asked + 1
+
+
+def test_a_fill_during_the_snapshot_is_counted_by_retaking_it(ib: Ib) -> None:
+    """The review's case: an entry resting below the market fills while the
+    position snapshot is being taken."""
+    ib.adapter.place(buy(price=140))  # rests
+    ib.fake.lose()
+    ib.fake.during_snapshot = lambda: ib.quote(139, 140)  # fills mid-snapshot
+    asked = ib.fake.position_requests
+    ib.fake.restore(data_lost=True)
+    assert ib.fake.position_requests == asked + 2  # the first snapshot was thrown away
+    assert ib.adapter.status("p1-entry").state is OrderState.FILLED
+    assert ib.adapter.positions() == {C: 1}  # seen, and counted once
+    time.sleep(FAST.total_seconds() * 1.5)
+    assert ib.adapter.positions() == {C: 1}
+    assert not any("disagree" in a for a in ib.alarms)
+
+
+def test_a_fill_during_the_replay_is_inside_the_snapshot(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))  # long 1 (one execution to replay)
+    ib.adapter.place(sell("p1-exit-1", price=160))  # rests
+    ib.fake.lose()
+    ib.fake.during_replay = lambda: ib.quote(161, 162)  # sells while replaying
+    ib.fake.restore(data_lost=True)
+    assert ib.adapter.positions() == {}
+    assert ib.adapter.status("p1-exit-1").state is OrderState.FILLED
+
+
+def test_a_corrected_fill_replaces_the_fill_it_corrects(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))
+    ib.fake.correct(-1, 1)  # same fill, new version (".01.02")
+    assert ib.adapter.positions() == {C: 1}  # not 2
+    ib.adapter.on_execution(*ib.fake.executions[-1])  # the correction told twice
+    assert ib.adapter.positions() == {C: 1}
+
+
+def test_an_older_version_of_a_corrected_fill_is_ignored(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))
+    original = ib.fake.executions[-1]
+    ib.fake.correct(-1, 1)
+    ib.adapter.on_execution(*original)  # the superseded version arrives late
+    assert ib.adapter.positions() == {C: 1}
+
+
+# --- review round 2: orders that finished unseen -----------------------------------------
+
+
+def test_a_stop_cancelled_while_disconnected_is_not_a_phantom(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))  # long 1
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))  # rests
+    ib.fake.lose()
+    (stop,) = [c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop"]
+    ib.fake.sim.cancel(stop.sim_id)  # cancelled in TWS while we were cut off
+    stop.sent = (OrderState.CANCELLED, 0)  # and IBKR never tells that status
+    ib.fake.restore(data_lost=True)
+    status = ib.adapter.status("p1-stop")
+    assert (status.state, status.filled) == (OrderState.CANCELLED, 0)
+    assert ib.adapter.open_orders() == []
+    assert any("finished unseen" in a for a in ib.alarms)
+    assert ib.adapter.positions() == {C: 1}  # still held, and known to be unprotected
+
+
+def test_a_stop_filled_while_disconnected_is_settled_from_the_fills(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))  # long 1
+    ib.adapter.place(sell("p1-stop", price=160, group="p1"))  # rests
+    ib.fake.lose()
+    ib.quote(161, 162)  # fills unseen (nothing is told while cut off)
+    ib.fake.restore(data_lost=True)
+    status = ib.adapter.status("p1-stop")
+    assert (status.state, status.filled) == (OrderState.FILLED, 1)
+    assert status.avg_price is not None
+    assert ib.adapter.positions() == {}
+
+
+@pytest.mark.parametrize("code", [135, 161, 202])
+def test_a_cancel_answered_without_a_status_is_settled_from_the_open_orders(
+    ib: Ib, code: int
+) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))
+    (stop,) = ib.fake.copies.values()
+    ib.fake.sim.cancel(stop.sim_id)  # gone at IBKR...
+    stop.sent = (OrderState.CANCELLED, 0)  # ...with no status told
+    ib.fake.cancel_answer = code
+    status = ib.adapter.cancel("p1-stop")
+    assert status.state is OrderState.CANCELLED  # not WORKING for ever
+    assert ib.adapter.open_orders() == []
+
+
+def test_a_cancel_answered_not_found_leaves_a_listed_order_working(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))
+    ib.fake.cancel_answer = 135  # a wrong answer: IBKR still lists it open
+    status = ib.adapter.cancel("p1-stop")
+    assert status.state is OrderState.WORKING  # the open orders decide, not the code
+
+
+def test_a_pending_cancel_is_still_working_and_can_still_fill(ib: Ib) -> None:
+    ib.adapter.place(buy(price=152))  # long 1
+    ib.adapter.place(sell("p1-exit-1", price=160))
+    ib.fake.slow_cancels = True
+    status = ib.adapter.cancel("p1-exit-1")  # IBKR: PendingCancel
+    assert status.state is OrderState.WORKING  # it can still sell
+    assert [o.order_id for o in ib.adapter.open_orders()] == ["p1-exit-1"]
+    ib.quote(161, 162)  # it fills before the cancel lands
+    ib.fake.finish_cancels()
+    assert ib.adapter.status("p1-exit-1").state is OrderState.FILLED
+    assert ib.adapter.positions() == {}
+
+
+# --- review round 2: Inactive, modifies, 105, 1102 ----------------------------------------
+
+
+def test_an_inactive_order_counts_as_working_and_is_cancelled(ib: Ib) -> None:
+    ib.adapter.place(buy(price=140))  # rests
+    (entry,) = ib.fake.copies.values()
+    ib.fake.slow_cancels = True
+    ib.fake.inactivate(entry.perm_id)
+    assert any("Inactive" in a for a in ib.alarms)
+    assert ib.fake.cancels == [entry.ib_id]  # the adapter cancels it at once
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING  # not finished yet
+    ib.fake.finish_cancels()
+    assert ib.adapter.status("p1-entry").state is OrderState.CANCELLED
+
+
+def test_an_inactive_order_that_comes_back_and_fills_is_counted(ib: Ib) -> None:
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    ib.fake.slow_cancels = True
+    ib.fake.inactivate(entry.perm_id)
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING  # never "rejected"
+    ib.fake.reactivate(entry.perm_id)
+    ib.quote(139, 140)  # it fills
+    assert ib.adapter.status("p1-entry").state is OrderState.FILLED
+    assert ib.adapter.positions() == {C: 1}
+
+
+def test_an_inactive_order_is_finished_once_its_cancel_is_answered(ib: Ib) -> None:
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    ib.fake.cancel_answer = 161  # IBKR: it cannot be cancelled (it is dead)
+    ib.fake.inactivate(entry.perm_id)
+    assert ib.adapter.status("p1-entry").state is OrderState.REJECTED
+
+
+def test_a_modify_is_not_confirmed_by_a_stale_status(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=200, group="p1"))
+    ib.fake.modify_error = 105  # a status is already on its way; the refusal follows
+    with pytest.raises(TimeoutError):
+        ib.adapter.modify("p1-stop", D(199), None)
+    assert ib.adapter.status("p1-stop").order.limit_price == D(200)  # what IBKR holds
+
+
+def test_a_late_refusal_of_a_modify_raises(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=200, group="p1"))
+    ib.fake.modify_error = 110
+    later = threading.Timer(FAST.total_seconds() / 4, ib.fake.release)
+    later.start()
+    with pytest.raises(RuntimeError, match="110"):
+        ib.adapter.modify("p1-stop", D("199.13"), None)
+    later.join()
+    assert ib.adapter.status("p1-stop").order.limit_price == D(200)
+
+
+def test_status_reports_what_ibkr_holds_not_what_was_asked(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=200, group="p1"))
+    ib.adapter.modify("p1-stop", D(199), None)
+    assert ib.adapter.status("p1-stop").order.limit_price == D(199)  # echoed by IBKR
+    assert [o.limit_price for o in ib.adapter.open_orders()] == [D(199)]
+
+
+def test_a_resend_that_does_not_match_the_original_proves_it_exists(ib: Ib) -> None:
+    ib.adapter.place(buy())
+    ib.fake.reject_next = 105
+    with pytest.raises(DuplicateOrderId):
+        ib.adapter.place(buy())
+
+
+def test_restored_with_data_maintained_still_resyncs(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.restore(data_lost=False)  # 1102
+    assert ib.resyncs == [1, 1]
+    assert ib.adapter.place(buy()).state is OrderState.WORKING
+
+
+def test_an_end_of_an_older_request_does_not_end_a_newer_one(ib: Ib) -> None:
+    """IBKR's ends carry no request id: with two snapshots asked, only the second
+    end completes it."""
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=False)  # a replay asked; its answer held back
+    ib.fake.lose()
+    ib.fake.restore(data_lost=False)  # asked again: two replays now outstanding
+    ib.adapter.on_executions_end()  # the first of them ends
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()  # not yet: the latest replay has not ended
+    ib.fake.flush_executions()
+    assert ib.adapter.positions() == {}
+
+
+def test_a_resync_that_will_not_complete_is_alarmed(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=True)
+    time.sleep(FAST.total_seconds() * 1.5)
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    assert sum("not completing" in a for a in ib.alarms) == 1
+
+
+def test_an_inactive_order_whose_cancel_is_unanswered_stays_working(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-exit-1", price=160))
+    (exit_,) = ib.fake.copies.values()
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(exit_.perm_id)
+    assert ib.adapter.status("p1-exit-1").state is OrderState.WORKING
+    assert [o.order_id for o in ib.adapter.open_orders()] == ["p1-exit-1"]  # still covers
+
+
+def test_a_new_session_forgets_requests_the_old_one_never_answered(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=True)  # a replay asked; never answered
+    ib.fake.lose()
+    ib.fake.connect(next_valid_id=100)  # a new socket: the old request is gone
+    ib.fake.flush_executions()  # the new session's replay ends once
+    assert ib.adapter.positions() == {}
