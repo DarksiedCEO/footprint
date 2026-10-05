@@ -1,7 +1,8 @@
 """Grant (levels), Nadia's chase rule and Nia (zero-day), tested from the spec:
 levels scoring G10 + spec "Levels + range definitions"; zero-day G9."""
 
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -18,6 +19,7 @@ from footprint.agents.range_reader import RangeReader
 from footprint.agents.zero_day import ZeroDayAgent
 from footprint.core.config import InstrumentProfile, RiskProfile, StrategyProfile
 from footprint.core.models import Bar, Direction, Score
+from footprint.data.aggregate import resample
 from tests.agents.conftest import bar
 
 PT = ZoneInfo("America/Los_Angeles")
@@ -63,11 +65,6 @@ def snap(price: float, *walls: tuple[str, float]) -> LevelsSnapshot:
         round_below=D(0),
         round_above=D(0),
     )
-
-
-@pytest.fixture
-def grant(strategy: StrategyProfile, instrument: InstrumentProfile) -> LevelsReader:
-    return LevelsReader(strategy.levels, strategy.trend, instrument)
 
 
 N = D(100)
@@ -122,74 +119,218 @@ def test_levels_reject_bad_n(grant: LevelsReader) -> None:
 
 # --- Grant: snapshot from bars --------------------------------------------------
 
+Quote = tuple[float, float, float, float, int]
 
-def prior_and_today() -> list[Bar]:
-    """Mon cash 06:30-06:34, Mon night 15:00-15:02, Tue 03:57-03:59, Tue cash 06:30-06:32."""
-    bars = [bar(pt(MON, 6, 30) + MIN * i, 1000, 1010 + i, 990 - i, 1000 + i) for i in range(5)]
-    bars += [bar(pt(MON, 15, 0) + MIN * i, 1004, 1030, 1001, 1004) for i in range(3)]
-    bars += [bar(pt(TUE, 3, 57) + MIN * i, 1004, 1005, 960, 1004) for i in range(3)]
+
+def flat_minutes(
+    start: datetime, end: datetime, price: float, overrides: dict[datetime, Quote] | None = None
+) -> list[Bar]:
+    """One bar per minute in [start, end): open=close=price, range +/-1, volume 100."""
+    overrides = overrides or {}
+    out, ts = [], start
+    while ts < end:
+        o, h, lo, c, v = overrides.get(ts, (price, price + 1, price - 1, price, 100))
+        out.append(bar(ts, o, h, lo, c, v))
+        ts += MIN
+    return out
+
+
+def session_data(prev: date, today: date, *, prior_close: float = 1004) -> list[Bar]:
+    """Everything Grant needs at 06:33 on `today`: the previous trading day from 04:00,
+    the full overnight session, today's pre-market and three cash bars.
+
+    Prior cash session: high 1014, low 986, close `prior_close`.
+    Overnight session: high 1030, low 960. Today's cash VWAP: 1009, last close 1011.
+    """
+    bars = flat_minutes(pt(prev, 4, 0), pt(prev, 6, 30), 1000)
+    bars += flat_minutes(
+        pt(prev, 6, 30),
+        pt(prev, 13, 0),
+        1000,
+        {
+            pt(prev, 7, 0): (1000, 1014, 999, 1000, 100),
+            pt(prev, 8, 0): (1000, 1001, 986, 1000, 100),
+            pt(prev, 12, 59): (1000, prior_close + 1, 999, prior_close, 100),
+        },
+    )
+    bars += flat_minutes(pt(prev, 13, 0), pt(prev, 14, 0), 1004)
+    night_start = datetime.combine(today - timedelta(days=1), datetime.min.time(), PT)
+    bars += flat_minutes(
+        (night_start + timedelta(hours=15)).astimezone(UTC),
+        pt(today, 4, 0),
+        1004,
+        {
+            (night_start + timedelta(hours=20)).astimezone(UTC): (1004, 1030, 1003, 1004, 100),
+            pt(today, 2, 0): (1004, 1005, 960, 1004, 100),
+        },
+    )
+    bars += flat_minutes(pt(today, 4, 0), pt(today, 6, 30), 1004)
     bars += [
-        bar(pt(TUE, 6, 30), 1004, 1006, 1002, 1004, volume=100),  # typical 1004
-        bar(pt(TUE, 6, 31), 1006, 1012, 1006, 1012, volume=300),  # typical 1010
-        bar(pt(TUE, 6, 32), 1010, 1013, 1009, 1011, volume=100),  # typical 1011
+        bar(pt(today, 6, 30), 1004, 1006, 1002, 1004, volume=100),  # typical 1004
+        bar(pt(today, 6, 31), 1006, 1012, 1006, 1012, volume=300),  # typical 1010
+        bar(pt(today, 6, 32), 1010, 1013, 1009, 1011, volume=100),  # typical 1011
     ]
     return bars
 
 
-def test_snapshot_computes_each_level(grant: LevelsReader) -> None:
-    s = grant.snapshot(prior_and_today(), [], pt(TUE, 6, 33))
+@pytest.fixture
+def grant(strategy: StrategyProfile, instrument: InstrumentProfile) -> LevelsReader:
+    return LevelsReader(strategy.levels, strategy.trend, strategy.data, instrument)
+
+
+def trend_of(bars: list[Bar], as_of: datetime, strategy: StrategyProfile) -> list[Bar]:
+    return resample(bars, strategy.trend.timeframe_minutes, as_of)
+
+
+def grant_at(
+    grant: LevelsReader, bars: list[Bar], as_of: datetime, strategy: StrategyProfile
+) -> LevelsSnapshot | Unavailable:
+    return grant.snapshot(bars, trend_of(bars, as_of, strategy), as_of)
+
+
+def walls_of(s: LevelsSnapshot | Unavailable) -> dict[str, Decimal]:
+    assert isinstance(s, LevelsSnapshot), s
+    return {lv.name: lv.price for lv in s.walls if not lv.name.startswith("swing")}
+
+
+def test_snapshot_computes_each_level(grant: LevelsReader, strategy: StrategyProfile) -> None:
+    s = grant_at(grant, session_data(MON, TUE), pt(TUE, 6, 33), strategy)
+    assert walls_of(s) == {
+        "prior_high": D(1014),
+        "prior_low": D(986),
+        "prior_close": D(1004),
+        "overnight_high": D(1030),
+        "overnight_low": D(960),
+        # VWAP = (1004*100 + 1010*300 + 1011*100) / 500 = 1009
+        "vwap": D(1009),
+    }
     assert isinstance(s, LevelsSnapshot)
-    walls = {lv.name: lv.price for lv in s.walls}
-    assert walls["prior_high"] == D(1014)
-    assert walls["prior_low"] == D(986)
-    assert walls["prior_close"] == D(1004)
-    assert walls["overnight_high"] == D(1030)
-    assert walls["overnight_low"] == D(960)
-    # VWAP = (1004*100 + 1010*300 + 1011*100) / 500 = 1009
-    assert s.vwap == D(1009) == walls["vwap"]
     assert s.price == D(1011)
     assert (s.round_below, s.round_above) == (D(1000), D(1100))
 
 
-def test_round_numbers_are_reported_but_never_walls(grant: LevelsReader) -> None:
-    s = grant.snapshot(prior_and_today(), [], pt(TUE, 6, 33))
+def test_round_numbers_are_reported_but_never_walls(
+    grant: LevelsReader, strategy: StrategyProfile
+) -> None:
+    s = grant_at(grant, session_data(MON, TUE), pt(TUE, 6, 33), strategy)
     assert isinstance(s, LevelsSnapshot)
-    assert all(lv.price != s.round_above for lv in s.walls)
+    assert all(lv.price not in {s.round_above, s.round_below} for lv in s.walls)
 
 
-def test_snapshot_ignores_the_forming_bar(grant: LevelsReader) -> None:
-    bars = [*prior_and_today(), bar(pt(TUE, 6, 33), 1011, 5000, 1, 4000, volume=10**6)]
-    s = grant.snapshot(bars, [], pt(TUE, 6, 33) + timedelta(seconds=59))
+def test_snapshot_ignores_the_forming_bar(grant: LevelsReader, strategy: StrategyProfile) -> None:
+    bars = [*session_data(MON, TUE), bar(pt(TUE, 6, 33), 1011, 5000, 1, 4000, volume=10**6)]
+    s = grant_at(grant, bars, pt(TUE, 6, 33) + timedelta(seconds=59), strategy)
     assert isinstance(s, LevelsSnapshot)
     assert s.price == D(1011)
     assert s.vwap == D(1009)
 
 
-def test_snapshot_fails_closed(grant: LevelsReader) -> None:
-    bars = prior_and_today()
-    before_open = grant.snapshot(bars, [], pt(TUE, 6, 30))
-    assert isinstance(before_open, Unavailable)
-    assert "VWAP" in before_open.reason
-    no_prior = grant.snapshot([b for b in bars if b.ts >= pt(MON, 15, 0)], [], pt(TUE, 6, 33))
-    assert isinstance(no_prior, Unavailable)
-    assert "prior" in no_prior.reason
-    no_night = [b for b in bars if not pt(MON, 15, 0) <= b.ts <= pt(TUE, 3, 59)]
-    missing = grant.snapshot(no_night, [], pt(TUE, 6, 33))
-    assert isinstance(missing, Unavailable)
-    assert "overnight" in missing.reason
-    assert isinstance(grant.snapshot([], [], pt(TUE, 6, 33)), Unavailable)
+def test_monday_uses_friday_and_the_sunday_night_session(
+    grant: LevelsReader, strategy: StrategyProfile
+) -> None:
+    fri, mon = date(2026, 9, 11), date(2026, 9, 14)
+    s = grant_at(grant, session_data(fri, mon), pt(mon, 6, 33), strategy)
+    assert walls_of(s)["prior_high"] == D(1014)
+    assert walls_of(s)["overnight_low"] == D(960)
+
+
+def test_day_after_a_holiday_uses_the_last_trading_day(
+    grant: LevelsReader, strategy: StrategyProfile, instrument: InstrumentProfile
+) -> None:
+    # Monday is a holiday: Tuesday's prior day is Friday. Monday's evening session leads
+    # into Tuesday, so the overnight levels come from Monday night.
+    fri, mon, tue = date(2026, 9, 11), date(2026, 9, 14), date(2026, 9, 15)
+    closed = replace(instrument, holidays=frozenset({mon}))
+    g = LevelsReader(strategy.levels, strategy.trend, strategy.data, closed)
+    friday = [b for b in session_data(fri, mon) if b.ts < pt(fri, 14, 0)]
+    bars = friday + [b for b in session_data(mon, tue) if b.ts >= pt(mon, 15, 0)]
+    # Pad the swing window: the trend lookback must be full.
+    s = g.snapshot(bars, trend_of(bars, pt(tue, 6, 33), strategy), pt(tue, 6, 33))
+    assert walls_of(s)["prior_high"] == D(1014)
+    assert walls_of(s)["overnight_high"] == D(1030)
+    # Without the holiday entry, Monday would be required and is missing: fail closed.
+    assert isinstance(
+        grant.snapshot(bars, trend_of(bars, pt(tue, 6, 33), strategy), pt(tue, 6, 33)),
+        Unavailable,
+    )
+
+
+def test_monday_after_daylight_saving_ends(grant: LevelsReader, strategy: StrategyProfile) -> None:
+    fri, mon = date(2026, 10, 30), date(2026, 11, 2)  # clocks fall back Sun Nov 1
+    s = grant_at(grant, session_data(fri, mon), pt(mon, 6, 33), strategy)
+    assert walls_of(s)["prior_low"] == D(986)
+    assert walls_of(s)["overnight_high"] == D(1030)
+
+
+def test_after_the_cash_close_prior_session_is_still_yesterday(
+    grant: LevelsReader, strategy: StrategyProfile
+) -> None:
+    bars = session_data(MON, TUE)
+    bars += flat_minutes(
+        pt(TUE, 6, 33), pt(TUE, 13, 30), 1011, {pt(TUE, 9, 0): (1011, 1500, 1010, 1011, 100)}
+    )
+    s = grant_at(grant, bars, pt(TUE, 13, 30), strategy)
+    assert walls_of(s)["prior_high"] == D(1014)
+
+
+def test_wall_exactly_at_the_price_vetoes(grant: LevelsReader) -> None:
+    read = grant.assess(snap(1014, ("prior_high", 1014)), Direction.LONG, N)
+    assert read.score is Score.BEARISH
+    read = grant.assess(snap(986, ("prior_low", 986)), Direction.SHORT, N)
+    assert read.score is Score.BEARISH
+
+
+@pytest.mark.parametrize(
+    ("when", "reason"),
+    [
+        (pt(TUE, 14, 30), "outside the prime session"),
+        (pt(date(2026, 9, 19), 7, 0), "outside the prime session"),  # Saturday
+        (pt(TUE, 6, 30), "VWAP"),  # cash not open yet
+        (pt(TUE, 6, 36), "stale feed"),  # newest bar closed 3 minutes ago
+    ],
+)
+def test_snapshot_fails_closed_on_time_and_freshness(
+    grant: LevelsReader, strategy: StrategyProfile, when: datetime, reason: str
+) -> None:
+    s = grant_at(grant, session_data(MON, TUE), when, strategy)
+    assert isinstance(s, Unavailable)
+    assert reason in s.reason
+
+
+def test_snapshot_fails_closed_on_missing_data(
+    grant: LevelsReader, strategy: StrategyProfile
+) -> None:
+    bars = session_data(MON, TUE)
+    as_of = pt(TUE, 6, 33)
+
+    def reason(subset: list[Bar], trend: list[Bar] | None = None) -> str:
+        s = grant.snapshot(
+            subset, trend_of(bars, as_of, strategy) if trend is None else trend, as_of
+        )
+        assert isinstance(s, Unavailable)
+        return s.reason
+
+    thin_prior = [b for b in bars if not pt(MON, 9, 0) <= b.ts < pt(MON, 10, 0)]
+    assert "cash session has" in reason(thin_prior)
+    assert "cash session has" in reason([b for b in bars if b.ts >= pt(MON, 14, 0)])
+    thin_night = [b for b in bars if not pt(TUE, 0, 0) <= b.ts < pt(TUE, 2, 0)]
+    assert "overnight" in reason(thin_night)
+    assert "trend bars" in reason(bars, [])
+    trend = trend_of(bars, as_of, strategy)
+    assert "trend bars" in reason(bars, trend[-10:])
+    assert "stale trend" in reason(bars, trend[:-2])
+    assert "no completed" in reason([])
 
 
 def test_snapshot_adds_trend_swings(grant: LevelsReader, strategy: StrategyProfile) -> None:
-    tf = timedelta(minutes=strategy.trend.timeframe_minutes)
-    start = pt(MON, 7, 0)
-    highs = [1000, 1001, 1050, 1001, 1000, 999, 998]  # one swing high at 1050
-    lows = [990, 989, 988, 989, 940, 989, 990]  # one swing low at 940
-    trend = [
-        bar(start + tf * i, lo + 1, hi, lo, lo + 1)
-        for i, (hi, lo) in enumerate(zip(highs, lows, strict=True))
-    ]
-    s = grant.snapshot(prior_and_today(), trend, pt(TUE, 6, 33))
+    bars = session_data(MON, TUE)
+    as_of = pt(TUE, 6, 33)
+    trend = trend_of(bars, as_of, strategy)
+    # Plant one swing high and one swing low in the middle of the window.
+    mid = len(trend) - 20
+    trend[mid] = replace(trend[mid], high=D(1050))
+    trend[mid + 6] = replace(trend[mid + 6], low=D(940))
+    s = grant.snapshot(bars, trend, as_of)
     assert isinstance(s, LevelsSnapshot)
     names = {(lv.name, lv.price) for lv in s.walls}
     assert ("swing_high", D(1050)) in names
@@ -234,15 +375,18 @@ def test_range_chase_needs_history(strategy: StrategyProfile) -> None:
 FIRST = date(2026, 8, 3)  # a Monday
 
 
-def calm_sessions(sessions: int = 21) -> list[Bar]:
-    """06:25-06:59 PT each weekday: a steady zig-zag, volume 100."""
+def calm_sessions(
+    sessions: int = 21, start: tuple[int, int] = (6, 25), count: int = 35
+) -> list[Bar]:
+    """`count` minutes from `start` PT each weekday: a steady zig-zag, volume 100."""
     bars: list[Bar] = []
-    d = FIRST
-    while len({b.ts.astimezone(PT).date() for b in bars}) < sessions:
+    d, seen = FIRST, 0
+    while seen < sessions:
         if d.weekday() < 5:
-            for i in range(35):
+            seen += 1
+            for i in range(count):
                 mid = 20000 + (1 if i % 2 else -1)
-                bars.append(bar(pt(d, 6, 25) + MIN * i, mid, mid + 2, mid - 2, mid))
+                bars.append(bar(pt(d, *start) + MIN * i, mid, mid + 2, mid - 2, mid))
         d += timedelta(days=1)
     return bars
 
@@ -253,7 +397,7 @@ def last_day(bars: list[Bar]) -> date:
 
 @pytest.fixture
 def nia(strategy: StrategyProfile, instrument: InstrumentProfile) -> ZeroDayAgent:
-    return ZeroDayAgent(strategy.zeroday, instrument)
+    return ZeroDayAgent(strategy.zeroday, strategy.data, instrument)
 
 
 def at(bars: list[Bar], minute: int) -> datetime:
@@ -338,15 +482,6 @@ def test_nia_ignores_the_forming_bar(nia: ZeroDayAgent) -> None:
     assert not nia.check(forming, ts + timedelta(seconds=59)).tripped
 
 
-def test_after_the_cash_close_prior_session_is_still_yesterday(grant: LevelsReader) -> None:
-    # Prime runs past the cash close: today's finished cash session is not "prior".
-    bars = [*prior_and_today(), bar(pt(TUE, 12, 59), 1011, 1500, 1011, 1400)]
-    s = grant.snapshot(bars, [], pt(TUE, 13, 30))
-    assert isinstance(s, LevelsSnapshot)
-    walls = {lv.name: lv.price for lv in s.walls}
-    assert walls["prior_high"] == D(1014)
-
-
 def test_volatility_counts_the_gap_from_the_previous_close(nia: ZeroDayAgent) -> None:
     bars = calm_sessions()
     ts = pt(last_day(bars), 6, 50)
@@ -354,3 +489,73 @@ def test_volatility_counts_the_gap_from_the_previous_close(nia: ZeroDayAgent) ->
     gapped = replace_bar(bars, ts, open_=20015, high=20017, low=20013, close=20015)
     check = nia.check(gapped, ts + MIN)
     assert any(f.startswith("volatility") for f in check.findings if "typical (limit" in f)
+
+
+def test_nia_judges_range_before_the_cash_open(nia: ZeroDayAgent) -> None:
+    # A steady pre-market slide made of normal-sized bars: only the range wire sees it.
+    bars = calm_sessions(start=(4, 0), count=180)
+    today = last_day(bars)
+    slide = {
+        pt(today, 4, 0) + MIN * i: (20000 - 2 * i, 20002 - 2 * i, 19998 - 2 * i, 20000 - 2 * i)
+        for i in range(150)
+    }
+    bars = [
+        bar(b.ts, *slide[b.ts]) if b.ts in slide else b for b in bars if b.ts < pt(today, 6, 30)
+    ]
+    check = nia.check(bars, pt(today, 6, 30))
+    assert check.tripped
+    assert next(f for f in check.findings if "typical (limit" in f).startswith("range")
+
+
+def test_nia_keeps_judging_range_after_the_cash_close(nia: ZeroDayAgent) -> None:
+    bars = calm_sessions(start=(12, 50), count=30)  # 12:50-13:19 each day
+    today = last_day(bars)
+    wide = replace_bar(bars, pt(today, 12, 55), high=20100)
+    check = nia.check(wide, pt(today, 13, 20))
+    assert check.tripped
+    assert any(f.startswith("range") for f in check.findings)
+
+
+def test_nia_trips_outside_prime_and_on_a_stale_feed(nia: ZeroDayAgent) -> None:
+    bars = calm_sessions()
+    today = last_day(bars)
+    assert nia.check(bars, pt(today, 14, 30)).tripped
+    stale = nia.check(bars, pt(today, 7, 10))  # newest bar closed at 07:00
+    assert stale.tripped
+    assert "stale feed" in stale.findings[0]
+
+
+def test_nia_trips_outside_prime_even_on_a_fresh_calm_feed(nia: ZeroDayAgent) -> None:
+    bars = calm_sessions(start=(14, 0), count=30)  # 14:00-14:29: after the prime close
+    check = nia.check(bars, pt(last_day(bars), 14, 30))
+    assert check.tripped
+    assert "outside the prime session" in check.findings[0]
+
+
+def test_nia_range_history_uses_the_same_clock_window(nia: ZeroDayAgent) -> None:
+    # Earlier days had a huge spike after today's cut-off time; it must not inflate
+    # "typical" for a window that ends before it.
+    bars = calm_sessions()
+    today = last_day(bars)
+    spiked = [
+        bar(b.ts, float(b.open), float(b.high) + 100, float(b.low), float(b.close))
+        if b.ts.astimezone(PT).time() == time(6, 55) and b.ts.astimezone(PT).date() != today
+        else b
+        for b in bars
+    ]
+    wide = replace_bar(spiked, pt(today, 6, 30), high=20030)
+    check = nia.check(wide, pt(today, 6, 40))
+    assert check.tripped
+    assert any(f.startswith("range") and "typical (limit" in f for f in check.findings)
+
+
+def test_nia_range_needs_full_trading_day_history(
+    strategy: StrategyProfile, instrument: InstrumentProfile
+) -> None:
+    # One of the 20 history days is a holiday: the same-time wires still have 20 bars,
+    # but range has only 19 trading days and must refuse to judge.
+    bars = calm_sessions()
+    closed = replace(instrument, holidays=frozenset({FIRST}))
+    check = ZeroDayAgent(strategy.zeroday, strategy.data, closed).check(bars, at(bars, 50))
+    assert check.tripped
+    assert "range: cannot establish a typical value" in check.findings

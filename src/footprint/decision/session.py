@@ -14,6 +14,7 @@ from datetime import date, datetime, time, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo
 
+from footprint.core.calendar import is_trading_day
 from footprint.core.config import InstrumentProfile, Session
 from footprint.core.models import require_utc
 
@@ -60,10 +61,6 @@ def _covers(session: Session, clock: time) -> bool:
     return clock >= session.start or clock <= session.end
 
 
-def _is_trading_day(day: date, instrument: InstrumentProfile) -> bool:
-    return day.weekday() in instrument.trading_days and day not in instrument.holidays
-
-
 def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
     """The window `moment` (UTC) falls in, or CLOSED on non-trading days.
 
@@ -74,14 +71,14 @@ def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
     prime, overnight = instrument.prime_session, instrument.overnight_session
     day, clock = _local(moment, prime)
     if _covers(prime, clock):
-        return SessionKind.PRIME if _is_trading_day(day, instrument) else SessionKind.CLOSED
+        return SessionKind.PRIME if is_trading_day(day, instrument) else SessionKind.CLOSED
     day, clock = _local(moment, overnight)
     if _covers(overnight, clock):
         crosses_midnight = overnight.start > overnight.end
         trading_day = (
             day + timedelta(days=1) if crosses_midnight and clock >= overnight.start else day
         )
-        if _is_trading_day(trading_day, instrument):
+        if is_trading_day(trading_day, instrument):
             return SessionKind.OVERNIGHT
     return SessionKind.CLOSED
 

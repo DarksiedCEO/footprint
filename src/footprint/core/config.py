@@ -268,6 +268,12 @@ class RangeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class DataSettings:
+    max_bar_age_seconds: int
+    min_session_coverage_pct: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class LevelsSettings:
     room_multiple: Decimal
     wall_multiple: Decimal
@@ -291,6 +297,7 @@ class StrategyProfile:
     trend: TrendSettings
     volume: VolumeSettings
     range: RangeSettings
+    data: DataSettings
     levels: LevelsSettings
     options: OptionsSettings
     zeroday: ZeroDaySettings
@@ -343,6 +350,20 @@ def load_strategy(path: Path) -> StrategyProfile:
     )
     if levels.wall_multiple > levels.room_multiple:
         raise ConfigError(f"{l_where}: wall_multiple must be <= room_multiple")
+    if levels.swing_lookback_bars < 2 * trend.swing_strength + 1:
+        raise ConfigError(
+            f"{l_where}: swing_lookback_bars must be >= 2 * trend.swing_strength + 1 "
+            "or no swing can ever be found"
+        )
+
+    d_where = f"{where}: data"
+    dd = _check_keys(raw["data"], {f.name for f in fields(DataSettings)}, d_where)
+    data = DataSettings(
+        max_bar_age_seconds=_integer(dd, "max_bar_age_seconds", d_where, minimum=1),
+        min_session_coverage_pct=_positive_decimal(dd, "min_session_coverage_pct", d_where),
+    )
+    if data.min_session_coverage_pct > _PERCENT_MAX:
+        raise ConfigError(f"{d_where}: min_session_coverage_pct must be <= {_PERCENT_MAX}")
 
     o_where = f"{where}: options"
     o = _check_keys(raw["options"], {f.name for f in fields(OptionsSettings)}, o_where)
@@ -361,5 +382,11 @@ def load_strategy(path: Path) -> StrategyProfile:
         raise ConfigError(f"{z_where}: trip multiples must be > 1")
 
     return StrategyProfile(
-        trend=trend, volume=volume, range=range_, levels=levels, options=options, zeroday=zeroday
+        trend=trend,
+        volume=volume,
+        range=range_,
+        data=data,
+        levels=levels,
+        options=options,
+        zeroday=zeroday,
     )

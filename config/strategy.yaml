@@ -15,7 +15,13 @@ range:
   extended_above_pct: 100
   chase_zone_pct: 10         # entering in this outer % of today's range, in the trade's
                              # direction, on a day already past quiet_below_pct, scores -1
+data:
+  max_bar_age_seconds: 120   # DEFAULT: newest completed 1-min bar older than this = feed stale
+  min_session_coverage_pct: 90  # DEFAULT: a session with fewer minutes than this is unusable
 levels:
+  # Round numbers are reported but are NOT walls (deviation, Andre to decide): while N is
+  # larger than the instrument's round-number spacing, the next round number is always
+  # inside the target and every trade would be vetoed.
   # N = points of underlying move needed for the profit target (see options.assumed_delta).
   room_multiple: 1.5         # nearest opposing level >= this many N away: full support
   wall_multiple: 1           # nearest opposing level closer than this many N: veto
