@@ -268,6 +268,7 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.levels.swing_lookback_bars == 96
     assert s.data.max_bar_age_seconds == 120
     assert s.data.min_session_coverage_pct == Decimal(90)
+    assert s.data.max_gap_minutes == 5
     assert s.options.assumed_delta == Decimal("0.45")
     assert (s.zeroday.lookback_sessions, s.zeroday.trip_multiple) == (20, Decimal(4))
     assert s.zeroday.volume_trip_multiple == Decimal(10)
@@ -289,6 +290,7 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("levels", {"swing_lookback_bars": 4}),  # < 2 * swing_strength + 1
         ("data", {"max_bar_age_seconds": 0}),
         ("data", {"min_session_coverage_pct": 101}),
+        ("data", {"max_gap_minutes": -1}),
         ("options", {"assumed_delta": 1}),
         ("options", {"assumed_delta": 0}),
         ("zeroday", {"trip_multiple": 1}),

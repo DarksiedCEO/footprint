@@ -19,7 +19,6 @@ from footprint.agents.range_reader import RangeReader
 from footprint.agents.zero_day import ZeroDayAgent
 from footprint.core.config import InstrumentProfile, RiskProfile, StrategyProfile
 from footprint.core.models import Bar, Direction, Score
-from footprint.data.aggregate import resample
 from tests.agents.conftest import bar
 
 PT = ZoneInfo("America/Los_Angeles")
@@ -178,14 +177,10 @@ def grant(strategy: StrategyProfile, instrument: InstrumentProfile) -> LevelsRea
     return LevelsReader(strategy.levels, strategy.trend, strategy.data, instrument)
 
 
-def trend_of(bars: list[Bar], as_of: datetime, strategy: StrategyProfile) -> list[Bar]:
-    return resample(bars, strategy.trend.timeframe_minutes, as_of)
-
-
 def grant_at(
     grant: LevelsReader, bars: list[Bar], as_of: datetime, strategy: StrategyProfile
 ) -> LevelsSnapshot | Unavailable:
-    return grant.snapshot(bars, trend_of(bars, as_of, strategy), as_of)
+    return grant.snapshot(bars, as_of)
 
 
 def walls_of(s: LevelsSnapshot | Unavailable) -> dict[str, Decimal]:
@@ -244,15 +239,11 @@ def test_day_after_a_holiday_uses_the_last_trading_day(
     g = LevelsReader(strategy.levels, strategy.trend, strategy.data, closed)
     friday = [b for b in session_data(fri, mon) if b.ts < pt(fri, 14, 0)]
     bars = friday + [b for b in session_data(mon, tue) if b.ts >= pt(mon, 15, 0)]
-    # Pad the swing window: the trend lookback must be full.
-    s = g.snapshot(bars, trend_of(bars, pt(tue, 6, 33), strategy), pt(tue, 6, 33))
+    s = g.snapshot(bars, pt(tue, 6, 33))
     assert walls_of(s)["prior_high"] == D(1014)
     assert walls_of(s)["overnight_high"] == D(1030)
     # Without the holiday entry, Monday would be required and is missing: fail closed.
-    assert isinstance(
-        grant.snapshot(bars, trend_of(bars, pt(tue, 6, 33), strategy), pt(tue, 6, 33)),
-        Unavailable,
-    )
+    assert isinstance(grant.snapshot(bars, pt(tue, 6, 33)), Unavailable)
 
 
 def test_monday_after_daylight_saving_ends(grant: LevelsReader, strategy: StrategyProfile) -> None:
@@ -297,40 +288,52 @@ def test_snapshot_fails_closed_on_time_and_freshness(
     assert reason in s.reason
 
 
-def test_snapshot_fails_closed_on_missing_data(
-    grant: LevelsReader, strategy: StrategyProfile
-) -> None:
+def test_snapshot_fails_closed_on_missing_data(grant: LevelsReader) -> None:
     bars = session_data(MON, TUE)
     as_of = pt(TUE, 6, 33)
 
-    def reason(subset: list[Bar], trend: list[Bar] | None = None) -> str:
-        s = grant.snapshot(
-            subset, trend_of(bars, as_of, strategy) if trend is None else trend, as_of
-        )
+    def reason(subset: list[Bar], when: datetime = as_of) -> str:
+        s = grant.snapshot(subset, when)
         assert isinstance(s, Unavailable)
         return s.reason
 
-    thin_prior = [b for b in bars if not pt(MON, 9, 0) <= b.ts < pt(MON, 10, 0)]
-    assert "cash session has" in reason(thin_prior)
-    assert "cash session has" in reason([b for b in bars if b.ts >= pt(MON, 14, 0)])
-    thin_night = [b for b in bars if not pt(TUE, 0, 0) <= b.ts < pt(TUE, 2, 0)]
-    assert "overnight" in reason(thin_night)
-    assert "trend bars" in reason(bars, [])
-    trend = trend_of(bars, as_of, strategy)
-    assert "trend bars" in reason(bars, trend[-10:])
-    assert "stale trend" in reason(bars, trend[:-2])
+    def without(start: datetime, end: datetime, source: list[Bar] = bars) -> list[Bar]:
+        return [b for b in source if not start <= b.ts < end]
+
+    prior = reason(without(pt(MON, 9, 0), pt(MON, 10, 0)))
+    assert "cash session: 330 of 390 minutes" in prior
+    gap = reason(without(pt(MON, 9, 0), pt(MON, 9, 10)))  # 380 of 390, but a 10-min hole
+    assert "cash session" in gap
+    assert "consecutive missing" in gap
+    assert "final minute is missing" in reason(without(pt(MON, 12, 59), pt(MON, 13, 0)))
+    assert "0 of 390" in reason(without(pt(MON, 6, 30), pt(MON, 13, 0)))
+    assert "overnight" in reason(without(pt(TUE, 0, 0), pt(TUE, 2, 0)))
+    night_tail = reason(without(pt(TUE, 3, 50), pt(TUE, 4, 0)))
+    assert "overnight" in night_tail
+    assert "consecutive missing" in night_tail
+    trend = reason(without(pt(MON, 4, 0), pt(MON, 6, 30)))
+    assert "of 96 completed trend bars" in trend
+    assert "gap in trend bars" in reason(without(pt(TUE, 4, 30), pt(TUE, 5, 0)))
     assert "no completed" in reason([])
 
 
-def test_snapshot_adds_trend_swings(grant: LevelsReader, strategy: StrategyProfile) -> None:
+def test_vwap_needs_today_s_cash_minutes(grant: LevelsReader) -> None:
     bars = session_data(MON, TUE)
-    as_of = pt(TUE, 6, 33)
-    trend = trend_of(bars, as_of, strategy)
-    # Plant one swing high and one swing low in the middle of the window.
-    mid = len(trend) - 20
-    trend[mid] = replace(trend[mid], high=D(1050))
-    trend[mid + 6] = replace(trend[mid + 6], low=D(940))
-    s = grant.snapshot(bars, trend, as_of)
+    bars += flat_minutes(pt(TUE, 6, 33), pt(TUE, 6, 45), 1011)
+    holed = [b for b in bars if not pt(TUE, 6, 31) <= b.ts < pt(TUE, 6, 39)]
+    s = grant.snapshot(holed, pt(TUE, 6, 45))
+    assert isinstance(s, Unavailable)
+    assert "VWAP" in s.reason
+    assert isinstance(grant.snapshot(bars, pt(TUE, 6, 45)), LevelsSnapshot)
+
+
+def test_snapshot_adds_trend_swings(grant: LevelsReader) -> None:
+    planted = {
+        pt(MON, 10, 7): (1000.0, 1050.0, 999.0, 1000.0),
+        pt(MON, 11, 37): (1000.0, 1001.0, 940.0, 1000.0),
+    }
+    bars = [bar(b.ts, *planted[b.ts]) if b.ts in planted else b for b in session_data(MON, TUE)]
+    s = grant.snapshot(bars, pt(TUE, 6, 33))
     assert isinstance(s, LevelsSnapshot)
     names = {(lv.name, lv.price) for lv in s.walls}
     assert ("swing_high", D(1050)) in names

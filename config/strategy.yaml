@@ -18,6 +18,8 @@ range:
 data:
   max_bar_age_seconds: 120   # DEFAULT: newest completed 1-min bar older than this = feed stale
   min_session_coverage_pct: 90  # DEFAULT: a session with fewer minutes than this is unusable
+  max_gap_minutes: 5         # DEFAULT: a longer run of missing minutes inside a session,
+                             # or at its open/close, makes the session unusable
 levels:
   # Round numbers are reported but are NOT walls (deviation, Andre to decide): while N is
   # larger than the instrument's round-number spacing, the next round number is always

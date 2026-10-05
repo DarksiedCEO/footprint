@@ -21,10 +21,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 from footprint.agents._series import swing_points
-from footprint.core.calendar import is_trading_day, previous_trading_day
+from footprint.core.calendar import (
+    SessionKind,
+    is_trading_day,
+    previous_trading_day,
+    session_at,
+)
 from footprint.core.config import (
     DataSettings,
     InstrumentProfile,
@@ -33,7 +39,7 @@ from footprint.core.config import (
 )
 from footprint.core.models import Bar, Direction, Read, Score, require_utc
 from footprint.core.series import require_series
-from footprint.data.aggregate import completed
+from footprint.data.aggregate import completed, resample
 
 _MINUTE = timedelta(minutes=1)
 
@@ -97,15 +103,13 @@ class LevelsReader:
     def agent_id(self) -> str:
         return "levels"
 
-    def snapshot(
-        self, minute_bars: Sequence[Bar], trend_bars: Sequence[Bar], as_of: datetime
-    ) -> LevelsSnapshot | Unavailable:
-        """Levels at `as_of` from 1-minute bars and trend-timeframe bars.
+    def snapshot(self, minute_bars: Sequence[Bar], as_of: datetime) -> LevelsSnapshot | Unavailable:
+        """Levels at `as_of` from 1-minute bars (trend bars are built from them).
 
         Only bars complete at `as_of` are used. Fails closed (Unavailable) outside the
         prime session of a trading day, on a stale feed, and when the previous trading
-        day's cash session, the overnight session, today's VWAP or a full window of
-        trend bars is missing or too thin.
+        day's cash session, the overnight session, today's cash session so far or the
+        trend window is missing, thin or gappy.
         """
         require_utc(as_of, "as_of")
         inst = self._instrument
@@ -125,31 +129,23 @@ class LevelsReader:
             return Unavailable(as_of, f"stale feed: newest completed bar closed {age} ago")
 
         prior_day = previous_trading_day(today, inst)
-        prior_bars = [
-            bar
-            for bar in minutes
-            if bar.ts.astimezone(zone).date() == prior_day
-            and cash.start <= bar.ts.astimezone(zone).time() < cash.end
-        ]
-        cash_minutes = _span_minutes(
-            datetime.combine(prior_day, cash.start, zone),
-            datetime.combine(prior_day, cash.end, zone),
-        )
-        if not self._covered(len(prior_bars), cash_minutes):
-            return Unavailable(
-                as_of,
-                f"previous trading day {prior_day} cash session has {len(prior_bars)} of "
-                f"{cash_minutes} minutes",
-            )
+        prior_open = datetime.combine(prior_day, cash.start, zone).astimezone(UTC)
+        prior_close = datetime.combine(prior_day, cash.end, zone).astimezone(UTC)
+        prior_bars = _between(minutes, prior_open, prior_close)
+        problem = self._window_problem(prior_bars, prior_open, prior_close, need_last=True)
+        if problem:
+            return Unavailable(as_of, f"previous trading day {prior_day} cash session: {problem}")
 
-        today_cash = [
-            bar
-            for bar in minutes
-            if bar.ts.astimezone(zone).date() == today
-            and cash.start <= bar.ts.astimezone(zone).time() < cash.end
-        ]
-        if not today_cash:
+        today_open = datetime.combine(today, cash.start, zone).astimezone(UTC)
+        today_close = datetime.combine(today, cash.end, zone).astimezone(UTC)
+        if as_of <= today_open:
             return Unavailable(as_of, "cash session has not opened: no VWAP yet")
+        today_cash = _between(minutes, today_open, today_close)
+        problem = self._window_problem(
+            today_cash, today_open, min(as_of, today_close), need_last=False
+        )
+        if problem:
+            return Unavailable(as_of, f"today's cash session (VWAP): {problem}")
         volume = sum(bar.volume for bar in today_cash)
         if volume == 0:
             return Unavailable(as_of, "zero volume since the cash open: no VWAP")
@@ -158,25 +154,26 @@ class LevelsReader:
             Decimal(0),
         ) / Decimal(volume)
 
-        overnight, night_minutes = self._overnight_bars(minutes, today)
-        if not self._covered(len(overnight), night_minutes):
-            return Unavailable(
-                as_of,
-                f"overnight session before today has {len(overnight)} of {night_minutes} minutes",
-            )
+        night_open, night_close = self._overnight_window(today)
+        overnight = _between(minutes, night_open, night_close)
+        problem = self._window_problem(overnight, night_open, night_close, need_last=False)
+        if problem:
+            return Unavailable(as_of, f"overnight session before today: {problem}")
 
         tf_minutes = self._trend.timeframe_minutes
-        trend = completed(trend_bars, as_of, tf_minutes)
-        lookback = self._settings.swing_lookback_bars
-        if len(trend) < lookback:
-            return Unavailable(
-                as_of, f"only {len(trend)} of {lookback} completed trend bars for swing levels"
-            )
-        require_series(trend, tf_minutes, "LevelsReader trend bars")
         frame = timedelta(minutes=tf_minutes)
-        if as_of - (trend[-1].ts + frame) >= frame:
-            return Unavailable(as_of, "stale trend bars: the latest closed bucket is missing")
-        recent = trend[-lookback:]
+        lookback = self._settings.swing_lookback_bars
+        recent = resample(minutes, tf_minutes, as_of)[-lookback:]
+        if len(recent) < lookback:
+            return Unavailable(
+                as_of, f"only {len(recent)} of {lookback} completed trend bars for swing levels"
+            )
+        for earlier, later in pairwise(recent):
+            missing = earlier.ts + frame
+            while missing < later.ts:
+                if session_at(missing + _MINUTE, inst) is not SessionKind.CLOSED:
+                    return Unavailable(as_of, f"gap in trend bars: no bucket at {missing}")
+                missing += frame
         strength = self._trend.swing_strength
 
         walls = [
@@ -211,9 +208,29 @@ class LevelsReader:
             round_above=above,
         )
 
-    def _covered(self, have: int, expected: int) -> bool:
-        need = Decimal(expected) * self._data.min_session_coverage_pct.scaleb(-2)
-        return have > 0 and Decimal(have) >= need
+    def _window_problem(
+        self, bars: Sequence[Bar], begin: datetime, end: datetime, *, need_last: bool
+    ) -> str | None:
+        """Why `bars` cannot stand for the window [begin, end), or None if they can.
+
+        Requires the minimum share of minutes, no run of missing minutes longer than
+        max_gap_minutes at the start, inside or at the end, and (need_last) the final
+        minute itself, so a session's close is its real close.
+        """
+        span = int((end - begin).total_seconds() // 60)
+        if not bars:
+            return f"0 of {span} minutes"
+        need = Decimal(span) * self._data.min_session_coverage_pct.scaleb(-2)
+        if Decimal(len(bars)) < need:
+            return f"{len(bars)} of {span} minutes"
+        limit = timedelta(minutes=self._data.max_gap_minutes)
+        gaps = [bars[0].ts - begin, end - (bars[-1].ts + _MINUTE)]
+        gaps += [later.ts - earlier.ts - _MINUTE for earlier, later in pairwise(bars)]
+        if max(gaps) > limit:
+            return f"{max(gaps)} of consecutive missing minutes"
+        if need_last and bars[-1].ts + _MINUTE != end:
+            return "the final minute is missing"
+        return None
 
     def assess(
         self, snapshot: LevelsSnapshot | Unavailable, direction: Direction, n_points: Decimal
@@ -243,17 +260,15 @@ class LevelsReader:
             return Read(self.agent_id, snapshot.as_of, Score.BEARISH, f"wall: {detail}")
         return Read(self.agent_id, snapshot.as_of, Score.NEUTRAL, f"tight: {detail}")
 
-    def _overnight_bars(self, minutes: Sequence[Bar], today: date) -> tuple[list[Bar], int]:
-        """Bars of the overnight session that led into `today`, and its length in minutes."""
+    def _overnight_window(self, today: date) -> tuple[datetime, datetime]:
+        """[open, close) in UTC of the overnight session that led into `today`."""
         night = self._instrument.overnight_session
         zone = ZoneInfo(night.timezone)
         start_day = today - timedelta(days=1) if night.start > night.end else today
         begin = datetime.combine(start_day, night.start, zone)
         finish = datetime.combine(today, night.end, zone) + _MINUTE
-        bars = [bar for bar in minutes if begin <= bar.ts.astimezone(zone) < finish]
-        return bars, _span_minutes(begin, finish)
+        return begin.astimezone(UTC), finish.astimezone(UTC)
 
 
-def _span_minutes(begin: datetime, end: datetime) -> int:
-    """Real minutes between two local times (converted to UTC, so DST is respected)."""
-    return int((end.astimezone(UTC) - begin.astimezone(UTC)).total_seconds() // 60)
+def _between(bars: Sequence[Bar], begin: datetime, end: datetime) -> list[Bar]:
+    return [bar for bar in bars if begin <= bar.ts < end]

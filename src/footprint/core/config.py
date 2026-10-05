@@ -271,6 +271,7 @@ class RangeSettings:
 class DataSettings:
     max_bar_age_seconds: int
     min_session_coverage_pct: Decimal
+    max_gap_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,6 +362,7 @@ def load_strategy(path: Path) -> StrategyProfile:
     data = DataSettings(
         max_bar_age_seconds=_integer(dd, "max_bar_age_seconds", d_where, minimum=1),
         min_session_coverage_pct=_positive_decimal(dd, "min_session_coverage_pct", d_where),
+        max_gap_minutes=_integer(dd, "max_gap_minutes", d_where, minimum=0),
     )
     if data.min_session_coverage_pct > _PERCENT_MAX:
         raise ConfigError(f"{d_where}: min_session_coverage_pct must be <= {_PERCENT_MAX}")
