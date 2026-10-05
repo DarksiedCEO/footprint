@@ -1,21 +1,34 @@
 """Risk layer (Dolores): the final, deterministic veto on every new entry.
 
-The gate is a pure function of the risk profile, the account's state and the
-proposed entry. It never sizes, prices or places anything; it only answers
-"may this entry proceed?" and, when not, every reason why. Counters such as
-today's stop-outs are kept by the caller and reset at its session boundaries.
+The gate is a pure function of the profiles, the news calendar, the account's
+state and the proposed entry. It works out the session and any news blackout
+from the entry's own timestamp; it never trusts a caller's label for either.
+It never sizes, prices or places anything; it only answers "may this entry
+proceed?" and, when not, every reason why.
+
+Caller responsibilities (not yet built; see tests/never_break/README.md):
+- keep `peak_equity` as the all-time peak since Andre last reset the account,
+- persist the kill-switch latch when a decision says `latch_kill_switch`,
+- reset the daily and weekly counters at the session boundaries.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
-from footprint.core.config import RiskProfile
+from footprint.core.config import InstrumentProfile, RiskProfile
 from footprint.core.models import Direction
-from footprint.decision.session import SessionKind
+from footprint.decision.session import (
+    NewsBlackout,
+    SessionKind,
+    in_news_blackout,
+    require_utc,
+    session_at,
+)
 
 
 class Veto(Enum):
@@ -51,7 +64,7 @@ class AccountState:
     """What the risk layer needs to know about the account at decision time.
 
     Realized P&L figures are signed (a loss is negative). `kill_switch_latched`
-    stays True once tripped until Andre clears it by hand; the gate never clears it.
+    stays True once set until Andre clears it by hand; the gate never clears it.
     """
 
     equity: Decimal
@@ -81,50 +94,57 @@ class AccountState:
 
 @dataclass(frozen=True, slots=True)
 class EntryRequest:
-    """A proposed new entry, as the risk layer sees it."""
+    """A proposed new entry. Session and blackout are derived from `ts`, never supplied."""
 
     ts: datetime
     direction: Direction
-    session: SessionKind
-    in_news_blackout: bool
     cost: Decimal
 
     def __post_init__(self) -> None:
-        if not isinstance(self.ts, datetime):
-            raise TypeError("EntryRequest.ts must be a datetime")
-        if self.ts.tzinfo is None or self.ts.utcoffset() != timedelta(0):
-            raise ValueError(f"EntryRequest.ts must be timezone-aware UTC, got {self.ts!r}")
+        require_utc(self.ts, "EntryRequest.ts")
         if not isinstance(self.direction, Direction):
             raise TypeError("EntryRequest.direction must be a Direction")
-        if not isinstance(self.session, SessionKind):
-            raise TypeError("EntryRequest.session must be a SessionKind")
-        if not isinstance(self.in_news_blackout, bool):
-            raise TypeError("EntryRequest.in_news_blackout must be a bool")
         _require_decimal(self.cost, "EntryRequest.cost", positive=True)
 
 
 @dataclass(frozen=True, slots=True)
 class RiskDecision:
     vetoes: tuple[Veto, ...]
+    session: SessionKind
+    blackout: NewsBlackout | None
+    latch_kill_switch: bool
 
     @property
     def allowed(self) -> bool:
         return not self.vetoes
 
 
-def kill_switch_tripped(profile: RiskProfile, state: AccountState) -> bool:
-    """True when equity has fallen by at least the kill-switch percentage from its peak."""
-    drawdown = (state.peak_equity - state.equity) / state.peak_equity
-    return state.kill_switch_latched or drawdown >= profile.kill_switch_drawdown_pct.scaleb(-2)
+def drawdown_breached(profile: RiskProfile, state: AccountState) -> bool:
+    """True when equity is down at least the kill-switch percentage from its peak.
+
+    Multiplication only (no division), so the comparison is exact in Decimal.
+    """
+    trigger = state.peak_equity * profile.kill_switch_drawdown_pct.scaleb(-2)
+    return state.peak_equity - state.equity >= trigger
 
 
-def evaluate(profile: RiskProfile, state: AccountState, entry: EntryRequest) -> RiskDecision:
-    """Every reason the entry must not proceed; an empty result means it may.
+def evaluate(
+    profile: RiskProfile,
+    instrument: InstrumentProfile,
+    blackouts: Iterable[NewsBlackout],
+    state: AccountState,
+    entry: EntryRequest,
+) -> RiskDecision:
+    """Every reason the entry must not proceed; no vetoes means it may.
 
     All checks always run, so the decision log shows the complete picture.
     """
+    session = session_at(entry.ts, instrument)
+    blackout = in_news_blackout(entry.ts, blackouts)
+    breached = drawdown_breached(profile, state)
+
     vetoes: list[Veto] = []
-    if kill_switch_tripped(profile, state):
+    if state.kill_switch_latched or breached:
         vetoes.append(Veto.KILL_SWITCH)
     if state.stopouts_today >= profile.daily_max_stopouts:
         vetoes.append(Veto.DAILY_STOPOUTS)
@@ -134,9 +154,9 @@ def evaluate(profile: RiskProfile, state: AccountState, entry: EntryRequest) -> 
         vetoes.append(Veto.WEEKLY_LOSS)
     if state.position_open:
         vetoes.append(Veto.POSITION_OPEN)
-    if entry.session is SessionKind.CLOSED:
+    if session is SessionKind.CLOSED:
         vetoes.append(Veto.SESSION_CLOSED)
-    elif entry.session is SessionKind.PRIME:
+    elif session is SessionKind.PRIME:
         if state.trades_today_prime >= profile.max_trades_prime:
             vetoes.append(Veto.TRADE_CEILING)
         if entry.cost > profile.position_cap:
@@ -146,6 +166,11 @@ def evaluate(profile: RiskProfile, state: AccountState, entry: EntryRequest) -> 
             vetoes.append(Veto.TRADE_CEILING)
         if entry.cost > profile.overnight_position_cap:
             vetoes.append(Veto.OVER_POSITION_CAP)
-    if entry.in_news_blackout:
+    if blackout is not None:
         vetoes.append(Veto.NEWS_BLACKOUT)
-    return RiskDecision(vetoes=tuple(vetoes))
+    return RiskDecision(
+        vetoes=tuple(vetoes),
+        session=session,
+        blackout=blackout,
+        latch_kill_switch=breached and not state.kill_switch_latched,
+    )

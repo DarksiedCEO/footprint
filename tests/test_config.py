@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -186,3 +186,48 @@ def test_rejects_malformed_files(tmp_path: Path, content: str) -> None:
 def test_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="cannot read"):
         load_risk(tmp_path / "nope.yaml")
+
+
+@pytest.mark.parametrize("bad_time", ["03:59:30", "03:59:00.5"])
+def test_session_times_with_seconds_are_rejected(
+    instrument_path: Path, tmp_path: Path, bad_time: str
+) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    data["overnight_session"]["end"] = bad_time
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="no seconds"):
+        load_instrument(target)
+
+
+def test_trading_days_and_holidays_load(instrument_path: Path) -> None:
+    profile = load_instrument(instrument_path)
+    assert profile.trading_days == frozenset({0, 1, 2, 3, 4})  # Mon-Fri
+    assert profile.holidays == frozenset()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"trading_days": []},
+        {"trading_days": ["MON", "MON"]},
+        {"trading_days": ["Monday"]},
+        {"trading_days": "MON"},
+        {"holidays": ["2026-12-25"]},
+        {"holidays": "2026-12-25"},
+        {"trading_days": ...},
+        {"holidays": ...},
+    ],
+)
+def test_bad_trading_calendar_is_rejected(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError):
+        load_instrument(rewrite(instrument_path, tmp_path, **changes))
+
+
+def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data).replace("holidays: []", "holidays: [2026-12-25]"))
+    assert load_instrument(target).holidays == frozenset({date(2026, 12, 25)})

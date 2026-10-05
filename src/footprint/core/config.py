@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import time
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -52,6 +52,8 @@ class InstrumentProfile:
     overnight_session: Session
     dte_min: int
     dte_max: int
+    trading_days: frozenset[int]
+    holidays: frozenset[date]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,9 +126,12 @@ def _session(raw: Mapping[str, object], key: str, where: str) -> Session:
     for edge in ("start", "end"):
         text = _text(body, edge, where)
         try:
-            clock[edge] = time.fromisoformat(text)
+            parsed = time.fromisoformat(text)
         except ValueError as exc:
             raise ConfigError(f"{where}: {edge} must be HH:MM, got {text!r}") from exc
+        if parsed.second or parsed.microsecond or parsed.tzinfo is not None:
+            raise ConfigError(f"{where}: {edge} must be HH:MM with no seconds, got {text!r}")
+        clock[edge] = parsed
     if clock["start"] == clock["end"]:
         raise ConfigError(f"{where}: start and end must differ")
     timezone = _text(body, "timezone", where)
@@ -135,6 +140,37 @@ def _session(raw: Mapping[str, object], key: str, where: str) -> Session:
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ConfigError(f"{where}: unknown timezone {timezone!r}") from exc
     return Session(start=clock["start"], end=clock["end"], timezone=timezone)
+
+
+_WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
+def _trading_days(raw: Mapping[str, object], key: str, where: str) -> frozenset[int]:
+    value = raw[key]
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{where}: {key} must be a non-empty list of weekday names")
+    days: set[int] = set()
+    for item in value:
+        if not isinstance(item, str) or item not in _WEEKDAYS:
+            raise ConfigError(f"{where}: {key} entries must be one of {_WEEKDAYS}, got {item!r}")
+        days.add(_WEEKDAYS.index(item))
+    if len(days) != len(value):
+        raise ConfigError(f"{where}: {key} has duplicate days")
+    return frozenset(days)
+
+
+def _holidays(raw: Mapping[str, object], key: str, where: str) -> frozenset[date]:
+    value = raw[key]
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: {key} must be a list of dates (YYYY-MM-DD)")
+    days: set[date] = set()
+    for item in value:
+        if not isinstance(item, date) or isinstance(item, datetime):
+            raise ConfigError(f"{where}: {key} entries must be dates (YYYY-MM-DD), got {item!r}")
+        days.add(item)
+    if len(days) != len(value):
+        raise ConfigError(f"{where}: {key} has duplicate dates")
+    return frozenset(days)
 
 
 def load_instrument(path: Path) -> InstrumentProfile:
@@ -150,6 +186,8 @@ def load_instrument(path: Path) -> InstrumentProfile:
         overnight_session=_session(raw, "overnight_session", where),
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
+        trading_days=_trading_days(raw, "trading_days", where),
+        holidays=_holidays(raw, "holidays", where),
     )
     if profile.prime_session.timezone != profile.overnight_session.timezone:
         raise ConfigError(
