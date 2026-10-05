@@ -491,8 +491,13 @@ class IbkrBroker:
                 return
             if self._listing is not None:
                 self._listing.listed.add(perm_id)
-            order_id = order_ref or self._order_of_ib.get(ib_id) or f"ib-{perm_id}"
-            if order_ref:
+            # An order of another client (ib_id 0) is never matched to ours by its
+            # orderRef or id: it is listed as foreign.
+            mine = ib_id > 0
+            order_id = (
+                (order_ref if mine else "") or self._order_of_ib.get(ib_id) or f"ib-{perm_id}"
+            )
+            if order_ref and ib_id > 0:  # 0: another client's order, not ours by id
                 self._ids.setdefault(order_ref, ib_id)
                 self._order_of_ib[ib_id] = order_ref
             order = self._rebuild(

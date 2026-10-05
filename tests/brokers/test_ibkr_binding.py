@@ -701,3 +701,18 @@ def test_another_clients_stock_order_sharing_our_order_id_reads_no_quantity() ->
     binding._wrapper.orderStatus(7, "Submitted", D("0.5"), D(2), 0.0, 56, 0, 0.0, 0, "", 0.0)
     assert client.connected
     assert events.got[-1] == ("on_order_status", (7, 56, "Submitted", 0, 0, D(0)))
+
+
+# --- follow-up: order ids are per client ------------------------------------------------
+
+
+def test_another_api_clients_order_is_never_matched_to_ours_by_id() -> None:
+    binding, client, events, _ = opened()
+    binding.place_order(request())  # our ib id 7 (client 0)
+    binding._wrapper.orderStatus(7, "Filled", D("0.5"), D(0), 1.0, 5151, 0, 1.0, 5, "", 0.0)
+    theirs = ib_order(perm=5152)
+    theirs.clientId = 5
+    binding._wrapper.openOrder(7, ib_contract(), theirs, state("Submitted"))
+    assert client.connected  # their fractional fill is not read as ours
+    assert events.got[0] == ("on_order_status", (0, 5151, "Filled", 0, 0, D(1)))
+    assert events.got[1][1][0] == 0  # forwarded without an id of ours

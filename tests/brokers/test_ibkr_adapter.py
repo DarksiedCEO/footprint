@@ -720,3 +720,23 @@ def test_no_broker_wide_cancel_when_the_fresh_listing_does_not_come(ib: Ib) -> N
     ib.adapter.cancel("p1-exit-1")
     assert ib.fake.global_cancels == 0
     assert any("could not be listed afresh" in a for a in ib.alarms)
+
+
+def test_another_clients_order_with_our_reference_is_listed_as_foreign(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))
+    ib.adapter.on_open_order(
+        0, 8888, "p1-stop", 501, "NQ", "FOP", "SELL", 1, "LMT", D(300), None, None, "Submitted"
+    )
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    assert len(ib.fake.copies) == 1
+    listed = sorted(o.order_id for o in ib.adapter.open_orders())
+    assert listed == ["ib-8888", "p1-stop"]  # theirs is not a copy of ours
+    assert not any("DUPLICATE" in a for a in ib.alarms)
+
+
+def test_another_clients_reference_never_lends_its_id_to_our_order(ib: Ib) -> None:
+    ib.adapter.on_open_order(
+        0, 8889, "p9-exit-1", 501, "NQ", "FOP", "SELL", 1, "LMT", D(300), None, None, "Submitted"
+    )
+    ib.adapter.place(sell("p9-exit-1", price=300))
+    assert ib.fake.sends[-1].ib_id == 100  # its own id from IBKR, never the other's 0

@@ -415,12 +415,14 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                 else:
                     self._foreign_live.add(order.permId)
             return
+        # Order ids are unique only within a client: another client's id is never ours.
+        ib_id = orderId if order.clientId == self._b._s.client_id else 0
         if (contract.symbol, contract.secType) != self._b._scope:
             with self._session_lock:
                 self._outside.add(order.permId)
             # Passed on only so the adapter knows it is open; no number in it is read.
             self._b._forward().on_open_order(
-                orderId,
+                ib_id,
                 order.permId,
                 order.orderRef,
                 contract.conId,
@@ -442,7 +444,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         def forward() -> None:
             stop = to_price(order.auxPrice) if order.orderType in _STOP_TYPES else None
             self._b._forward().on_open_order(
-                orderId,
+                ib_id,
                 order.permId,
                 order.orderRef,
                 contract.conId,
@@ -482,7 +484,9 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                     self._foreign_live.discard(permId)
                 return
             outside = permId in self._outside
-            known = permId in self._in_scope or self._b._sent(orderId)
+            ours = clientId == self._b._s.client_id
+            ib_id = orderId if ours else 0  # ids are per client: another's is never ours
+            known = permId in self._in_scope or (ours and self._b._sent(orderId))
 
         def forward() -> None:
             # `remaining` is never used; an unset `filled` is unknown (the adapter
@@ -500,7 +504,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                 except UnreadableValue:
                     done = 0
             self._b._forward().on_order_status(
-                orderId, permId, status, done, 0, to_price(avgFillPrice) or Decimal(0)
+                ib_id, permId, status, done, 0, to_price(avgFillPrice) or Decimal(0)
             )
 
         self._guard("order status", forward)
