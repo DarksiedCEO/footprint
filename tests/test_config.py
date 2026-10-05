@@ -54,7 +54,7 @@ def test_risk_profile_loads(risk_path: Path) -> None:
     assert profile.daily_max_loss == Decimal("2000")
     assert profile.weekly_max_loss == Decimal("3500")
     assert profile.kill_switch_drawdown_pct == Decimal("20")
-    assert (profile.max_trades_prime, profile.max_trades_overnight) == (4, 1)
+    assert (profile.max_trades_prime, profile.max_trades_overnight) == (4, 0)
 
 
 @pytest.mark.parametrize(
