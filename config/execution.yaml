@@ -17,3 +17,8 @@ stop_order:
   limit_offset_ticks: 20      # G1 DEFAULT: resting stop-limit's limit sits this many ticks
                               # below its trigger; the watchdog flattens if price gaps
                               # through the limit
+news:
+  time_stop_minutes: 10       # spec: a news-window trade not up time_stop_min_gain after
+  time_stop_min_gain: 250     #   this many minutes is closed
+  window_minutes: 13          # spec: the news entry window runs this long after the
+                              #   blackout ends (5:32 to 5:45 PT for an 8:30 ET print)
