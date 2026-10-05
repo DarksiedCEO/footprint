@@ -694,7 +694,7 @@ def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     original_place = stack.broker.place
-    original_open = stack.broker.open_orders
+    original_status = stack.broker.status
 
     def lost_reply(order: Order) -> OrderStatus:
         status = original_place(order)
@@ -702,23 +702,24 @@ def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
             raise TimeoutError("no acknowledgement")
         return status
 
-    calls = {"n": 0}
+    blind = {"on": True}
 
-    def blind_once() -> list[Order]:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise ConnectionError("cannot list orders right now")
-        return original_open()
+    def status_blind_during_entry(order_id: str) -> OrderStatus:
+        if blind["on"] and order_id.endswith("-stop"):
+            raise ConnectionError("cannot ask right now")
+        return original_status(order_id)
 
     monkeypatch.setattr(stack.broker, "place", lost_reply)
-    monkeypatch.setattr(stack.broker, "open_orders", blind_once)
+    monkeypatch.setattr(stack.broker, "status", status_blind_during_entry)
     stack.quote(150, D(151), SEND)
     ticket = stack.executor.submit(stack.approved, (), SEND)
     assert ticket.outcome is EntryOutcome.UNPROTECTED  # Diego could not confirm the stop
     assert ticket.position is not None
+    blind["on"] = False
     t = SEND + SEC
     closed = stack.manager.manage(ticket.position, stack.quote(150, 152, t), (), t)
     assert closed is not None
+    assert stack.broker.status(f"{ticket.position_id}-stop").state is OrderState.CANCELLED
     stack.quote(110, 111, t + SEC)  # a drop through an orphan stop would sell again
     assert stack.broker.positions() == {}  # flat, not short
 
@@ -795,3 +796,108 @@ def test_nb16_no_new_order_while_cancels_are_unconfirmed(
     assert not any(o.order_id.startswith("reconcile-") for o in stack.broker.open_orders())
     assert "waiting for cancels" in " ".join(a.message for a in stack.alarms)
     assert stack.halt.tripped
+
+
+# --- review round 3 ------------------------------------------------------------------
+
+
+def test_an_orphan_stop_that_already_filled_is_never_sold_again(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_place = stack.broker.place
+    original_status = stack.broker.status
+
+    def lost_reply(order: Order) -> OrderStatus:
+        status = original_place(order)
+        if order.order_type is OrderType.STOP_LIMIT:
+            raise TimeoutError("no acknowledgement")
+        return status
+
+    blind = {"on": True}
+
+    def status_blind_during_entry(order_id: str) -> OrderStatus:
+        if blind["on"] and order_id.endswith("-stop"):
+            raise ConnectionError("cannot ask right now")
+        return original_status(order_id)
+
+    monkeypatch.setattr(stack.broker, "place", lost_reply)
+    monkeypatch.setattr(stack.broker, "status", status_blind_during_entry)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position is not None
+    blind["on"] = False
+    t = SEND + SEC
+    stack.quote(110, 111, t)  # the orphan stop triggers and fills at 110
+    assert stack.broker.positions() == {}
+    closed = stack.manager.manage(ticket.position, stack.quote(110, 111, t), (), t)
+    assert closed is not None
+    assert (closed.reason, closed.exit_price) == (ExitReason.STOP, D(110))
+    assert stack.broker.positions() == {}  # flat, never short
+
+
+def test_an_exit_sells_only_what_the_broker_holds(stack: Stack) -> None:
+    position = filled_position(stack)
+    # Something outside the system already sold the contract.
+    stack.broker._positions.clear()
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    closed = stack.manager.manage(position, stack.quote(160, 161, t), (), t)
+    assert closed is not None
+    assert stack.broker.positions() == {}
+    assert not any(o.order_id.endswith("-exit-1") for o in stack.broker.open_orders())
+    assert stack.halt.tripped  # closed by an unknown order: stand down
+
+
+def test_book_by_hand_books_a_trade_the_ledger_never_recorded(stack: Stack) -> None:
+    t = SEND + 60 * SEC
+    assert stack.ledger.open_position_id is None
+    stack.ledger.book_by_hand(t, "lost-1", D(-825), "Andre")
+    acct = stack.ledger.account(t)
+    assert (acct.realized_pnl_today, acct.stopouts_today) == (D(-825), 1)
+
+
+def test_a_broker_error_mid_exit_halts_and_retries(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    original = stack.broker.cancel
+    calls = {"n": 0}
+
+    def flaky(order_id: str) -> OrderStatus:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("gateway dropped")
+        return original(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", flaky)
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    assert stack.manager.manage(position, stack.quote(160, 161, t), (), t) is None
+    assert stack.halt.tripped
+    closed = stack.manager.manage(position, stack.quote(160, 161, t + SEC), (), t + SEC)
+    assert closed is not None
+    assert stack.broker.positions() == {}
+
+
+def test_a_stop_that_filled_before_its_answer_is_adopted(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker.place
+
+    def filled_then_lost(order: Order) -> OrderStatus:
+        status = original(order)
+        if order.order_type is OrderType.STOP_LIMIT:
+            stack.broker.on_quote(stack.quote(110, 111, SEND))  # it triggers and fills at once
+            raise TimeoutError("no acknowledgement")
+        return status
+
+    monkeypatch.setattr(stack.broker, "place", filled_then_lost)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.PROTECTED
+    assert ticket.position is not None
+    closed = stack.manager.manage(
+        ticket.position, stack.quote(110, 111, SEND + SEC), (), SEND + SEC
+    )
+    assert closed is not None
+    assert closed.reason is ExitReason.STOP
+    assert stack.broker.positions() == {}

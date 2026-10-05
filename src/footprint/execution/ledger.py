@@ -162,7 +162,10 @@ class Ledger:
         if not by.strip():
             raise ValueError("booking by hand needs the name of who booked it")
         log.critical("%s booked %s by hand at %s", by, position_id, net_pnl)
-        self.on_trade_closed(now, position_id, net_pnl)
+        if self._state.open_position_id == position_id:
+            self.on_trade_closed(now, position_id, net_pnl)
+        else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
+            self._book(now, net_pnl, close_position=False)
 
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
         self._roll(now)
@@ -182,12 +185,15 @@ class Ledger:
         )
 
     def on_trade_closed(self, now: datetime, position_id: str, net_pnl: Decimal) -> None:
+        if self._state.open_position_id != position_id:
+            raise RuntimeError(
+                f"closing {position_id!r} but the open position is {self._state.open_position_id!r}"
+            )
+        self._book(now, net_pnl, close_position=True)
+
+    def _book(self, now: datetime, net_pnl: Decimal, *, close_position: bool) -> None:
         self._roll(now)
         s = self._state
-        if s.open_position_id != position_id:
-            raise RuntimeError(
-                f"closing {position_id!r} but the open position is {s.open_position_id!r}"
-            )
         equity = s.equity + net_pnl
         state = replace(
             s,
@@ -196,7 +202,7 @@ class Ledger:
             realized_today=s.realized_today + net_pnl,
             realized_week=s.realized_week + net_pnl,
             stopouts_today=s.stopouts_today + (net_pnl < 0),
-            open_position_id=None,
+            open_position_id=None if close_position else s.open_position_id,
         )
         self._save(state)
         if drawdown_breached(self._risk, self.account(now)):

@@ -228,28 +228,38 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         pid = position.position_id
-        if position.stop_order_id is not None:
-            self._broker.cancel(position.stop_order_id)
-            cancelled = self._broker.status(position.stop_order_id)
-            if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
-                return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
-            if cancelled.state is not OrderState.CANCELLED:
-                self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
-                return None
-            position.stop_order_id = None
-        else:
-            # Unprotected: an unacknowledged stop may still be live. Cancel anything open on
-            # this contract and confirm, so the exit can never be sold twice.
-            for order in self._broker.open_orders():
-                if order.contract_id != position.contract_id:
-                    continue
-                self._broker.cancel(order.order_id)
-                gone = self._broker.status(order.order_id)
-                if gone.state is OrderState.FILLED and gone.avg_price is not None:
-                    return self._close(position, gone.avg_price, now, ExitReason.STOP)
-                if gone.state is OrderState.WORKING:
-                    self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+        try:
+            if position.stop_order_id is not None:
+                self._broker.cancel(position.stop_order_id)
+                cancelled = self._broker.status(position.stop_order_id)
+                if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
+                    return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
+                if cancelled.state is not OrderState.CANCELLED:
+                    self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
                     return None
+                position.stop_order_id = None
+            else:
+                # Unprotected: a stop may have reached the broker unacknowledged. If it
+                # already filled, the trade is over; anything still open is cancelled and
+                # confirmed first, so the exit can never be sold twice.
+                with contextlib.suppress(KeyError):
+                    orphan = self._broker.status(f"{pid}-stop")
+                    if orphan.state is OrderState.FILLED and orphan.avg_price is not None:
+                        return self._close(position, orphan.avg_price, now, ExitReason.STOP)
+                for order in self._broker.open_orders():
+                    if order.contract_id != position.contract_id:
+                        continue
+                    self._broker.cancel(order.order_id)
+                    gone = self._broker.status(order.order_id)
+                    if gone.state is OrderState.FILLED and gone.avg_price is not None:
+                        return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                    if gone.state is OrderState.WORKING:
+                        self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                        return None
+        except Exception as exc:  # the broker failed mid-exit: halt, retry next call
+            self._alarm(now, f"{pid}: broker error while exiting: {exc!r}; retrying")
+            self._stand_down(now, f"{pid}: broker error while exiting")
+            return None
         self._exit_reason[pid] = reason
         if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
@@ -259,6 +269,20 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         pid = position.position_id
+        try:
+            held = self._broker.positions().get(position.contract_id, 0)
+        except Exception as exc:
+            self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
+            self._stand_down(now, f"{pid}: cannot read positions")
+            return None
+        quantity = min(position.contracts, held)
+        if quantity <= 0:
+            # Nothing is held any more: something else closed it. Book the real fill.
+            price, found = self._actual_exit(position)
+            self._alarm(now, f"{pid}: already flat at the broker; booking {price}")
+            if not found:
+                self._stand_down(now, f"{pid}: closed by an unknown order")
+            return self._close(position, price, now, reason)
         self._exit_attempts[pid] = self._exit_attempts.get(pid, 0) + 1
         tick = self._p.instrument.option_tick_size
         # A sell limit at the bid; with no bid, at one tick (the floor of any sale).
@@ -267,7 +291,7 @@ class Manager:
             order_id=f"{pid}-exit-{self._exit_attempts[pid]}",
             contract_id=position.contract_id,
             side=Side.SELL,
-            quantity=position.contracts,
+            quantity=quantity,
             order_type=OrderType.LIMIT,
             limit_price=price,
         )

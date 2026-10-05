@@ -205,12 +205,11 @@ class Executor:
             log.critical("resting stop for %s uncertain: %r", ticket.position_id, exc)
             stop_id = f"{ticket.position_id}-stop"
             try:
-                live = [o for o in self._broker.open_orders() if o.order_id == stop_id]
-            except Exception as again:  # cannot even ask: treat as unprotected
-                log.critical("cannot read open orders: %r", again)
-                live = []
-            if live:
-                stop, protected = live[0], True  # it did arrive: adopt it
+                held = self._broker.status(stop_id)  # did it reach the broker after all?
+                if held.state in (OrderState.WORKING, OrderState.FILLED):
+                    stop, protected = held.order, True  # adopt it (a fill is handled next)
+            except Exception as again:  # unknown to the broker, or cannot ask: unprotected
+                log.critical("cannot confirm the stop %s: %r", stop_id, again)
         try:
             self._ledger.on_entry_filled(now, ticket.position_id, session)
         except Exception as exc:  # the broker holds the stop; nothing new may be sent
