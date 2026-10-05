@@ -20,11 +20,25 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Session:
-    """A daily trading window. `end` earlier than `start` means it crosses midnight."""
+    """A daily trading window, `start` and `end` both inclusive.
+
+    `end` earlier than `start` means it crosses midnight.
+    """
 
     start: time
     end: time
     timezone: str
+
+    def _covers(self, moment: time) -> bool:
+        if self.start <= self.end:
+            return self.start <= moment <= self.end
+        return moment >= self.start or moment <= self.end
+
+    def overlaps(self, other: Session) -> bool:
+        """True if the two windows share any time of day. Both must use one timezone."""
+        if self.timezone != other.timezone:
+            raise ValueError(f"cannot compare sessions in {self.timezone} and {other.timezone}")
+        return self._covers(other.start) or other._covers(self.start)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +151,13 @@ def load_instrument(path: Path) -> InstrumentProfile:
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
     )
+    if profile.prime_session.timezone != profile.overnight_session.timezone:
+        raise ConfigError(
+            f"{where}: prime_session and overnight_session must use the same timezone "
+            "so they can be checked for overlap"
+        )
+    if profile.prime_session.overlaps(profile.overnight_session):
+        raise ConfigError(f"{where}: prime_session and overnight_session must not overlap")
     if profile.round_number_step % profile.tick_size != 0:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:

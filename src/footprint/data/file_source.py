@@ -17,8 +17,8 @@ class CsvBarSource:
     """Yields one Bar per CSV row.
 
     Expects a header row with the columns in COLUMNS. `ts` must be ISO-8601 with
-    an explicit offset; it is converted to UTC. Any bad row raises ValueError
-    naming the file and line.
+    an explicit offset; it is converted to UTC. Rows must be in strictly
+    increasing ts order. Any bad row raises ValueError naming the file and line.
     """
 
     def __init__(self, path: Path, symbol: str) -> None:
@@ -31,11 +31,19 @@ class CsvBarSource:
             header = reader.fieldnames or []
             if missing := [column for column in COLUMNS if column not in header]:
                 raise ValueError(f"{self._path}: missing columns: {missing}")
+            previous: datetime | None = None
             for row in reader:
+                where = f"{self._path}:{reader.line_num}"
                 try:
-                    yield self._parse(row)
+                    bar = self._parse(row)
                 except (ValueError, TypeError, InvalidOperation) as exc:
-                    raise ValueError(f"{self._path}:{reader.line_num}: {exc}") from exc
+                    raise ValueError(f"{where}: {exc}") from exc
+                if previous is not None and bar.ts <= previous:
+                    raise ValueError(
+                        f"{where}: ts {bar.ts} is not later than the previous bar's ts {previous}"
+                    )
+                previous = bar.ts
+                yield bar
 
     def _parse(self, row: dict[str, str]) -> Bar:
         ts = datetime.fromisoformat(row["ts"])

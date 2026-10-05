@@ -197,6 +197,28 @@ class TestSignal:
         with pytest.raises(TypeError, match=r"Signal\.reads"):
             Signal(ts=TS, direction=Direction.SHORT, reads=reads)  # type: ignore[arg-type]
 
+    def test_accepts_reads_at_or_before_the_signal_from_distinct_agents(self) -> None:
+        reads = (
+            make_read(agent_id="a", ts=TS),
+            make_read(agent_id="b", ts=TS - timedelta(minutes=5)),
+        )
+        assert Signal(ts=TS, direction=Direction.LONG, reads=reads).reads == reads
+
+    @pytest.mark.parametrize("ahead", [timedelta(microseconds=1), timedelta(minutes=1)])
+    def test_rejects_read_later_than_the_signal(self, ahead: timedelta) -> None:
+        reads = (make_read(agent_id="a"), make_read(agent_id="b", ts=TS + ahead))
+        with pytest.raises(ValueError, match=r"look ahead.*'b'"):
+            Signal(ts=TS, direction=Direction.LONG, reads=reads)
+
+    def test_rejects_two_reads_from_one_agent(self) -> None:
+        reads = (
+            make_read(agent_id="a", score=Score.BULLISH),
+            make_read(agent_id="b"),
+            make_read(agent_id="a", score=Score.BEARISH, ts=TS - timedelta(minutes=1)),
+        )
+        with pytest.raises(ValueError, match=r"more than one Read from 'a'"):
+            Signal(ts=TS, direction=Direction.LONG, reads=reads)
+
     def test_rejects_naive_ts(self) -> None:
         with pytest.raises(ValueError, match=r"Signal\.ts"):
             Signal(

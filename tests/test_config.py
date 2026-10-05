@@ -90,6 +90,55 @@ def test_instrument_rejects_bad_values(
         load_instrument(rewrite(instrument_path, tmp_path, **changes))
 
 
+def overnight(**changes: str) -> dict[str, str]:
+    return session(start="15:00", end="03:59") | changes
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"overnight_session": overnight(end="04:00")},  # shares prime's first minute
+        {"overnight_session": overnight(start="14:00")},  # shares prime's last minute
+        {"overnight_session": overnight(start="13:00")},
+        {"overnight_session": overnight(end="09:00")},
+        {"overnight_session": overnight(start="05:00", end="06:00")},  # inside prime
+        {"overnight_session": overnight(start="03:00", end="15:00")},  # contains prime
+        {"prime_session": session(start="16:00", end="17:00")},  # inside overnight
+        {"prime_session": session(start="02:00", end="03:00")},  # inside the wrapped part
+        {"prime_session": session(start="20:00", end="10:00")},  # both wrap midnight
+    ],
+)
+def test_instrument_rejects_overlapping_sessions(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError, match="must not overlap"):
+        load_instrument(rewrite(instrument_path, tmp_path, **changes))
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"overnight_session": overnight(start="14:01")},  # adjacent to prime's end
+        {"overnight_session": overnight(start="22:00", end="23:00")},
+        {"prime_session": session(start="04:00", end="04:30")},
+    ],
+)
+def test_instrument_accepts_adjacent_or_separate_sessions(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    load_instrument(rewrite(instrument_path, tmp_path, **changes))
+
+
+def test_instrument_rejects_sessions_in_different_timezones(
+    instrument_path: Path, tmp_path: Path
+) -> None:
+    bad = rewrite(
+        instrument_path, tmp_path, overnight_session=overnight(timezone="America/New_York")
+    )
+    with pytest.raises(ConfigError, match="same timezone"):
+        load_instrument(bad)
+
+
 @pytest.mark.parametrize(
     "changes",
     [

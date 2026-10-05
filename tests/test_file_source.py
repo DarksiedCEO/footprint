@@ -52,6 +52,27 @@ def test_bad_row_fails_loudly_with_line_number(tmp_path: Path, row: str) -> None
         list(CsvBarSource(path, symbol="TEST").bars())
 
 
+@pytest.mark.parametrize(
+    "third_ts",
+    [
+        "2026-01-05T14:31:00+00:00",  # equal to the previous bar
+        "2026-01-05T14:30:30+00:00",  # earlier than the previous bar
+        "2026-01-05T06:31:00-08:00",  # equal once converted to UTC
+    ],
+)
+def test_out_of_order_or_duplicate_ts_fails_with_line_number(tmp_path: Path, third_ts: str) -> None:
+    path = write(
+        tmp_path,
+        "2026-01-05T14:30:00+00:00,10,12,9,11,5\n"
+        "2026-01-05T14:31:00+00:00,10,12,9,11,5\n"
+        f"{third_ts},10,12,9,11,5\n",
+    )
+    source = CsvBarSource(path, symbol="TEST").bars()
+    assert len([next(source), next(source)]) == 2
+    with pytest.raises(ValueError, match=r"bars\.csv:4: .*not later than the previous"):
+        next(source)
+
+
 def test_missing_column_fails(tmp_path: Path) -> None:
     path = write(tmp_path, "", header="ts,open,high,low,close\n")
     with pytest.raises(ValueError, match="missing columns"):

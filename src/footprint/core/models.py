@@ -99,9 +99,18 @@ class Signal:
             raise TypeError("Signal.reads must be a tuple of Read")
         if not self.reads:
             raise ValueError("Signal.reads must contain at least one contributing Read")
+        seen: set[str] = set()
         for read in self.reads:
             if not isinstance(read, Read):
                 raise TypeError(f"Signal.reads must contain only Read, got {type(read).__name__}")
+            if read.ts > self.ts:
+                raise ValueError(
+                    f"Signal.reads must not look ahead: Read from {read.agent_id!r} at {read.ts} "
+                    f"is later than Signal.ts {self.ts}"
+                )
+            if read.agent_id in seen:
+                raise ValueError(f"Signal.reads has more than one Read from {read.agent_id!r}")
+            seen.add(read.agent_id)
 
 
 class TradeState(Enum):
