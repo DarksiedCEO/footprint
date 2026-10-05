@@ -256,22 +256,24 @@ class Manager:
                 position.stop_order_id = None
             else:
                 # Unprotected: a stop may have reached the broker unacknowledged. If it
-                # already filled, the trade is over; anything still open is cancelled and
-                # confirmed first, so the exit can never be sold twice.
+                # already filled, the trade is over.
                 with contextlib.suppress(KeyError):
                     orphan = self._broker.status(f"{pid}-stop")
                     if orphan.state is OrderState.FILLED and orphan.avg_price is not None:
                         return self._close(position, orphan.avg_price, now, ExitReason.STOP)
-                for order in self._broker.open_orders():
-                    if order.contract_id != position.contract_id:
-                        continue
-                    self._broker.cancel(order.order_id)
-                    gone = self._broker.status(order.order_id)
-                    if gone.state is OrderState.FILLED and gone.avg_price is not None:
-                        return self._close(position, gone.avg_price, now, ExitReason.STOP)
-                    if gone.state is OrderState.WORKING:
-                        self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
-                        return None
+            # Whatever else is open on this contract (an unacknowledged stop, another
+            # path's sell) is cancelled and confirmed first, so the exit can never sit
+            # beside a second seller.
+            for order in self._broker.open_orders():
+                if order.contract_id != position.contract_id:
+                    continue
+                self._broker.cancel(order.order_id)
+                gone = self._broker.status(order.order_id)
+                if gone.state is OrderState.FILLED and gone.avg_price is not None:
+                    return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                if gone.state is OrderState.WORKING:
+                    self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                    return None
         except Exception as exc:  # the broker failed mid-exit: halt, retry next call
             self._alarm(now, f"{pid}: broker error while exiting: {exc!r}; retrying")
             self._stand_down(now, f"{pid}: broker error while exiting")

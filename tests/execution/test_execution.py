@@ -993,3 +993,16 @@ def test_a_manager_with_a_broken_alarm_sink_still_flattens(stack: Stack) -> None
     stack.quote(160, 161, t)
     assert not stack.reconcile(None, stack.quote(160, 161, t), t)  # must not raise
     assert stack.broker.positions() == {}
+
+
+def test_an_exit_never_sits_beside_another_seller(stack: Stack) -> None:
+    """R5-1 defence in depth: before any exit, every other order on the contract is
+    cancelled and confirmed, even when the position still has its resting stop."""
+    position = filled_position(stack)
+    t = FILLED_AT + SEC
+    other = Order("other-sell", position.contract_id, Side.SELL, 1, OrderType.LIMIT, D(200))
+    stack.broker.place(other)  # rests: far above the bid
+    closed = stack.manager.flatten(position, t)
+    assert stack.broker.status("other-sell").state is OrderState.CANCELLED
+    assert closed is not None  # the exit sold the one contract at the bid
+    assert stack.broker.positions() == {}  # never short

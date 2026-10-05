@@ -180,6 +180,9 @@ class Runner:
             # whatever it may have filled.
             self._executor.abandon(self._ticket)
             self._ticket = None
+        # Pessimistic: until reconcile says it agrees, assume it may have a sell out
+        # (it can raise after its order reached the broker).
+        self._reconcile_flattening = True
         agreed = self._manager.reconcile(self._position, now)
         self._reconcile_flattening = not agreed
         for closed in self._manager.take_reconcile_closes():

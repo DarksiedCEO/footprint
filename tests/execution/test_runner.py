@@ -646,3 +646,53 @@ def test_the_failsafe_never_sells_beside_a_reconcile_flatten(
     assert [o.order_id.startswith("reconcile-") for o in sells] == [True]
     stack.quote(150, 152, t + SEC)  # a live bid: everything that rests can fill
     assert all(qty >= 0 for qty in stack.broker.positions().values())
+
+
+# --- review round 5 ---------------------------------------------------------------------
+
+
+def test_a_reconcile_that_raises_after_its_sell_never_gets_a_second_seller(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R5-1: reconcile's sell reaches the broker but the answer is lost; the overdue
+    failsafe must not add an exit beside it (that would leave a short option)."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    stack.broker.place(Order("stray", "OTHER", Side.BUY, 1, OrderType.LIMIT, D(1)))
+    original = stack.broker.place
+
+    def lost_ack(order: Order) -> OrderStatus:
+        status = original(order)
+        if order.order_id.startswith("reconcile-"):
+            raise ConnectionError("the answer was lost")
+        return status
+
+    monkeypatch.setattr(stack.broker, "place", lost_ack)
+    runner._managed_at = fill - timedelta(hours=1)
+    runner.doubt()
+    t = fill + 10 * SEC  # quiet feed: every sell rests
+    runner.step(t)
+    sells = [o for o in stack.broker.open_orders() if o.side is Side.SELL]
+    assert len(sells) <= 1
+    stack.quote(150, 152, t + SEC)
+    runner.step(t + 2 * SEC)
+    assert all(qty >= 0 for qty in stack.broker.positions().values())
+
+
+def test_the_failsafe_stands_aside_when_reconcile_raises(
+    stack: Stack, bars: list[Bar], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R5-1, first layer on its own: a reconcile that raised may have a sell out."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    calls: list[object] = []
+
+    def broken(*args: object) -> bool:
+        raise ConnectionError("the answer was lost")
+
+    monkeypatch.setattr(stack.manager, "reconcile", broken)
+    monkeypatch.setattr(stack.manager, "flatten", lambda *a: calls.append(a))
+    runner._managed_at = fill - timedelta(hours=1)
+    runner.doubt()
+    runner.step(fill + SEC)
+    assert calls == []
