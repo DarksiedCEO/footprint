@@ -732,3 +732,41 @@ def test_a_buy_that_fills_during_the_exit_sweep_is_reconciled_not_booked(
         stack.quote(150, 152, fill + second * SEC)
         runner.step(fill + second * SEC)
     assert stack.broker.positions() == {}
+
+
+# --- review round 7 ---------------------------------------------------------------------
+
+
+def test_extra_contracts_bought_beside_the_position_are_never_left_behind(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """R7-1: a second contract on the same series filled while the trade was open; the
+    exit must not sell just one and call the account flat."""
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    contract = stack.contract
+    extra = Order("andre-buy", contract, Side.BUY, 1, OrderType.LIMIT, D(152))
+    stack.broker.place(extra)  # fills at once at the 151.5 ask
+    assert stack.broker.positions() == {contract: 2}
+    stack.ledger.latch_kill_switch("test")  # management starts a kill-switch exit
+    for second in range(1, 8):
+        t = fill + second * SEC
+        stack.quote(150, 152, t)
+        runner.step(t)
+    assert stack.broker.positions() == {}
+    assert any("broker holds 2" in a.message for a in alarms)
+
+
+def test_every_close_is_confirmed_by_reconcile(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """R7-1 defence in depth: after any close, reconcile checks the broker is flat."""
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    drop = fill + 30 * SEC
+    stack.quote(114, 116, drop)  # the resting stop fills
+    runner.step(drop)
+    assert runner.position is None
+    assert runner.reconciling
+    runner.step(drop + SEC)
+    assert not runner.reconciling  # flat and agreed

@@ -320,6 +320,13 @@ class Manager:
             self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
             self._stand_down(now, f"{pid}: cannot read positions")
             return None
+        if 0 < held != position.contracts:
+            # More (or fewer) held than this position: selling its size would leave
+            # contracts nobody manages, or sell short. Stop and reconcile.
+            message = f"{pid}: broker holds {held}, position is {position.contracts}; reconcile"
+            self._alarm(now, message)
+            self._stand_down(now, f"{pid}: held size differs from the position")
+            raise NeedsReconcile(message)
         quantity = min(position.contracts, held)
         if quantity <= 0:
             # Nothing is held any more: something else closed it. Book the real fill.

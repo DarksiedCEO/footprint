@@ -208,6 +208,7 @@ class Runner:
         birth = self._birth
         self._position, self._birth, self._managed_at = None, None, None
         self._failsafe_alarmed = False
+        self.doubt()  # confirm the broker is really flat before the next decision
         if birth is not None:
             try:
                 self._journal.record_trade(position, closed, birth)
