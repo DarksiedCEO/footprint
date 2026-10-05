@@ -10,6 +10,7 @@ from footprint.core.models import Bar
 from footprint.decision.pipeline import ApprovedEntry, Pipeline
 from footprint.decision.stop import StopKeeper
 from footprint.execution.executor.diego import Executor
+from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger, StateStore
 from footprint.execution.management.malik import Alarm, Manager
 from footprint.execution.orders import Quote, SimulatedBroker
@@ -41,6 +42,7 @@ class Stack:
     approved: ApprovedEntry
     alarms: list[Alarm]
     state_path: Path
+    halt: Halt
 
     @property
     def contract(self) -> str:
@@ -64,8 +66,9 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
     broker = SimulatedBroker()
     stops = StopKeeper(profiles.risk, profiles.instrument, profiles.execution)
     alarms: list[Alarm] = []
-    executor = Executor(profiles, pipeline, broker, stops, ledger)
-    manager = Manager(profiles, broker, stops, ledger, alarms.append)
+    halt = Halt()
+    executor = Executor(profiles, pipeline, broker, stops, ledger, halt)
+    manager = Manager(profiles, broker, stops, ledger, halt, alarms.append)
     s = Stack(
         profiles,
         pipeline,
@@ -77,6 +80,7 @@ def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
         decision.approved,
         alarms,
         store_path,
+        halt,
     )
     s.quote(150, 152, DECISION_TIME)
     return s

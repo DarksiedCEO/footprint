@@ -43,6 +43,7 @@ from footprint.core.models import require_utc
 from footprint.decision.session import NewsBlackout, in_news_blackout
 from footprint.decision.stop import BidTick, StopCheck, StopKeeper
 from footprint.execution.executor.diego import Position
+from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.orders import (
     Order,
@@ -91,16 +92,20 @@ class Manager:
         broker: OrderBroker,
         stops: StopKeeper,
         ledger: Ledger,
+        halt: Halt,
         on_alarm: Callable[[Alarm], None] | None = None,
     ) -> None:
         self._p = profiles
         self._broker = broker
         self._stops = stops
         self._ledger = ledger
+        self._halt = halt
         self._on_alarm = on_alarm or (lambda alarm: None)
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
         self._reconcile_round = 0
+        self._closed: set[str] = set()
+        self._reconcile_orders: list[str] = []
 
     @property
     def agent_id(self) -> str:
@@ -117,6 +122,8 @@ class Manager:
         if quote.contract_id != position.contract_id:
             raise ValueError("quote is for a different contract than the position")
         pid = position.position_id
+        if pid in self._closed:
+            raise RuntimeError(f"position {pid!r} is already closed")
 
         if position.stop_order_id is not None:
             stop_status = self._broker.status(position.stop_order_id)
@@ -130,32 +137,55 @@ class Manager:
 
         tick = BidTick(quote.bid, quote.ask, quote.ts)
         check = self._stops.check(pid, tick, now)
-        if check is StopCheck.STALE:
-            self._alarm(now, f"{pid}: no fresh quote; relying on the resting stop")
-            return None
-        if check is StopCheck.NO_BID:
-            self._alarm(now, f"{pid}: the bid has vanished; resting stop stays, watch closely")
+        if check in (StopCheck.STALE, StopCheck.NO_BID):
+            if self._past_close(now):
+                # Never carry a position past the close for want of a quote (G8, NB-07).
+                self._alarm(now, f"{pid}: {check.value} quote at the close; flattening anyway")
+                return self._start_exit(position, quote, now, ExitReason.CLOSE)
+            what = "no fresh quote" if check is StopCheck.STALE else "the bid has vanished"
+            self._alarm(now, f"{pid}: {what}; relying on the resting stop")
             return None
 
         reason = self._must_exit(position, quote, check, blackouts, now)
         if reason is not None:
             return self._start_exit(position, quote, now, reason)
 
-        before = self._stops.current(pid).price
         self._stops.on_tick(pid, tick, now)
-        after = self._stops.current(pid)
-        if after.price > before and position.stop_order_id is not None:
-            spec = self._stops.resting_order(pid)
-            self._broker.modify(position.stop_order_id, spec.limit, spec.trigger)
-            confirmed = self._broker.status(position.stop_order_id)
-            if confirmed.order.stop_price != spec.trigger and confirmed.state is OrderState.WORKING:
-                self._alarm(
-                    now,
-                    f"{pid}: broker did not raise the resting stop to {spec.trigger} "
-                    f"(still {confirmed.order.stop_price})",
-                )
-            position.events.append(f"{now.isoformat()} stop raised to {spec.trigger}")
+        self._sync_stop(position, now)
         return None
+
+    def _sync_stop(self, position: Position, now: datetime) -> None:
+        """Make the broker's resting stop match Booker's, retrying every call until it
+        does. Booker only ever raises the stop, so this never loosens it.
+        """
+        assert position.stop_order_id is not None
+        pid = position.position_id
+        spec = self._stops.resting_order(pid)
+        try:
+            held = self._broker.status(position.stop_order_id)
+            if held.state is OrderState.WORKING and held.order.stop_price != spec.trigger:
+                self._broker.modify(position.stop_order_id, spec.limit, spec.trigger)
+                held = self._broker.status(position.stop_order_id)
+                if held.order.stop_price == spec.trigger:
+                    position.events.append(f"{now.isoformat()} stop raised to {spec.trigger}")
+                else:
+                    self._alarm(
+                        now,
+                        f"{pid}: broker did not raise the resting stop to {spec.trigger} "
+                        f"(still {held.order.stop_price}); retrying",
+                    )
+        except Exception as exc:  # retried on the next call
+            self._alarm(now, f"{pid}: could not raise the resting stop: {exc!r}; retrying")
+
+    def _past_close(self, now: datetime) -> bool:
+        p = self._p
+        prime = p.instrument.prime_session
+        zone = ZoneInfo(prime.timezone)
+        local = now.astimezone(zone)
+        cutoff = datetime.combine(local.date(), prime.end, zone) - timedelta(
+            minutes=p.strategy.console.close_lead_minutes
+        )
+        return session_at(now, p.instrument) is not SessionKind.PRIME or local >= cutoff
 
     def _must_exit(
         self,
@@ -170,13 +200,7 @@ class Manager:
             return ExitReason.GAP
         if check is StopCheck.HIT:
             return ExitReason.STOP
-        prime = p.instrument.prime_session
-        zone = ZoneInfo(prime.timezone)
-        local = now.astimezone(zone)
-        cutoff = datetime.combine(local.date(), prime.end, zone) - timedelta(
-            minutes=p.strategy.console.close_lead_minutes
-        )
-        if session_at(now, p.instrument) is not SessionKind.PRIME or local >= cutoff:
+        if self._past_close(now):
             return ExitReason.CLOSE
         blackouts = tuple(blackouts)
         if in_news_blackout(now, blackouts) is not None:
@@ -213,6 +237,19 @@ class Manager:
                 self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
                 return None
             position.stop_order_id = None
+        else:
+            # Unprotected: an unacknowledged stop may still be live. Cancel anything open on
+            # this contract and confirm, so the exit can never be sold twice.
+            for order in self._broker.open_orders():
+                if order.contract_id != position.contract_id:
+                    continue
+                self._broker.cancel(order.order_id)
+                gone = self._broker.status(order.order_id)
+                if gone.state is OrderState.FILLED and gone.avg_price is not None:
+                    return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                if gone.state is OrderState.WORKING:
+                    self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                    return None
         self._exit_reason[pid] = reason
         if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
@@ -241,14 +278,14 @@ class Manager:
         except Exception as exc:  # the exit did not reach the broker: retry next call
             self._alarm(now, f"{pid}: exit order failed to send: {exc!r}")
             position.exit_order_id = None
-            self._ledger.latch_kill_switch(f"{pid}: exit failed to send")
+            self._stand_down(now, f"{pid}: exit failed to send")
             return None
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{pid}: exit {status.state.value}; retrying and halting entries")
             position.exit_order_id = None
-            self._ledger.latch_kill_switch(f"{pid}: exit {status.state.value}")
+            self._stand_down(now, f"{pid}: exit {status.state.value}")
         return None
 
     def _work_exit(self, position: Position, quote: Quote, now: datetime) -> Closed | None:
@@ -259,15 +296,31 @@ class Manager:
             return self._close(position, status.avg_price, now, reason)
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{position.position_id}: exit {status.state.value}; retrying")
-            self._ledger.latch_kill_switch(f"{position.position_id}: exit {status.state.value}")
+            self._stand_down(now, f"{position.position_id}: exit {status.state.value}")
             return self._place_exit(position, quote, now, reason)
-        target = quote.bid if quote.bid > 0 else self._p.instrument.option_tick_size
+        tick = self._p.instrument.option_tick_size
+        target = quote.bid if quote.bid > 0 else tick
+        if self._stale(quote, now):
+            # No fresh price at the close: walk the limit down a tick per call.
+            target = max(tick, status.order.limit_price - tick)
         if target < status.order.limit_price:
             self._broker.modify(position.exit_order_id, target, None)
             status = self._broker.status(position.exit_order_id)
             if status.state is OrderState.FILLED and status.avg_price is not None:
                 return self._close(position, status.avg_price, now, reason)
         return None
+
+    def _stale(self, quote: Quote, now: datetime) -> bool:
+        age = now - quote.ts
+        return age > timedelta(seconds=self._p.execution.quotes.max_age_seconds) or quote.bid <= 0
+
+    def _stand_down(self, now: datetime, reason: str) -> None:
+        """Halt in memory first (cannot fail), then latch the durable kill switch."""
+        self._halt.trip(reason)
+        try:
+            self._ledger.latch_kill_switch(reason)
+        except Exception as exc:  # the in-memory halt already holds
+            self._alarm(now, f"could not save the kill-switch latch: {exc!r}")
 
     def _net_pnl(self, position: Position, price: Decimal) -> Decimal:
         pv = self._p.instrument.point_value
@@ -284,6 +337,7 @@ class Manager:
             self._alarm(now, f"{position.position_id}: closed but the ledger never recorded it")
         with contextlib.suppress(KeyError):  # Booker never held a stop (unprotected case)
             self._stops.close(position.position_id)
+        self._closed.add(position.position_id)
         position.events.append(f"{now.isoformat()} closed {reason.value} at {price}, net {net}")
         log.info("closed %s at %s (%s), net %s", position.position_id, price, reason.value, net)
         return Closed(position.position_id, price, now, reason, net)
@@ -309,19 +363,28 @@ class Manager:
         than run without its stop and trail.
         """
         expected = {position.contract_id: position.contracts} if position else {}
+        expected_orders = {position.stop_order_id} if position and position.stop_order_id else set()
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
         actual = self._broker.positions()
-        if actual == expected and ledger_ok:
+        open_ids = {o.order_id for o in self._broker.open_orders()}
+        if actual == expected and ledger_ok and open_ids == expected_orders:
             return True
         self._alarm(
             now,
-            f"reconcile mismatch: broker {actual}, expected {expected}, ledger open {ledger_open}",
+            f"reconcile mismatch: broker {actual} with orders {sorted(open_ids)}, expected "
+            f"{expected} with {sorted(expected_orders)}, ledger open {ledger_open}",
         )
-        self._ledger.latch_kill_switch("unclear recovery: broker, ledger and records disagree")
+        self._halt.trip("unclear recovery: broker, ledger and records disagree")
         for order in self._broker.open_orders():
             self._broker.cancel(order.order_id)
-        remaining = self._broker.positions()  # after the cancels: what is really held
+        pending = [o.order_id for o in self._broker.open_orders()]
+        if pending:
+            # Cancels not confirmed yet: placing anything now could sell twice.
+            self._alarm(now, f"reconcile waiting for cancels to confirm: {pending}")
+            self._stand_down(now, "unclear recovery")
+            return False
+        remaining = self._broker.positions()  # after confirmed cancels: what is really held
         self._reconcile_round += 1
         tick = self._p.instrument.option_tick_size
         for contract_id, qty in remaining.items():
@@ -336,9 +399,11 @@ class Manager:
             else:
                 self._alarm(now, f"cannot price a buy-back for {contract_id}: no ask")
                 continue
+            order_id = f"reconcile-{self._reconcile_round}-{contract_id}"
+            self._reconcile_orders.append(order_id)
             self._broker.place(
                 Order(
-                    order_id=f"reconcile-{self._reconcile_round}-{contract_id}",
+                    order_id=order_id,
                     contract_id=contract_id,
                     side=side,
                     quantity=abs(qty),
@@ -347,14 +412,39 @@ class Manager:
                 )
             )
         if not remaining and position is not None and ledger_open == position.position_id:
-            quote = quotes.get(position.contract_id)
-            estimate = quote.bid if quote is not None and quote.bid > 0 else tick
-            self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {estimate}")
-            self._close(position, estimate, now, ExitReason.RECONCILE)
+            price, actual_fill = self._actual_exit(position)
+            if not actual_fill:
+                self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {price}")
+            self._close(position, price, now, ExitReason.RECONCILE)
         elif not remaining and ledger_open is not None and position is None:
             self._alarm(
                 now,
                 f"ledger shows {ledger_open} open but nothing is held and no record survives: "
-                "book it by hand",
+                "book it with Ledger.book_by_hand",
             )
+        self._stand_down(now, "unclear recovery: broker, ledger and records disagree")
         return False
+
+    def _actual_exit(self, position: Position) -> tuple[Decimal, bool]:
+        """The price of the order that really closed the position, or an estimate."""
+        candidates = [position.stop_order_id, f"{position.position_id}-stop"]
+        candidates += [
+            f"{position.position_id}-exit-{n}"
+            for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)
+        ]
+        candidates += list(reversed(self._reconcile_orders))
+        for order_id in candidates:
+            if order_id is None:
+                continue
+            try:
+                status = self._broker.status(order_id)
+            except KeyError:
+                continue
+            if (
+                status.state is OrderState.FILLED
+                and status.avg_price is not None
+                and status.order.side is Side.SELL
+                and status.order.contract_id == position.contract_id
+            ):
+                return status.avg_price, True
+        return self._p.instrument.option_tick_size, False

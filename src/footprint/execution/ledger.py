@@ -155,6 +155,15 @@ class Ledger:
         log.critical("kill switch cleared by %s", cleared_by)
         self._save(replace(self._state, kill_switch_latched=False, peak_equity=self._state.equity))
 
+    def book_by_hand(self, now: datetime, position_id: str, net_pnl: Decimal, by: str) -> None:
+        """Andre only: book a position the system lost track of, at the net P&L he found
+        in the broker's statement. Counts like any other close (stop-outs, limits, drawdown).
+        """
+        if not by.strip():
+            raise ValueError("booking by hand needs the name of who booked it")
+        log.critical("%s booked %s by hand at %s", by, position_id, net_pnl)
+        self.on_trade_closed(now, position_id, net_pnl)
+
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
         self._roll(now)
         if self._state.open_position_id is not None:

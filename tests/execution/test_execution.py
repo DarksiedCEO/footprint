@@ -361,7 +361,9 @@ def test_nb16_reconcile_keeps_working_until_flat(stack: Stack) -> None:
     assert not stack.manager.reconcile(None, {stack.contract: stack.quote(159, 160, later)}, later)
     assert stack.broker.positions() == {}  # re-priced to the real bid and filled
     assert stack.manager.reconcile(None, {}, later + SEC) is False  # ledger still shows it
-    assert "book it by hand" in stack.alarms[-1].message
+    assert any("book_by_hand" in a.message for a in stack.alarms)
+    stack.ledger.book_by_hand(later, stack.ledger.open_position_id or "", D(-100), "Andre")
+    assert not stack.ledger.account(later).position_open
 
 
 # --- failure paths ------------------------------------------------------------------
@@ -640,3 +642,156 @@ def test_an_exit_the_broker_cancels_is_replaced(stack: Stack) -> None:
     assert closed is not None
     assert position.exit_order_id == f"{position.position_id}-exit-2"
     assert stack.ledger.account(later).kill_switch_latched
+
+
+# --- review round 2 ------------------------------------------------------------------
+
+
+def test_a_ledger_failure_halts_further_entries(
+    stack: Stack,
+    monkeypatch: pytest.MonkeyPatch,
+    bars: list,  # type: ignore[type-arg]
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(stack.ledger, "on_entry_filled", broken)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.PROTECTED
+    assert stack.halt.tripped
+    # The ledger thinks nothing is open, so the pipeline would approve again ...
+    again = stack.pipeline.decide(
+        bars, chain_for(bars[-1].close, SEND), stack.ledger.account(SEND), (), SEND
+    )
+    assert again.approved is not None
+    # ... but nothing more is sent.
+    with pytest.raises(EntryRefused, match="halted"):
+        stack.executor.submit(again.approved, (), SEND + SEC)
+    assert stack.broker.positions() == {stack.contract: 1}
+
+
+def test_a_stop_that_arrived_without_an_answer_is_adopted(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = stack.broker.place
+
+    def lost_reply(order: Order) -> OrderStatus:
+        status = original(order)
+        if order.order_type is OrderType.STOP_LIMIT:
+            raise TimeoutError("no acknowledgement")  # but the broker has it
+        return status
+
+    monkeypatch.setattr(stack.broker, "place", lost_reply)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.PROTECTED
+    assert ticket.position is not None
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop"
+
+
+def test_an_orphan_stop_is_cancelled_before_an_unprotected_exit(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_place = stack.broker.place
+    original_open = stack.broker.open_orders
+
+    def lost_reply(order: Order) -> OrderStatus:
+        status = original_place(order)
+        if order.order_type is OrderType.STOP_LIMIT:
+            raise TimeoutError("no acknowledgement")
+        return status
+
+    calls = {"n": 0}
+
+    def blind_once() -> list[Order]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("cannot list orders right now")
+        return original_open()
+
+    monkeypatch.setattr(stack.broker, "place", lost_reply)
+    monkeypatch.setattr(stack.broker, "open_orders", blind_once)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNPROTECTED  # Diego could not confirm the stop
+    assert ticket.position is not None
+    t = SEND + SEC
+    closed = stack.manager.manage(ticket.position, stack.quote(150, 152, t), (), t)
+    assert closed is not None
+    stack.quote(110, 111, t + SEC)  # a drop through an orphan stop would sell again
+    assert stack.broker.positions() == {}  # flat, not short
+
+
+def test_nb16_a_working_entry_after_a_restart_is_a_mismatch(stack: Stack) -> None:
+    stack.executor.submit(stack.approved, (), SEND)  # resting at 151, not filled
+    t = SEND + 5 * SEC
+    assert not stack.manager.reconcile(None, {stack.contract: stack.quote(150, 152, t)}, t)
+    assert stack.broker.open_orders() == []
+    stack.quote(140, D(150), t + SEC)  # the old entry can no longer fill
+    assert stack.broker.positions() == {}
+
+
+def test_nb16_books_the_real_fill_not_an_estimate(stack: Stack) -> None:
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    stack.quote(112, 113, t)  # the broker's stop fills at 112 while nobody watches
+    assert not stack.manager.reconcile(position, {stack.contract: stack.quote(160, 161, t)}, t)
+    acct = stack.ledger.account(t)
+    assert acct.realized_pnl_today == (D(112) - D("151.5")) * 20 - 5
+    assert acct.stopouts_today == 1
+
+
+def test_a_failing_trail_raise_is_retried_until_the_broker_matches(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    original = stack.broker.modify
+    calls = {"n": 0}
+
+    def flaky(order_id: str, limit: Decimal, stop: Decimal | None) -> OrderStatus:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("gateway dropped")
+        return original(order_id, limit, stop)
+
+    monkeypatch.setattr(stack.broker, "modify", flaky)
+    for i, bid in enumerate((D("201.75"), D("201.75"), D("201.75"))):
+        t = FILLED_AT + (1 + i) * SEC
+        stack.manager.manage(position, stack.quote(bid, bid + 1, t), (), t)
+    assert any("could not raise" in a.message for a in stack.alarms)
+    resting = stack.broker.status(f"{position.position_id}-stop").order
+    assert resting.stop_price == stack.stops.current(position.position_id).price
+
+
+def test_managing_a_closed_position_fails_loudly(stack: Stack) -> None:
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    stack.quote(112, 113, t)
+    assert stack.manager.manage(position, stack.quote(112, 113, t), (), t) is not None
+    with pytest.raises(RuntimeError, match="already closed"):
+        stack.manager.manage(position, stack.quote(112, 113, t + SEC), (), t + SEC)
+
+
+def test_a_stale_feed_at_the_close_still_flattens(stack: Stack) -> None:
+    position = filled_position(stack)
+    t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
+    stack.broker.on_quote(replace(stack.quote(160, 161, t), bid=D(150)))  # market moved away
+    stale = replace(stack.quote(150, 161, t), bid=D(160), ts=t - 60 * SEC)
+    assert stack.manager.manage(position, stale, (), t) is None
+    first = stack.broker.status(f"{position.position_id}-exit-1").order.limit_price
+    assert first == D(160)
+    stack.manager.manage(position, stale, (), t + SEC)  # still stale: walk down a tick
+    assert stack.broker.status(f"{position.position_id}-exit-1").order.limit_price == D("159.75")
+
+
+def test_nb16_no_new_order_while_cancels_are_unconfirmed(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    filled_position(stack)
+    monkeypatch.setattr(stack.broker, "cancel", lambda order_id: stack.broker.status(order_id))
+    t = SEND + 60 * SEC
+    assert not stack.manager.reconcile(None, {stack.contract: stack.quote(160, 161, t)}, t)
+    assert not any(o.order_id.startswith("reconcile-") for o in stack.broker.open_orders())
+    assert "waiting for cancels" in " ".join(a.message for a in stack.alarms)
+    assert stack.halt.tripped

@@ -30,6 +30,7 @@ from footprint.decision.pipeline import ApprovedEntry, Pipeline
 from footprint.decision.risk.gate import precheck
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
+from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.orders import Order, OrderBroker, OrderState, OrderType, Side
 
@@ -80,8 +81,10 @@ class Executor:
         broker: OrderBroker,
         stops: StopKeeper,
         ledger: Ledger,
+        halt: Halt,
     ) -> None:
         self._p = profiles
+        self._halt = halt
         self._pipeline = pipeline
         self._broker = broker
         self._stops = stops
@@ -98,6 +101,8 @@ class Executor:
     ) -> EntryTicket:
         require_utc(now, "now")
         p = self._p
+        if self._halt.tripped:
+            raise EntryRefused("halted: " + "; ".join(self._halt.reasons))
         if not isinstance(approved, ApprovedEntry) or not self._pipeline.issued(approved):
             raise EntryRefused("not an approval issued by this pipeline")
         if id(approved) in self._claimed:
@@ -196,14 +201,20 @@ class Executor:
             )
             stop_status = self._broker.place(stop)
             protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
-        except Exception as exc:  # any failure here means no stop: flatten
-            log.critical("no resting stop for %s: %r", ticket.position_id, exc)
+        except Exception as exc:  # any failure here: find out what the broker really has
+            log.critical("resting stop for %s uncertain: %r", ticket.position_id, exc)
+            stop_id = f"{ticket.position_id}-stop"
+            try:
+                live = [o for o in self._broker.open_orders() if o.order_id == stop_id]
+            except Exception as again:  # cannot even ask: treat as unprotected
+                log.critical("cannot read open orders: %r", again)
+                live = []
+            if live:
+                stop, protected = live[0], True  # it did arrive: adopt it
         try:
             self._ledger.on_entry_filled(now, ticket.position_id, session)
-        except Exception as exc:  # the broker still holds the stop
-            log.critical(
-                "ledger did not record %s: %r; reconcile will flatten", ticket.position_id, exc
-            )
+        except Exception as exc:  # the broker holds the stop; nothing new may be sent
+            self._halt.trip(f"ledger did not record {ticket.position_id}: {exc!r}")
         ticket.position = Position(
             position_id=ticket.position_id,
             contract_id=plan.choice.quote.contract_id,
