@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from footprint.core.calendar import SessionKind
+from footprint.core.models import Bar
 from footprint.decision.session import NewsBlackout
 from footprint.execution.executor.diego import (
     EntryOutcome,
@@ -926,16 +927,61 @@ def test_an_orphan_stop_that_already_filled_is_never_sold_again(
     assert stack.broker.positions() == {}  # flat, never short
 
 
-def test_an_exit_sells_only_what_the_broker_holds(stack: Stack) -> None:
+def test_an_exit_never_sells_or_books_on_a_flat_report_without_a_fill(stack: Stack) -> None:
+    """Review R11-1: the broker reports nothing held but no fill confirms it. Nothing
+    is sold, nothing is booked at a guessed price; reconcile takes over."""
+    from footprint.execution.management.malik import NeedsReconcile
+
     position = filled_position(stack)
-    # Something outside the system already sold the contract.
-    stack.broker._positions.clear()
+    stack.broker._positions.clear()  # something outside the system sold it (or a bad read)
     t = datetime(2026, 9, 15, 13, 55, tzinfo=PT).astimezone(UTC)
-    closed = stack.step(position, stack.quote(160, 161, t), (), t)
-    assert closed is not None
+    with pytest.raises(NeedsReconcile):
+        stack.step(position, stack.quote(160, 161, t), (), t)
+    assert not any("-exit-" in line and line.startswith("placed") for line in stack.broker.log)
+    assert stack.ledger.open_position_id == position.position_id  # not booked
+    assert stack.ledger.account(t).equity == stack.profiles.risk.bankroll
+    assert stack.halt.tripped
+
+
+def test_a_single_flickering_read_at_exit_never_corrupts_the_ledger(
+    stack: Stack,
+    bars: list[Bar],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review R11-1 end to end: one bad position read during a kill-switch exit. The
+    ledger ends with the true realized P&L of the real sale, not a guessed one."""
+    from tests.execution.test_runner import open_trade, runner_for, through_settle
+
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    fill = open_trade(stack, runner)
+    real = stack.broker.positions
+    bad = {"reads": 1}
+
+    def flicker() -> dict[str, int]:
+        if bad["reads"] > 0:
+            bad["reads"] -= 1
+            return {}
+        return real()
+
+    stack.ledger.latch_kill_switch("test")
+    monkeypatch.setattr(stack.broker, "positions", flicker)
+    t = fill + SEC
+    stack.quote(150, 152, t)
+    runner.step(t)  # the exit reads "flat" once: nothing booked, reconcile
+    assert stack.ledger.account(t).equity == stack.profiles.risk.bankroll
+    end = through_settle(stack, runner, t + SEC, (150, 152))
     assert stack.broker.positions() == {}
-    assert not any(o.order_id.endswith("-exit-1") for o in stack.broker.open_orders())
-    assert stack.halt.tripped  # closed by an unknown order: stand down
+    sold = [
+        s
+        for s in stack.broker._orders.values()
+        if s.state is OrderState.FILLED and s.order.side is Side.SELL
+    ]
+    assert len(sold) == 1
+    price = sold[0].avg_price
+    assert price is not None
+    expected = stack.profiles.risk.bankroll + (price - D("151.5")) * 20 - 5
+    assert stack.ledger.account(end).equity == expected  # the real sale, booked once
 
 
 def test_book_by_hand_books_a_trade_the_ledger_never_recorded(stack: Stack) -> None:

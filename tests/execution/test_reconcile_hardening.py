@@ -683,3 +683,20 @@ def test_a_long_normal_reconcile_is_not_called_unsettled(
         stack.manager.reconcile(None, t + k * SEC)
         k += 1
     assert not any("NOT SETTLING" in a.message for a in stack.alarms)
+
+
+def test_reconcile_never_books_a_guessed_exit(stack: Stack) -> None:
+    """Flat, settled, but nothing confirms what sold it: the ledger stays open and
+    Andre is asked (once) to book it from the broker statement."""
+    position = filled_position(stack)
+    stack.broker._positions.clear()  # sold outside the system (no fill on record)
+    stack.broker.cancel(f"{position.position_id}-stop")
+    t = FILLED_AT + 60 * SEC
+    for k in range(8):
+        stack.quote(160, 161, t + k * SEC)
+        stack.manager.reconcile(position, t + k * SEC)
+    assert stack.ledger.open_position_id == position.position_id
+    assert stack.ledger.account(t).equity == stack.profiles.risk.bankroll
+    assert sum("book it with Ledger.book_by_hand" in a.message for a in stack.alarms) == 1
+    stack.ledger.book_by_hand(t, position.position_id, D(-500), "Andre")
+    assert stack.ledger.open_position_id is None

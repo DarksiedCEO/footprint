@@ -125,6 +125,7 @@ class Manager:
         self._cancels_stuck_since: datetime | None = None
         self._cancel_escalated = False
         self._acting = False
+        self._unbooked_alarmed = False
         self._unsettled_since: datetime | None = None
         self._settle_escalated = False
         self._stuck_ids: set[str] = set()
@@ -353,12 +354,17 @@ class Manager:
             raise NeedsReconcile(message)
         quantity = min(position.contracts, held)
         if quantity <= 0:
-            # Nothing is held any more: something else closed it. Book the real fill.
+            # The broker reports nothing held. Book it only on a fill the broker
+            # confirms by id; one position read alone may lag or flicker, and the
+            # ledger never takes a guessed price.
             price, found = self._actual_exit(position)
-            self._alarm(now, f"{pid}: already flat at the broker; booking {price}")
-            if not found:
-                self._stand_down(now, f"{pid}: closed by an unknown order")
-            return self._close(position, price, now, reason)
+            if found:
+                self._alarm(now, f"{pid}: already flat at the broker; booking {price}")
+                return self._close(position, price, now, reason)
+            message = f"{pid}: broker reports flat but no fill confirms it; reconcile"
+            self._alarm(now, message)
+            self._stand_down(now, f"{pid}: flat without a confirmed fill")
+            raise NeedsReconcile(message)
         self._exit_attempts[pid] = self._exit_attempts.get(pid, 0) + 1
         tick = self._p.instrument.option_tick_size
         # A sell limit at the bid; with no bid, at one tick (the floor of any sale).
@@ -593,9 +599,19 @@ class Manager:
             self._broker.place(order)  # recorded and followed by id from now on
         if not remaining and position is not None and ledger_open == position.position_id:
             price, actual_fill = self._actual_exit(position)
-            if not actual_fill:
-                self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {price}")
-            self._reconcile_closes.append(self._close(position, price, now, ExitReason.RECONCILE))
+            if actual_fill:
+                self._reconcile_closes.append(
+                    self._close(position, price, now, ExitReason.RECONCILE)
+                )
+            elif not self._unbooked_alarmed:
+                # Flat (and settled), but no fill confirms what closed it: the ledger
+                # never takes a guessed price. It stays open; the system stays dark.
+                self._unbooked_alarmed = True
+                self._alarm(
+                    now,
+                    f"{position.position_id}: flat at the broker but no fill confirms the "
+                    "exit price: book it with Ledger.book_by_hand from the broker statement",
+                )
         elif not remaining and ledger_open is not None and position is None:
             self._alarm(
                 now,
@@ -725,6 +741,7 @@ class Manager:
 
     def _reset_reconcile(self) -> None:
         self._acting = False
+        self._unbooked_alarmed = False
         self._unsettled_since, self._settle_escalated = None, False
         self._stuck_ids = set()
         self._seen.clear()
