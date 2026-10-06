@@ -130,6 +130,18 @@ class Runner:
         self._alarm(self._now, f"cleared to trade by {by}")
 
     @property
+    def cleared_by(self) -> str | None:
+        """Who cleared it to trade since the start, or None (no entries)."""
+        return self._cleared_by
+
+    def revoke_clearance(self, reason: str) -> None:
+        """No new entries until cleared again (anything open is still managed)."""
+        if self._cleared_by is None:
+            return
+        self._cleared_by = None
+        self._alarm(self._now, reason)
+
+    @property
     def position(self) -> Position | None:
         return self._position
 

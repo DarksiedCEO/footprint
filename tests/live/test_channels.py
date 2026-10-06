@@ -191,9 +191,17 @@ def test_http_post_never_shows_a_malformed_url(bad: str) -> None:
 def test_a_failing_channel_never_logs_a_secret(
     profiles: Profiles, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The real http_post on a malformed URL, through the hub's retrying line."""
+    """The real http_post on a malformed Telegram URL (it fails inside this process,
+    before any connection), through the hub's retrying line. Twilio is faked."""
     broken = replace(channels(), telegram_token=TOKEN + " # x")  # (from_env refuses this)
-    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), broken, http_post)
+    twilio = Post(201)
+
+    def post(url: str, data: Mapping[str, str], auth: Any, timeout: float) -> int:
+        if "telegram" in url:
+            return http_post(url, data, auth, timeout)
+        return twilio(url, data, auth, timeout)
+
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), broken, post)
     with caplog.at_level("DEBUG"):
         hub.submit(alarm("cleared to trade by Andre"))
         time.sleep(1.5)
@@ -234,9 +242,14 @@ def test_the_critical_alarms_are_the_ones_that_need_hands() -> None:
 
 def test_every_critical_marker_is_still_said_somewhere_in_the_code() -> None:
     """Renaming an alarm must not silently stop its phone call."""
-    source = "\n".join(
-        p.read_text() for p in (REPO_ROOT / "src").rglob("*.py") if p.name != "channels.py"
-    )
+    texts = []
+    for p in (REPO_ROOT / "src").rglob("*.py"):
+        text = p.read_text()
+        if p.name == "channels.py":  # not the list itself
+            start = text.index("CRITICAL_MARKERS: tuple")
+            text = text[:start] + text[text.index("\n)\n", start) :]
+        texts.append(text)
+    source = "\n".join(texts)
     for marker in CRITICAL_MARKERS:
         assert marker in source, f"no alarm says {marker!r} any more"
 
@@ -264,7 +277,7 @@ def test_one_kind_of_critical_alarm_never_silences_another() -> None:
     assert [m.split(" ")[0] for m in rung] == ["IBKR", "KILL", "p1:"]
 
 
-def test_a_failed_call_is_retried_and_starts_no_cooldown() -> None:
+def test_a_failed_call_is_not_retried_and_starts_no_cooldown() -> None:
     clock = [0.0]
     attempts: list[str] = []
 
@@ -274,9 +287,9 @@ def test_a_failed_call_is_retried_and_starts_no_cooldown() -> None:
             raise ChannelError("Twilio call answered HTTP 503")
 
     calls = CriticalCalls(flaky, 600, lambda: clock[0])
-    with pytest.raises(ChannelError):
-        calls(alarm("HALT: x"))
-    calls(alarm("HALT: x"))  # the line's retry: rings now
+    calls(alarm("HALT: x"))  # fails: never raises, so the line moves on (no retry)
+    calls(alarm("HALT: x"))  # the next alarm of the kind rings: no cooldown was started
+    calls(alarm("HALT: x"))  # this one is inside the cooldown of the successful ring
     assert attempts == ["HALT: x", "HALT: x"]
 
 
@@ -387,15 +400,16 @@ def test_when_telegram_fails_the_alarm_goes_by_sms(profiles: Profiles) -> None:
     post = TelegramDown()
     hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), post)
     hub.submit(alarm("cleared to trade by Andre"))
+
+    def texts() -> list[str]:
+        return [d["Body"] for u, d, _, _ in post.calls if u.endswith("Messages.json")]
+
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not any(
-        u.endswith("Messages.json") for u, *_ in post.calls
-    ):
+    while time.monotonic() < deadline and not any("cleared to trade" in t for t in texts()):
         time.sleep(0.05)
     hub.close(timedelta(seconds=1))
-    sms = [d["Body"] for u, d, _, _ in post.calls if u.endswith("Messages.json")]
-    assert sms
-    assert "cleared to trade by Andre" in sms[0]
+    assert any("cleared to trade by Andre" in t for t in texts())  # the fallback
+    assert any("ALARM CHANNEL DOWN: Telegram" in t for t in texts())  # and why
 
 
 def test_the_sms_fallback_is_waited_for_and_counted_on_close(profiles: Profiles) -> None:
@@ -422,7 +436,7 @@ def test_the_sms_fallback_is_waited_for_and_counted_on_close(profiles: Profiles)
         time.sleep(0.05)
     time.sleep(0.1)  # Telegram's retry finishes; only the SMS is left
     try:
-        assert hub.pending == 1
+        assert hub.pending >= 1  # the SMS still in flight (with the channel alerts)
         assert not hub.close(timedelta(seconds=0.3))
     finally:
         release.set()
@@ -652,5 +666,20 @@ def test_a_line_that_will_not_close_in_time_is_reported() -> None:
             time.sleep(1.5)
             return True
 
-    hub = AlarmHub([Stuck()])  # type: ignore[list-item]
+    hub = AlarmHub(Stuck())  # type: ignore[arg-type]
     assert not hub.close(timedelta(seconds=0.1))
+
+
+# --- no test reaches the network ----------------------------------------------------------------
+
+
+def test_the_suite_cannot_reach_twilio_or_telegram(no_network: list[str]) -> None:
+    """The autouse guard (tests/conftest.py): the real sender fails without leaving."""
+    for url in (
+        "https://api.twilio.com/2010-04-01/Accounts/AC0/Messages.json",
+        "https://api.telegram.org/bot1:x/sendMessage",
+    ):
+        with pytest.raises(ChannelError):
+            http_post(url, {"Body": "x"}, (SID, AUTH), 2)
+    assert any("api.twilio.com" in a for a in no_network)
+    assert any("api.telegram.org" in a for a in no_network)

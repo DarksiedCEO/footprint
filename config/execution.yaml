@@ -45,6 +45,9 @@ alarms:
   call_cooldown_seconds: 1800  # DEFAULT: ring at most once in this long per kind of
                                #   critical alarm (a kind ringing never silences another);
                                #   the alarm still goes by push and SMS every time (D20)
+  degraded_attendance_minutes: 15  # DEFAULT: with DEGRADED_ALERTING (Telegram only or
+                               #   local only), entries stop when nobody has typed at the
+                               #   terminal for this long (unattended is blocked)
 ibkr:
   ack_timeout_seconds: 5      # DEFAULT: wait this long for IBKR's answer to a send, modify
                               #   or cancel before treating the answer as lost

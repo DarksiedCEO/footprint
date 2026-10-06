@@ -1,4 +1,7 @@
+import ipaddress
+import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,6 +17,65 @@ from footprint.core.config import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+_LOCAL_NAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+class NetworkBlocked(OSError):
+    """A test tried to reach the network (Twilio, Telegram, IBKR or anything else)."""
+
+
+def _loopback(host: object) -> bool:
+    if not isinstance(host, str):
+        return False
+    if host in _LOCAL_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """No test reaches beyond this machine (remediation item 4): no proxy (it would
+    carry a request out), no name lookup and no connection to anything but loopback.
+    Every attempt raises NetworkBlocked and is listed. Real delivery is checked only by
+    the explicitly run `python -m footprint.live.alarm_setup test`."""
+    attempts: list[str] = []
+    for name in _PROXY_VARS:
+        monkeypatch.delenv(name, raising=False)
+    real_getaddrinfo = socket.getaddrinfo
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:
+        if not _loopback(host):
+            attempts.append(f"lookup {host}")
+            raise NetworkBlocked(f"network blocked in tests: lookup of {host!r}")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    def _check(address: Any) -> None:
+        host = address[0] if isinstance(address, tuple) else address
+        if isinstance(address, (str, bytes)):  # a unix socket path: local
+            return
+        if not _loopback(host):
+            attempts.append(f"connect {host}")
+            raise NetworkBlocked(f"network blocked in tests: connect to {host!r}")
+
+    def connect(self: socket.socket, address: Any) -> None:
+        _check(address)
+        real_connect(self, address)
+
+    def connect_ex(self: socket.socket, address: Any) -> int:
+        _check(address)
+        return real_connect_ex(self, address)
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    return attempts
 
 
 @pytest.fixture

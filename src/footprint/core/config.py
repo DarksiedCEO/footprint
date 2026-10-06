@@ -622,6 +622,7 @@ class AlarmSettings:
     max_pending: int
     channel_timeout_seconds: int
     call_cooldown_seconds: int
+    degraded_attendance_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -705,6 +706,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         max_pending=_integer(al, "max_pending", a_where, minimum=1),
         channel_timeout_seconds=_integer(al, "channel_timeout_seconds", a_where, minimum=1),
         call_cooldown_seconds=_integer(al, "call_cooldown_seconds", a_where, minimum=0),
+        degraded_attendance_minutes=_integer(al, "degraded_attendance_minutes", a_where, minimum=1),
     )
     if alarms.channel_timeout_seconds >= alarms.retry_seconds * 2:
         raise ConfigError(
