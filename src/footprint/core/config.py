@@ -509,6 +509,7 @@ class ReconcileSettings:
 class IbkrConfig:
     ack_timeout_seconds: int
     positions_disagree_alarm_seconds: int
+    resync_realarm_seconds: int
     reconnect_seconds: int
     option_security_type: str
     require_paper: bool
@@ -625,6 +626,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         positions_disagree_alarm_seconds=_integer(
             ib, "positions_disagree_alarm_seconds", i_where, minimum=1
         ),
+        resync_realarm_seconds=_integer(ib, "resync_realarm_seconds", i_where, minimum=1),
         reconnect_seconds=_integer(ib, "reconnect_seconds", i_where, minimum=1),
         option_security_type=_text(ib, "option_security_type", i_where),
         require_paper=_boolean(ib, "require_paper", i_where),

@@ -24,7 +24,9 @@ def through_ibkr(stack: Stack, alarms: list[str]) -> tuple[FakeIbkr, IbkrBroker]
     contracts = ContractBook()
     contracts.register(stack.contract, contract(501))
     fake = FakeIbkr(stack.book, contracts)
-    adapter = IbkrBroker(fake, contracts, IbkrSettings(FAST, FAST), ("NQ", "FOP"), alarms.append)
+    adapter = IbkrBroker(
+        fake, contracts, IbkrSettings(FAST, FAST, FAST * 3), ("NQ", "FOP"), alarms.append
+    )
     fake.attach(adapter)
     fake.connect(next_valid_id=1)
     tracked = TrackedBroker(adapter)
@@ -175,7 +177,7 @@ def test_a_runner_started_before_ibkr_connects_waits_then_trades(
     contracts = ContractBook()
     contracts.register(stack.contract, contract(501))
     fake = FakeIbkr(stack.book, contracts)
-    adapter = IbkrBroker(fake, contracts, IbkrSettings(FAST, FAST), ("NQ", "FOP"))
+    adapter = IbkrBroker(fake, contracts, IbkrSettings(FAST, FAST, FAST * 3), ("NQ", "FOP"))
     fake.attach(adapter)
     tracked = TrackedBroker(adapter)
     stack.executor._broker = tracked

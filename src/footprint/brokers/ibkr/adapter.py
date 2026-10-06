@@ -126,12 +126,14 @@ class PositionsInDoubt(BrokerUnavailable, PositionsUncertain):
 class IbkrSettings:
     ack_timeout: timedelta
     positions_disagree_alarm: timedelta
+    resync_realarm: timedelta  # a resync still not complete is alarmed again this often
 
     @classmethod
     def from_config(cls, ibkr: IbkrConfig) -> IbkrSettings:
         return cls(
             ack_timeout=timedelta(seconds=ibkr.ack_timeout_seconds),
             positions_disagree_alarm=timedelta(seconds=ibkr.positions_disagree_alarm_seconds),
+            resync_realarm=timedelta(seconds=ibkr.resync_realarm_seconds),
         )
 
 
@@ -236,6 +238,7 @@ class IbkrBroker:
         self._outside_orders: set[int] = set()  # live orders on other instruments (permId)
         self._timeout = settings.ack_timeout.total_seconds()
         self._doubt_limit = settings.positions_disagree_alarm.total_seconds()
+        self._realarm = settings.resync_realarm.total_seconds()
         self._on_alarm = on_alarm
         self._on_resync = on_resync
         self._cv = threading.Condition()
@@ -245,7 +248,7 @@ class IbkrBroker:
         self._positions_round = False  # the snapshot has been asked for, not yet ended
         self._round_dirty = False  # a fill arrived while the snapshot was being taken
         self._resync_since: float | None = None
-        self._resync_alarmed = False
+        self._resync_alarmed_at: float | None = None  # when "not completing" was last said
         self._listing: _Listing | None = None
         self._unlisted_at_resync: set[int] = set()
         # Requests asked and not yet ended, by kind: only the end of the LAST one asked
@@ -715,14 +718,18 @@ class IbkrBroker:
     def _require_ready(self) -> None:
         if self._connected and self._ready:
             return
+        now = time.monotonic()
         if (
             self._connected
             and self._resync_since is not None
-            and not self._resync_alarmed
-            and time.monotonic() - self._resync_since >= self._doubt_limit
+            and now - self._resync_since >= self._doubt_limit
+            and (self._resync_alarmed_at is None or now - self._resync_alarmed_at >= self._realarm)
         ):
-            self._resync_alarmed = True
-            self._alarm("IBKR resync is not completing: nothing is sent or trusted")
+            self._resync_alarmed_at = now  # said again on a slow cadence, never every call
+            self._alarm(
+                f"IBKR resync is not completing ({now - self._resync_since:.0f}s): nothing is "
+                "sent or trusted; a held position has only its resting stop"
+            )
         raise NotReady("IBKR is disconnected or not yet resynced")
 
     def _allocate(self, order_id: str) -> int:
@@ -962,7 +969,7 @@ class IbkrBroker:
         self._positions_round, self._round_dirty, self._snapshot = False, False, {}
         self._unlisted_at_resync = set()
         self._listing = _Listing({c.perm_id for c in self._copies.values() if c.live}, True)
-        self._resync_since, self._resync_alarmed = time.monotonic(), False
+        self._resync_since, self._resync_alarmed_at = time.monotonic(), None
         self._ask("orders")
         self._ask("executions")
         self._cv.notify_all()
