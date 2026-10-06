@@ -185,6 +185,11 @@ def test_an_entry_the_broker_will_not_protect_is_flattened(stack: Stack) -> None
                 return OrderStatus(order, OrderState.REJECTED, 0, None)
             return super().place(order)
 
+        def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+            refused = OrderStatus(child, OrderState.REJECTED, 0, None)
+            self._orders[child.order_id] = refused  # the attached stop is refused too
+            return self.place(parent), refused
+
     broker = NoStops(stack.book, 5)
     stack.use_broker(broker)
     ticket = stack.executor.submit(stack.approved, (), SEND)
@@ -456,10 +461,16 @@ def test_a_stop_of_unknown_fate_is_never_sold_beside(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", down_for_stops)
+
+    def attached_unacknowledged(parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        # The attached stop was sent with the entry and never acknowledged.
+        return original(parent), OrderStatus(child, OrderState.WORKING, 0, None)
+
+    monkeypatch.setattr(stack.broker, "place_attached", attached_unacknowledged)
     real_status = stack.broker.status
 
     def unanswerable_for_stops(order_id: str) -> OrderStatus:
-        if order_id.endswith("-stop"):  # like IBKR: sent, never acknowledged, unknowable
+        if "-stop" in order_id:  # like IBKR: sent, never acknowledged, unknowable
             raise KeyError(order_id)  # (not NeverPlaced: the broker cannot say)
         return real_status(order_id)
 
@@ -467,7 +478,7 @@ def test_a_stop_of_unknown_fate_is_never_sold_beside(
     real_cancel = stack.broker.cancel
 
     def uncancellable_stops(order_id: str) -> OrderStatus:
-        if order_id.endswith("-stop"):
+        if "-stop" in order_id:
             raise KeyError(order_id)  # nor can a cancel be confirmed
         return real_cancel(order_id)
 
@@ -523,6 +534,13 @@ def test_an_unprotected_position_is_flattened_even_on_a_stale_quote(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", no_stops)
+
+    def attached_refused(parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        refused = OrderStatus(child, OrderState.REJECTED, 0, None)
+        stack.broker._orders[child.order_id] = refused
+        return original(parent), refused
+
+    monkeypatch.setattr(stack.broker, "place_attached", attached_refused)
     ticket = stack.executor.submit(stack.approved, (), SEND)
     stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
     ticket = stack.executor.on_time(ticket, SEND)

@@ -131,12 +131,12 @@ IB Gateway restarts itself every night. On a lost connection (D35, as decided):
   what IBKR holds. If the stop filled during the outage, the reconcile finds it and
   books the close. A reconcile that never agrees never lets trading resume.
 - The outage itself does not count against the 30-second "unmanaged" failsafe
-  (D37, to confirm): its clock moves on by exactly the outage's length, so time
+  (D37, confirmed): its clock moves on by exactly the outage's length, so time
   unmanaged before or after still counts, and a protected position is not flattened
   on reconnect just because of the outage.
-- **Known gap (H-2, awaiting your choice):** an entry order still working at IBKR when
-  the connection drops can fill during the outage without its stop. The stop is
-  placed once the fill is seen, after the reconnect.
+- An entry still working at IBKR when the connection drops is protected: its stop
+  is attached to it (D38), and IBKR activates the stop the moment the entry fills,
+  connected or not. After the reconnect the reconcile finds the fill and flattens it.
 - It is not a halt. "IBKR connection lost" rings the phone (critical).
 
 After 5 failed reconnects in a row it alarms once that a person is needed and retries

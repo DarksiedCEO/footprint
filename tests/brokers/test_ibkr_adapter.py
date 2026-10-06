@@ -891,3 +891,63 @@ def test_the_runner_is_told_at_the_loss_and_before_ready_again(ib: Ib) -> None:
     ib.fake.restore(data_lost=True)
     assert seen_ready_at_doubt == [False, False]  # told again, while still not ready
     assert ib.adapter.ready
+
+
+# --- H-2: the stop attached to the entry (a bracket) -----------------------------------------
+
+
+def attached_stop(order_id: str = "p1-stop", parent: str = "p1-entry") -> Order:
+    return Order(order_id, C, Side.SELL, 1, OrderType.STOP_LIMIT, D(109), D(114), "p1", parent)
+
+
+def test_a_bracket_is_sent_parent_held_then_child_transmitting(ib: Ib) -> None:
+    first, second = ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.WORKING, OrderState.WORKING)
+    parent, child = ib.fake.sends
+    assert (parent.order_ref, parent.transmit, parent.parent_ib_id) == ("p1-entry", False, None)
+    assert (child.order_ref, child.transmit, child.parent_ib_id) == ("p1-stop", True, parent.ib_id)
+
+
+def test_the_attached_stop_activates_when_the_entry_fills(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.quote(100, 160)  # far under the stop: held, nothing happens
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    assert ib.adapter.positions() == {}
+    ib.quote(139, 140)  # the entry fills
+    assert ib.adapter.status("p1-entry").state is OrderState.FILLED
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    ib.quote(113, 115)  # through the stop: it sells
+    assert ib.adapter.status("p1-stop").state is OrderState.FILLED
+    assert ib.adapter.positions() == {}
+
+
+def test_cancelling_the_entry_takes_the_attached_stop(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.adapter.cancel("p1-entry")
+    assert ib.adapter.status("p1-entry").state is OrderState.CANCELLED
+    assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+
+
+def test_a_held_child_reported_inactive_is_not_cancelled_while_its_parent_works(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.inactivate(child.perm_id)
+    assert ib.fake.cancels == []  # held for its parent: not cancelled
+    ib.quote(139, 140)  # the parent fills; the child still Inactive: now it is cancelled
+    ib.fake.inactivate(child.perm_id)
+    assert ib.fake.cancels == [child.ib_id]
+
+
+def test_a_refused_bracket_is_refused_whole(ib: Ib) -> None:
+    ib.fake.reject_next = 201
+    first, second = ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.REJECTED, OrderState.REJECTED)
+    assert ib.adapter.positions() == {}
+
+
+def test_a_bracket_is_tracked_whole(ib: Ib) -> None:
+    ib.tracked.place_attached(buy(price=140), attached_stop())
+    assert set(ib.tracked.unfinished) == {"p1-entry", "p1-stop"}
+    ib.tracked.cancel("p1-entry")
+    ib.tracked.status("p1-stop")
+    assert ib.tracked.unfinished == {}

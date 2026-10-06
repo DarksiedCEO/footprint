@@ -492,6 +492,11 @@ def test_an_immediate_unprotected_fill_is_flattened_on_the_same_step(
                 self._orders[order.order_id] = status
             return status
 
+        def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+            refused = OrderStatus(child, OrderState.REJECTED, 0, None)
+            self._orders[child.order_id] = refused
+            return self.place(parent), refused
+
     broker = FillsAtOnceRefusesStops(stack.book, stack.profiles.execution.quotes.max_age_seconds)
     stack.use_broker(broker)
     runner, _, alarms = runner_for(stack, bars, tmp_path)

@@ -8,9 +8,13 @@
 - G5 entry: start at the plan's floor (mid rounded down), step step_ticks every
   step_seconds, at most max_steps, never above the plan's ceiling, cancel after
   timeout_seconds. Only the planned contract, never more than the planned size.
-- Resting hard stop (NB-02): in the same call that sees the fill, Booker opens the
-  stop and Diego places the resting stop-limit at the broker for the filled size.
-  If the broker rejects the stop, Diego reports it so management flattens at once.
+- Resting hard stop (NB-02), attached to the entry (H-2): the entry goes to the
+  broker with its stop-limit attached, priced from the entry's limit (the highest it
+  can fill at), and the broker activates the stop the moment the entry fills, even
+  if we are disconnected then. Each price step raises the stop first, then the
+  entry. When the fill is seen, Booker opens the stop at the real fill and the
+  attached stop is moved to it. If the attached stop is not working by then, a new
+  one is placed; if the broker rejects that too, management flattens at once.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from footprint.core.models import Direction, require_utc
 from footprint.decision.pipeline import ApprovedEntry, Pipeline
 from footprint.decision.risk.gate import precheck
 from footprint.decision.session import NewsBlackout
-from footprint.decision.stop import StopKeeper
+from footprint.decision.stop import StopKeeper, StopOrderSpec
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
@@ -68,6 +72,7 @@ class EntryTicket:
     limit: Decimal
     outcome: EntryOutcome = EntryOutcome.WORKING
     position: Position | None = None
+    stop_order_id: str | None = None  # the stop attached to the entry
 
 
 class EntryRefused(RuntimeError):
@@ -144,6 +149,10 @@ class Executor:
         # never share its order ids with a previous run's.
         position_id = f"{now:%Y%m%dT%H%M%S}-{self._sequence}-{uuid4().hex[:8]}"
         plan = approved.plan
+        try:
+            spec = self._stops.preview(plan.limit_floor, plan.contracts)
+        except ValueError as exc:
+            raise EntryRefused(f"no hard stop can be attached: {exc}") from None
         order = Order(
             order_id=f"{position_id}-entry",
             contract_id=plan.choice.quote.contract_id,
@@ -152,9 +161,27 @@ class Executor:
             order_type=OrderType.LIMIT,
             limit_price=plan.limit_floor,
         )
-        ticket = EntryTicket(position_id, approved, order.order_id, now, plan.limit_floor)
-        status = self._broker.place(order)
-        log.info("entry %s placed at %s", order.order_id, plan.limit_floor)
+        stop = Order(
+            order_id=f"{position_id}-stop",
+            contract_id=order.contract_id,
+            side=Side.SELL,
+            quantity=plan.contracts,
+            order_type=OrderType.STOP_LIMIT,
+            limit_price=spec.limit,
+            stop_price=spec.trigger,
+            oca_group=position_id,
+            parent_id=order.order_id,
+        )
+        ticket = EntryTicket(
+            position_id,
+            approved,
+            order.order_id,
+            now,
+            plan.limit_floor,
+            stop_order_id=stop.order_id,
+        )
+        status, _ = self._broker.place_attached(order, stop)
+        log.info("entry %s placed at %s, stop attached", order.order_id, plan.limit_floor)
         return self._after(ticket, status.state, status.filled, status.avg_price, now)
 
     def abandon(self, ticket: EntryTicket) -> None:
@@ -183,12 +210,56 @@ class Executor:
         plan = ticket.approved.plan
         target = min(plan.limit_floor + tick * e.step_ticks * steps, plan.limit_ceiling)
         if target > ticket.limit:
+            if ticket.stop_order_id is not None:
+                # The stop first: it must follow the highest price the entry can fill at.
+                spec = self._stops.preview(target, plan.contracts)
+                self._broker.modify(ticket.stop_order_id, spec.limit, spec.trigger)
             self._broker.modify(ticket.order_id, target, None)
             status = self._broker.status(ticket.order_id)
             ticket.limit = status.order.limit_price
             if status.state is not OrderState.WORKING:
                 return self._after(ticket, status.state, status.filled, status.avg_price, now)
         return ticket
+
+    def _adopt_attached(
+        self, stop_id: str, spec: StopOrderSpec, filled: int
+    ) -> tuple[Order | None, bool]:
+        """The attached stop, moved to the stop at the real fill: (order, protected).
+        Not protected (a new stop is placed) when it is not working at the broker, or
+        is for another size than was filled."""
+        held = self._broker.status(stop_id)
+        if held.state is OrderState.FILLED:
+            return held.order, True  # already triggered and filled: management books it
+        if held.state is not OrderState.WORKING:
+            log.critical("attached stop %s is %s: placing a new one", stop_id, held.state.value)
+            return None, False
+        if held.order.quantity != filled:
+            log.critical(
+                "attached stop %s is for %s, %s filled: cancelling it, placing a new one",
+                stop_id,
+                held.order.quantity,
+                filled,
+            )
+            self._broker.cancel(stop_id)
+            return None, False
+        if (held.order.stop_price, held.order.limit_price) != (spec.trigger, spec.limit):
+            held = self._broker.modify(stop_id, spec.limit, spec.trigger)
+        return held.order, held.state in (OrderState.WORKING, OrderState.FILLED)
+
+    def _end_attached(self, ticket: EntryTicket) -> None:
+        """An unfilled entry takes its attached stop with it at the broker; confirm it
+        (and cancel it if it is somehow still working). Never raises: a stop left
+        recorded as working is found and cancelled by the next reconcile."""
+        if ticket.stop_order_id is None:
+            return
+        try:
+            if self._broker.status(ticket.stop_order_id).state is OrderState.WORKING:
+                log.critical(
+                    "attached stop %s outlived its entry: cancelling", ticket.stop_order_id
+                )
+                self._broker.cancel(ticket.stop_order_id)
+        except Exception as exc:
+            log.critical("cannot confirm attached stop %s ended: %r", ticket.stop_order_id, exc)
 
     def _after(
         self,
@@ -203,30 +274,40 @@ class Executor:
         if filled < 1 or price is None:
             ticket.outcome = EntryOutcome.UNFILLED
             log.info("entry %s ended unfilled (%s)", ticket.order_id, state.value)
+            self._end_attached(ticket)
             return ticket
         plan = ticket.approved.plan
         session = session_at(now, self._p.instrument)
         protected = False
         stop: Order | None = None
+        stop_id = ticket.stop_order_id or f"{ticket.position_id}-stop"
+        opened = False
         try:
             self._stops.open(ticket.position_id, price, filled)
+            opened = True
             spec = self._stops.resting_order(ticket.position_id)
-            stop = Order(
-                order_id=f"{ticket.position_id}-stop",
-                contract_id=plan.choice.quote.contract_id,
-                side=Side.SELL,
-                quantity=filled,
-                order_type=OrderType.STOP_LIMIT,
-                limit_price=spec.limit,
-                stop_price=spec.trigger,
-                oca_group=ticket.position_id,
-            )
-            stop_status = self._broker.place(stop)
-            protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
+            if ticket.stop_order_id is not None:
+                stop, protected = self._adopt_attached(ticket.stop_order_id, spec, filled)
+            if not protected:
+                # No attached stop working: a new one (its own id: ids are never reused).
+                stop_id = f"{ticket.position_id}-stop" + ("-2" if ticket.stop_order_id else "")
+                stop = Order(
+                    order_id=stop_id,
+                    contract_id=plan.choice.quote.contract_id,
+                    side=Side.SELL,
+                    quantity=filled,
+                    order_type=OrderType.STOP_LIMIT,
+                    limit_price=spec.limit,
+                    stop_price=spec.trigger,
+                    oca_group=ticket.position_id,
+                )
+                stop_status = self._broker.place(stop)
+                protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
         except Exception as exc:  # any failure here: find out what the broker really has
             log.critical("resting stop for %s uncertain: %r", ticket.position_id, exc)
-            stop_id = f"{ticket.position_id}-stop"
             try:
+                if not opened:  # no stop level for this fill: it cannot be managed
+                    raise RuntimeError("the fill could not open a stop") from exc
                 held = self._broker.status(stop_id)  # did it reach the broker after all?
                 if held.state in (OrderState.WORKING, OrderState.FILLED):
                     stop, protected = held.order, True  # adopt it (a fill is handled next)

@@ -265,7 +265,9 @@ def build_order(request: IbOrderRequest, account: str) -> Order:
         if request.oca_type is not None:
             order.ocaType = request.oca_type
     order.account = account
-    order.transmit = True
+    if request.parent_ib_id is not None:
+        order.parentId = request.parent_ib_id
+    order.transmit = request.transmit
     order.outsideRth = True
     return order
 

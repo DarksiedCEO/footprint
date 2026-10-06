@@ -884,3 +884,41 @@ def test_a_failing_wait_never_ends_the_reconnect_loop() -> None:
     binding.attach(Events())
     binding.run(stop)
     assert stop.waits == [7, 7, 7]  # it fell back to the longest wait and kept going
+
+
+def test_a_bracket_parent_is_held_and_its_child_names_it() -> None:
+    """H-2: the parent goes with transmit off; the child names it and transmits both."""
+    parent = IbOrderRequest(
+        8,
+        NQ_CALL,
+        "BUY",
+        1,
+        "LMT",
+        D("151.5"),
+        None,
+        "p1-entry",
+        None,
+        None,
+        "DAY",
+        transmit=False,
+    )
+    child = IbOrderRequest(
+        9,
+        NQ_CALL,
+        "SELL",
+        1,
+        "STP LMT",
+        D(109),
+        D("114.25"),
+        "p1-stop",
+        "p1",
+        1,
+        "DAY",
+        parent_ib_id=8,
+    )
+    held, attached = build_order(parent, ACCOUNT), build_order(child, ACCOUNT)
+    assert held.transmit is False
+    assert held.parentId == 0  # (ibapi's "no parent")
+    assert attached.parentId == 8
+    assert attached.transmit is True
+    assert attached.ocaGroup == "p1"

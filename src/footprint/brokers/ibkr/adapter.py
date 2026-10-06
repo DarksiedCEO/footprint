@@ -262,6 +262,7 @@ class IbkrBroker:
         self._ids: dict[str, int] = {}
         self._order_of_ib: dict[int, str] = {}
         self._sent: dict[str, Order] = {}
+        self._parent_of: dict[str, str] = {}  # an attached child's id -> its parent's id
         self._copies: dict[int, _Copy] = {}
         self._updates: dict[int, int] = {}
         self._errors: dict[int, list[int]] = {}
@@ -292,17 +293,57 @@ class IbkrBroker:
         self._gw.place_order(self._request(ib_id, order, contract))
         with self._cv:
             self._wait(lambda: self._answered(ib_id, seen), f"placing {order.order_id}")
-            codes = self._errors.get(ib_id, [])
-            if _EXISTS & set(codes):
-                raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
-            if _REJECTED & set(codes) and not self._copies_of(order.order_id):
-                return OrderStatus(order, OrderState.REJECTED, 0, None)
-            # Rejected with a copy at IBKR (Inactive): it reports working until its
-            # cancel is confirmed.
-            unknown = [c for c in codes if c not in _REJECTED]
-            if unknown and not self._copies_of(order.order_id):
-                raise RuntimeError(f"IBKR error {unknown} placing {order.order_id}")
-            return self._status(order.order_id)
+            return self._placed(order, ib_id)
+
+    def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        """A bracket (H-2): the parent with transmit off, then the child naming it with
+        transmit on, so IBKR takes both together and activates the child the moment
+        the parent fills, whether or not we are connected then."""
+        if child.parent_id != parent.order_id:
+            raise ValueError(f"{child.order_id} is not attached to {parent.order_id}")
+        try:
+            contracts = [self._contracts.ib(o.contract_id) for o in (parent, child)]
+        except KeyError:
+            raise UnknownContract(parent.contract_id) from None
+        with self._cv:
+            self._require_ready()
+            ids: list[int] = []
+            for order in (parent, child):
+                ib_id = self._ids.get(order.order_id)
+                if ib_id is None:
+                    ib_id = self._allocate(order.order_id)
+                self._sent[order.order_id] = order
+                self._errors[ib_id] = []
+                ids.append(ib_id)
+            seen = [self._updates.get(ib_id, 0) for ib_id in ids]
+            self._parent_of[child.order_id] = parent.order_id
+        parent_id, child_id = ids
+        self._gw.place_order(
+            replace(self._request(parent_id, parent, contracts[0]), transmit=False)
+        )
+        self._gw.place_order(
+            replace(self._request(child_id, child, contracts[1]), parent_ib_id=parent_id)
+        )
+        with self._cv:
+            self._wait(
+                lambda: self._answered(parent_id, seen[0]) and self._answered(child_id, seen[1]),
+                f"placing {parent.order_id} with {child.order_id} attached",
+            )
+            return self._placed(parent, parent_id), self._placed(child, child_id)
+
+    def _placed(self, order: Order, ib_id: int) -> OrderStatus:
+        """Under the lock: what a place's answer means."""
+        codes = self._errors.get(ib_id, [])
+        if _EXISTS & set(codes):
+            raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
+        if _REJECTED & set(codes) and not self._copies_of(order.order_id):
+            return OrderStatus(order, OrderState.REJECTED, 0, None)
+        # Rejected with a copy at IBKR (Inactive): it reports working until its
+        # cancel is confirmed.
+        unknown = [c for c in codes if c not in _REJECTED]
+        if unknown and not self._copies_of(order.order_id):
+            raise RuntimeError(f"IBKR error {unknown} placing {order.order_id}")
+        return self._status(order.order_id)
 
     def modify(
         self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
@@ -854,6 +895,9 @@ class IbkrBroker:
             return None
         if copy.ib_id <= 0 or self._ids.get(copy.order_id) != copy.ib_id:
             return None  # not ours to cancel by id
+        parent = self._parent_of.get(copy.order_id)
+        if parent is not None and self._is_live(parent):
+            return None  # an attached child held until its parent fills: not cancelled
         copy.cancel_sent = True
         alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
         return copy.ib_id
