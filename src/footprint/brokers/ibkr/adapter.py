@@ -432,6 +432,15 @@ class IbkrBroker:
                 ]
             return listed
 
+    def held_contracts(self) -> frozenset[str]:
+        """Every contract held (by the fills or by IBKR's report) or with a live order,
+        as far as known right now. Never waits and never raises: it answers between
+        resyncs too, and errs toward naming too many (the market data streams them)."""
+        with self._cv:
+            ids = set(self._counted()) | set(self._reported())
+            ids |= {c.order.contract_id for c in self._copies.values() if c.live}
+            return frozenset(ids)
+
     @property
     def ready(self) -> bool:
         """Connected and resynced: calls will be answered."""

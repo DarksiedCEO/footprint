@@ -10,10 +10,8 @@ TRADES, 2 INVALID.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import sys
-from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -23,24 +21,7 @@ from footprint.backtest.readout import read_out, to_json, to_markdown
 from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
-from footprint.decision.session import NewsBlackout
-
-
-def blackouts_from(path: Path | None) -> Callable[[datetime], Iterable[NewsBlackout]]:
-    """A CSV of news blackouts (columns name,start,end; ISO-8601 with offsets)."""
-    if path is None:
-        return lambda now: ()
-    with path.open(newline="", encoding="utf-8") as handle:
-        windows = tuple(
-            NewsBlackout(
-                row["name"],
-                datetime.fromisoformat(row["start"]),
-                datetime.fromisoformat(row["end"]),
-            )
-            for row in csv.DictReader(handle)
-        )
-
-    return lambda now: windows  # the system checks each window against the time itself
+from footprint.data.news import blackouts_from
 
 
 def main(argv: list[str] | None = None) -> int:

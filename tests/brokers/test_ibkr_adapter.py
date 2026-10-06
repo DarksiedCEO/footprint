@@ -740,3 +740,32 @@ def test_another_clients_reference_never_lends_its_id_to_our_order(ib: Ib) -> No
     )
     ib.adapter.place(sell("p9-exit-1", price=300))
     assert ib.fake.sends[-1].ib_id == 100  # its own id from IBKR, never the other's 0
+
+
+# --- what the market data must keep streaming (PR C) ------------------------------------------
+
+
+def test_held_contracts_names_positions_and_live_orders_without_waiting(ib: Ib) -> None:
+    assert ib.adapter.held_contracts() == frozenset()
+    ib.adapter.place(buy(price=152))  # filled: held
+    assert ib.adapter.held_contracts() == {C}
+    other = "NQ other"
+    ib.contracts.register(other, contract(502, strike=23800))
+    ib.adapter.place(Order("p2-entry", other, Side.BUY, 1, OrderType.LIMIT, D(1)))  # rests
+    assert ib.adapter.held_contracts() == {C, other}
+
+
+def test_held_contracts_answers_in_doubt_and_while_disconnected(ib: Ib) -> None:
+    ib.fake.position_lag = True
+    ib.adapter.place(buy(price=152))  # fills say 1; the report says nothing yet
+    started = time.monotonic()
+    assert ib.adapter.held_contracts() == {C}  # no PositionsInDoubt, no wait
+    assert time.monotonic() - started < FAST.total_seconds()
+    ib.fake.lose()
+    assert ib.adapter.held_contracts() == {C}  # still named while the line is down
+
+
+def test_held_contracts_names_a_report_the_fills_do_not_explain(ib: Ib) -> None:
+    ib.fake.told_positions[501] = 1  # IBKR reports a holding no fill accounts for
+    ib.adapter._ib_positions[C] = 1
+    assert C in ib.adapter.held_contracts()

@@ -144,6 +144,12 @@ class World:
         md = self.md
         if name == "details":
             req, query = args
+            if query.con_id:  # a lookup by IBKR's conId
+                for c in (*self.futures, *self.options):
+                    if c.con_id == query.con_id:
+                        md.on_contract_details(req, c)
+                md.on_contract_details_end(req)
+                return
             found = self.futures if query.sec_type == "FUT" else self.options
             for c in found:
                 if query.sec_type != "FUT" and (
@@ -1153,13 +1159,52 @@ def test_a_held_contract_is_streamed_again_after_a_reconnect(
     assert w.line(held) != first
 
 
-def test_a_held_contract_nobody_knows_is_alarmed_once(
+def test_a_held_contract_from_before_a_restart_is_looked_up_and_streamed(
     execution: ExecutionProfile, instrument: InstrumentProfile
 ) -> None:
     w = chain_world(execution, instrument)
+    leftover = next(c for c in CHAIN if c.strike == D(20100) and c.right == "P")
+    w.held.add(f"conid:{leftover.con_id}")  # the adapter's name for an unregistered one
+    w.run(2)
+    lookup = [q for _r, q in w.gw.named("details") if q.con_id == leftover.con_id]
+    assert len(lookup) == 1
+    assert (lookup[0].sec_type, lookup[0].exchange) == ("FOP", "CME")
+    assert w.contracts.ib(f"conid:{leftover.con_id}") == leftover  # reconcile can trade it
+    assert w.contracts.contract_id(leftover.con_id) == f"conid:{leftover.con_id}"
+    w.line(leftover)  # and its prices stream
+
+
+def test_a_held_contract_ibkr_does_not_know_is_alarmed_once_and_retried(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument, retry_seconds=5)
     w.held.add("conid:777")
+    w.run(3)
+    assert sum("does not know conid:777" in a for a in w.alarms) == 1
+    w.run(6)
+    assert len([q for _r, q in w.gw.named("details") if q.con_id == 777]) == 2
+
+
+def test_a_held_id_that_is_not_a_conid_is_alarmed_once(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    w.held.add("something-else")
     w.run(5)
-    assert sum("cannot stream the held conid:777" in a for a in w.alarms) == 1
+    assert sum("cannot stream the held something-else" in a for a in w.alarms) == 1
+
+
+def test_a_held_option_streams_even_while_the_futures_lookup_fails(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    held = CHAIN[5]
+    w = World(execution, instrument, options=CHAIN)
+    w.contracts.register(option_contract_id(held), held)
+    w.held.add(option_contract_id(held))
+    w.no_answer.add("details")  # the futures lookup never answers
+    w.connect()
+    w.run(2)
+    w.line(held)
 
 
 def test_an_unreadable_held_set_keeps_the_last_one(
