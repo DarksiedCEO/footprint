@@ -255,12 +255,12 @@ class ChannelSettings:
         return "ChannelSettings(<credentials>)"
 
 
-_PHONE = re.compile(r"\+[1-9]\d{7,14}")  # E.164
+_PHONE = re.compile(r"\+[1-9]\d{7,14}", re.ASCII)  # E.164
 _SHAPES: dict[str, re.Pattern[str]] = {
-    "TELEGRAM_BOT_TOKEN": re.compile(r"\d+:[A-Za-z0-9_-]+"),
-    "TELEGRAM_CHAT_ID": re.compile(r"-?\d+"),
-    "TWILIO_ACCOUNT_SID": re.compile(r"AC[0-9a-fA-F]{32}"),
-    "TWILIO_AUTH_TOKEN": re.compile(r"[A-Za-z0-9]+"),
+    "TELEGRAM_BOT_TOKEN": re.compile(r"\d+:[A-Za-z0-9_-]+", re.ASCII),
+    "TELEGRAM_CHAT_ID": re.compile(r"-?\d+", re.ASCII),
+    "TWILIO_ACCOUNT_SID": re.compile(r"AC[0-9a-fA-F]{32}", re.ASCII),
+    "TWILIO_AUTH_TOKEN": re.compile(r"[A-Za-z0-9]+", re.ASCII),
     "TWILIO_FROM_NUMBER": _PHONE,
     "ALARM_PHONE_NUMBER": _PHONE,
 }

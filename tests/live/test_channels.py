@@ -302,6 +302,7 @@ def test_channel_settings_need_all_six_keys_and_never_echo_a_value() -> None:
         ("TELEGRAM_BOT_TOKEN", "123456:SECRET\tTOKEN"),
         ("TELEGRAM_BOT_TOKEN", "SECRET-TOKEN"),
         ("TELEGRAM_CHAT_ID", "@andre"),
+        ("TELEGRAM_CHAT_ID", "\u0664\u0662"),  # Arabic-Indic digits: ASCII only
         ("TWILIO_ACCOUNT_SID", SID + " x"),
         ("TWILIO_ACCOUNT_SID", "AC123"),
         ("TWILIO_AUTH_TOKEN", AUTH + " #"),
