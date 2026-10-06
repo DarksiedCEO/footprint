@@ -414,3 +414,159 @@ def test_a_new_session_forgets_silenced_requests() -> None:
     binding._wrapper.new_session()
     binding._wrapper.tickPrice(REQ, TickTypeEnum.BID, 4.0, TickAttrib())
     assert market.got[-1] == ("on_quote", (REQ, QuoteField.BID, D(4)))
+
+
+# --- review round 2 ------------------------------------------------------------------------
+
+
+class Raising(Events):
+    """A market service with a bug: every quote raises."""
+
+    def on_quote(self, *args: Any) -> None:
+        self.got.append(("on_quote", args))
+        raise RuntimeError("service bug")
+
+
+def test_a_failing_market_service_voids_the_request_and_never_the_orders() -> None:
+    binding, client, events, alarms = opened()
+    market = Raising()
+    binding.attach_market(market)
+    w = binding._wrapper
+    w.tickPrice(REQ, TickTypeEnum.BID, 1.0, TickAttrib())  # raises inside the service
+    w.tickPrice(REQ, TickTypeEnum.ASK, 2.0, TickAttrib())  # void: dropped, no second alarm
+    w.tickSize(REQ, TickTypeEnum.OPTION_PUT_OPEN_INTEREST, D(3))  # also dropped
+    w.error(REQ, 0, 354, "not subscribed")  # also dropped
+    assert market.got == [
+        ("on_quote", (REQ, QuoteField.BID, D(1))),
+        (
+            "on_market_error",
+            (REQ, MARKET_DATA_UNREADABLE, "handling a quote failed (RuntimeError('service bug'))"),
+        ),
+    ]
+    assert client.connected
+    assert sum("is void" in a for a in alarms) == 1
+    w.orderStatus(7, "Submitted", D(0), D(1), 0.0, 77, 0, 0.0, 0, "", 0.0)
+    assert events.got[-1][0] == "on_order_status"  # the order side carries on
+    binding.request_quotes(REQ, CALL)  # asked again: no longer void
+    w.tickPrice(REQ, TickTypeEnum.BID, 5.0, TickAttrib())
+    assert market.got[-2] == ("on_quote", (REQ, QuoteField.BID, D(5)))  # heard again
+    assert market.got[-1][0] == "on_market_error"  # (and the still-buggy service voids it)
+
+
+def test_a_void_bar_request_stops_alarming_until_asked_again() -> None:
+    binding, _, market, alarms = with_market_and_alarms()
+    w = binding._wrapper
+    bad = bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(-1))
+    for _ in range(5):
+        w.historicalDataUpdate(REQ, bad)  # every few seconds, the same fault
+    w.historicalDataEnd(REQ, "", "")
+    assert len(market.got) == 1
+    assert sum("is void" in a for a in alarms) == 1
+    binding.request_bars(REQ, NQ_FUT, "", "1 D", True)
+    w.historicalDataUpdate(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(1)))
+    assert market.got[-1][0] == "on_bar_update"
+
+
+@pytest.mark.parametrize(
+    "request_again",
+    [
+        lambda b: b.request_contract_details(REQ, NQ_FUT),
+        lambda b: b.request_option_params(REQ, "NQ", "CME", "FUT", 555),
+        lambda b: b.request_quotes(REQ, CALL),
+        lambda b: b.request_bars(REQ, NQ_FUT, "", "1 D", False),
+    ],
+)
+def test_any_new_request_under_a_void_id_is_heard(request_again: Any) -> None:
+    binding, _, market, _ = with_market_and_alarms()
+    binding._wrapper.historicalData(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(-1)))
+    request_again(binding)
+    binding._wrapper.contractDetailsEnd(REQ)
+    assert market.got[-1] == ("on_contract_details_end", (REQ,))
+
+
+@pytest.mark.parametrize("epoch", ["99999999999999999999", "99999999999999"])
+def test_an_impossible_epoch_is_unreadable_not_a_crash(epoch: str) -> None:
+    binding, client, market, alarms = with_market_and_alarms()
+    b = bar(0, 1.0, 1.0, 1.0, 1.0, D(1))
+    b.date = epoch  # past what a datetime can hold (OverflowError) or a year (ValueError)
+    binding._wrapper.historicalData(REQ, b)
+    assert_voided(market, client, alarms, f"IBKR sent an unreadable bar (bar date '{epoch}'")
+
+
+def test_the_market_hears_the_session_close_even_when_the_adapter_fails() -> None:
+    class Failing(Events):
+        def on_connection(self, *args: Any) -> None:
+            if args[0] is Connection.LOST:
+                raise RuntimeError("adapter bug")
+
+    binding, _, _, _ = bound()
+    binding.attach(Failing())
+    market = Events()
+    binding.attach_market(market)
+    binding._wrapper.managedAccounts(ACCOUNT)
+    binding._wrapper.nextValidId(1)
+    with pytest.raises(RuntimeError, match="adapter bug"):
+        binding._wrapper.closed()  # (the supervisor alarms on this and reconnects)
+    assert market.got[-1] == ("on_market_connection", (Connection.LOST,))
+
+
+def test_a_void_request_raises_no_data_type_alarm() -> None:
+    binding, _, market, alarms = with_market_and_alarms()
+    binding._wrapper.historicalData(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(-1)))
+    binding._wrapper.marketDataType(REQ, 3)
+    assert len(market.got) == 1
+    assert not any("not real-time" in a for a in alarms)
+
+
+def test_a_market_service_failing_on_connection_news_never_stops_the_session() -> None:
+    class Broken(Events):
+        def on_market_connection(self, *args: Any) -> None:
+            raise RuntimeError("bug")
+
+        def on_market_notice(self, *args: Any) -> None:
+            raise RuntimeError("bug")
+
+    binding, _, events, alarms = bound()
+    binding.attach_market(Broken())
+    binding._wrapper.managedAccounts(ACCOUNT)
+    binding._wrapper.nextValidId(1)
+    binding._wrapper.error(-1, 0, 2103, "farm broken")
+    assert ("on_error", (-1, 2103, "farm broken")) in events.got
+    binding._wrapper.closed()
+    assert events.got[-1] == ("on_connection", (Connection.LOST,))
+    assert sum("market service failed" in a for a in alarms) == 3
+
+
+def test_the_supervisor_survives_any_exception_and_reconnects() -> None:
+    import threading
+
+    from footprint.brokers.ibkr.binding import IbBinding
+    from tests.brokers.test_ibkr_binding import SCOPE, Recording, settings
+
+    alarms: list[str] = []
+    clients: list[Recording] = []
+    stop = threading.Event()
+
+    def factory(wrapper: Any) -> Recording:
+        client = Recording(wrapper)
+
+        def session(c: Recording) -> None:
+            wrapper.managedAccounts(ACCOUNT)
+            wrapper.nextValidId(100)
+            if len(clients) == 1:
+                raise OverflowError("anything a callback could raise")
+            stop.set()
+
+        client.on_run = session
+        clients.append(client)
+        return client
+
+    binding = IbBinding(settings(reconnect_seconds=0.01), SCOPE, alarms.append, factory)
+    events = Events()
+    binding.attach(events)
+    binding.run(stop)
+    assert len(clients) == 2  # the failed session was followed by a new one
+    assert not clients[0].connected  # and it was hung up
+    assert any("session failed unexpectedly" in a for a in alarms)
+    connections = [args[0] for name, args in events.got if name == "on_connection"]
+    assert connections == [Connection.CONNECTED, Connection.LOST] * 2

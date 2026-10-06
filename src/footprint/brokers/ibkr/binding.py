@@ -216,7 +216,11 @@ def to_bar(bar: BarData) -> IbBar:
     volume = to_quantity(bar.volume)
     if volume < 0:
         raise UnreadableValue(f"bar at {bar.date} has volume {volume}")
-    return IbBar(datetime.fromtimestamp(int(bar.date), tz=UTC), o, h, low, c, volume)
+    try:
+        ts = datetime.fromtimestamp(int(bar.date), tz=UTC)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise UnreadableValue(f"bar date {bar.date!r} is out of range") from exc
+    return IbBar(ts, o, h, low, c, volume)
 
 
 def build_contract(request: IbOrderRequest) -> Contract:
@@ -294,6 +298,7 @@ class IbBinding:
     # --- IbMarketGateway ----------------------------------------------------------------
 
     def request_contract_details(self, req_id: int, query: ContractQuery) -> None:
+        self._wrapper.fresh_request(req_id)
         self._call().reqContractDetails(req_id, build_query(query))
 
     def request_option_params(
@@ -304,12 +309,13 @@ class IbBinding:
         underlying_sec_type: str,
         underlying_con_id: int,
     ) -> None:
+        self._wrapper.fresh_request(req_id)
         self._call().reqSecDefOptParams(
             req_id, symbol, option_exchange, underlying_sec_type, underlying_con_id
         )
 
     def request_quotes(self, req_id: int, contract: IbContract) -> None:
-        self._wrapper.live_again(req_id)  # a fresh request: IBKR will say what it is
+        self._wrapper.fresh_request(req_id)  # IBKR will say what kind of data it gets
         self._call().reqMktData(
             req_id, build_ib_contract(contract), _OPEN_INTEREST_TICKS, False, False, []
         )
@@ -322,6 +328,7 @@ class IbBinding:
     ) -> None:
         if keep_up_to_date and end:
             raise ValueError(f"bars kept up to date must end now (''), not {end!r}")
+        self._wrapper.fresh_request(req_id)
         self._call().reqHistoricalData(
             req_id,
             build_query(query),
@@ -395,10 +402,19 @@ class IbBinding:
                 self._client = client
             self._wrapper.new_session()
             log.info("connecting to IB Gateway at %s:%s", self._s.host, self._s.port)
-            client.connect(self._s.host, self._s.port, self._s.client_id)
-            if client.isConnected():
-                client.run()  # until the connection drops (it disconnects on the way out)
-            self._wrapper.closed()
+            try:
+                client.connect(self._s.host, self._s.port, self._s.client_id)
+                if client.isConnected():
+                    client.run()  # until the connection drops (it disconnects on the way out)
+            except Exception as exc:  # a bug anywhere must never end the reconnect loop
+                log.exception("IBKR session failed")
+                self._alarm(f"IBKR session failed unexpectedly ({exc!r}); reconnecting")
+                self._disconnect(client)
+            try:
+                self._wrapper.closed()
+            except Exception as exc:
+                log.exception("IBKR session close failed")
+                self._alarm(f"IBKR session close failed ({exc!r}); reconnecting anyway")
             if self._refused is not None:
                 return
             stop.wait(self._s.reconnect_seconds)  # returns at once when stopped
@@ -409,6 +425,13 @@ class IbBinding:
             client = self._client
         if client is not None:
             client.disconnect()
+
+    @staticmethod
+    def _disconnect(client: Any) -> None:
+        try:
+            client.disconnect()
+        except Exception:
+            log.exception("IBKR disconnect failed")
 
     def _sent(self, ib_id: int) -> bool:
         with self._lock:
@@ -469,15 +492,22 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._in_scope: set[int] = set()  # permIds of orders in the scope
             self._accounts: tuple[str, ...] = ()
             self._not_live: set[int] = set()  # quote requests IBKR said are not real-time
+            self._void: set[int] = set()  # market requests voided by a fault
             self._dropped_market = False
 
-    def live_again(self, req_id: int) -> None:
+    def fresh_request(self, req_id: int) -> None:
+        """A market request (re)made under this id: nothing voided or silenced carries."""
         with self._session_lock:
             self._not_live.discard(req_id)
+            self._void.discard(req_id)
+
+    def _is_void(self, req_id: int) -> bool:
+        with self._session_lock:
+            return req_id in self._void
 
     def _is_live(self, req_id: int) -> bool:
         with self._session_lock:
-            return req_id not in self._not_live
+            return req_id not in self._not_live  # (void requests: _market_guard)
 
     def foreign_open(self) -> int:
         with self._session_lock:
@@ -493,10 +523,10 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         with self._session_lock:
             was_open, self._open = self._open, False
         if was_open:
-            self._b._forward().on_connection(Connection.LOST)
-            market = self._b._market_events()
-            if market is not None:
-                market.on_market_connection(Connection.LOST)
+            try:
+                self._b._forward().on_connection(Connection.LOST)
+            finally:  # the market hears it even if the adapter failed
+                self._tell_market("connection", lambda m: m.on_market_connection(Connection.LOST))
 
     def _guard(self, what: str, action: Callable[[], None]) -> None:
         try:
@@ -517,16 +547,36 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
     def _market_guard(
         self, req_id: int, what: str, action: Callable[[IbMarketEvents], None]
     ) -> None:
-        """A market data fault voids that one request; it never touches the orders."""
+        """A market data fault of any kind (an unreadable value, or a failure in the
+        market service) voids that one request, once; it never touches the orders."""
         market = self._market()
+        if market is None or self._is_void(req_id):
+            return
+        try:
+            action(market)
+        except Exception as exc:
+            if isinstance(exc, UnreadableValue):
+                message = f"IBKR sent an unreadable {what} ({exc})"
+            else:
+                log.exception("market data %s failed on request %s", what, req_id)
+                message = f"handling a {what} failed ({exc!r})"
+            with self._session_lock:
+                self._void.add(req_id)  # its later callbacks are dropped until re-requested
+            self._b._alarm(f"{message}; market request {req_id} is void")
+            self._tell_market(
+                "error", lambda m: m.on_market_error(req_id, MARKET_DATA_UNREADABLE, message)
+            )
+
+    def _tell_market(self, what: str, action: Callable[[IbMarketEvents], None]) -> None:
+        """Tell the market service something that belongs to no one request."""
+        market = self._b._market_events()
         if market is None:
             return
         try:
             action(market)
-        except UnreadableValue as exc:
-            message = f"IBKR sent an unreadable {what} ({exc})"
-            self._b._alarm(f"{message}; market request {req_id} is void")
-            market.on_market_error(req_id, MARKET_DATA_UNREADABLE, message)
+        except Exception as exc:
+            log.exception("the market service failed on a %s", what)
+            self._b._alarm(f"the market service failed on a {what} ({exc!r})")
 
     # --- the session ---------------------------------------------------------------
 
@@ -558,9 +608,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         # Real-time data only, set before anything is asked for in this session.
         self._b._call().reqMarketDataType(_REAL_TIME)
         self._b._forward().on_connection(Connection.CONNECTED, next_id)
-        market = self._b._market_events()
-        if market is not None:
-            market.on_market_connection(Connection.CONNECTED)
+        self._tell_market("connection", lambda m: m.on_market_connection(Connection.CONNECTED))
 
     def connectionClosed(self) -> None:
         self.closed()
@@ -580,16 +628,19 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         if not open_:
             log.warning("IBKR %s before the session opened: %s", errorCode, errorString)
         elif reqId >= MARKET_REQUEST_BASE:  # a market data request's, never an order's
-            market = self._b._market_events()
-            if market is not None:
-                market.on_market_error(reqId, errorCode, errorString)
-            else:
+            if self._b._market_events() is None:
                 log.warning("IBKR %s on market request %s: %s", errorCode, reqId, errorString)
+            self._market_guard(
+                reqId, "market error", lambda m: m.on_market_error(reqId, errorCode, errorString)
+            )
         else:
-            self._b._forward().on_error(reqId, errorCode, errorString)
-            market = self._b._market_events()
-            if reqId < 0 and market is not None:  # system-wide: data farms, connectivity
-                market.on_market_notice(errorCode, errorString)
+            try:
+                self._b._forward().on_error(reqId, errorCode, errorString)
+            finally:
+                if reqId < 0:  # system-wide: data farms, connectivity
+                    self._tell_market(
+                        "notice", lambda m: m.on_market_notice(errorCode, errorString)
+                    )
 
     # --- orders ----------------------------------------------------------------------
 
@@ -764,9 +815,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         )
 
     def contractDetailsEnd(self, reqId: int) -> None:
-        market = self._market()
-        if market is not None:
-            market.on_contract_details_end(reqId)
+        self._market_guard(reqId, "contract", lambda m: m.on_contract_details_end(reqId))
 
     def securityDefinitionOptionParameter(
         self,
@@ -794,34 +843,33 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         self._market_guard(reqId, "option chain", forward)
 
     def securityDefinitionOptionParameterEnd(self, reqId: int) -> None:
-        market = self._market()
-        if market is not None:
-            market.on_option_params_end(reqId)
+        self._market_guard(reqId, "option chain", lambda m: m.on_option_params_end(reqId))
 
     def marketDataType(self, reqId: int, marketDataType: int) -> None:
         """IBKR says what kind of data a quote request gets. Frozen data comes on the
         ordinary bid and ask ticks, so anything but real-time silences that request."""
-        market = self._market()
-        if market is None:
-            return
-        if marketDataType == _REAL_TIME:
-            self.live_again(reqId)
+        if self._market() is None or self._is_void(reqId):
             return
         with self._session_lock:
+            if marketDataType == _REAL_TIME:
+                self._not_live.discard(reqId)
+                return
             self._not_live.add(reqId)
         message = f"IBKR is sending market data type {marketDataType}, not real-time"
         self._b._alarm(f"{message} for market request {reqId}; its quotes are ignored")
-        market.on_market_error(reqId, MARKET_DATA_NOT_REAL_TIME, message)
+        self._market_guard(
+            reqId,
+            "market data type",
+            lambda m: m.on_market_error(reqId, MARKET_DATA_NOT_REAL_TIME, message),
+        )
 
     def tickPrice(self, reqId: int, tickType: int, price: float, attrib: TickAttrib) -> None:
         field = _QUOTE_PRICES.get(tickType)  # real-time bid and ask only; delayed never
         if field is None or not self._is_live(reqId):
             return
-        market = self._market()
-        if market is None:
-            return
         value = to_price(price)
-        market.on_quote(reqId, field, value if value is not None and value > 0 else None)
+        quote = value if value is not None and value > 0 else None
+        self._market_guard(reqId, "quote", lambda m: m.on_quote(reqId, field, quote))
 
     def tickSize(self, reqId: int, tickType: int, size: Decimal) -> None:
         if tickType not in _OPEN_INTEREST or not self._is_live(reqId):
@@ -836,9 +884,7 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         self._market_guard(reqId, "bar", lambda m: m.on_bar(reqId, to_bar(bar)))
 
     def historicalDataEnd(self, reqId: int, start: str, end: str) -> None:
-        market = self._market()
-        if market is not None:
-            market.on_bars_end(reqId)
+        self._market_guard(reqId, "bar", lambda m: m.on_bars_end(reqId))
 
     def historicalDataUpdate(self, reqId: int, bar: BarData) -> None:
         self._market_guard(reqId, "bar", lambda m: m.on_bar_update(reqId, to_bar(bar)))
