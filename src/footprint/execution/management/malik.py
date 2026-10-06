@@ -119,6 +119,8 @@ class Manager:
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
         self._stop_stuck_since: dict[str, datetime] = {}
+        self._exit_wait_since: dict[str, datetime] = {}  # an order the exit waits on
+        self._held_back_alarmed: set[str] = set()
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -159,16 +161,23 @@ class Manager:
             stop_status = self._broker.status(position.stop_order_id)
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
-            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED) or (
-                stop_status.held_back
-            ):
+            if stop_status.held_back:
+                # Held back (Inactive at the broker, or being cancelled): no protection
+                # (AEGIS N1). Get out through the stop's own cancel, so a cancel that
+                # never lands escalates to reconcile and Andre (AEGIS F1).
+                if pid not in self._held_back_alarmed:
+                    self._held_back_alarmed.add(pid)
+                    self._alarm(
+                        now, f"{pid}: resting stop held back at the broker; unprotected, flattening"
+                    )
+                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
+            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
                 # Gone at the broker without this system cancelling it (by hand, or
-                # by the broker), or held back (Inactive, being cancelled): the
-                # position is unprotected. Get out (exits share the stop's OCA group).
-                what = "held back" if stop_status.held_back else stop_status.state.value
+                # by the broker): the position is unprotected. Get out.
                 self._alarm(
                     now,
-                    f"{pid}: resting stop {what} at the broker; unprotected, flattening",
+                    f"{pid}: resting stop {stop_status.state.value} at the broker; "
+                    "unprotected, flattening",
                 )
                 position.stop_order_id = None
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
@@ -298,7 +307,10 @@ class Manager:
                 if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
                     return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
                 if cancelled.state is not OrderState.CANCELLED:
-                    self._alarm(now, f"{pid}: resting stop not cancelled ({cancelled.state.value})")
+                    if pid not in self._stop_stuck_since:  # once, then the escalation
+                        self._alarm(
+                            now, f"{pid}: resting stop not cancelled ({cancelled.state.value})"
+                        )
                     since = self._stop_stuck_since.setdefault(pid, now)
                     escalate = timedelta(
                         seconds=self._p.execution.reconcile.cancel_escalate_seconds
@@ -363,8 +375,20 @@ class Manager:
                     self._stand_down(now, f"{pid}: unexpected fill on the contract")
                     raise NeedsReconcile(message)
                 if gone.state is OrderState.WORKING:
-                    self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                    # Bounded like the stop's own cancel (AEGIS F1): never waits forever.
+                    if order_id not in self._exit_wait_since:
+                        self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                    since = self._exit_wait_since.setdefault(order_id, now)
+                    escalate = timedelta(
+                        seconds=self._p.execution.reconcile.cancel_escalate_seconds
+                    )
+                    if now - since >= escalate:
+                        del self._exit_wait_since[order_id]
+                        message = f"{pid}: {order.order_id} will not cancel; reconcile"
+                        self._stand_down(now, f"{pid}: {order.order_id} will not cancel")
+                        raise NeedsReconcile(message)
                     return None
+                self._exit_wait_since.pop(order_id, None)
         except NeedsReconcile:
             raise
         except Exception as exc:  # the broker failed mid-exit: halt, retry next call

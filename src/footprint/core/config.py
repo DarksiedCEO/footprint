@@ -404,9 +404,13 @@ def load_instrument(path: Path) -> InstrumentProfile:
     # Complete through calendar_through: every standard US exchange holiday from the
     # first listed year on must be listed (closed, early close or no-trade day), so
     # moving calendar_through forward alone is refused (fail closed, D34).
-    absent = [n for n in REQUIRED_RULES if n not in {r.name for r in profile.holiday_rules}]
+    kinds = {r.name: r.kind for r in profile.holiday_rules}
+    absent = [n for n in REQUIRED_RULES if n not in kinds]
     if absent:
         raise ConfigError(f"{where}: holiday_rules has no rule for {', '.join(absent)}")
+    wrong = [f"{n} must be {k}" for n, k in REQUIRED_RULES.items() if kinds[n] != k]
+    if wrong:
+        raise ConfigError(f"{where}: holiday_rules: {'; '.join(wrong)}")
     for easter in profile.easter_sundays:
         if easter.weekday() != _WEEKDAYS.index("SUN"):
             raise ConfigError(f"{where}: easter_sundays {easter} is not a Sunday")

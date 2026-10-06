@@ -92,6 +92,7 @@ _LIVE = frozenset({"ApiPending", "PendingSubmit", "PreSubmitted", "Submitted", "
 _CANCELLED = frozenset({"Cancelled", "ApiCancelled"})
 _FILLED = "Filled"
 _INACTIVE = "Inactive"
+_ACTING = frozenset({"PreSubmitted", "Submitted"})  # live and able to act (not cancelling)
 _CANCELLED_STATUS = "Cancelled"
 _CANNOT_MODIFY_FILLED = 104
 _EXISTS = frozenset({103, _CANNOT_MODIFY_FILLED, 105})  # the order is already at IBKR
@@ -906,11 +907,20 @@ class IbkrBroker:
         return copy.ib_id
 
     def _came_back(self, copy: _Copy) -> list[str]:
-        """An order taken as finished unseen that IBKR now reports live again."""
-        if not copy.settled_unseen or copy.status not in _LIVE:
+        """An order IBKR reports live (able to act) again after it was taken as finished
+        unseen, or after it was Inactive and cancelled by us (AEGIS F2/F4: whatever was
+        decided meanwhile, a new stop or a flatten, may now sit beside it): reconcile."""
+        if copy.status not in _ACTING:
             return []
-        copy.settled_unseen = copy.cancel_confirmed = False
-        return [f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"]
+        if copy.settled_unseen:
+            copy.settled_unseen = copy.cancel_confirmed = False
+            return [
+                f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"
+            ]
+        if copy.cancel_sent:
+            copy.cancel_sent = copy.cancel_confirmed = False  # (it acts again: not held back)
+            return [f"{copy.order_id} is LIVE again at IBKR after it was Inactive; reconcile"]
+        return []
 
     def _after_event(self, alarms: list[str], cancel: int | None, *, doubt: bool = False) -> None:
         """Outside the lock: the alarms an event raised, a cancel it needs, and the

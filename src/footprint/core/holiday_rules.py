@@ -25,20 +25,22 @@ _SATURDAY, _SUNDAY = calendar.SATURDAY, calendar.SUNDAY
 
 # The US exchange closures a calendar must carry a rule for (AEGIS LOW-4: the rules are
 # config, so deleting one would otherwise switch its check off).
-REQUIRED_RULES = (
-    "New Year's Day",
-    "Martin Luther King Jr. Day",
-    "Presidents Day",
-    "Good Friday",
-    "Memorial Day",
-    "Juneteenth",
-    "Independence Day",
-    "Labor Day",
-    "Thanksgiving",
-    "Day after Thanksgiving",
-    "Christmas Eve",
-    "Christmas Day",
-)
+# Each with the kind it must have (AEGIS F3: a closure cannot be turned into an early
+# close by editing its rule).
+REQUIRED_RULES: dict[str, str] = {
+    "New Year's Day": "closed",
+    "Martin Luther King Jr. Day": "closed",
+    "Presidents Day": "closed",
+    "Good Friday": "closed",
+    "Memorial Day": "closed",
+    "Juneteenth": "closed",
+    "Independence Day": "closed",
+    "Labor Day": "closed",
+    "Thanksgiving": "closed",
+    "Day after Thanksgiving": "early_close",
+    "Christmas Eve": "early_close",
+    "Christmas Day": "closed",
+}
 # weekend: Saturday -> Friday, Sunday -> Monday; not_saturday: Sunday -> Monday, a
 # Saturday not observed; weekday_only: not observed on a weekend; none: as is.
 OBSERVED = ("weekend", "not_saturday", "weekday_only", "none")
@@ -101,7 +103,8 @@ def rule_date(rule: HolidayRule, year: int, easters: Mapping[int, date]) -> date
         return None if base is None else base + timedelta(days=rule.days_after)
     if rule.day is None:
         raise ValueError(f"holiday rule {rule.name!r} has neither a day nor a weekday")
-    return _observed(date(year, rule.month, rule.day), rule.observed)
+    day = _observed(date(year, rule.month, rule.day), rule.observed)
+    return None if day is None else day + timedelta(days=rule.days_after)  # (AEGIS F6)
 
 
 def missing_days(

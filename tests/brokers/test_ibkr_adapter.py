@@ -1022,3 +1022,19 @@ def test_a_stop_pending_its_inactive_cancel_is_still_held_back(ib: Ib) -> None:
     assert status.held_back
     ib.fake.finish_cancels()
     assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+
+
+def test_a_cancelled_inactive_stop_that_revives_raises_a_doubt(ib: Ib) -> None:
+    """F2/F4: an Inactive stop we cancelled, then IBKR reactivates it: it acts again
+    (not held back), and the runner must reconcile (a new stop or a flatten may sit
+    beside it)."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    assert ib.adapter.status("p1-stop").held_back
+    doubts = len(ib.resyncs)
+    ib.fake.reactivate(child.perm_id)
+    assert not ib.adapter.status("p1-stop").held_back
+    assert len(ib.resyncs) > doubts
+    assert any("LIVE again at IBKR after it was Inactive" in a for a in ib.alarms)

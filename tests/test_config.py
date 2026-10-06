@@ -288,6 +288,31 @@ def test_an_incomplete_calendar_is_refused(
     assert missing in str(refused.value)
 
 
+def test_an_early_close_rule_is_satisfied_by_a_full_closure(
+    instrument_path: Path, tmp_path: Path
+) -> None:
+    """H13: when an early-close day is closed outright (Christmas Eve as a holiday),
+    the calendar is still complete."""
+    data = yaml.safe_load(instrument_path.read_text())
+    early = dict(data["early_closes"])
+    early.pop(date(2026, 12, 24))
+    target = rewrite(
+        instrument_path,
+        tmp_path,
+        early_closes=early,
+        holidays=[*data["holidays"], date(2026, 12, 24)],
+    )
+    assert date(2026, 12, 24) in load_instrument(target).holidays
+
+
+def test_days_after_applies_to_a_fixed_date_rule() -> None:
+    """F6: days_after is not silently ignored on a month-and-day rule."""
+    from footprint.core.holiday_rules import HolidayRule, rule_date
+
+    rule = HolidayRule("Day after Christmas", month=12, day=25, days_after=1)
+    assert rule_date(rule, 2026, {}) == date(2026, 12, 26)
+
+
 def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
     from footprint.core.holiday_rules import missing_days, rule_date
 
@@ -349,6 +374,7 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         ),
         ({"holiday_rules": "drop Good Friday"}, "no rule for Good Friday"),  # G9/G10: one
         ({"holiday_rules": "drop Christmas Eve"}, "no rule for Christmas Eve"),
+        ({"holiday_rules": "early Christmas Day"}, "Christmas Day must be closed"),  # F3
         ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "kind": "half"}]}, "kind"),
     ],
 )
@@ -356,11 +382,18 @@ def test_bad_holiday_rules_are_refused(
     instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
 ) -> None:
     rules = changes.get("holiday_rules")
-    if isinstance(rules, str):  # "drop <name>": the real rules, less exactly that one
-        name = rules.removeprefix("drop ")
+    if isinstance(rules, str):  # "drop <name>" / "early <name>": the real rules, edited
+        verb, _, name = rules.partition(" ")
         current = yaml.safe_load(instrument_path.read_text())["holiday_rules"]
-        changes = {"holiday_rules": [r for r in current if r["name"] != name]}
-        assert len(changes["holiday_rules"]) == len(current) - 1
+        if verb == "drop":
+            changes = {"holiday_rules": [r for r in current if r["name"] != name]}
+            assert len(changes["holiday_rules"]) == len(current) - 1
+        else:
+            changes = {
+                "holiday_rules": [
+                    {**r, "kind": "early_close"} if r["name"] == name else r for r in current
+                ]
+            }
     target = rewrite(instrument_path, tmp_path, **changes)
     with pytest.raises(ConfigError, match=message):
         load_instrument(target)

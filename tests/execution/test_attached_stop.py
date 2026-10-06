@@ -437,3 +437,53 @@ def test_a_cancelled_attached_stop_is_never_adopted(stack: Stack) -> None:
     stack.broker.cancel(stop_id)
     spec = stack.stops.preview(D(151), 1)
     assert stack.executor._adopt_attached(stop_id, spec, filled=1) == (None, False)
+
+
+# --- AEGIS 3f3ee04 audit: F1 (H9), H6 --------------------------------------------------------
+
+
+def test_a_held_back_stop_whose_cancel_never_lands_escalates(stack: Stack) -> None:
+    """F1: the position is held, its stop held back, and the stop's cancel never lands:
+    management must not wait forever: after cancel_escalate_seconds it hands over to
+    reconcile (which escalates to Andre), with one alarm, not one a second."""
+    from footprint.execution.management.malik import NeedsReconcile
+
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.position is not None
+    stop_id = ticket.position.stop_order_id or ""
+    _hold_back(stack, stop_id)
+    stack.broker.cancel = lambda order_id: stack.broker.status(order_id)  # type: ignore[method-assign]
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    raised_at = None
+    for k in range(1, escalate + 5):
+        t = SEND + k * SEC
+        try:
+            stack.step(ticket.position, stack.quote(150, D(151), t), (), t)
+        except NeedsReconcile:
+            raised_at = k
+            break
+    assert raised_at is not None, "the exit waited forever"
+    assert raised_at <= escalate + 2
+    held_back = [a for a in stack.alarms if "held back" in a.message]
+    not_cancelled = [a for a in stack.alarms if "not cancelled" in a.message]
+    assert len(held_back) == 1
+    assert len(not_cancelled) == 1
+    assert stack.broker.positions() != {}  # nothing was sold beside the stuck stop
+
+
+def test_a_stop_held_back_on_arrival_means_no_entry(stack: Stack) -> None:
+    """H6: held back already when the bracket is answered: the entry is cancelled at once."""
+    original = stack.broker.place_attached
+
+    def held_on_arrival(parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        from dataclasses import replace as swap
+
+        first, second = original(parent, child)
+        return first, swap(second, held_back=True)
+
+    stack.broker.place_attached = held_on_arrival  # type: ignore[method-assign]
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNFILLED
+    assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
