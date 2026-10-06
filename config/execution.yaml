@@ -60,6 +60,8 @@ ibkr:
                               #   that a person is needed; retries then slow down
   max_reconnect_seconds: 300  # DEFAULT: the wait between attempts doubles after the
                               #   escalation, up to this
+  min_healthy_session_seconds: 60  # DEFAULT: a session that opens but drops sooner than
+                              #   this counts as failed (a flapping Gateway escalates too)
 market_data:
   history_days: 35            # DEFAULT: calendar days of 1-minute bars loaded at start (the
                               #   readers look back 20 sessions; 35 days covers holidays)

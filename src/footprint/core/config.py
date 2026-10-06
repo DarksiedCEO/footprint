@@ -515,6 +515,7 @@ class IbkrConfig:
     paper_account_prefix: str
     escalate_after_failures: int
     max_reconnect_seconds: int
+    min_healthy_session_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,6 +631,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
         escalate_after_failures=_integer(ib, "escalate_after_failures", i_where, minimum=1),
         max_reconnect_seconds=_integer(ib, "max_reconnect_seconds", i_where, minimum=1),
+        min_healthy_session_seconds=_integer(ib, "min_healthy_session_seconds", i_where, minimum=0),
     )
     if ibkr.max_reconnect_seconds < ibkr.reconnect_seconds:
         raise ConfigError(f"{i_where}: max_reconnect_seconds must be >= reconnect_seconds")

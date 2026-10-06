@@ -51,6 +51,7 @@ def settings(**changes: Any) -> IbConnectionSettings:
         "paper_account_prefix": "DU",
         "escalate_after_failures": 3,
         "max_reconnect_seconds": 0.05,
+        "min_healthy_session_seconds": 0.0,
     }
     base.update(changes)
     return IbConnectionSettings(**base)
@@ -476,6 +477,7 @@ def ibkr_config() -> IbkrConfig:
         paper_account_prefix="DU",
         escalate_after_failures=5,
         max_reconnect_seconds=8,
+        min_healthy_session_seconds=2,
     )
 
 
@@ -746,7 +748,9 @@ class CountingStop(threading.Event):
         return self.is_set()
 
 
-def supervised(sessions: list[str], limit: int, **changes: Any) -> tuple[list[str], CountingStop]:
+def supervised(
+    sessions: list[str], limit: int, session_seconds: int = 1, **changes: Any
+) -> tuple[list[str], CountingStop]:
     """Run the supervisor over scripted sessions: 'down' (cannot connect), 'crash'
     (opens, then a callback raises), 'ok' (opens, then drops normally)."""
     alarms: list[str] = []
@@ -766,7 +770,10 @@ def supervised(sessions: list[str], limit: int, **changes: Any) -> tuple[list[st
         client.on_run = session
         return client
 
-    binding = IbBinding(settings(**changes), SCOPE, alarms.append, factory)
+    clock = iter(range(0, 10**9, session_seconds))  # each read: one session's length on
+    binding = IbBinding(
+        settings(**changes), SCOPE, alarms.append, factory, monotonic=lambda: float(next(clock))
+    )
     binding.attach(Events())
     binding.run(stop)
     return alarms, stop
@@ -824,3 +831,56 @@ def test_a_refused_account_still_stops_for_good() -> None:
     binding.run(stop)
     assert stop.waits == []  # refused: never waited to try again
     assert not any("KEEPS FAILING" in a for a in alarms)
+
+
+def test_a_flapping_gateway_escalates_and_backs_off() -> None:
+    """Sessions that open and drop within min_healthy_session_seconds are failures."""
+    alarms, stop = supervised(
+        ["ok"] * 6,
+        6,
+        session_seconds=1,
+        reconnect_seconds=1,
+        escalate_after_failures=3,
+        max_reconnect_seconds=5,
+        min_healthy_session_seconds=10,
+    )
+    keeps = [a for a in alarms if "KEEPS FAILING" in a]
+    assert len(keeps) == 1
+    assert "flapping" in keeps[0]
+    assert stop.waits == [1, 1, 2, 4, 5, 5]
+
+
+def test_a_session_that_lasted_long_enough_is_healthy() -> None:
+    alarms, stop = supervised(
+        ["ok"] * 5,
+        5,
+        session_seconds=10,
+        reconnect_seconds=1,
+        escalate_after_failures=3,
+        min_healthy_session_seconds=10,
+    )
+    assert not any("KEEPS FAILING" in a for a in alarms)
+    assert stop.waits == [1] * 5
+
+
+def test_a_very_long_outage_cannot_overflow_the_wait() -> None:
+    binding = IbBinding(
+        settings(reconnect_seconds=15, escalate_after_failures=5, max_reconnect_seconds=300),
+        SCOPE,
+    )
+    assert binding._wait(10_000) == 300  # days of failures: still the cap, never an error
+    assert binding._wait(4) == 15
+    assert binding._wait(5) == 30
+
+
+def test_a_failing_wait_never_ends_the_reconnect_loop() -> None:
+    stop = CountingStop(3)
+    binding = IbBinding(settings(max_reconnect_seconds=7), SCOPE, lambda m: None, Recording)
+
+    def broken(failures: int) -> float:
+        raise OverflowError("anything")
+
+    binding._wait = broken  # type: ignore[method-assign]
+    binding.attach(Events())
+    binding.run(stop)
+    assert stop.waits == [7, 7, 7]  # it fell back to the longest wait and kept going
