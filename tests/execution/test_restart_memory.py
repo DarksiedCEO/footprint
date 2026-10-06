@@ -3,6 +3,7 @@
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -202,3 +203,29 @@ def test_flattening_a_holding_the_ledger_did_record_is_not_called_unrecorded(
         stack.quote(160, 161, t)
         stack.manager.reconcile(None, t)  # a restart: flattened, but it was recorded
     assert not any("never recorded" in a.message for a in stack.alarms)
+
+
+def test_an_unbooked_holding_already_covered_by_a_stuck_order_is_still_alarmed(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from footprint.execution.orders import Order, OrderType, Side
+
+    stack.broker._positions[stack.contract] = 1  # unknown to the ledger
+    stuck = Order("stuck-sell", stack.contract, Side.SELL, 1, OrderType.LIMIT, Decimal(999))
+    stack.broker.place(stuck)  # rests far above the market and will not cancel
+    real_cancel = stack.broker.cancel
+    monkeypatch.setattr(
+        stack.broker,
+        "cancel",
+        lambda order_id: (
+            stack.broker.status(order_id) if order_id == "stuck-sell" else real_cancel(order_id)
+        ),
+    )
+    monkeypatch.setattr(stack.broker, "modify", lambda *args: stack.broker.status(args[0]))
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    for second in range(2 * settle + 2):
+        t = DECISION_TIME + second * timedelta(seconds=1)
+        stack.quote(160, 161, t)
+        stack.manager.reconcile(None, t)
+    assert not any(o.startswith("reconcile-") for o in stack.broker._orders)  # covered
+    assert sum("never recorded" in a.message for a in stack.alarms) == 1
