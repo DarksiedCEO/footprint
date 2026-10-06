@@ -1,0 +1,2 @@
+  1 KILLED   [disconnect] src/footprint/execution/runner.py: failsafe acts while away (ready check alone)
+1 mutants, 0 survived

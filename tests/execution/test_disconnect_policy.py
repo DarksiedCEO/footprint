@@ -271,3 +271,39 @@ def test_a_doubt_raised_during_a_reconcile_is_not_lost(
     runner.step(DECISION_TIME + SEC)  # reconciles again, now agreed
     assert not runner.reconciling
     assert journal.decisions() == []
+
+
+def test_ready_again_mid_step_does_not_flatten_before_the_outage_is_excluded(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """After a long outage IBKR turns ready DURING a step (after the step saw it away,
+    before the failsafe looks): the outage has not been excluded yet, so the failsafe
+    must wait for the next step instead of flattening a protected position."""
+    runner, _, fill = holding(stack, bars, tmp_path)
+    alarms_before = len(stack.alarms)
+    max_unmanaged = stack.profiles.execution.runner.max_unmanaged_seconds
+    outage = Outage(stack.broker)
+    outage.start()
+    t = fill
+    for second in range(1, 3 * max_unmanaged):
+        t = fill + second * SEC
+        stack.quote(150, D("151.5"), t)
+        runner.step(t)
+    outage.end()
+    reads = [0]
+    original = type(stack.broker)
+
+    class ReadyMidStep:
+        def __get__(self, broker: object, owner: object) -> bool:
+            reads[0] += 1
+            return reads[0] > 1  # the step's first read: away; later reads: ready
+
+    delattr(stack.broker, "ready")  # (Outage left an instance value that would shadow this)
+    stack.broker.__class__ = type("Flips", (original,), {"ready": ReadyMidStep()})
+    try:
+        runner.step(t + SEC)
+    finally:
+        stack.broker.__class__ = original
+    assert reads[0] >= 1  # (without the away guard, the failsafe's read sees "ready")
+    assert runner.position is not None
+    assert not any("unmanaged" in a.message for a in stack.alarms[alarms_before:])

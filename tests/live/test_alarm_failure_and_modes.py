@@ -120,7 +120,9 @@ def test_a_hanging_call_never_blocks_the_next_critical_alarm(profiles: Profiles)
         assert len(net.texts(CALLS)) == 1  # no second thread piled onto a hung Twilio
         net.release.set()
         net.hang.clear()
-        assert wait_for(lambda: any("channel back" not in t for t in net.texts(CALLS)), 3)
+        assert wait_for(  # the hung request has really ended
+            lambda: not any(t.name == "alarm-send" for t in threading.enumerate()), 3
+        )
         hub.submit(alarm("CANCEL STUCK since 10:00"))
         assert wait_for(lambda: any("CANCEL STUCK" in t for t in net.texts(CALLS)), 5)
     finally:
