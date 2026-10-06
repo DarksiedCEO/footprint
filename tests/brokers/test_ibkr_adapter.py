@@ -1008,3 +1008,17 @@ def test_an_inactive_stop_whose_cancel_is_never_answered_is_not_protection(ib: I
 def test_a_working_stop_is_protection(ib: Ib) -> None:
     ib.adapter.place_attached(buy(price=140), attached_stop())
     assert ib.adapter.status("p1-stop").protects
+
+
+def test_a_stop_pending_its_inactive_cancel_is_still_held_back(ib: Ib) -> None:
+    """AEGIS N2: once cancelled for being Inactive, IBKR says PendingCancel (no longer
+    Inactive): still held back until the cancel lands."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.slow_cancels = True
+    ib.fake.inactivate(child.perm_id)  # the adapter cancels; IBKR answers PendingCancel
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+    ib.fake.finish_cancels()
+    assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
