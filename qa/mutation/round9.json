@@ -1,0 +1,112 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ],
+  "adapter": [
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_held_back_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if c.status not in (_INACTIVE, _PENDING_CANCEL) and not c.cancel_sent",
+   "if c.status != _INACTIVE and not c.cancel_sent",
+   "K-1/K-2: a PendingCancel copy counts as able to act (protection)"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if c.status not in (_INACTIVE, _PENDING_CANCEL) and not c.cancel_sent",
+   "if c.status not in (_INACTIVE, _PENDING_CANCEL)",
+   "N2: our cancel of an Inactive copy forgotten (PendingCancel after Inactive acts)"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "held_back = unable and any(c.status == _INACTIVE or c.cancel_sent for c in live)",
+   "held_back = unable and all(c.status == _INACTIVE or c.cancel_sent for c in live)",
+   "K-M2: Inactive + PendingCancel copies read as cancelling, not held back"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "unable = bool(live) and not acting",
+   "unable = bool(live) and len(acting) < len(live)",
+   "K-M2: any non-acting copy makes the order unprotected (one acting copy ignored)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/orders.py",
+   "and not self.held_back and not self.cancelling",
+   "and not self.held_back",
+   "K-1/K-2: a cancelling stop counts as protection"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                \"held back\" if held.held_back else \"being cancelled\",\n            )\n            return held.order, False",
+   "                \"held back\" if held.held_back else \"being cancelled\",\n            )\n            return None, False",
+   "K-2: a second stop placed beside a live non-protecting attached stop"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.state is OrderState.WORKING:  # live, not protecting: nothing beside it",
+   "        if False:  # live, not protecting: nothing beside it",
+   "K-2: a stop left non-protecting by the move is doubled"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                    protected = held.protects or held.state is OrderState.FILLED",
+   "                    protected = True",
+   "K: uncertain-stop path counts a held-back stop as protection"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                kept = stop if protected else None",
+   "                kept = stop",
+   "a refused new stop kept as the position's stop"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_id in self._cancels_sent:",
+   "                if True:",
+   "K-3: a stop cancelled by someone else treated as our exit (no alarm)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if stop_status.cancelling:",
+   "            if False:",
+   "K-3: a cancelling stop managed as if protecting"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if now - self._cancelling_since.setdefault(oid, now) >= escalate:",
+   "                if True:",
+   "K-1: reconcile disagrees with any PendingCancel at once"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if now - self._cancelling_since.setdefault(oid, now) >= escalate:",
+   "                if False:",
+   "J-1: reconcile agrees with a PendingCancel forever"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                and position.stop_order_id in self._cancels_sent",
+   "                and False",
+   "K-3: our own landed cancel raises a false 'stop CANCELLED' alarm"
+  ]
+ ]
+}

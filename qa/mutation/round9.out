@@ -1,0 +1,17 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: K-1/K-2: a PendingCancel copy counts as able to act (protection)
+  2 SURVIVED [adapter] src/footprint/brokers/ibkr/adapter.py: N2: our cancel of an Inactive copy forgotten (PendingCancel after Inactive acts)
+  3 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: K-M2: Inactive + PendingCancel copies read as cancelling, not held back
+  4 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: K-M2: any non-acting copy makes the order unprotected (one acting copy ignored)
+  5 KILLED   [exec] src/footprint/execution/orders.py: K-1/K-2: a cancelling stop counts as protection
+  6 KILLED   [exec] src/footprint/execution/executor/diego.py: K-2: a second stop placed beside a live non-protecting attached stop
+  7 KILLED   [exec] src/footprint/execution/executor/diego.py: K-2: a stop left non-protecting by the move is doubled
+  8 KILLED   [exec] src/footprint/execution/executor/diego.py: K: uncertain-stop path counts a held-back stop as protection
+  9 KILLED   [exec] src/footprint/execution/executor/diego.py: a refused new stop kept as the position's stop
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: K-3: a stop cancelled by someone else treated as our exit (no alarm)
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: K-3: a cancelling stop managed as if protecting
+ 12 KILLED   [exec] src/footprint/execution/management/malik.py: K-1: reconcile disagrees with any PendingCancel at once
+ 13 KILLED   [exec] src/footprint/execution/management/malik.py: J-1: reconcile agrees with a PendingCancel forever
+ 14 KILLED   [exec] src/footprint/execution/management/malik.py: K-3: our own landed cancel raises a false 'stop CANCELLED' alarm
+14 mutants, 1 survived
+EXIT 1

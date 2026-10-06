@@ -32,4 +32,5 @@ run "Telegram-only degraded mode" $A -k "degraded or telegram_only or unattended
 run "no network in tests" $CH -k "cannot_reach or proxy"
 run "H-2 entry protected during an outage (attached stop)" tests/execution/test_attached_stop.py tests/brokers/test_ibkr_adapter.py tests/brokers/test_ibkr_binding.py -k "attached or bracket or outage or held or real_fill"
 run "D37 outage excluded from the failsafe, flapping cannot hold it off" $D -k "flapping or only_the_outage or mid_step"
+run "K-1/K-2/K-3 a stop being cancelled: never protection, never doubled, no false latch" tests/execution/test_held_back_stop.py tests/execution/test_attached_stop.py tests/brokers/test_ibkr_adapter.py -k "cancelling or pending_cancel or kept_never_doubled or never_doubles or uncertain_stop or copies or someone_else or stale_pending_submit or pending_its_inactive"
 exit $fail
