@@ -1,0 +1,14 @@
+  1 KILLED   [bracket] src/footprint/execution/executor/diego.py: AEGIS A4 _end_attached never cancels a live orphan stop
+  2 KILLED   [bracket] src/footprint/execution/executor/diego.py: AEGIS A5 quantity mismatch: old stop not cancelled (two stops)
+  3 KILLED   [bracket] src/footprint/execution/executor/diego.py: AEGIS A7 adopt says protected whatever the modify answered
+  4 KILLED   [bracket] src/footprint/execution/executor/diego.py: AEGIS A8 already-filled attached stop replaced by a second stop
+  5 KILLED   [bracket] src/footprint/execution/orders.py: AEGIS A9 tracker keeps a NotSent pair (stuck reconcile)
+  6 KILLED   [bracket] src/footprint/execution/orders.py: AEGIS A10 sim cancel leaves child in held set
+  7 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: AEGIS A11 adapter returns before the child is answered
+  8 KILLED   [bracket] src/footprint/execution/executor/diego.py: HIGH-1: refused stop at submit ignored
+  9 KILLED   [bracket] src/footprint/execution/executor/diego.py: HIGH-1: dead stop during the entry ignored
+ 10 KILLED   [bracket] src/footprint/execution/executor/diego.py: HIGH-1: entry not cancelled
+ 11 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: LOW-2: refusal forgotten
+ 12 KILLED   [config] src/footprint/core/config.py: LOW-4: rules may be deleted
+ 13 KILLED   [guard] tests/conftest.py: LOW-6: UDP allowed
+13 mutants, 0 survived

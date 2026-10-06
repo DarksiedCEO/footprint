@@ -1,0 +1,132 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "                self._broker.cancel(ticket.stop_order_id)\n        except",
+   "                pass\n        except",
+   "AEGIS A4 _end_attached never cancels a live orphan stop"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "            self._broker.cancel(stop_id)\n            return None, False",
+   "            return None, False",
+   "AEGIS A5 quantity mismatch: old stop not cancelled (two stops)"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        return held.order, held.state in (OrderState.WORKING, OrderState.FILLED)",
+   "        return held.order, True",
+   "AEGIS A7 adopt says protected whatever the modify answered"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.state is OrderState.FILLED:\n            return held.order, True",
+   "        if held.state is OrderState.FILLED:\n            return None, False",
+   "AEGIS A8 already-filled attached stop replaced by a second stop"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "            if not known:\n                self._sent.pop(parent.order_id, None)",
+   "            if False:\n                self._sent.pop(parent.order_id, None)",
+   "AEGIS A9 tracker keeps a NotSent pair (stuck reconcile)"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "            self._held.discard(order_id)\n            self._store(order_id, status)",
+   "            self._store(order_id, status)",
+   "AEGIS A10 sim cancel leaves child in held set"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                lambda: self._answered(parent_id, seen[0]) and self._answered(child_id, seen[1]),",
+   "                lambda: self._answered(parent_id, seen[0]),",
+   "AEGIS A11 adapter returns before the child is answered"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        if status.state is OrderState.WORKING and stop_status.state is not OrderState.WORKING:",
+   "        if False:",
+   "HIGH-1: refused stop at submit ignored"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "            if stop_state is not OrderState.WORKING:\n                status = self._unprotected_entry",
+   "            if False:\n                status = self._unprotected_entry",
+   "HIGH-1: dead stop during the entry ignored"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        self._broker.cancel(ticket.order_id)\n        return self._broker.status(ticket.order_id)",
+   "        return self._broker.status(ticket.order_id)",
+   "HIGH-1: entry not cancelled"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            self._refused[order.order_id] = order  # asked again later: still refused\n",
+   "",
+   "LOW-2: refusal forgotten"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if absent:\n        raise ConfigError(f\"{where}: holiday_rules has no rule",
+   "    if False:\n        raise ConfigError(f\"{where}: holiday_rules has no rule",
+   "LOW-4: rules may be deleted"
+  ],
+  [
+   "guard",
+   "tests/conftest.py",
+   "        _check(args[-1])  # (data, address) or (data, flags, address): no UDP out either\n",
+   "",
+   "LOW-6: UDP allowed"
+  ]
+ ]
+}

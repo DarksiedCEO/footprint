@@ -474,9 +474,9 @@ def test_a_dead_channel_never_holds_more_than_one_abandoned_send() -> None:
         with pytest.raises(ChannelError):
             sink(alarm("HALT: x"))
     assert wait_for(lambda: len(started) >= 1, 3)  # (slow machines: the thread starts late)
-    assert len(started) == 1  # one send started; the other 19 failed at once
+    assert len(started) == 1, started  # one send started; the other 19 failed at once
     assert sends() - before <= 1
     release.set()
-    assert wait_for(lambda: sends() <= before, 3)
+    assert wait_for(lambda: not sink._busy.is_set(), 3)  # its own hung send has ended
     sink(alarm("HALT: y"))  # the channel works again once the hung send ends
     assert len(started) == 2
