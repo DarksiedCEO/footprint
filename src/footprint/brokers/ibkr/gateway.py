@@ -145,6 +145,10 @@ class IbEvents(Protocol):
 # Half of IBKR's signed 32-bit request id range (a power of two, written out in full).
 MARKET_REQUEST_BASE = 1073741824
 
+# Codes for on_market_error that come from the binding, not IBKR (IBKR's are positive).
+MARKET_DATA_UNREADABLE = -1  # IBKR sent a value that cannot be read; the request is void
+MARKET_DATA_NOT_REAL_TIME = -2  # IBKR announced frozen or delayed data for the request
+
 
 @dataclass(frozen=True, slots=True)
 class ContractQuery:
@@ -164,7 +168,8 @@ class ContractQuery:
 
 @dataclass(frozen=True, slots=True)
 class IbBar:
-    """One completed (or, in an update, still forming) 1-minute bar."""
+    """One 1-minute bar: completed in history, possibly still forming in an update.
+    Always 0 < low <= open, close <= high and volume >= 0 (the binding refuses others)."""
 
     ts: datetime  # when the bar opens, UTC
     open: Decimal
@@ -184,13 +189,19 @@ class IbMarketGateway(Protocol):
     def request_contract_details(self, req_id: int, query: ContractQuery) -> None: ...
 
     def request_option_params(
-        self, req_id: int, symbol: str, underlying_sec_type: str, underlying_con_id: int
+        self,
+        req_id: int,
+        symbol: str,
+        option_exchange: str,
+        underlying_sec_type: str,
+        underlying_con_id: int,
     ) -> None:
-        """The option chains (expirations, strikes) on an underlying (reqSecDefOptParams)."""
+        """The option chains (expirations, strikes) on an underlying (reqSecDefOptParams).
+        For options on a future, `option_exchange` is where the options trade."""
 
     def request_quotes(self, req_id: int, contract: IbContract) -> None:
-        """Stream real-time top of book (and open interest for an option). Delayed data
-        is never asked for, and never accepted."""
+        """Stream real-time top of book (and open interest for an option). Delayed or
+        frozen data is never asked for, and never forwarded."""
 
     def cancel_quotes(self, req_id: int) -> None: ...
 
@@ -198,12 +209,23 @@ class IbMarketGateway(Protocol):
         self, req_id: int, query: ContractQuery, end: str, duration: str, keep_up_to_date: bool
     ) -> None:
         """1-minute TRADES bars, all hours, ending at `end` (IBKR's format; "" = now).
-        With keep_up_to_date the forming bar keeps arriving as updates."""
+        With keep_up_to_date, `end` must be "" (IBKR's rule; ValueError otherwise) and the
+        forming bar keeps arriving as updates (see IbMarketEvents.on_bar_update)."""
 
     def cancel_bars(self, req_id: int) -> None: ...
 
 
 class IbMarketEvents(Protocol):
+    """Called on the binding's message thread: must not block, must be thread-safe."""
+
+    def on_market_connection(self, state: Connection) -> None:
+        """CONNECTED: a new session; IBKR has forgotten every market request made before
+        it, so all of them must be made again. LOST: nothing arrives until CONNECTED."""
+
+    def on_market_notice(self, code: int, message: str) -> None:
+        """A system-wide notice (request id -1): data farm broken (2103, 2105, 2157) or
+        restored (2104, 2106, 2158), connectivity lost (1100) or restored (1101, 1102)."""
+
     def on_contract_details(self, req_id: int, contract: IbContract) -> None: ...
 
     def on_contract_details_end(self, req_id: int) -> None: ...
@@ -221,12 +243,21 @@ class IbMarketEvents(Protocol):
     def on_option_params_end(self, req_id: int) -> None: ...
 
     def on_quote(self, req_id: int, field: QuoteField, value: Decimal | None) -> None:
-        """None: IBKR says there is no such price now (no bid, no ask)."""
+        """None: IBKR says there is no such price now (no bid, no ask). Each call is a
+        fresh tick; nothing is ever repeated, so a silent stream means stale data."""
 
-    def on_bar(self, req_id: int, bar: IbBar) -> None: ...
+    def on_bar(self, req_id: int, bar: IbBar) -> None:
+        """A completed bar from history."""
 
     def on_bars_end(self, req_id: int) -> None: ...
 
-    def on_bar_update(self, req_id: int, bar: IbBar) -> None: ...
+    def on_bar_update(self, req_id: int, bar: IbBar) -> None:
+        """The newest bar, which may still be forming: the same `ts` arrives again and
+        again (every few seconds) as it grows. A bar is only known closed once an update
+        with a later `ts` arrives, and its last update can miss the final seconds of
+        trades, so a closed bar should be confirmed from history before it is decided on."""
 
-    def on_market_error(self, req_id: int, code: int, message: str) -> None: ...
+    def on_market_error(self, req_id: int, code: int, message: str) -> None:
+        """IBKR's error for this request (354: not subscribed; 10167: delayed only; ...)
+        or the binding's own (MARKET_DATA_UNREADABLE, MARKET_DATA_NOT_REAL_TIME). The
+        request should be treated as void: no data, never a guess."""
