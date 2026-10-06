@@ -32,6 +32,8 @@ DEC = IbContract(500, "NQ", "FUT", "CME", "USD", "20261218", D(0), "", "20", "NQ
 MAR = IbContract(600, "NQ", "FUT", "CME", "USD", "20270319", D(0), "", "20", "NQ")
 MICRO = IbContract(700, "NQ", "FUT", "CME", "USD", "20261218", D(0), "", "2", "NQ")  # wrong size
 BASE = {SEP.con_id: D(19900), DEC.con_id: D(20000), MAR.con_id: D(20150)}
+RATE = {SEP.con_id: 2, DEC.con_id: 1, MAR.con_id: 3}  # quarter points a minute: the gap
+# between two futures changes minute by minute, so a splice at the wrong minute shows
 # Tuesday 2026-10-06 07:00 PT: prime session, trading day Oct 6 (DTE 1-3: Oct 7, 8, 9).
 TUESDAY = datetime(2026, 10, 6, 14, 0, tzinfo=UTC)
 
@@ -41,9 +43,9 @@ def opt(con_id: int, expiry: str, strike: int, right: str, tc: str = "Q2C") -> I
 
 
 def price(con_id: int, ts: datetime) -> Decimal:
-    """A deterministic market: each contract drifts a quarter point a minute."""
+    """A deterministic market: each contract drifts at its own rate."""
     minutes = int((ts - datetime(2026, 1, 1, tzinfo=UTC)) / MINUTE)
-    return BASE[con_id] + D(minutes % 400) / 4
+    return BASE[con_id] + D((minutes % 400) * RATE[con_id]) / 4
 
 
 def ib_bar(con_id: int, ts: datetime, volume: int = 10) -> IbBar:
@@ -371,7 +373,7 @@ def test_a_poll_covers_the_gap_since_the_newest_bar(world: World) -> None:
     world.run(70)
     polls = [a for a in world.gw.named("bars")[before:] if a[2] == ""]
     seconds = int(polls[0][3].split()[0])
-    assert seconds >= 40 * 60  # the outage is asked for, not just the last few minutes
+    assert 40 * 60 <= seconds <= 45 * 60  # the outage is asked for, and no more
     bars = world.md.bars(world.clock.now)
     stamps = [b.ts for b in bars if b.ts.date() == world.clock.now.date()]
     assert all(b - a == MINUTE for a, b in pairwise(stamps))  # no hole
@@ -834,7 +836,12 @@ def test_ibkr_refusing_on_the_callers_own_thread_neither_deadlocks_nor_misleads(
 
     w.gw.answer = refuse_at_once
     w.connect()
-    w.run(3)  # would hang here with a plain lock
+    import threading
+
+    stepping = threading.Thread(target=w.run, args=(3,), daemon=True)
+    stepping.start()
+    stepping.join(timeout=10)
+    assert not stepping.is_alive(), "deadlocked: an answer on the caller's thread hung it"
     assert w.md._underlying is None  # never left pointing at the refused stream
     assert w.md.chain(w.clock.now) is None
     assert any("future quote failed" in a for a in w.alarms)
@@ -883,3 +890,165 @@ def test_ibkr_callbacks_reach_the_service_through_the_real_binding(
     b.date, b.open, b.high, b.low, b.close, b.volume = "1791158400", 1.0, 1.0, 1.0, 1.0, D(3)
     binding._wrapper.historicalData(bars_req, b)
     assert md._pending[bars_req].bars[0].volume == 3
+
+
+# --- mutation follow-ups -------------------------------------------------------------------
+
+
+def test_a_holiday_on_the_old_futures_last_day_moves_the_splice_back(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, now=FRIDAY)
+    w.missing.add((SEP.con_id, date(2026, 9, 9)))  # the Sep future had no trades on Sep 9
+    ready(w)
+    assert (DEC.con_id, date(2026, 9, 9), "86400 S") in w.history_requests()  # Dec on Sep 8
+    bars = {b.ts: b for b in w.md.bars(w.clock.now)}
+    cut = datetime(2026, 9, 8, 23, 59, tzinfo=UTC)
+    shift = price(DEC.con_id, cut) - price(SEP.con_id, cut)
+    old = datetime(2026, 9, 8, 15, 0, tzinfo=UTC)
+    assert bars[old].close == price(SEP.con_id, old) + shift
+
+
+def test_option_chains_listed_on_another_exchange_are_ignored(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, options=CHAIN)
+
+    def also_elsewhere(name: str, args: tuple[Any, ...]) -> None:
+        if name == "params":
+            many = frozenset(D(i) for i in range(1, 99))
+            w.md.on_option_params(args[0], "ELSEWHERE", "ZZZ", "20", frozenset({"20261007"}), many)
+        World._answer(w, name, args)
+
+    w.gw.answer = also_elsewhere
+    w.connect()
+    w.run(3)
+    lookups = [q for _r, q in w.gw.named("details") if q.sec_type == "FOP"]
+    assert [q.trading_class for q in lookups] == ["Q2C"]
+
+
+def test_an_option_of_the_wrong_size_is_never_streamed(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    mini = IbContract(9999, "NQ", "FOP", "CME", "USD", "20261007", D(20030), "C", "2", "Q2C")
+    w = World(execution, instrument, options=(*CHAIN, mini))
+    w.connect()
+    w.run(3)
+    w.tick(DEC, D("20025.00"), D("20025.50"))
+    w.run(2)
+    assert mini.con_id not in {c.con_id for _r, c in w.gw.named("quotes")}
+    assert len([c for _r, c in w.gw.named("quotes") if c.sec_type == "FOP"]) > 0
+
+
+def test_a_quote_stamped_after_now_is_not_in_the_chain(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    call = next(c for c in CHAIN if c.strike == D(20020) and c.right == "C")
+    put = next(c for c in CHAIN if c.strike == D(20030) and c.right == "P")
+    w.tick(put, D(140), D(141))
+    asked_at = w.clock.now
+    w.clock.now += timedelta(seconds=3)  # IBKR's thread ahead of the runner's clock
+    w.tick(call, D(150), D(151))
+    chain = w.md.chain(asked_at)
+    assert chain is not None
+    assert option_contract_id(call) not in {q.contract_id for q in chain.quotes}
+
+
+def test_the_futures_own_quote_never_reaches_the_option_book(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    w.tick(DEC, D("20025.00"), D("20025.50"))
+    w.run(2)
+    assert w.published == [] or all("future" not in q.contract_id for q in w.published)
+    assert all(q.contract_id in {option_contract_id(c) for c in CHAIN} for q in w.published)
+
+
+def test_a_stream_refused_while_subscribing_is_asked_again_without_a_price_move(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, options=CHAIN, retry_seconds=5)
+    target = next(c for c in CHAIN if c.strike == D(20020) and c.right == "C")
+    refused: list[int] = []
+
+    def refuse_once(name: str, args: tuple[Any, ...]) -> None:
+        if name == "quotes" and args[1] == target and not refused:
+            refused.append(args[0])
+            w.md.on_market_error(args[0], 354, "not subscribed")
+            return
+        World._answer(w, name, args)
+
+    w.gw.answer = refuse_once
+    w.connect()
+    w.run(3)
+    w.tick(DEC, D("20025.00"), D("20025.50"))
+    w.run(2)
+    assert refused
+    for _ in range(8):  # the future holds still: only the refused stream comes back
+        w.tick(DEC, D("20025.00"), D("20025.50"))
+        w.run(1)
+    asks = [r for r, c in w.gw.named("quotes") if c == target]
+    assert len(asks) == 2
+
+
+def test_at_utc_midnight_the_finished_day_is_loaded_whole_then_polls_go_on(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, now=datetime(2026, 10, 6, 23, 58, tzinfo=UTC))
+    ready(w)
+    loaded = len(w.history_requests())
+    w.clock.now = datetime(2026, 10, 7, 0, 0, 6, tzinfo=UTC)
+    w.run(10)
+    assert (DEC.con_id, date(2026, 10, 7), "86400 S") in w.history_requests()[loaded:]
+    w.clock.now = datetime(2026, 10, 7, 0, 1, 6, tzinfo=UTC)
+    w.run(3)
+    bars = w.md.bars(w.clock.now)
+    assert bars[-1].ts == datetime(2026, 10, 7, 0, 0, tzinfo=UTC)
+    stamps = [b.ts for b in bars if b.ts >= datetime(2026, 10, 6, 23, 0, tzinfo=UTC)]
+    assert all(b - a == MINUTE for a, b in pairwise(stamps))
+
+
+def test_a_weekend_gap_polls_instead_of_reloading_forever(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    friday = datetime(2026, 10, 9, 20, 58, tzinfo=UTC)
+    w = World(execution, instrument, now=friday)
+    ready(w)
+    w.md.on_market_connection(Connection.LOST)
+    w.clock.now = datetime(2026, 10, 11, 22, 10, 6, tzinfo=UTC)  # Sunday evening
+    w.connect()
+    w.run(10)
+    before = len(w.gw.named("bars"))
+    w.clock.now = w.clock.now.replace(second=0) + MINUTE + timedelta(seconds=6)
+    w.run(3)
+    polls = [a for a in w.gw.named("bars")[before - 2 :] if a[2] == ""]
+    assert polls
+    assert all(int(a[3].split()[0]) <= 23 * 3600 for a in polls)  # from Sunday, not Friday
+    assert w.md.bars(w.clock.now)[-1].ts.date() == date(2026, 10, 11)
+
+
+def test_the_option_lookups_are_made_again_each_trading_day(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    monday = datetime(2026, 10, 5, 14, 0, tzinfo=UTC)
+    w = chain_world(execution, instrument, now=monday)
+    assert len(w.gw.named("params")) == 1
+    w.clock.now += timedelta(days=1)  # Tuesday: the same expiry (Oct 7), looked up again
+    w.tick(DEC, D("20025.00"), D("20025.50"))
+    w.run(3)
+    assert len(w.gw.named("params")) == 2
+    lookups = [q for _r, q in w.gw.named("details") if q.sec_type == "FOP"]
+    assert len(lookups) == 2  # the expiry's contracts too (new strikes are listed daily)
+
+
+def test_a_stray_bar_on_a_day_never_loaded_cannot_trap_the_polls(world: World) -> None:
+    ready(world)
+    saturday = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)  # a day history never loads
+    for ts in list(world.md._raw[DEC.con_id]):
+        if ts.date() >= date(2026, 10, 4):
+            del world.md._raw[DEC.con_id][ts]
+    world.md._raw[DEC.con_id][saturday] = world.md._bar(ib_bar(DEC.con_id, saturday))
+    world.clock.now = world.clock.now.replace(second=0) + MINUTE + timedelta(seconds=6)
+    world.run(5)
+    assert world.md.bars(world.clock.now)  # polled on; not stuck reloading

@@ -106,6 +106,9 @@ def option_contract_id(contract: IbContract) -> str:
     return f"{contract.symbol} {contract.expiry} {contract.right}{strike} [{contract.con_id}]"
 
 
+_Params = tuple[str, str, frozenset[str], frozenset[Decimal]]  # class, size, expiries, strikes
+
+
 class _Kind(Enum):
     FUTURES = "futures"
     HISTORY = "history"
@@ -197,8 +200,9 @@ class MarketData:
         self._history_ready = False
         self._complete_until: datetime | None = None
         self._revisions = 0
-        self._params: dict[int, list[tuple[str, str, frozenset[str], frozenset[Decimal]]]] = {}
-        self._expiry_contracts: dict[tuple[str, str], tuple[IbContract, ...]] = {}
+        # Looked up again each trading day: new expiries and strikes are listed daily.
+        self._params: dict[tuple[int, date], list[_Params]] = {}
+        self._expiry_contracts: dict[tuple[str, str, date], tuple[IbContract, ...]] = {}
         self._broken_history: str | None = None
         self._new_session(connected=False)
 
@@ -235,8 +239,7 @@ class MarketData:
                     self._history_ready = False
                     self._series = ()
                 self._dirty = False
-            until = self._complete_until
-            return tuple(b for b in self._series if b.ts + _MINUTE <= until)
+            return self._series  # every stored bar is complete: polls keep no other
 
     def chain(self, now: datetime) -> OptionChain | None:
         """Fresh option quotes on the traded future, or None."""
@@ -322,7 +325,8 @@ class MarketData:
             if request.kind is _Kind.FUTURES:
                 self._take_futures(request.contracts)
             elif request.kind is _Kind.EXPIRY and request.key is not None:
-                self._take_expiry(request.key, request.contracts)
+                assert request.day is not None
+                self._take_expiry(request.key, request.day, request.contracts)
 
     def on_option_params(
         self,
@@ -342,7 +346,10 @@ class MarketData:
         with self._lock:
             request = self._pending.pop(req_id, None)
             if request is not None:
-                self._params[request.con_id] = request.params
+                assert request.day is not None
+                day = request.day
+                self._params = {k: v for k, v in self._params.items() if k[1] == day}
+                self._params[(request.con_id, day)] = request.params
 
     def on_quote(self, req_id: int, field: QuoteField, value: Decimal | None) -> None:
         stamp = self._clock()
@@ -416,7 +423,7 @@ class MarketData:
             self._failed(_Kind.FUTURES.value, "IBKR listed no usable futures")
             self._futures = None
 
-    def _take_expiry(self, chosen: tuple[str, str], contracts: list[IbContract]) -> None:
+    def _take_expiry(self, chosen: tuple[str, str], day: date, contracts: list[IbContract]) -> None:
         usable = tuple(
             c
             for c in contracts
@@ -426,7 +433,8 @@ class MarketData:
             and c.strike > 0
             and _as_decimal(c.multiplier) == self._instrument.point_value
         )
-        self._expiry_contracts[chosen] = usable
+        self._expiry_contracts = {k: v for k, v in self._expiry_contracts.items() if k[2] == day}
+        self._expiry_contracts[(chosen[0], chosen[1], day)] = usable
         if not usable:
             self._failed(_Kind.EXPIRY.value, f"no usable options for {chosen[1]} {chosen[0]}")
 
@@ -468,7 +476,7 @@ class MarketData:
 
     def _alarm_once(self, key: str, message: str) -> None:
         if key in self._alarmed:
-            log.warning(message)
+            log.debug(message)  # alarmed already this session: not again every step
             return
         self._alarmed.add(key)
         try:
@@ -620,19 +628,19 @@ class MarketData:
     def _ensure_options(self, now: datetime) -> None:
         assert self._front is not None
         front = self._front
-        params = self._params.get(front.con_id)
+        today = trading_day_at(now, self._instrument)
+        if today is None:
+            return  # market closed: keep whatever is streaming
+        params = self._params.get((front.con_id, today))
         if params is None:
             if not self._busy(_Kind.PARAMS) and self._ready(_Kind.PARAMS.value, now):
                 self._send(
-                    _Request(_Kind.PARAMS, now, con_id=front.con_id),
+                    _Request(_Kind.PARAMS, now, con_id=front.con_id, day=today),
                     lambda r: self._gw.request_option_params(
                         r, front.symbol, self._instrument.exchange, _FUTURE, front.con_id
                     ),
                 )
             return
-        today = trading_day_at(now, self._instrument)
-        if today is None:
-            return  # market closed: keep whatever is streaming
         chosen = self._choose_expiry(params, today)
         if chosen is None:
             self._alarm_once(
@@ -644,7 +652,7 @@ class MarketData:
         if chosen != self._chosen:
             self._drop_option_lines()
             self._chosen = chosen
-        contracts = self._expiry_contracts.get(chosen)
+        contracts = self._expiry_contracts.get((chosen[0], chosen[1], today))
         if contracts is None:
             if not self._busy(_Kind.EXPIRY) and self._ready(_Kind.EXPIRY.value, now):
                 query = ContractQuery(
@@ -656,7 +664,7 @@ class MarketData:
                     trading_class=chosen[1],
                 )
                 self._send(
-                    _Request(_Kind.EXPIRY, now, key=chosen),
+                    _Request(_Kind.EXPIRY, now, day=today, key=chosen),
                     lambda r: self._gw.request_contract_details(r, query),
                 )
             return
@@ -829,11 +837,18 @@ class MarketData:
         assert self._front is not None
         store = self._raw.get(self._front.con_id, {})
         newest = max(store) if store else None
-        start = datetime.combine(now.date(), time(0), tzinfo=UTC)
-        if newest is not None and newest > start:
-            start = newest
+        midnight = datetime.combine(now.date(), time(0), tzinfo=UTC)
+        if (
+            newest is not None
+            and (self._front.con_id, newest.date()) not in self._loaded
+            and newest.date() in self._history_days(now.date())
+        ):
+            # The polls covered an earlier day only in part (the day ended, or an outage
+            # ran past midnight): load it, and any day after it, whole. Then poll.
+            self._history_ready = False
+            return
+        start = midnight if newest is None or newest < midnight else newest
         span = max(now - start + _MINUTE, timedelta(seconds=self._s.min_poll_seconds))
-        span = min(span, _DAY)
         self._polled_for = boundary
         self._send_bars(_Kind.POLL, self._front, None, None, span, now)
 
