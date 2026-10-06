@@ -699,7 +699,12 @@ def test_no_udp_leaves_the_machine_in_tests(no_network: list[str]) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         with pytest.raises(conftest.NetworkBlocked):
             sock.sendto(b"x", ("192.0.2.1", 53))
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendto(b"x", 0, ("192.0.2.1", 53))  # (data, flags, address)
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendmsg([b"x"], [], 0, ("192.0.2.1", 53))  # AEGIS N4
         sock.sendto(b"x", ("127.0.0.1", 9))  # loopback is fine
+        sock.sendmsg([b"x"], [], 0, ("127.0.0.1", 9))
     assert "connect 192.0.2.1:53" in no_network
 
 

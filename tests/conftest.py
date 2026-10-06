@@ -89,7 +89,21 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    real_sendmsg = socket.socket.sendmsg
+
+    def sendmsg(self: socket.socket, buffers: Any, *args: Any) -> int:
+        if len(args) >= 3 and args[2] is not None:  # (ancdata, flags, address)
+            _check(args[2])
+        elif self.type == socket.SOCK_DGRAM:
+            try:
+                _check(self.getpeername())  # a connected UDP socket's peer
+            except OSError as exc:
+                if isinstance(exc, NetworkBlocked):
+                    raise
+        return real_sendmsg(self, buffers, *args)
+
     monkeypatch.setattr(socket.socket, "sendto", sendto)
+    monkeypatch.setattr(socket.socket, "sendmsg", sendmsg)
     return attempts
 
 

@@ -973,6 +973,14 @@ def test_a_refused_order_stays_refused_when_asked_again(ib: Ib) -> None:
     assert ib.adapter.status("p1-entry").state is OrderState.REJECTED
 
 
+def test_a_refusal_never_hides_a_later_live_copy(ib: Ib) -> None:
+    """G6: refused once, then accepted on a resend under the same id: it is working."""
+    ib.fake.reject_next = 201
+    assert ib.adapter.place(buy(price=140)).state is OrderState.REJECTED
+    assert ib.adapter.place(buy(price=140)).state is OrderState.WORKING
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING
+
+
 def test_through_ibkr_a_refused_stop_means_no_entry() -> None:
     """End to end over the fake IBKR: the bracket is refused, nothing works or fills."""
     ib = make()
@@ -982,3 +990,21 @@ def test_through_ibkr_a_refused_stop_means_no_entry() -> None:
     ib.quote(139, 140)
     assert ib.adapter.positions() == {}
     assert ib.tracked.unfinished == {}
+
+
+def test_an_inactive_stop_whose_cancel_is_never_answered_is_not_protection(ib: Ib) -> None:
+    """AEGIS N1: it stays WORKING until IBKR answers the cancel, but held back."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING  # still listed at IBKR...
+    assert status.held_back  # ...but no protection
+    assert not status.protects
+    assert ib.adapter.status("p1-entry").protects  # (an ordinary working order is not held)
+
+
+def test_a_working_stop_is_protection(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert ib.adapter.status("p1-stop").protects

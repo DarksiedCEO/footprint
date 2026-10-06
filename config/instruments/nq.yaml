@@ -72,8 +72,9 @@ no_trade_days:
   - 2027-01-18   # Martin Luther King Jr. Day
   - 2027-02-15   # Presidents Day
 # The exchange's standard closures by rule (D34): loading refuses a calendar that
-# claims to be complete through calendar_through while one of these days is missing
-# from holidays, early_closes or no_trade_days. observed: weekend = Saturday -> Friday,
+# claims to be complete through calendar_through while one of these days is missing:
+# a closed rule from holidays or no_trade_days (an early close does not count), an
+# early_close rule from early_closes (or a closure). observed: weekend = Saturday -> Friday,
 # Sunday -> Monday; not_saturday = Sunday -> Monday, a Saturday is not observed.
 holiday_rules:
   - {name: "New Year's Day", month: 1, day: 1, observed: not_saturday}
@@ -85,6 +86,8 @@ holiday_rules:
   - {name: "Independence Day", month: 7, day: 4, observed: weekend}
   - {name: "Labor Day", month: 9, weekday: MON, nth: 1}
   - {name: "Thanksgiving", month: 11, weekday: THU, nth: 4}
+  - {name: "Day after Thanksgiving", kind: early_close, month: 11, weekday: THU, nth: 4, days_after: 1}
+  - {name: "Christmas Eve", kind: early_close, month: 12, day: 24, observed: weekday_only}
   - {name: "Christmas Day", month: 12, day: 25, observed: weekend}
 # Easter Sunday of every year the calendar covers (for Good Friday); listed, not
 # computed. Add the next year's when extending calendar_through.

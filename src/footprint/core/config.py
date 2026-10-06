@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 from footprint.core.holiday_rules import (
+    KINDS,
     OBSERVED,
     REQUIRED_RULES,
     HolidayRule,
@@ -263,7 +264,17 @@ def _early_closes(raw: Mapping[str, object], key: str, where: str) -> Mapping[da
     return MappingProxyType(closes)
 
 
-_RULE_KEYS = {"name", "month", "day", "observed", "weekday", "nth", "days_from_easter"}
+_RULE_KEYS = {
+    "name",
+    "month",
+    "day",
+    "observed",
+    "weekday",
+    "nth",
+    "days_from_easter",
+    "days_after",
+    "kind",
+}
 
 
 def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[HolidayRule, ...]:
@@ -279,9 +290,14 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
         if weekday is not None and weekday not in _WEEKDAYS:
             raise ConfigError(f"{where}: {key} {name}: weekday must be one of {_WEEKDAYS}")
         observed = item.get("observed", "none")
+        kind = item.get("kind", "closed")
+        if kind not in KINDS:
+            raise ConfigError(f"{where}: {key} {name}: kind must be one of {KINDS}")
         if observed not in OBSERVED:
             raise ConfigError(f"{where}: {key} {name}: observed must be one of {OBSERVED}")
-        numbers = {k: item.get(k) for k in ("month", "day", "nth", "days_from_easter")}
+        numbers = {
+            k: item.get(k) for k in ("month", "day", "nth", "days_from_easter", "days_after")
+        }
         if any(
             v is not None and (not isinstance(v, int) or isinstance(v, bool))
             for v in numbers.values()
@@ -297,6 +313,8 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             weekday=None if weekday is None else _WEEKDAYS.index(weekday),
             nth=numbers["nth"],
             days_from_easter=numbers["days_from_easter"],
+            days_after=numbers["days_after"] or 0,
+            kind=str(kind),
         )
         by_easter = rule.days_from_easter is not None
         by_weekday = rule.weekday is not None and rule.nth is not None and rule.month is not None
@@ -397,7 +415,8 @@ def load_instrument(path: Path) -> InstrumentProfile:
         missing = missing_days(
             profile.holiday_rules,
             profile.easter_sundays,
-            set(dated),
+            {*profile.holidays, *profile.no_trade_days},
+            set(profile.early_closes),
             date(first.year, 1, 1),
             profile.calendar_through,
         )

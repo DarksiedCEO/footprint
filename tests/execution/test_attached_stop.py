@@ -359,3 +359,81 @@ def test_a_cancelled_held_stop_never_comes_back_when_the_entry_fills() -> None:
     assert broker.status("p1-stop").filled == 0
     assert not any(line.startswith("activated p1-stop") for line in broker.log)
     assert broker.positions() == {C: 1}
+
+
+# --- AEGIS 4c11b67 audit: N1/N2 (held back), G3, G16 -------------------------------------------
+
+
+def _hold_back(stack: Stack, stop_id: str) -> None:
+    """The attached stop is reported held back (Inactive, cancel unanswered)."""
+    original = stack.broker.status
+
+    def held(order_id: str) -> OrderStatus:
+        status = original(order_id)
+        if order_id == stop_id and status.state is OrderState.WORKING:
+            from dataclasses import replace as swap
+
+            return swap(status, held_back=True)
+        return status
+
+    stack.broker.status = held  # type: ignore[method-assign]
+
+
+def test_a_held_back_attached_stop_cancels_the_working_entry(stack: Stack) -> None:
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    _hold_back(stack, f"{ticket.position_id}-stop")
+    ticket = stack.executor.on_time(ticket, SEND + SEC)
+    assert ticket.outcome is EntryOutcome.UNFILLED
+    assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
+
+
+def test_a_held_back_attached_stop_is_replaced_on_the_fill(stack: Stack) -> None:
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)  # filled; the stop activates...
+    _hold_back(stack, f"{ticket.position_id}-stop")  # ...but is reported held back
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.position is not None
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop-2"
+
+
+def test_malik_flattens_a_position_whose_stop_is_held_back(stack: Stack) -> None:
+    from footprint.execution.management.malik import ExitReason
+
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.position is not None
+    _hold_back(stack, ticket.position.stop_order_id or "")
+    closed = stack.step(ticket.position, stack.quote(150, D(151), SEND + SEC), (), SEND + SEC)
+    assert closed is not None
+    assert closed.reason is ExitReason.UNPROTECTED
+    assert any("held back" in a.message for a in stack.alarms)
+
+
+def test_a_fill_racing_the_entry_cancel_still_gets_a_stop(stack: Stack) -> None:
+    """G3: the stop dies, the entry is cancelled, but it filled first: the fill path
+    places a new stop (or flattens), never 'unfilled'."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    original_cancel = stack.broker.cancel
+
+    def fills_first(order_id: str) -> OrderStatus:
+        if order_id == ticket.order_id:
+            stack.quote(150, D(151), SEND + SEC)  # the entry fills just before the cancel
+        return original_cancel(order_id)
+
+    stack.broker.cancel(stop_id)  # the attached stop dies
+    stack.broker.cancel = fills_first  # type: ignore[method-assign]
+    ticket = stack.executor.on_time(ticket, SEND + SEC)
+    assert ticket.position is not None
+    assert ticket.outcome is EntryOutcome.PROTECTED
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop-2"
+
+
+def test_a_cancelled_attached_stop_is_never_adopted(stack: Stack) -> None:
+    """G16: adoption judges the broker's state, not just "not filled"."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    stack.broker.cancel(stop_id)
+    spec = stack.stops.preview(D(151), 1)
+    assert stack.executor._adopt_attached(stop_id, spec, filled=1) == (None, False)

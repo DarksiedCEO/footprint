@@ -256,6 +256,16 @@ def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None
         ({"calendar_through": date(2099, 12, 31)}, "easter_sundays has no date in 2028"),
         ({"calendar_through": date(2027, 5, 31)}, "2027-05-31 (Memorial Day)"),
         ({"holidays": ["2026-04-03", "2026-12-25", "2027-01-01", "2027-03-26"]}, "New Year"),
+        # AEGIS N3: a closure listed as an early close is not a closure
+        (
+            {
+                "holidays": ["2026-01-01", "2026-04-03", "2027-01-01", "2027-03-26"],
+                "early_closes": "christmas_as_early",
+            },
+            "2026-12-25 (Christmas Day)",
+        ),
+        ({"early_closes": "drop 2026-11-27"}, "Day after Thanksgiving, early close"),
+        ({"early_closes": "drop 2026-12-24"}, "Christmas Eve, early close"),
     ],
 )
 def test_an_incomplete_calendar_is_refused(
@@ -264,6 +274,14 @@ def test_an_incomplete_calendar_is_refused(
     data = dict(changes)
     if "holidays" in data:
         data["holidays"] = [date.fromisoformat(d) for d in data["holidays"]]
+    early = data.get("early_closes")
+    if isinstance(early, str):
+        listed = dict(yaml.safe_load(instrument_path.read_text())["early_closes"])
+        if early == "christmas_as_early":
+            listed[date(2026, 12, 25)] = "10:00"
+        else:
+            listed.pop(date.fromisoformat(early.split()[1]))
+        data["early_closes"] = listed
     target = rewrite(instrument_path, tmp_path, **data)
     with pytest.raises(ConfigError) as refused:  # AEGIS re-audit M-3
         load_instrument(target)
@@ -286,6 +304,8 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         "Independence Day": date(2026, 7, 3),  # Saturday -> Friday
         "Labor Day": date(2026, 9, 7),
         "Thanksgiving": date(2026, 11, 26),
+        "Day after Thanksgiving": date(2026, 11, 27),
+        "Christmas Eve": date(2026, 12, 24),
         "Christmas Day": date(2026, 12, 25),
     }
     rules = {r.name: r for r in nq.holiday_rules}
@@ -293,10 +313,20 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
     assert rule_date(rules["New Year's Day"], 2023, {}) == date(2023, 1, 2)  # Sunday -> Mon
     assert rule_date(rules["Christmas Day"], 2027, {}) == date(2027, 12, 24)
     assert rule_date(rules["Memorial Day"], 2027, {}) == date(2027, 5, 31)
-    listed = {*nq.holidays, *nq.early_closes, *nq.no_trade_days}
+    assert rule_date(rules["Day after Thanksgiving"], 2026, {}) == date(2026, 11, 27)
+    assert rule_date(rules["Christmas Eve"], 2026, {}) == date(2026, 12, 24)
+    assert rule_date(rules["Christmas Eve"], 2027, {}) == date(2027, 12, 24)
+    assert rule_date(rules["Christmas Eve"], 2028, {}) is None  # a Sunday
+    closed = {*nq.holidays, *nq.no_trade_days}
+    early = set(nq.early_closes)
     assert (
         missing_days(
-            nq.holiday_rules, nq.easter_sundays, listed, date(2026, 1, 1), nq.calendar_through
+            nq.holiday_rules,
+            nq.easter_sundays,
+            closed,
+            early,
+            date(2026, 1, 1),
+            nq.calendar_through,
         )
         == []
     )
@@ -317,11 +347,20 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
             {"holiday_rules": [{"name": "Christmas Day", "month": 12, "day": 25}]},
             "no rule for New Year",
         ),
+        ({"holiday_rules": "drop Good Friday"}, "no rule for Good Friday"),  # G9/G10: one
+        ({"holiday_rules": "drop Christmas Eve"}, "no rule for Christmas Eve"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "kind": "half"}]}, "kind"),
     ],
 )
 def test_bad_holiday_rules_are_refused(
     instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
 ) -> None:
+    rules = changes.get("holiday_rules")
+    if isinstance(rules, str):  # "drop <name>": the real rules, less exactly that one
+        name = rules.removeprefix("drop ")
+        current = yaml.safe_load(instrument_path.read_text())["holiday_rules"]
+        changes = {"holiday_rules": [r for r in current if r["name"] != name]}
+        assert len(changes["holiday_rules"]) == len(current) - 1
     target = rewrite(instrument_path, tmp_path, **changes)
     with pytest.raises(ConfigError, match=message):
         load_instrument(target)

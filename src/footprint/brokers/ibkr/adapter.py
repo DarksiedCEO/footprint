@@ -869,6 +869,7 @@ class IbkrBroker:
             if priced
             else None
         )
+        held_back = bool(live) and all(c.status == _INACTIVE or c.cancel_sent for c in live)
         if live:
             state = OrderState.WORKING
         elif any(c.status == _FILLED for c in copies):
@@ -877,7 +878,7 @@ class IbkrBroker:
             state = OrderState.CANCELLED
         else:
             state = OrderState.REJECTED
-        return OrderStatus(order, state, filled, avg)
+        return OrderStatus(order, state, filled, avg, held_back=held_back)
 
     def _exec_filled(self, perm_id: int) -> int:
         return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)

@@ -103,6 +103,14 @@ class OrderStatus:
     filled: int
     avg_price: Decimal | None
     triggered: bool = False
+    # Working at the broker but unable to act: Inactive there, or being cancelled.
+    # Never counts as protection (AEGIS N1/N2): a stop held back is no stop.
+    held_back: bool = False
+
+    @property
+    def protects(self) -> bool:
+        """A stop that will trigger: working and not held back."""
+        return self.state is OrderState.WORKING and not self.held_back
 
 
 class DuplicateOrderId(ValueError):

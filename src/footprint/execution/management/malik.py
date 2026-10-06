@@ -159,13 +159,16 @@ class Manager:
             stop_status = self._broker.status(position.stop_order_id)
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
-            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
+            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED) or (
+                stop_status.held_back
+            ):
                 # Gone at the broker without this system cancelling it (by hand, or
-                # by the broker): the position is unprotected. Get out.
+                # by the broker), or held back (Inactive, being cancelled): the
+                # position is unprotected. Get out (exits share the stop's OCA group).
+                what = "held back" if stop_status.held_back else stop_status.state.value
                 self._alarm(
                     now,
-                    f"{pid}: resting stop {stop_status.state.value} at the broker; "
-                    "unprotected, flattening",
+                    f"{pid}: resting stop {what} at the broker; unprotected, flattening",
                 )
                 position.stop_order_id = None
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)

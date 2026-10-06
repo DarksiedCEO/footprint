@@ -189,7 +189,7 @@ class Executor:
         )
         status, stop_status = self._broker.place_attached(order, stop)
         log.info("entry %s placed at %s, stop attached", order.order_id, plan.limit_floor)
-        if status.state is OrderState.WORKING and stop_status.state is not OrderState.WORKING:
+        if status.state is OrderState.WORKING and not stop_status.protects:
             status = self._unprotected_entry(ticket, stop_status.state)
         return self._after(ticket, status.state, status.filled, status.avg_price, now)
 
@@ -224,9 +224,9 @@ class Executor:
             return self._after(ticket, status.state, status.filled, status.avg_price, now)
         if ticket.stop_order_id is not None:
             # Every step: the attached stop must still be working (H-2).
-            stop_state = self._broker.status(ticket.stop_order_id).state
-            if stop_state is not OrderState.WORKING:
-                status = self._unprotected_entry(ticket, stop_state)
+            stop_status = self._broker.status(ticket.stop_order_id)
+            if not stop_status.protects:
+                status = self._unprotected_entry(ticket, stop_status.state)
                 return self._after(ticket, status.state, status.filled, status.avg_price, now)
         e = self._p.execution.entry
         elapsed = now - ticket.started
@@ -259,8 +259,13 @@ class Executor:
         held = self._broker.status(stop_id)
         if held.state is OrderState.FILLED:
             return held.order, True  # already triggered and filled: management books it
-        if held.state is not OrderState.WORKING:
-            log.critical("attached stop %s is %s: placing a new one", stop_id, held.state.value)
+        if not held.protects:
+            log.critical(
+                "attached stop %s is %s%s: placing a new one",
+                stop_id,
+                held.state.value,
+                " (held back)" if held.held_back else "",
+            )
             return None, False
         if held.order.quantity != filled:
             log.critical(
@@ -273,7 +278,7 @@ class Executor:
             return None, False
         if (held.order.stop_price, held.order.limit_price) != (spec.trigger, spec.limit):
             held = self._broker.modify(stop_id, spec.limit, spec.trigger)
-        return held.order, held.state in (OrderState.WORKING, OrderState.FILLED)
+        return held.order, held.protects or held.state is OrderState.FILLED
 
     def _end_attached(self, ticket: EntryTicket) -> None:
         """An unfilled entry takes its attached stop with it at the broker; confirm it

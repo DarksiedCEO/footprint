@@ -35,9 +35,16 @@ REQUIRED_RULES = (
     "Independence Day",
     "Labor Day",
     "Thanksgiving",
+    "Day after Thanksgiving",
+    "Christmas Eve",
     "Christmas Day",
 )
-OBSERVED = ("weekend", "not_saturday", "none")
+# weekend: Saturday -> Friday, Sunday -> Monday; not_saturday: Sunday -> Monday, a
+# Saturday not observed; weekday_only: not observed on a weekend; none: as is.
+OBSERVED = ("weekend", "not_saturday", "weekday_only", "none")
+# closed: must be in holidays or no_trade_days; early_close: in early_closes (or closed
+# entirely, when it coincides with a closure).
+KINDS = ("closed", "early_close")
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +56,8 @@ class HolidayRule:
     weekday: int | None = None
     nth: int | None = None  # 1..5, or -1 for the last
     days_from_easter: int | None = None
+    days_after: int = 0  # moved this many days after the rule's date (day after X)
+    kind: str = "closed"
 
 
 class MissingEaster(ValueError):
@@ -70,6 +79,8 @@ def _observed(day: date, how: str) -> date | None:
     """The weekday the exchange observes `day` on, or None when not observed."""
     if how == "none":
         return day
+    if how == "weekday_only":
+        return None if day.weekday() in (_SATURDAY, _SUNDAY) else day
     if day.weekday() == _SATURDAY:
         return day - timedelta(days=1) if how == "weekend" else None
     if day.weekday() == _SUNDAY:
@@ -86,7 +97,8 @@ def rule_date(rule: HolidayRule, year: int, easters: Mapping[int, date]) -> date
     if rule.month is None:
         raise ValueError(f"holiday rule {rule.name!r} has no month")
     if rule.weekday is not None and rule.nth is not None:
-        return _nth_weekday(year, rule.month, rule.weekday, rule.nth)
+        base = _nth_weekday(year, rule.month, rule.weekday, rule.nth)
+        return None if base is None else base + timedelta(days=rule.days_after)
     if rule.day is None:
         raise ValueError(f"holiday rule {rule.name!r} has neither a day nor a weekday")
     return _observed(date(year, rule.month, rule.day), rule.observed)
@@ -95,16 +107,23 @@ def rule_date(rule: HolidayRule, year: int, easters: Mapping[int, date]) -> date
 def missing_days(
     rules: Iterable[HolidayRule],
     easters: Iterable[date],
-    listed: set[date],
+    closed: set[date],
+    early: set[date],
     start: date,
     through: date,
 ) -> list[tuple[date, str]]:
-    """Every rule's day in [start, through] that is not in `listed`."""
+    """Every rule's day in [start, through] not listed as it must be: a closure in
+    `closed` (holidays, no-trade days), an early close in `early` or `closed`."""
     by_year = {d.year: d for d in easters}
     found = []
     for year in range(start.year, through.year + 1):
         for rule in rules:
             day = rule_date(rule, year, by_year)
-            if day is not None and start <= day <= through and day not in listed:
-                found.append((day, rule.name))
+            if day is None or not start <= day <= through:
+                continue
+            allowed = closed if rule.kind == "closed" else closed | early
+            if day not in allowed:
+                found.append(
+                    (day, rule.name if rule.kind == "closed" else f"{rule.name}, early close")
+                )
     return sorted(found)

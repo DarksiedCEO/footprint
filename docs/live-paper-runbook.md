@@ -172,7 +172,8 @@ rings the phone daily. To resume, extend the lists and `calendar_through` from C
 calendar (checklist 23), add the next year's Easter Sunday to `easter_sundays`, and
 restart. The file is checked at start: every standard closure in `holiday_rules` (New
 Year, MLK, Presidents, Good Friday, Memorial, Juneteenth, July 4, Labor, Thanksgiving,
-Christmas) up to `calendar_through` must be listed, or the program refuses to start;
+Christmas) up to `calendar_through` must be listed as a closure, and the day after
+Thanksgiving and Christmas Eve as early closes, or the program refuses to start;
 moving `calendar_through` alone is refused.
 
 ## Alarms you should expect at first
