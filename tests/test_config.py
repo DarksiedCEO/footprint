@@ -452,3 +452,38 @@ def test_the_market_window_must_cover_the_strike_distance_and_the_recentre(
     bad.write_text(text)
     with pytest.raises(ConfigError, match="strike_window_points"):
         load_execution(bad)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"early_closes": {date(2026, 7, 4): "10:00"}},  # a Saturday: observed on Friday Jul 3
+        {"holidays": [date(2026, 12, 26)]},  # a Saturday
+    ],
+)
+def test_a_calendar_date_on_a_non_trading_day_is_refused(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError, match="not a trading day"):
+        load_instrument(rewrite(instrument_path, tmp_path, **changes))
+
+
+def test_a_key_given_twice_is_refused(instrument_path: Path, tmp_path: Path) -> None:
+    text = instrument_path.read_text().replace(
+        '  2026-12-24: "10:00"', '  2026-12-24: "10:00"\n  2026-12-24: "13:30"'
+    )
+    target = tmp_path / "nq.yaml"
+    target.write_text(text)
+    with pytest.raises(ConfigError, match="duplicate key"):
+        load_instrument(target)
+
+
+def test_a_top_level_key_given_twice_is_refused_in_any_profile(
+    execution_path: Path, tmp_path: Path
+) -> None:
+    from footprint.core.config import load_execution
+
+    target = tmp_path / "execution.yaml"
+    target.write_text(execution_path.read_text() + "\nquotes:\n  max_age_seconds: 60\n")
+    with pytest.raises(ConfigError, match="duplicate key"):
+        load_execution(target)

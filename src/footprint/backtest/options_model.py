@@ -22,7 +22,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
 from zoneinfo import ZoneInfo
 
 from footprint.backtest.settings import OptionModelSettings
-from footprint.core.calendar import is_trading_day, trading_day_at
+from footprint.core.calendar import is_trading_day, prime_close, trading_day_at
 from footprint.core.config import InstrumentProfile
 from footprint.core.models import require_utc
 from footprint.core.options import OptionChain, OptionQuote, Right
@@ -98,7 +98,7 @@ class OptionModel:
     def _prices(
         self, right: Right, strike: Decimal, expiry: date, now: datetime, price: Decimal
     ) -> tuple[Decimal, Decimal]:
-        close = datetime.combine(expiry, self._instrument.prime_session.end, self._zone)
+        close = datetime.combine(expiry, prime_close(expiry, self._instrument), self._zone)
         days_left = Decimal(int((close - now).total_seconds())) / _DAY_SECONDS
         time_value = self._m.atm_premium_points * days_left.sqrt() if days_left > 0 else Decimal(0)
         moneyness = price - strike if right is Right.CALL else strike - price

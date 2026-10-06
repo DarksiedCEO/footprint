@@ -83,9 +83,37 @@ class RiskProfile:
     fee_per_contract_per_side: Decimal
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """safe_load, but a key given twice in one mapping is an error (plain YAML keeps the
+    last one silently: one stray line could move an early close or a limit)."""
+
+
+def _unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode) -> dict[object, object]:
+    seen: set[object] = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"duplicate key {key!r}", key_node.start_mark
+            )
+        seen.add(key)
+    return loader.construct_mapping(node)
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _unique_mapping,
+)
+
+
+def load_yaml(text: str) -> object:
+    """Every profile is read through this: safe, and duplicate keys refused."""
+    return yaml.load(text, Loader=_UniqueKeyLoader)  # a SafeLoader subclass: safe
+
+
 def _read_mapping(path: Path, expected: set[str]) -> Mapping[str, object]:
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = load_yaml(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ConfigError(f"{path}: cannot read profile: {exc}") from exc
     except yaml.YAMLError as exc:
@@ -266,6 +294,12 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
+    for day in (*profile.holidays, *profile.early_closes):
+        if day.weekday() not in profile.trading_days:
+            raise ConfigError(
+                f"{where}: {day} is a {day:%A}, not a trading day: a holiday or early close "
+                "goes on the weekday the exchange observes it (e.g. Friday for a Saturday)"
+            )
     for day, close in profile.early_closes.items():
         if day in profile.holidays:
             raise ConfigError(f"{where}: {day} is both a holiday and an early close")

@@ -107,3 +107,24 @@ def test_trade_management_closes_out_before_an_early_close(
     at = pt(FRI_AFTER_THANKSGIVING, hour, 56 if hour == 9 else 0)
     assert manager._past_close(at)  # 09:56 and 10:00 are past the 09:55 cutoff
     assert not manager._past_close(pt(FRI_AFTER_THANKSGIVING, 9, 54))
+
+
+def test_the_backtest_prices_an_early_close_expiry_to_its_early_close(
+    instrument: InstrumentProfile,
+) -> None:
+    from decimal import Decimal
+
+    from footprint.backtest.options_model import OptionModel
+    from footprint.backtest.settings import load_backtest
+    from footprint.core.options import Right
+    from tests.conftest import REPO_ROOT
+
+    settings = load_backtest(REPO_ROOT / "config" / "backtest.yaml").option_model
+    model = OptionModel(settings, instrument, Decimal("0.45"))
+    normal = replace(instrument, early_closes={})
+    model_normal = OptionModel(settings, normal, Decimal("0.45"))
+    now = pt(FRI_AFTER_THANKSGIVING, 9, 0)
+    price = Decimal(20000)
+    early_bid, _ = model._prices(Right.CALL, price, FRI_AFTER_THANKSGIVING, now, price)
+    late_bid, _ = model_normal._prices(Right.CALL, price, FRI_AFTER_THANKSGIVING, now, price)
+    assert early_bid < late_bid  # one hour of time value left, not five
