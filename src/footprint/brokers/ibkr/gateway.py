@@ -187,7 +187,9 @@ class QuoteField(Enum):
 
 class IbMarketGateway(Protocol):
     """Every request id is >= MARKET_REQUEST_BASE and used once per session (ValueError
-    otherwise): a cancelled request's late data must never pass for a new one's."""
+    otherwise): a cancelled request's late data must never pass for a new one's.
+    A request made while not CONNECTED may be dropped without any answer: wait for
+    on_market_connection(CONNECTED), then make every request again under new ids."""
 
     def request_contract_details(self, req_id: int, query: ContractQuery) -> None: ...
 
