@@ -121,6 +121,8 @@ def test_the_check_reports_what_the_system_would_see(profiles: Profiles) -> None
     assert "open orders on anything else (never touched): 1" in out
     assert all(not g.connected for g in gateways)  # disconnected at the end
     assert all(g.sent == [] for g in gateways)  # nothing but the resync was asked
+    assert "ALARM" not in out  # the check's own hang-up is not reported as an alarm
+    assert "disconnecting as planned" in out
 
 
 def test_the_check_refuses_a_live_account(profiles: Profiles) -> None:
