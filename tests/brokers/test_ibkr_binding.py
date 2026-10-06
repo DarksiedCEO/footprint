@@ -471,6 +471,7 @@ def ibkr_config() -> IbkrConfig:
     return IbkrConfig(
         ack_timeout_seconds=1,
         positions_disagree_alarm_seconds=1,
+        resync_realarm_seconds=3,
         reconnect_seconds=1,
         option_security_type="FOP",
         require_paper=True,
