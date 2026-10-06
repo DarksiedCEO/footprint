@@ -105,7 +105,10 @@ def test_beyond_the_cap_the_oldest_are_dropped_and_counted() -> None:
     assert eventually(lambda: any("dropped" in m for m in heard) and len(heard) >= 4)
     assert eventually(lambda: line.pending == 0)
     survivors = [m for m in heard if "dropped" not in m]
-    assert survivors == ["alarm 7", "alarm 8", "alarm 9"]  # the newest survive, in order
+    # The newest survive, in order. The alarm being tried when the cap is hit is never
+    # dropped (it may be "alarm 0", depending on when the worker picked it up), so the
+    # oldest survivor is alarm 0 or alarm 7: never both, and always 7 dropped in all.
+    assert survivors in (["alarm 7", "alarm 8", "alarm 9"], ["alarm 0", "alarm 8", "alarm 9"])
     assert heard[1].startswith("7 alarm(s)")  # told right after the line comes back
     note = next(m for m in heard if "dropped" in m)
     assert note.startswith("7 alarm(s) were dropped")

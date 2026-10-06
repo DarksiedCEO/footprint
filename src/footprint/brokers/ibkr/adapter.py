@@ -92,6 +92,7 @@ _LIVE = frozenset({"ApiPending", "PendingSubmit", "PreSubmitted", "Submitted", "
 _CANCELLED = frozenset({"Cancelled", "ApiCancelled"})
 _FILLED = "Filled"
 _INACTIVE = "Inactive"
+_PENDING_CANCEL = "PendingCancel"
 _ACTING = frozenset({"PreSubmitted", "Submitted"})  # live and able to act (not cancelling)
 _CANCELLED_STATUS = "Cancelled"
 _CANNOT_MODIFY_FILLED = 104
@@ -870,7 +871,11 @@ class IbkrBroker:
             if priced
             else None
         )
-        held_back = bool(live) and all(c.status == _INACTIVE or c.cancel_sent for c in live)
+        # Held back: every live copy is Inactive, or being cancelled (by us after it was
+        # Inactive, or any PendingCancel): none of them is protection (AEGIS N1, J-1).
+        held_back = bool(live) and all(
+            c.status in (_INACTIVE, _PENDING_CANCEL) or c.cancel_sent for c in live
+        )
         if live:
             state = OrderState.WORKING
         elif any(c.status == _FILLED for c in copies):

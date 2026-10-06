@@ -55,7 +55,7 @@ def test_a_held_position_with_an_unanswered_inactive_stop_escalates_to_andre(
     stop = next(c for c in fake.copies.values() if c.request.order_ref == position.stop_order_id)
     fake.mute_cancels = True  # IBKR never answers a cancel
     fake.inactivate(stop.perm_id)
-    before = len(alarms)
+    before, sent_before = len(alarms), len(fake.sends)
     escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
     for _ in range(6 * escalate):
         stack.quote(150, D(151), t)
@@ -65,6 +65,8 @@ def test_a_held_position_with_an_unanswered_inactive_stop_escalates_to_andre(
     held = fake.sim.positions()
     assert any("reconcile mismatch" in m for m in said), said  # never silently "agreed"
     assert stack.halt.tripped
+    # The stuck stop is re-priced toward the market (a modify to IBKR), never doubled.
+    assert any(r.order_ref == position.stop_order_id for r in fake.sends[sent_before:])
     # Out, or Andre told the stop is stuck: never managed on as if protected.
     assert held == {} or any("CANCEL STUCK" in m for m in said), (held, said)
     assert all(qty >= 0 for qty in held.values())  # never sold beside the stuck stop
@@ -74,3 +76,37 @@ def test_a_held_position_with_an_unanswered_inactive_stop_escalates_to_andre(
         if c.request.action == "SELL" and fake.sim.status(c.sim_id).state is OrderState.WORKING
     ]
     assert sum(c.request.quantity for c in sells) <= sum(held.values())  # never more than held
+
+
+def test_a_working_stop_whose_cancel_stays_pending_escalates_to_andre(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS J-1: an ordinary working stop; an exit cancels it and IBKR leaves the
+    cancel pending forever. A stop being cancelled is no protection: reconcile must
+    disagree and escalate (CANCEL STUCK), never loop or carry the position on."""
+    fake, adapter = through_ibkr(stack)
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
+    adapter._on_resync = runner.doubt
+    t = DECISION_TIME
+    for k in range(120):
+        if runner.position is not None:
+            break
+        stack.quote(150, D(152) if k < 3 else D(151), t)
+        runner.step(t)
+        t += SEC
+    position = runner.position
+    assert position is not None
+    fake.slow_cancels = True  # every cancel stays PendingCancel: IBKR never finishes it
+    fake.cancel_answer = None
+    stack.ledger.latch_kill_switch("test: force an exit")  # management must get out
+    before = len(alarms)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    for _ in range(8 * escalate):
+        stack.quote(150, D(151), t)
+        runner.step(t)
+        t += SEC
+    said = [a.message for a in alarms[before:]]
+    held = fake.sim.positions()
+    assert any("reconcile mismatch" in m for m in said), said
+    assert held == {} or any("CANCEL STUCK" in m for m in said), (held, said)
+    assert all(qty >= 0 for qty in held.values())

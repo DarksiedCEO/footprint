@@ -103,7 +103,8 @@ class OrderStatus:
     filled: int
     avg_price: Decimal | None
     triggered: bool = False
-    # Working at the broker but unable to act: Inactive there, or being cancelled.
+    # Working at the broker but not to be relied on: Inactive there, or being cancelled
+    # (PendingCancel).
     # Never counts as protection (AEGIS N1/N2): a stop held back is no stop.
     held_back: bool = False
 

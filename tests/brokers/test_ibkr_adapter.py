@@ -1038,6 +1038,22 @@ def test_an_order_taken_as_finished_that_reappears_pending_raises_a_doubt(ib: Ib
     assert ib.adapter.status("p1-entry").state is OrderState.WORKING
 
 
+def test_a_revived_order_later_reported_inactive_is_held_back_not_dead(ib: Ib) -> None:
+    """AEGIS J-M5: a revival clears the old cancel answer, so a later Inactive report
+    reads as held back (still at IBKR), never as finished."""
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    copy = ib.adapter._copies[entry.perm_id]
+    copy.settled_unseen = copy.cancel_confirmed = True
+    copy.status = "Cancelled"
+    ib.adapter.on_order_status(entry.ib_id, entry.perm_id, "Submitted", 0, 1, D(0))
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(entry.perm_id)
+    status = ib.adapter.status("p1-entry")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+
+
 def test_a_cancelled_inactive_stop_that_revives_raises_a_doubt(ib: Ib) -> None:
     """F2/F4: an Inactive stop we cancelled, then IBKR reactivates it: it acts again
     (not held back), and the runner must reconcile (a new stop or a flatten may sit
