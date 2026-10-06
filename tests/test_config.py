@@ -399,3 +399,31 @@ def test_bad_execution_values_are_rejected(
     target.write_text(yaml.safe_dump(data))
     with pytest.raises(ConfigError):
         load_execution(target)
+
+
+def test_the_reconnect_cap_cannot_be_below_the_first_wait(
+    tmp_path: Path, execution_path: Path
+) -> None:
+    from footprint.core.config import ConfigError, load_execution
+
+    text = execution_path.read_text().replace(
+        "max_reconnect_seconds: 300", "max_reconnect_seconds: 5"
+    )
+    bad = tmp_path / "execution.yaml"
+    bad.write_text(text)
+    with pytest.raises(ConfigError, match="max_reconnect_seconds"):
+        load_execution(bad)
+
+
+def test_the_market_window_must_cover_the_strike_distance_and_the_recentre(
+    tmp_path: Path, execution_path: Path
+) -> None:
+    from footprint.core.config import ConfigError, load_execution
+
+    text = execution_path.read_text().replace(
+        "strike_window_points: 100", "strike_window_points: 70"
+    )
+    bad = tmp_path / "execution.yaml"
+    bad.write_text(text)
+    with pytest.raises(ConfigError, match="strike_window_points"):
+        load_execution(bad)

@@ -49,6 +49,9 @@ def settings(**changes: Any) -> IbConnectionSettings:
         "reconnect_seconds": 0.01,
         "require_paper": True,
         "paper_account_prefix": "DU",
+        "escalate_after_failures": 3,
+        "max_reconnect_seconds": 0.05,
+        "min_healthy_session_seconds": 0.0,
     }
     base.update(changes)
     return IbConnectionSettings(**base)
@@ -472,6 +475,9 @@ def ibkr_config() -> IbkrConfig:
         option_security_type="FOP",
         require_paper=True,
         paper_account_prefix="DU",
+        escalate_after_failures=5,
+        max_reconnect_seconds=8,
+        min_healthy_session_seconds=2,
     )
 
 
@@ -722,3 +728,159 @@ def test_another_api_clients_order_is_never_matched_to_ours_by_id() -> None:
     assert client.connected  # their fractional fill is not read as ours
     assert events.got[0] == ("on_order_status", (0, 5151, "Filled", 0, 0, D(1)))
     assert events.got[1][1][0] == 0  # forwarded without an id of ours
+
+
+# --- repeated failures: escalate once, then retry less often ----------------------------
+
+
+class CountingStop(threading.Event):
+    """A stop event that records every wait and stops the loop after `limit` of them."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self.waits: list[float] = []
+        self.limit = limit
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.waits.append(float(timeout or 0))
+        if len(self.waits) >= self.limit:
+            self.set()
+        return self.is_set()
+
+
+def supervised(
+    sessions: list[str], limit: int, session_seconds: int = 1, **changes: Any
+) -> tuple[list[str], CountingStop]:
+    """Run the supervisor over scripted sessions: 'down' (cannot connect), 'crash'
+    (opens, then a callback raises), 'ok' (opens, then drops normally)."""
+    alarms: list[str] = []
+    stop = CountingStop(limit)
+    script = iter(sessions)
+
+    def factory(wrapper: Any) -> Recording:
+        kind = next(script, "down")
+        client = Recording(wrapper, connect_ok=kind != "down")
+
+        def session(c: Recording) -> None:
+            wrapper.managedAccounts(ACCOUNT)
+            wrapper.nextValidId(100)
+            if kind == "crash":
+                raise RuntimeError("a bug in a callback")
+
+        client.on_run = session
+        return client
+
+    clock = iter(range(0, 10**9, session_seconds))  # each read: one session's length on
+    binding = IbBinding(
+        settings(**changes), SCOPE, alarms.append, factory, monotonic=lambda: float(next(clock))
+    )
+    binding.attach(Events())
+    binding.run(stop)
+    return alarms, stop
+
+
+def test_an_unreachable_gateway_is_escalated_once_then_retried_less_often() -> None:
+    alarms, stop = supervised(
+        [], 7, reconnect_seconds=1, escalate_after_failures=3, max_reconnect_seconds=5
+    )
+    keeps = [a for a in alarms if "KEEPS FAILING" in a]
+    assert len(keeps) == 1  # once, not on every attempt
+    assert "never opened" in keeps[0]
+    assert stop.waits == [1, 1, 2, 4, 5, 5, 5]  # doubling from the escalation, capped
+
+
+def test_crashes_are_alarmed_until_the_escalation_then_only_the_escalation() -> None:
+    alarms, _ = supervised(["crash"] * 6, 6, escalate_after_failures=3)
+    crashes = [a for a in alarms if a.startswith("IBKR session failed unexpectedly")]
+    keeps = [a for a in alarms if "KEEPS FAILING" in a]
+    assert len(crashes) == 3  # the first three; after the escalation only the log
+    assert len(keeps) == 1
+    assert "a bug in a callback" in keeps[0]
+
+
+def test_a_working_session_after_an_escalation_says_so_and_resets() -> None:
+    alarms, stop = supervised(
+        ["down", "down", "down", "ok", "down"],
+        5,
+        reconnect_seconds=1,
+        escalate_after_failures=3,
+        max_reconnect_seconds=5,
+    )
+    assert sum("RESTORED" in a for a in alarms) == 1
+    assert stop.waits == [1, 1, 2, 1, 1]  # back to the normal wait after it worked
+    assert sum("KEEPS FAILING" in a for a in alarms) == 1
+
+
+def test_sessions_that_open_and_drop_never_escalate() -> None:
+    alarms, stop = supervised(["ok"] * 8, 8, reconnect_seconds=1, escalate_after_failures=3)
+    assert not any("KEEPS FAILING" in a for a in alarms)
+    assert stop.waits == [1] * 8
+
+
+def test_a_refused_account_still_stops_for_good() -> None:
+    alarms: list[str] = []
+    stop = CountingStop(50)
+
+    def factory(wrapper: Any) -> Recording:
+        client = Recording(wrapper)
+        client.on_run = lambda c: wrapper.managedAccounts("DU0000000")
+        return client
+
+    binding = IbBinding(settings(escalate_after_failures=1), SCOPE, alarms.append, factory)
+    binding.attach(Events())
+    binding.run(stop)
+    assert stop.waits == []  # refused: never waited to try again
+    assert not any("KEEPS FAILING" in a for a in alarms)
+
+
+def test_a_flapping_gateway_escalates_and_backs_off() -> None:
+    """Sessions that open and drop within min_healthy_session_seconds are failures."""
+    alarms, stop = supervised(
+        ["ok"] * 6,
+        6,
+        session_seconds=1,
+        reconnect_seconds=1,
+        escalate_after_failures=3,
+        max_reconnect_seconds=5,
+        min_healthy_session_seconds=10,
+    )
+    keeps = [a for a in alarms if "KEEPS FAILING" in a]
+    assert len(keeps) == 1
+    assert "flapping" in keeps[0]
+    assert stop.waits == [1, 1, 2, 4, 5, 5]
+
+
+def test_a_session_that_lasted_long_enough_is_healthy() -> None:
+    alarms, stop = supervised(
+        ["ok"] * 5,
+        5,
+        session_seconds=10,
+        reconnect_seconds=1,
+        escalate_after_failures=3,
+        min_healthy_session_seconds=10,
+    )
+    assert not any("KEEPS FAILING" in a for a in alarms)
+    assert stop.waits == [1] * 5
+
+
+def test_a_very_long_outage_cannot_overflow_the_wait() -> None:
+    binding = IbBinding(
+        settings(reconnect_seconds=15, escalate_after_failures=5, max_reconnect_seconds=300),
+        SCOPE,
+    )
+    assert binding._wait(10_000) == 300  # days of failures: still the cap, never an error
+    assert binding._wait(4) == 15
+    assert binding._wait(5) == 30
+
+
+def test_a_failing_wait_never_ends_the_reconnect_loop() -> None:
+    stop = CountingStop(3)
+    binding = IbBinding(settings(max_reconnect_seconds=7), SCOPE, lambda m: None, Recording)
+
+    def broken(failures: int) -> float:
+        raise OverflowError("anything")
+
+    binding._wait = broken  # type: ignore[method-assign]
+    binding.attach(Events())
+    binding.run(stop)
+    assert stop.waits == [7, 7, 7]  # it fell back to the longest wait and kept going
