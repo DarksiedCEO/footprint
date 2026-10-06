@@ -1,0 +1,9 @@
+  1 SURVIVED [bracket] src/footprint/execution/management/malik.py: F1/H9: held-back stop id dropped (waits forever)
+  2 SURVIVED [bracket] src/footprint/execution/management/malik.py: F1: exit waits unbounded
+  3 KILLED   [bracket] src/footprint/execution/management/malik.py: F1: held-back alarm every step
+  4 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: F2/F4: revival after Inactive unnoticed
+  5 KILLED   [config] src/footprint/core/config.py: F3: rule kinds not pinned
+  6 KILLED   [config] src/footprint/core/holiday_rules.py: F6: days_after ignored on fixed dates
+  7 KILLED   [config] src/footprint/core/holiday_rules.py: H13: early rule not satisfied by a closure
+  8 KILLED   [bracket] src/footprint/execution/executor/diego.py: H6: held back at arrival accepted
+8 mutants, 2 survived

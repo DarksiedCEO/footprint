@@ -467,9 +467,9 @@ def test_a_held_back_stop_whose_cancel_never_lands_escalates(stack: Stack) -> No
     assert raised_at is not None, "the exit waited forever"
     assert raised_at <= escalate + 2
     held_back = [a for a in stack.alarms if "held back" in a.message]
-    not_cancelled = [a for a in stack.alarms if "not cancelled" in a.message]
+    not_cancelled = [a for a in stack.alarms if "resting stop not cancelled" in a.message]
     assert len(held_back) == 1
-    assert len(not_cancelled) == 1
+    assert len(not_cancelled) == 1  # through the stop's own stuck-stop escalation
     assert stack.broker.positions() != {}  # nothing was sold beside the stuck stop
 
 
@@ -487,3 +487,32 @@ def test_a_stop_held_back_on_arrival_means_no_entry(stack: Stack) -> None:
     ticket = stack.executor.submit(stack.approved, (), SEND)
     assert ticket.outcome is EntryOutcome.UNFILLED
     assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
+
+
+def test_an_exit_never_waits_forever_on_another_order(stack: Stack) -> None:
+    """F1, the generic case: the stop is gone, but another sell on the contract will
+    not cancel: the exit waits at most cancel_escalate_seconds, then reconcile."""
+    from footprint.execution.management.malik import NeedsReconcile
+
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.position is not None
+    stack.broker.cancel(ticket.position.stop_order_id or "")  # the stop is gone
+    other = Order("hand-sell", ticket.position.contract_id, Side.SELL, 1, OrderType.LIMIT, D(400))
+    stack.executor._broker.place(other)  # a sell nobody can cancel
+    original = stack.broker.cancel
+    stack.broker.cancel = lambda order_id: (  # type: ignore[method-assign]
+        stack.broker.status(order_id) if order_id == "hand-sell" else original(order_id)
+    )
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    raised_at = None
+    for k in range(1, escalate + 5):
+        t = SEND + k * SEC
+        try:
+            stack.step(ticket.position, stack.quote(150, D(151), t), (), t)
+        except NeedsReconcile:
+            raised_at = k
+            break
+    assert raised_at is not None, "the exit waited forever"
+    assert len([a for a in stack.alarms if "exit waits" in a.message]) == 1
