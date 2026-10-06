@@ -20,6 +20,7 @@ adapter can compare IBKR's echo of a modify with what it asked for.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Protocol
@@ -133,3 +134,99 @@ class IbEvents(Protocol):
     def on_positions_end(self) -> None: ...
 
     def on_error(self, req_id: int, code: int, message: str) -> None: ...
+
+
+# --- market data -----------------------------------------------------------------------
+#
+# Separate from the order seam: the market data service asks for contracts, option
+# chains, quotes and bars, under request ids it chooses (from MARKET_REQUEST_BASE up,
+# far above any order id, so an error's request id is never ambiguous).
+
+# Half of IBKR's signed 32-bit request id range (a power of two, written out in full).
+MARKET_REQUEST_BASE = 1073741824
+
+
+@dataclass(frozen=True, slots=True)
+class ContractQuery:
+    """What to look up (reqContractDetails), or a contract to stream or chart by fields.
+    Empty strings and None are 'any'."""
+
+    symbol: str
+    sec_type: str  # "FUT", "FOP", "CONTFUT"
+    exchange: str
+    currency: str
+    expiry: str = ""  # YYYYMM or YYYYMMDD
+    strike: Decimal | None = None
+    right: str = ""  # "C" or "P"
+    trading_class: str = ""
+    con_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class IbBar:
+    """One completed (or, in an update, still forming) 1-minute bar."""
+
+    ts: datetime  # when the bar opens, UTC
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int
+
+
+class QuoteField(Enum):
+    BID = "BID"
+    ASK = "ASK"
+    OPEN_INTEREST = "OPEN_INTEREST"
+
+
+class IbMarketGateway(Protocol):
+    def request_contract_details(self, req_id: int, query: ContractQuery) -> None: ...
+
+    def request_option_params(
+        self, req_id: int, symbol: str, underlying_sec_type: str, underlying_con_id: int
+    ) -> None:
+        """The option chains (expirations, strikes) on an underlying (reqSecDefOptParams)."""
+
+    def request_quotes(self, req_id: int, contract: IbContract) -> None:
+        """Stream real-time top of book (and open interest for an option). Delayed data
+        is never asked for, and never accepted."""
+
+    def cancel_quotes(self, req_id: int) -> None: ...
+
+    def request_bars(
+        self, req_id: int, query: ContractQuery, end: str, duration: str, keep_up_to_date: bool
+    ) -> None:
+        """1-minute TRADES bars, all hours, ending at `end` (IBKR's format; "" = now).
+        With keep_up_to_date the forming bar keeps arriving as updates."""
+
+    def cancel_bars(self, req_id: int) -> None: ...
+
+
+class IbMarketEvents(Protocol):
+    def on_contract_details(self, req_id: int, contract: IbContract) -> None: ...
+
+    def on_contract_details_end(self, req_id: int) -> None: ...
+
+    def on_option_params(
+        self,
+        req_id: int,
+        exchange: str,
+        trading_class: str,
+        multiplier: str,
+        expirations: frozenset[str],
+        strikes: frozenset[Decimal],
+    ) -> None: ...
+
+    def on_option_params_end(self, req_id: int) -> None: ...
+
+    def on_quote(self, req_id: int, field: QuoteField, value: Decimal | None) -> None:
+        """None: IBKR says there is no such price now (no bid, no ask)."""
+
+    def on_bar(self, req_id: int, bar: IbBar) -> None: ...
+
+    def on_bars_end(self, req_id: int) -> None: ...
+
+    def on_bar_update(self, req_id: int, bar: IbBar) -> None: ...
+
+    def on_market_error(self, req_id: int, code: int, message: str) -> None: ...

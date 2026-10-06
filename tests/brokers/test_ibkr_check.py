@@ -52,6 +52,10 @@ class SimulatedGateway:
         self.answer = answer
         self.connected = False
         self.sent: list[str] = []
+        self.data_types: list[int] = []
+
+    def reqMarketDataType(self, kind: int) -> None:
+        self.data_types.append(kind)  # a session setting, not a request for anything
 
     def connect(self, host: str, port: int, client_id: int) -> None:
         self.connected = True
@@ -121,6 +125,7 @@ def test_the_check_reports_what_the_system_would_see(profiles: Profiles) -> None
     assert "open orders on anything else (never touched): 1" in out
     assert all(not g.connected for g in gateways)  # disconnected at the end
     assert all(g.sent == [] for g in gateways)  # nothing but the resync was asked
+    assert all(g.data_types == [1] for g in gateways)  # real-time only, never delayed
     assert "ALARM" not in out  # the check's own hang-up is not reported as an alarm
     assert "disconnecting as planned" in out
 

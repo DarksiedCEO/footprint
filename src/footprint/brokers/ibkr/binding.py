@@ -34,19 +34,32 @@ import math
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from ibapi.client import EClient
+from ibapi.common import BarData, TickAttrib
 from ibapi.const import UNSET_DECIMAL, UNSET_DOUBLE
-from ibapi.contract import Contract
+from ibapi.contract import Contract, ContractDetails
 from ibapi.execution import Execution, ExecutionFilter
 from ibapi.order import Order
 from ibapi.order_cancel import OrderCancel
 from ibapi.order_state import OrderState
+from ibapi.ticktype import TickTypeEnum
 from ibapi.wrapper import EWrapper
 
-from footprint.brokers.ibkr.gateway import Connection, IbEvents, IbOrderRequest
+from footprint.brokers.ibkr.gateway import (
+    MARKET_REQUEST_BASE,
+    Connection,
+    ContractQuery,
+    IbBar,
+    IbContract,
+    IbEvents,
+    IbMarketEvents,
+    IbOrderRequest,
+    QuoteField,
+)
 from footprint.core.config import IbkrConfig
 
 log = logging.getLogger("footprint.ibkr.binding")
@@ -54,6 +67,16 @@ log = logging.getLogger("footprint.ibkr.binding")
 _STOP_TYPES = frozenset({"STP", "STP LMT", "TRAIL", "TRAIL LIMIT"})
 # Inactive is not finished: an inactive order can become active again.
 _FINISHED = frozenset({"Filled", "Cancelled", "ApiCancelled"})
+_REAL_TIME = 1  # reqMarketDataType: live streaming only (3 would be delayed)
+_OPEN_INTEREST_TICKS = "101"  # generic tick list: option open interest
+_BAR_SIZE = "1 min"
+_BARS_OF = "TRADES"
+_ALL_HOURS = 0  # useRTH
+_EPOCH_DATES = 2  # formatDate: seconds since the epoch, UTC
+_QUOTE_PRICES = {TickTypeEnum.BID: QuoteField.BID, TickTypeEnum.ASK: QuoteField.ASK}
+_OPEN_INTEREST = frozenset(
+    {TickTypeEnum.OPTION_CALL_OPEN_INTEREST, TickTypeEnum.OPTION_PUT_OPEN_INTEREST}
+)
 
 
 class ForeignOrdersOpen(PermissionError):
@@ -131,6 +154,66 @@ def to_quantity(value: Decimal | float | int) -> int:
     return int(exact)
 
 
+def build_query(query: ContractQuery) -> Contract:
+    contract = Contract()
+    contract.conId = query.con_id
+    contract.symbol = query.symbol
+    contract.secType = query.sec_type
+    contract.exchange = query.exchange
+    contract.currency = query.currency
+    contract.lastTradeDateOrContractMonth = query.expiry
+    if query.strike is not None:
+        contract.strike = float(query.strike)
+    contract.right = query.right
+    contract.tradingClass = query.trading_class
+    return contract
+
+
+def build_ib_contract(c: IbContract) -> Contract:
+    contract = Contract()
+    contract.conId = c.con_id
+    contract.symbol = c.symbol
+    contract.secType = c.sec_type
+    contract.exchange = c.exchange
+    contract.currency = c.currency
+    contract.lastTradeDateOrContractMonth = c.expiry
+    contract.strike = float(c.strike)
+    contract.right = c.right
+    contract.multiplier = c.multiplier
+    contract.tradingClass = c.trading_class
+    return contract
+
+
+def from_details(details: ContractDetails) -> IbContract:
+    c = details.contract
+    strike = to_price(c.strike)
+    return IbContract(
+        con_id=c.conId,
+        symbol=c.symbol,
+        sec_type=c.secType,
+        exchange=c.exchange,
+        currency=c.currency,
+        expiry=c.lastTradeDateOrContractMonth,
+        strike=strike if strike is not None else Decimal(0),
+        right=c.right,
+        multiplier=c.multiplier,
+        trading_class=c.tradingClass,
+    )
+
+
+def to_bar(bar: BarData) -> IbBar:
+    """A 1-minute bar asked for with epoch dates; anything else is unreadable."""
+    if not str(bar.date).isdigit():
+        raise UnreadableValue(f"bar date {bar.date!r} is not in seconds since the epoch")
+    prices = [to_price(p) for p in (bar.open, bar.high, bar.low, bar.close)]
+    if any(p is None or p <= 0 for p in prices):
+        raise UnreadableValue(f"bar at {bar.date} has an unreadable price")
+    o, h, low, c = (p for p in prices if p is not None)
+    return IbBar(
+        datetime.fromtimestamp(int(bar.date), tz=UTC), o, h, low, c, to_quantity(bar.volume)
+    )
+
+
 def build_contract(request: IbOrderRequest) -> Contract:
     c = request.contract
     contract = Contract()
@@ -182,6 +265,7 @@ class IbBinding:
         self._on_alarm = on_alarm
         self._factory: Callable[[EWrapper], Any] = client_factory or EClient
         self._events: IbEvents | None = None
+        self._market: IbMarketEvents | None = None
         self._lock = threading.Lock()
         self._client: Any = None
         self._next_request = 1
@@ -196,6 +280,48 @@ class IbBinding:
 
     def attach(self, events: IbEvents) -> None:
         self._events = events
+
+    def attach_market(self, events: IbMarketEvents) -> None:
+        """The market data service, if one runs (the read-only check has none)."""
+        self._market = events
+
+    # --- IbMarketGateway ----------------------------------------------------------------
+
+    def request_contract_details(self, req_id: int, query: ContractQuery) -> None:
+        self._call().reqContractDetails(req_id, build_query(query))
+
+    def request_option_params(
+        self, req_id: int, symbol: str, underlying_sec_type: str, underlying_con_id: int
+    ) -> None:
+        # "" = every exchange; the service keeps the instrument's own
+        self._call().reqSecDefOptParams(req_id, symbol, "", underlying_sec_type, underlying_con_id)
+
+    def request_quotes(self, req_id: int, contract: IbContract) -> None:
+        self._call().reqMktData(
+            req_id, build_ib_contract(contract), _OPEN_INTEREST_TICKS, False, False, []
+        )
+
+    def cancel_quotes(self, req_id: int) -> None:
+        self._call().cancelMktData(req_id)
+
+    def request_bars(
+        self, req_id: int, query: ContractQuery, end: str, duration: str, keep_up_to_date: bool
+    ) -> None:
+        self._call().reqHistoricalData(
+            req_id,
+            build_query(query),
+            end,
+            duration,
+            _BAR_SIZE,
+            _BARS_OF,
+            _ALL_HOURS,
+            _EPOCH_DATES,
+            keep_up_to_date,
+            [],
+        )
+
+    def cancel_bars(self, req_id: int) -> None:
+        self._call().cancelHistoricalData(req_id)
 
     # --- IbGateway --------------------------------------------------------------------
 
@@ -281,6 +407,9 @@ class IbBinding:
         return client
 
     # --- used by the wrapper ---------------------------------------------------------
+
+    def _market_events(self) -> IbMarketEvents | None:
+        return self._market
 
     def _forward(self) -> IbEvents:
         if self._events is None:
@@ -374,6 +503,8 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
                 return
             self._announced = self._open = True
             next_id = self._next_id
+        # Real-time data only, set before anything is asked for in this session.
+        self._b._call().reqMarketDataType(_REAL_TIME)
         self._b._forward().on_connection(Connection.CONNECTED, next_id)
 
     def connectionClosed(self) -> None:
@@ -391,10 +522,16 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             log.warning("IBKR order reject detail on %s: %s", reqId, advancedOrderRejectJson)
         with self._session_lock:
             open_ = self._open
-        if open_:
-            self._b._forward().on_error(reqId, errorCode, errorString)
-        else:
+        if not open_:
             log.warning("IBKR %s before the session opened: %s", errorCode, errorString)
+        elif reqId >= MARKET_REQUEST_BASE:  # a market data request's, never an order's
+            market = self._b._market_events()
+            if market is not None:
+                market.on_market_error(reqId, errorCode, errorString)
+            else:
+                log.warning("IBKR %s on market request %s: %s", errorCode, reqId, errorString)
+        else:
+            self._b._forward().on_error(reqId, errorCode, errorString)
 
     # --- orders ----------------------------------------------------------------------
 
@@ -558,3 +695,83 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
 
     def positionEnd(self) -> None:
         self._b._forward().on_positions_end()
+
+    # --- market data -------------------------------------------------------------------
+
+    def contractDetails(self, reqId: int, contractDetails: ContractDetails) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            self._guard(
+                "contract", lambda: market.on_contract_details(reqId, from_details(contractDetails))
+            )
+
+    def contractDetailsEnd(self, reqId: int) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            market.on_contract_details_end(reqId)
+
+    def securityDefinitionOptionParameter(
+        self,
+        reqId: int,
+        exchange: str,
+        underlyingConId: int,
+        tradingClass: str,
+        multiplier: str,
+        expirations: Any,
+        strikes: Any,
+    ) -> None:
+        market = self._b._market_events()
+        if market is None:
+            return
+
+        def forward() -> None:
+            exact = frozenset(to_price(s) for s in strikes)
+            if None in exact:
+                raise UnreadableValue(f"option strikes for {tradingClass} are unreadable")
+            market.on_option_params(
+                reqId,
+                exchange,
+                tradingClass,
+                multiplier,
+                frozenset(str(e) for e in expirations),
+                frozenset(s for s in exact if s is not None),
+            )
+
+        self._guard("option chain", forward)
+
+    def securityDefinitionOptionParameterEnd(self, reqId: int) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            market.on_option_params_end(reqId)
+
+    def tickPrice(self, reqId: int, tickType: int, price: float, attrib: TickAttrib) -> None:
+        field = _QUOTE_PRICES.get(tickType)  # real-time bid and ask only; delayed never
+        market = self._b._market_events()
+        if field is None or market is None:
+            return
+        value = to_price(price)
+        market.on_quote(reqId, field, value if value is not None and value > 0 else None)
+
+    def tickSize(self, reqId: int, tickType: int, size: Decimal) -> None:
+        market = self._b._market_events()
+        if tickType not in _OPEN_INTEREST or market is None:
+            return
+        self._guard(
+            "open interest",
+            lambda: market.on_quote(reqId, QuoteField.OPEN_INTEREST, Decimal(to_quantity(size))),
+        )
+
+    def historicalData(self, reqId: int, bar: BarData) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            self._guard("bar", lambda: market.on_bar(reqId, to_bar(bar)))
+
+    def historicalDataEnd(self, reqId: int, start: str, end: str) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            market.on_bars_end(reqId)
+
+    def historicalDataUpdate(self, reqId: int, bar: BarData) -> None:
+        market = self._b._market_events()
+        if market is not None:
+            self._guard("bar", lambda: market.on_bar_update(reqId, to_bar(bar)))
