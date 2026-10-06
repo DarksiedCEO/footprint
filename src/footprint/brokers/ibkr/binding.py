@@ -298,7 +298,7 @@ class IbBinding:
     # --- IbMarketGateway ----------------------------------------------------------------
 
     def request_contract_details(self, req_id: int, query: ContractQuery) -> None:
-        self._wrapper.fresh_request(req_id)
+        self._wrapper.claim(req_id)
         self._call().reqContractDetails(req_id, build_query(query))
 
     def request_option_params(
@@ -309,13 +309,13 @@ class IbBinding:
         underlying_sec_type: str,
         underlying_con_id: int,
     ) -> None:
-        self._wrapper.fresh_request(req_id)
+        self._wrapper.claim(req_id)
         self._call().reqSecDefOptParams(
             req_id, symbol, option_exchange, underlying_sec_type, underlying_con_id
         )
 
     def request_quotes(self, req_id: int, contract: IbContract) -> None:
-        self._wrapper.fresh_request(req_id)  # IBKR will say what kind of data it gets
+        self._wrapper.claim(req_id)
         self._call().reqMktData(
             req_id, build_ib_contract(contract), _OPEN_INTEREST_TICKS, False, False, []
         )
@@ -328,7 +328,7 @@ class IbBinding:
     ) -> None:
         if keep_up_to_date and end:
             raise ValueError(f"bars kept up to date must end now (''), not {end!r}")
-        self._wrapper.fresh_request(req_id)
+        self._wrapper.claim(req_id)
         self._call().reqHistoricalData(
             req_id,
             build_query(query),
@@ -493,13 +493,19 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._accounts: tuple[str, ...] = ()
             self._not_live: set[int] = set()  # quote requests IBKR said are not real-time
             self._void: set[int] = set()  # market requests voided by a fault
+            self._claimed: set[int] = set()  # market request ids used in this session
             self._dropped_market = False
 
-    def fresh_request(self, req_id: int) -> None:
-        """A market request (re)made under this id: nothing voided or silenced carries."""
+    def claim(self, req_id: int) -> None:
+        """A market request id, used once per session: IBKR can still deliver a cancelled
+        request's data after the cancel, so a reused id would take another contract's
+        late ticks as its own. (A new session starts clean: IBKR forgot the old one.)"""
+        if req_id < MARKET_REQUEST_BASE:
+            raise ValueError(f"market request id {req_id} is below {MARKET_REQUEST_BASE}")
         with self._session_lock:
-            self._not_live.discard(req_id)
-            self._void.discard(req_id)
+            if req_id in self._claimed:
+                raise ValueError(f"market request id {req_id} was already used this session")
+            self._claimed.add(req_id)
 
     def _is_void(self, req_id: int) -> bool:
         with self._session_lock:

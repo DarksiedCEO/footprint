@@ -388,17 +388,14 @@ def test_every_non_real_time_type_is_refused(kind: int) -> None:
     assert [name for name, _ in market.got] == ["on_market_error"]
 
 
-def test_real_time_announced_again_or_a_new_request_lets_quotes_through() -> None:
+def test_real_time_announced_again_lets_quotes_through() -> None:
     binding, _, market, _ = with_market_and_alarms()
     w = binding._wrapper
     w.marketDataType(REQ, 2)
     w.marketDataType(REQ, 1)  # IBKR back on live data for it
     w.tickPrice(REQ, TickTypeEnum.BID, 2.0, TickAttrib())
-    w.marketDataType(REQ + 1, 3)
-    binding.request_quotes(REQ + 1, CALL)  # asked again: IBKR will say what it is
-    w.tickPrice(REQ + 1, TickTypeEnum.BID, 3.0, TickAttrib())
     quotes = [args for name, args in market.got if name == "on_quote"]
-    assert quotes == [(REQ, QuoteField.BID, D(2)), (REQ + 1, QuoteField.BID, D(3))]
+    assert quotes == [(REQ, QuoteField.BID, D(2))]
 
 
 def test_a_real_time_announcement_raises_nothing() -> None:
@@ -447,13 +444,13 @@ def test_a_failing_market_service_voids_the_request_and_never_the_orders() -> No
     assert sum("is void" in a for a in alarms) == 1
     w.orderStatus(7, "Submitted", D(0), D(1), 0.0, 77, 0, 0.0, 0, "", 0.0)
     assert events.got[-1][0] == "on_order_status"  # the order side carries on
-    binding.request_quotes(REQ, CALL)  # asked again: no longer void
-    w.tickPrice(REQ, TickTypeEnum.BID, 5.0, TickAttrib())
-    assert market.got[-2] == ("on_quote", (REQ, QuoteField.BID, D(5)))  # heard again
+    binding.request_quotes(REQ + 1, CALL)  # the service asks again, under a new id
+    w.tickPrice(REQ + 1, TickTypeEnum.BID, 5.0, TickAttrib())
+    assert market.got[-2] == ("on_quote", (REQ + 1, QuoteField.BID, D(5)))  # heard
     assert market.got[-1][0] == "on_market_error"  # (and the still-buggy service voids it)
 
 
-def test_a_void_bar_request_stops_alarming_until_asked_again() -> None:
+def test_a_void_bar_request_stays_void_and_alarms_once() -> None:
     binding, _, market, alarms = with_market_and_alarms()
     w = binding._wrapper
     bad = bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(-1))
@@ -462,26 +459,56 @@ def test_a_void_bar_request_stops_alarming_until_asked_again() -> None:
     w.historicalDataEnd(REQ, "", "")
     assert len(market.got) == 1
     assert sum("is void" in a for a in alarms) == 1
-    binding.request_bars(REQ, NQ_FUT, "", "1 D", True)
-    w.historicalDataUpdate(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(1)))
+    w.historicalDataUpdate(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(1)))  # even good
+    assert len(market.got) == 1  # a void request stays void
+    binding.request_bars(REQ + 1, NQ_FUT, "", "1 D", True)  # asked again, new id
+    w.historicalDataUpdate(REQ + 1, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(1)))
     assert market.got[-1][0] == "on_bar_update"
 
 
-@pytest.mark.parametrize(
-    "request_again",
-    [
-        lambda b: b.request_contract_details(REQ, NQ_FUT),
-        lambda b: b.request_option_params(REQ, "NQ", "CME", "FUT", 555),
-        lambda b: b.request_quotes(REQ, CALL),
-        lambda b: b.request_bars(REQ, NQ_FUT, "", "1 D", False),
-    ],
-)
-def test_any_new_request_under_a_void_id_is_heard(request_again: Any) -> None:
-    binding, _, market, _ = with_market_and_alarms()
-    binding._wrapper.historicalData(REQ, bar(1759672800, 1.0, 1.0, 1.0, 1.0, D(-1)))
-    request_again(binding)
-    binding._wrapper.contractDetailsEnd(REQ)
-    assert market.got[-1] == ("on_contract_details_end", (REQ,))
+REQUESTS = [
+    lambda b, r: b.request_contract_details(r, NQ_FUT),
+    lambda b, r: b.request_option_params(r, "NQ", "CME", "FUT", 555),
+    lambda b, r: b.request_quotes(r, CALL),
+    lambda b, r: b.request_bars(r, NQ_FUT, "", "1 D", False),
+]
+
+
+@pytest.mark.parametrize("first", REQUESTS)
+@pytest.mark.parametrize("again", REQUESTS)
+def test_a_request_id_is_never_used_twice_in_a_session(first: Any, again: Any) -> None:
+    """A cancelled request's late ticks would otherwise pass for the new one's."""
+    binding, client, _, _ = with_market()
+    first(binding, REQ)
+    with pytest.raises(ValueError, match="already used"):
+        again(binding, REQ)
+    assert len(client.calls) == 1  # the reuse was never sent
+
+
+def test_a_cancelled_request_id_is_still_used() -> None:
+    binding, client, _, _ = with_market()
+    binding.request_quotes(REQ, CALL)
+    binding.cancel_quotes(REQ)
+    with pytest.raises(ValueError, match="already used"):
+        binding.request_quotes(REQ, CALL)
+    assert [n for n, _ in client.calls] == ["reqMktData", "cancelMktData"]
+
+
+@pytest.mark.parametrize("ask", REQUESTS)
+def test_a_market_request_id_below_the_base_is_refused(ask: Any) -> None:
+    binding, client, _, _ = with_market()
+    with pytest.raises(ValueError, match="below"):
+        ask(binding, MARKET_REQUEST_BASE - 1)
+    ask(binding, MARKET_REQUEST_BASE)  # the base itself is a market id
+    assert len(client.calls) == 1
+
+
+def test_a_new_session_may_use_an_id_again() -> None:
+    binding, client, _, _ = with_market()
+    binding.request_quotes(REQ, CALL)
+    binding._wrapper.new_session()  # IBKR forgot every request of the old session
+    binding.request_quotes(REQ, CALL)
+    assert [n for n, _ in client.calls] == ["reqMktData", "reqMktData"]
 
 
 @pytest.mark.parametrize("epoch", ["99999999999999999999", "99999999999999"])
