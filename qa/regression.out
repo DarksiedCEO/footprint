@@ -1,30 +1,30 @@
 === live-account rejection
-11 passed, 24 deselected in 0.25s
+11 passed, 24 deselected in 0.23s
 === port 4001 rejection
-5 passed, 30 deselected in 0.18s
+5 passed, 30 deselected in 0.20s
 === configuration-bypass attempts
-18 passed, 18 deselected in 0.41s
+18 passed, 18 deselected in 0.45s
 === IBKR disconnect
-6 passed, 4 deselected in 1.93s
+6 passed, 4 deselected in 1.74s
 === failed reconciliation
-2 passed, 7 deselected in 0.94s
+2 passed, 7 deselected in 0.83s
 === expired calendar
-4 passed, 27 deselected in 1.05s
+4 passed, 27 deselected in 1.00s
 === holiday blocking
-27 passed, 4 deselected in 1.24s
+27 passed, 4 deselected in 1.30s
 === Twilio timeout
-3 passed, 23 deselected in 1.58s
+3 passed, 23 deselected in 1.55s
 === Twilio rejection
-4 passed, 22 deselected in 0.62s
+4 passed, 22 deselected in 0.55s
 === Telegram fallback (Telegram down)
-3 passed, 76 deselected in 3.21s
+3 passed, 76 deselected in 3.16s
 === SMS fallback
-5 passed, 74 deselected in 2.70s
+5 passed, 74 deselected in 2.69s
 === Telegram-only degraded mode
-13 passed, 13 deselected in 0.53s
+13 passed, 13 deselected in 0.46s
 === no network in tests
-2 passed, 51 deselected in 0.11s
+2 passed, 51 deselected in 0.12s
 === H-2 entry protected during an outage (attached stop)
-43 passed, 128 deselected in 5.78s
+44 passed, 128 deselected in 5.01s
 === D37 outage excluded from the failsafe, flapping cannot hold it off
-3 passed, 6 deselected in 1.36s
+3 passed, 6 deselected in 1.35s

@@ -1,0 +1,4 @@
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: AEGIS J-M2 held-back stuck stop never re-priced
+  2 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: AEGIS J-M5 revival of settled-unseen keeps cancel_confirmed (later Inactive reads dead)
+  3 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: J-1: PendingCancel stop counts as protection
+3 mutants, 0 survived
