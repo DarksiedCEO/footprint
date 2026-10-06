@@ -22,14 +22,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from footprint.agents.levels import LevelsReader, LevelsSnapshot, Unavailable
 from footprint.agents.range_reader import RangeReader
 from footprint.agents.zero_day import ZeroDayCheck
-from footprint.core.calendar import SessionKind, session_at
+from footprint.core.calendar import SessionKind, entry_cutoff, session_at
 from footprint.core.config import ConsoleSettings, InstrumentProfile
 from footprint.core.models import Bar, Direction, Read, Score, require_utc
 
@@ -101,12 +101,9 @@ class Console:
 
         session = session_at(as_of, self._instrument)
         gates.append(Gate("prime_session", session is SessionKind.PRIME, session.value))
-        prime = self._instrument.prime_session
-        zone = ZoneInfo(prime.timezone)
+        zone = ZoneInfo(self._instrument.prime_session.timezone)
         local = as_of.astimezone(zone)
-        cutoff = datetime.combine(local.date(), prime.end, zone) - timedelta(
-            minutes=s.close_lead_minutes
-        )
+        cutoff = entry_cutoff(as_of, self._instrument, s.close_lead_minutes).astimezone(zone)
         gates.append(
             Gate(
                 "before_close_lead",

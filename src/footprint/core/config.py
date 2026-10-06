@@ -7,6 +7,7 @@ from dataclasses import dataclass, fields
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -57,6 +58,9 @@ class InstrumentProfile:
     dte_max: int
     trading_days: frozenset[int]
     holidays: frozenset[date]
+    early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
+    calendar_through: date  # holidays and early closes are complete up to this date
+    calendar_warn_days: int  # say so this many days before the calendar runs out
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +201,31 @@ def _holidays(raw: Mapping[str, object], key: str, where: str) -> frozenset[date
     return frozenset(days)
 
 
+def _early_closes(raw: Mapping[str, object], key: str, where: str) -> Mapping[date, time]:
+    value = raw[key]
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where}: {key} must be a mapping of YYYY-MM-DD: HH:MM")
+    closes: dict[date, time] = {}
+    for day, text in value.items():
+        if not isinstance(day, date) or isinstance(day, datetime):
+            raise ConfigError(f"{where}: {key} keys must be dates (YYYY-MM-DD), got {day!r}")
+        try:
+            parsed = time.fromisoformat(text) if isinstance(text, str) else None
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.second or parsed.microsecond or parsed.tzinfo is not None:
+            raise ConfigError(f"{where}: {key} {day} must be HH:MM, got {text!r}")
+        closes[day] = parsed
+    return MappingProxyType(closes)
+
+
+def _date(raw: Mapping[str, object], key: str, where: str) -> date:
+    value = raw[key]
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise ConfigError(f"{where}: {key} must be a date (YYYY-MM-DD), got {value!r}")
+    return value
+
+
 def load_instrument(path: Path) -> InstrumentProfile:
     where = str(path)
     raw = _read_mapping(path, {f.name for f in fields(InstrumentProfile)})
@@ -215,6 +244,9 @@ def load_instrument(path: Path) -> InstrumentProfile:
         dte_max=_integer(raw, "dte_max", where, minimum=0),
         trading_days=_trading_days(raw, "trading_days", where),
         holidays=_holidays(raw, "holidays", where),
+        early_closes=_early_closes(raw, "early_closes", where),
+        calendar_through=_date(raw, "calendar_through", where),
+        calendar_warn_days=_integer(raw, "calendar_warn_days", where, minimum=1),
     )
     if profile.prime_session.start > profile.prime_session.end:
         raise ConfigError(f"{where}: prime_session must not cross midnight")
@@ -234,6 +266,17 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
+    for day, close in profile.early_closes.items():
+        if day in profile.holidays:
+            raise ConfigError(f"{where}: {day} is both a holiday and an early close")
+        if not (cash.start < close < prime.end):
+            raise ConfigError(
+                f"{where}: early close {day} {close} must be after the cash open and "
+                "before the normal prime close"
+            )
+    late = [d for d in (*profile.holidays, *profile.early_closes) if d > profile.calendar_through]
+    if late:
+        raise ConfigError(f"{where}: {sorted(late)[0]} is after calendar_through")
     return profile
 
 

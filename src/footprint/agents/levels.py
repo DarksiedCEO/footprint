@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from footprint.agents._series import swing_points
 from footprint.core.calendar import (
     SessionKind,
-    is_trading_day,
+    cash_close,
     previous_trading_day,
     session_at,
 )
@@ -117,7 +117,7 @@ class LevelsReader:
         zone = ZoneInfo(prime.timezone)
         local_now = as_of.astimezone(zone)
         today = local_now.date()
-        if not (is_trading_day(today, inst) and prime.start <= local_now.time() <= prime.end):
+        if session_at(as_of, inst) is not SessionKind.PRIME:  # early closes included
             return Unavailable(as_of, "outside the prime session of a trading day")
 
         minutes = completed(minute_bars, as_of, 1)
@@ -130,14 +130,14 @@ class LevelsReader:
 
         prior_day = previous_trading_day(today, inst)
         prior_open = datetime.combine(prior_day, cash.start, zone).astimezone(UTC)
-        prior_close = datetime.combine(prior_day, cash.end, zone).astimezone(UTC)
+        prior_close = datetime.combine(prior_day, cash_close(prior_day, inst), zone).astimezone(UTC)
         prior_bars = _between(minutes, prior_open, prior_close)
         problem = self._window_problem(prior_bars, prior_open, prior_close, need_last=True)
         if problem:
             return Unavailable(as_of, f"previous trading day {prior_day} cash session: {problem}")
 
         today_open = datetime.combine(today, cash.start, zone).astimezone(UTC)
-        today_close = datetime.combine(today, cash.end, zone).astimezone(UTC)
+        today_close = datetime.combine(today, cash_close(today, inst), zone).astimezone(UTC)
         if as_of <= today_open:
             return Unavailable(as_of, "cash session has not opened: no VWAP yet")
         today_cash = _between(minutes, today_open, today_close)

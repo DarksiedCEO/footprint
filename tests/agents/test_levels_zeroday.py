@@ -616,3 +616,40 @@ def test_the_spike_candidate_bar_has_its_own_limit(nia: ZeroDayAgent) -> None:
     # The same 12-point jump on the LAST bar is judged at the normal 4x.
     last = replace_bar(bars, pt(today, 6, 50), open_=20011, high=20013, low=20009, close=20011)
     assert nia.check(last, pt(today, 6, 51)).tripped
+
+
+def test_the_day_after_an_early_close_uses_its_short_cash_session(
+    grant: LevelsReader, strategy: StrategyProfile, instrument: InstrumentProfile
+) -> None:
+    """Monday closed early at 10:00: its cash session is 06:30-10:00, so Tuesday's prior
+    levels come from that (full coverage), not a 06:30-13:00 window that is mostly empty."""
+    mon, tue = date(2026, 9, 14), date(2026, 9, 15)
+    early = replace(instrument, early_closes={mon: time(10, 0)})
+    g = LevelsReader(strategy.levels, strategy.trend, strategy.data, early)
+    fri, sun = date(2026, 9, 11), date(2026, 9, 13)
+    earlier = flat_minutes(pt(fri, 4, 0), pt(fri, 14, 0), 1000)
+    earlier += flat_minutes(pt(sun, 15, 0), pt(mon, 4, 0), 1000)  # enough trend history
+    halted = earlier + [
+        b for b in session_data(mon, tue) if not pt(mon, 10, 0) <= b.ts < pt(mon, 15, 0)
+    ]
+    last = next(b for b in halted if b.ts == pt(mon, 9, 59))
+    halted[halted.index(last)] = bar(pt(mon, 9, 59), 1000, 1003, 999, 1002, 100)
+    s = g.snapshot(halted, pt(tue, 6, 33))
+    assert walls_of(s)["prior_close"] == D(1002)  # the early close's last bar
+    assert walls_of(s)["prior_high"] == D(1014)
+    # Without the early close, the empty afternoon makes the prior day unusable.
+    assert isinstance(grant.snapshot(halted, pt(tue, 6, 33)), Unavailable)
+
+
+def test_levels_and_zero_day_stop_judging_at_an_early_close(
+    grant: LevelsReader, strategy: StrategyProfile, instrument: InstrumentProfile
+) -> None:
+    tue = date(2026, 9, 15)
+    early = replace(instrument, early_closes={tue: time(10, 0)})
+    g = LevelsReader(strategy.levels, strategy.trend, strategy.data, early)
+    bars = session_data(date(2026, 9, 14), tue)
+    after = g.snapshot(bars, pt(tue, 10, 1))
+    assert isinstance(after, Unavailable)
+    assert "outside the prime session" in after.reason
+    nia = ZeroDayAgent(strategy.zeroday, strategy.data, early)
+    assert "outside the prime session" in nia.check(bars, pt(tue, 10, 1)).findings[0]

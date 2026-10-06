@@ -98,7 +98,7 @@ def test_everything_is_wired_to_one_another(profiles: Profiles, tmp_path: Path) 
     assert live.runner._book is live.book
     messages = delivered(live, sink)
     assert any("STARTED: reconciling" in m for m in messages)
-    assert any("STARTED WITHOUT HOLIDAYS" in m for m in messages)  # nq.yaml has none yet
+    assert not any("calendar" in m for m in messages)  # through 2027-03-31: not near its end
 
 
 def test_an_ibkr_resync_sends_the_runner_to_reconcile(profiles: Profiles, tmp_path: Path) -> None:
@@ -321,3 +321,34 @@ def test_quitting_with_something_held_warns(
     Driver(live, out=quiet).command("quit", threading.Event())
     assert "WARNING" not in quiet.getvalue()
     live.alarms.close(timedelta(seconds=1))
+
+
+def test_the_calendar_alarm_is_said_once_a_day_as_it_runs_out(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    through = profiles.instrument.calendar_through
+    now = [datetime.combine(through, datetime.min.time(), UTC) - timedelta(days=10)]
+    live, sink = make(profiles, tmp_path, clock=lambda: now[0])
+    said: list[str] = []
+    real_alarm = live.alarm
+
+    def counting(message: str) -> None:
+        said.append(message)
+        real_alarm(message)
+
+    live.alarm = counting  # type: ignore[method-assign]
+    live._calendar_checked = None  # count the start's check too
+    driver = Driver(live, out=io.StringIO())
+    with_runner_quiet(live)
+    for _ in range(3):
+        driver.tick(now[0])
+    now[0] += timedelta(days=1)
+    driver.tick(now[0])
+    warnings = [m for m in said if "exchange calendar ends" in m]
+    assert len(warnings) == 2  # once that day (whatever the ticks), once the next day
+    delivered(live, sink)
+
+
+def with_runner_quiet(live: Live) -> None:
+    live.runner.step = lambda now: None  # type: ignore[method-assign]
+    live.market.step = lambda now: None  # type: ignore[method-assign]
