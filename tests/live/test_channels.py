@@ -683,3 +683,21 @@ def test_the_suite_cannot_reach_twilio_or_telegram(no_network: list[str]) -> Non
             http_post(url, {"Body": "x"}, (SID, AUTH), 2)
     assert any("api.twilio.com" in a for a in no_network)
     assert any("api.telegram.org" in a for a in no_network)
+
+
+def test_a_proxy_on_loopback_cannot_carry_a_request_out(
+    no_network: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even if a proxy setting came back, its endpoint (loopback here) is blocked."""
+    import os
+    import socket
+
+    from tests import conftest
+
+    endpoint = ("127.0.0.1", 44027)
+    monkeypatch.setenv("HTTPS_PROXY", f"http://{endpoint[0]}:{endpoint[1]}")
+    blocked = conftest.no_network.__wrapped__(monkeypatch)  # type: ignore[attr-defined]
+    assert "HTTPS_PROXY" not in os.environ
+    with socket.socket() as sock, pytest.raises(conftest.NetworkBlocked):
+        sock.connect(endpoint)
+    assert blocked == [f"connect {endpoint[0]}:{endpoint[1]}"]

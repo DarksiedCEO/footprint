@@ -153,3 +153,35 @@ def test_a_reconcile_that_never_agrees_never_lets_trading_resume(
     assert runner.reconciling
     assert journal.decisions() == []
     assert [o for o in stack.broker.open_orders() if o.order_type is OrderType.LIMIT] == []
+
+
+def test_a_doubt_set_while_turning_ready_stops_the_decision_in_flight(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """The adapter sets the doubt just before it turns ready. A step that began before
+    the doubt and reads "ready" after it must still not decide: _decide re-checks."""
+    runner, journal, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)
+    assert not runner.reconciling
+
+    reads = [0]
+
+    class TurningReady:
+        """`ready` as the adapter publishes it mid-step: the step's first read sees it
+        ready with no doubt; by the next read (in _decide) the doubt has been set."""
+
+        def __get__(self, broker: object, owner: object) -> bool:
+            reads[0] += 1
+            if reads[0] >= 2:
+                runner.doubt()
+            return True
+
+    original = type(stack.broker)
+    stack.broker.__class__ = type("Turning", (original,), {"ready": TurningReady()})
+    try:
+        runner.step(DECISION_TIME + SEC)
+    finally:
+        stack.broker.__class__ = original
+    assert reads[0] >= 2  # the step got as far as _decide
+    assert journal.decisions() == []  # nothing decided on the step the doubt landed in
+    assert runner.reconciling

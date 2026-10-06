@@ -1,5 +1,7 @@
 import ipaddress
+import os
 import socket
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +46,13 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     Every attempt raises NetworkBlocked and is listed. Real delivery is checked only by
     the explicitly run `python -m footprint.live.alarm_setup test`."""
     attempts: list[str] = []
+    # A proxy can listen on loopback: its endpoint is blocked too (it would carry a
+    # request out), as well as being dropped from the environment.
+    proxies: set[tuple[str, int]] = set()
     for name in _PROXY_VARS:
+        url = urllib.parse.urlparse(os.environ.get(name, ""))
+        if url.hostname and url.port:
+            proxies.add((url.hostname, url.port))
         monkeypatch.delenv(name, raising=False)
     real_getaddrinfo = socket.getaddrinfo
     real_connect = socket.socket.connect
@@ -60,8 +68,8 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         host = address[0] if isinstance(address, tuple) else address
         if isinstance(address, (str, bytes)):  # a unix socket path: local
             return
-        if not _loopback(host):
-            attempts.append(f"connect {host}")
+        if not _loopback(host) or tuple(address[:2]) in proxies:
+            attempts.append(f"connect {host}:{address[1]}")
             raise NetworkBlocked(f"network blocked in tests: connect to {host!r}")
 
     def connect(self: socket.socket, address: Any) -> None:
