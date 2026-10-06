@@ -29,13 +29,15 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
 from footprint.brokers.ibkr.market import MarketData
+from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
 from footprint.decision.session import NewsBlackout
@@ -91,6 +93,7 @@ class Live:
     halt: Halt
     alarms: AlarmLine
     clock: Callable[[], datetime] = field(default=utc_now)
+    _calendar_checked: date | None = field(default=None, init=False)
 
     def held(self) -> frozenset[str]:
         """Every contract whose prices must keep streaming: what IBKR holds or has
@@ -105,6 +108,17 @@ class Live:
 
     def alarm(self, message: str) -> None:
         self.alarms.submit(Alarm(self.clock(), message))
+
+    def check_calendar(self) -> None:
+        """Alarm once a day while the exchange calendar is about to run out, or has."""
+        p = self.profiles.instrument
+        today = self.clock().astimezone(ZoneInfo(p.prime_session.timezone)).date()
+        if today == self._calendar_checked:
+            return
+        self._calendar_checked = today
+        warning = calendar_warning(today, p)
+        if warning is not None:
+            self.alarm(warning)
 
 
 def build(
@@ -194,11 +208,7 @@ def build(
         clock,
     )
     held_box.append(live)
-    if not p.instrument.holidays:
-        live.alarm(
-            "STARTED WITHOUT HOLIDAYS: instruments/nq.yaml lists no exchange holidays, so "
-            "holiday and early-close sessions are treated as normal days"
-        )
+    live.check_calendar()
     return live
 
 
@@ -230,6 +240,7 @@ class Driver:
                 self._market_failing = True
                 self._live.alarm(f"market data step failed ({exc!r}): no new data until fixed")
         self._live.runner.step(now)
+        self._live.check_calendar()
 
     def command(self, line: str, stop: threading.Event) -> None:
         """`clear <name>` (clear to trade), `status`, `quit`."""

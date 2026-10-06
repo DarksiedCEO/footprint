@@ -32,7 +32,7 @@ from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 from footprint.agents._series import relative_to_same_time
-from footprint.core.calendar import is_trading_day
+from footprint.core.calendar import SessionKind, is_trading_day, session_at
 from footprint.core.config import DataSettings, InstrumentProfile, ZeroDaySettings
 from footprint.core.models import Bar, require_utc
 from footprint.core.series import require_series
@@ -63,12 +63,7 @@ class ZeroDayAgent:
 
     def check(self, minute_bars: Sequence[Bar], as_of: datetime) -> ZeroDayCheck:
         require_utc(as_of, "as_of")
-        prime = self._instrument.prime_session
-        local_now = as_of.astimezone(ZoneInfo(prime.timezone))
-        if not (
-            is_trading_day(local_now.date(), self._instrument)
-            and prime.start <= local_now.time() <= prime.end
-        ):
+        if session_at(as_of, self._instrument) is not SessionKind.PRIME:  # early closes too
             return ZeroDayCheck(as_of, True, ("outside the prime session: not judged",))
         bars = completed(minute_bars, as_of, 1)
         if len(bars) < 2:

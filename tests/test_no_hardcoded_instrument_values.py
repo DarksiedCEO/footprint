@@ -97,6 +97,7 @@ def test_profiles_yield_the_expected_forbidden_values(
         "03:59",
         "06:30",
         "13:00",
+        "10:00",  # the early closes
     }
 
 

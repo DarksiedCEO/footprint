@@ -1200,3 +1200,35 @@ def test_an_exit_whose_answer_is_lost_keeps_its_id_and_reconciles(
         stack.step(position, stack.quote(150, 152, t), (), t)
     assert position.exit_order_id is not None  # still known, still followed
     assert position.exit_order_id in stack.manager._broker.unfinished
+
+
+# --- the send-time entry window (D34: an early close moves it) -----------------------------
+# The console already blocks decisions after the cutoff; these test the executor's own
+# second check, by giving only the executor a later-closing view than the pipeline had.
+
+
+def test_no_entry_is_sent_after_the_close_lead(stack: Stack) -> None:
+    from dataclasses import replace as swap
+
+    from footprint.execution.executor.diego import EntryRefused
+
+    console = swap(stack.profiles.strategy.console, close_lead_minutes=24 * 60)  # always past
+    strategy = swap(stack.profiles.strategy, console=console)
+    stack.executor._p = swap(stack.profiles, strategy=strategy)
+    with pytest.raises(EntryRefused, match="outside the entry window"):
+        stack.executor.submit(stack.approved, (), DECISION_TIME)
+
+
+def test_an_early_close_moves_the_send_cutoff(stack: Stack) -> None:
+    from dataclasses import replace as swap
+    from datetime import time
+    from zoneinfo import ZoneInfo
+
+    from footprint.execution.executor.diego import EntryRefused
+
+    zone = ZoneInfo(stack.profiles.instrument.prime_session.timezone)
+    day = DECISION_TIME.astimezone(zone).date()
+    early = swap(stack.profiles.instrument, early_closes={day: time(7, 3)})  # cutoff 06:58
+    stack.executor._p = swap(stack.profiles, instrument=early)
+    with pytest.raises(EntryRefused, match="outside the entry window"):
+        stack.executor.submit(stack.approved, (), DECISION_TIME)  # 07:01 PT

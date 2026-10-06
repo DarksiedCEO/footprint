@@ -22,9 +22,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
-from footprint.core.calendar import SessionKind, session_at
+from footprint.core.calendar import SessionKind, entry_cutoff, session_at
 from footprint.core.config import Profiles
 from footprint.core.models import Direction, require_utc
 from footprint.decision.pipeline import ApprovedEntry, Pipeline
@@ -136,13 +135,8 @@ class Executor:
             raise EntryRefused(
                 "risk precheck at send time: " + ", ".join(v.value for v in pre.vetoes)
             )
-        prime = p.instrument.prime_session
-        zone = ZoneInfo(prime.timezone)
-        local = now.astimezone(zone)
-        cutoff = datetime.combine(local.date(), prime.end, zone) - timedelta(
-            minutes=p.strategy.console.close_lead_minutes
-        )
-        if session_at(now, p.instrument) is not SessionKind.PRIME or local >= cutoff:
+        cutoff = entry_cutoff(now, p.instrument, p.strategy.console.close_lead_minutes)
+        if session_at(now, p.instrument) is not SessionKind.PRIME or now >= cutoff:
             raise EntryRefused("outside the entry window at send time")
 
         self._sequence += 1
