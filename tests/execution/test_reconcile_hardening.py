@@ -11,6 +11,8 @@ import pytest
 from footprint.core.models import Bar
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    NeverPlaced,
+    NotSent,
     Order,
     OrderState,
     OrderStatus,
@@ -779,3 +781,61 @@ def test_a_leftover_with_no_quote_ever_seen_is_never_sold_blind(stack: Stack) ->
     stack.manager.reconcile(None, later)
     sent = [s for s in reconcile_orders(stack) if s.order.contract_id == leftover]
     assert [s.order.limit_price for s in sent] == [D(40)]  # priced at the bid
+
+
+# --- PR C review: an exit that never reached the broker is never followed as working -------
+
+
+class Refused(NotSent):
+    pass
+
+
+def test_an_exit_refused_before_sending_is_forgotten_and_tried_again(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    real_place = stack.broker.place
+    refused: list[str] = []
+
+    def refuse_first_exit(order: Order) -> OrderStatus:
+        if "-exit-" in order.order_id and not refused:
+            refused.append(order.order_id)
+            raise Refused("IBKR dropped before the send")
+        return real_place(order)
+
+    monkeypatch.setattr(stack.broker, "place", refuse_first_exit)
+    t = FILLED_AT + 5 * SEC
+    stack.quote(160, 161, t)
+    with pytest.raises(NotSent):
+        stack.manager.flatten(position, t)
+    assert refused
+    assert position.exit_order_id is None  # no phantom exit to follow
+    assert refused[0] not in stack.executor._broker.unfinished  # nor in the record
+    t2 = t + SEC
+    stack.quote(160, 161, t2)
+    closed = stack.manager.flatten(position, t2)  # gets out again
+    assert position.exit_order_id is not None or closed is not None
+    assert position.exit_order_id != refused[0]
+
+
+def test_an_exit_the_broker_never_received_starts_the_exit_again(stack: Stack) -> None:
+    position = filled_position(stack)
+    position.exit_order_id = "ghost-exit"  # followed, but the broker never had it
+    t = FILLED_AT + 5 * SEC
+    stack.quote(160, 161, t)
+    stack.manager.flatten(position, t)
+    assert position.exit_order_id != "ghost-exit"
+    assert any("never reached the broker" in a.message for a in stack.alarms)
+
+
+def test_never_placed_counts_as_finished_not_working(stack: Stack) -> None:
+    tracked = stack.executor._broker
+    stand_in = Order("ghost", stack.contract, Side.SELL, 1, OrderType.LIMIT, D(1))
+
+    class NeverHadIt:
+        def status(self, order_id: str) -> OrderStatus:
+            raise NeverPlaced(order_id)
+
+    tracked._inner = NeverHadIt()  # type: ignore[assignment]
+    status = tracked.status_or_working("ghost", stand_in)
+    assert (status.state, status.filled) == (OrderState.CANCELLED, 0)

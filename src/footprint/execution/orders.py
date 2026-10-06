@@ -219,7 +219,7 @@ class TrackedBroker:
         """The broker never received it: finished, with nothing filled."""
         order = self._sent.pop(order_id, None)
         if order is None:
-            raise KeyError(order_id)
+            raise NeverPlaced(order_id)  # not even in the record: the caller decides
         log.warning("%s never reached the broker: dropped from the record", order_id)
         return OrderStatus(order, OrderState.CANCELLED, 0, None)
 
@@ -257,6 +257,9 @@ class TrackedBroker:
         """The broker's status, or (if it cannot be read) `order` as wholly working."""
         try:
             return self.status(order_id)
+        except NeverPlaced:
+            self._sent.pop(order_id, None)
+            return OrderStatus(order, OrderState.CANCELLED, 0, None)  # finished, unfilled
         except Exception as exc:
             log.critical("cannot read the status of %s: %r", order_id, exc)
             return OrderStatus(order, OrderState.WORKING, 0, None)
@@ -397,7 +400,7 @@ class SimulatedBroker:
         return status
 
     def cancel(self, order_id: str) -> OrderStatus:
-        status = self._orders[order_id]
+        status = self._known(order_id)
         if status.state is OrderState.WORKING:
             status = replace(status, state=OrderState.CANCELLED)
             self._orders[order_id] = status
@@ -405,7 +408,13 @@ class SimulatedBroker:
         return status
 
     def status(self, order_id: str) -> OrderStatus:
-        return self._orders[order_id]
+        return self._known(order_id)
+
+    def _known(self, order_id: str) -> OrderStatus:
+        try:
+            return self._orders[order_id]
+        except KeyError:
+            raise NeverPlaced(order_id) from None  # the broker contract for an unknown id
 
     def positions(self) -> dict[str, int]:
         return dict(self._positions)

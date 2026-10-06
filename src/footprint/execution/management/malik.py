@@ -48,6 +48,8 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    NeverPlaced,
+    NotSent,
     Order,
     OrderState,
     OrderStatus,
@@ -424,6 +426,13 @@ class Manager:
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
         try:
             status = self._broker.place(order)
+        except NotSent:
+            # Refused before anything reached the broker: there is no exit. Forget it,
+            # so the next step sees the position as it is (the stop already down) and
+            # gets out again; never followed as a working exit that does not exist.
+            position.exit_order_id = None
+            position.events.append(f"{now.isoformat()} exit {order.order_id} not sent")
+            raise
         except Exception as exc:
             # The answer is lost, not necessarily the order: it may be working at the
             # broker. Keep its id (it is recorded and followed until confirmed
@@ -456,7 +465,12 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         assert position.exit_order_id is not None
-        status = self._broker.status(position.exit_order_id)
+        try:
+            status = self._broker.status(position.exit_order_id)
+        except NeverPlaced:
+            self._alarm(now, f"{position.position_id}: exit never reached the broker; retrying")
+            position.exit_order_id = None
+            return self._start_exit(position, quote, now, reason)
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)
         if status.state is not OrderState.WORKING:
