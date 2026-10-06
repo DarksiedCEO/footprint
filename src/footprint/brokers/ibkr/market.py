@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
@@ -176,8 +176,14 @@ class MarketData:
         execution: ExecutionProfile,
         alarm: Callable[[str], None],
         clock: Callable[[], datetime] = _utc_now,
+        held: Callable[[], Iterable[str]] = tuple,
     ) -> None:
+        """`held`: the contract ids the system holds or is working an order on, read every
+        step. Their quote streams are never cancelled (window move, expiry change, roll or
+        line cap), so an open position is never managed without prices."""
         self._gw = gateway
+        self._held = held
+        self._pinned: frozenset[str] = frozenset()
         self._contracts = contracts
         self._publish = book
         self._instrument = instrument
@@ -216,6 +222,7 @@ class MarketData:
         self._underlying: int | None = None  # req id of the future's quote
         self._center: Decimal | None = None
         self._chosen: tuple[str, str] | None = None  # (expiry, trading class)
+        self._window: set[int] = set()  # con ids the strike window streams
         self._retry_at: dict[str, datetime] = {}
         self._alarmed: set[str] = set()
         self._last_history_at: datetime | None = None
@@ -256,8 +263,8 @@ class MarketData:
             stamps = [under.ts]
             quotes: list[OptionQuote] = []
             for req, line in self._lines.items():
-                if req == self._underlying:
-                    continue
+                if req == self._underlying or not self._in_chain(line.contract):
+                    continue  # a held option from another expiry or future: never offered
                 quote = self._fresh(line, now)
                 expiry = _expiry_date(line.contract.expiry)
                 right = _RIGHTS.get(line.contract.right)
@@ -283,6 +290,11 @@ class MarketData:
                 underlying_price=(under.bid + under.ask) / 2,
                 quotes=tuple(sorted(quotes, key=lambda q: q.contract_id)),
             )
+
+    def _in_chain(self, contract: IbContract) -> bool:
+        return self._chosen is not None and (contract.expiry, contract.trading_class) == (
+            self._chosen
+        )
 
     def _fresh(self, line: _Line, now: datetime) -> Quote | None:
         quote = line.quote()
@@ -399,12 +411,15 @@ class MarketData:
             line = self._lines.pop(req_id, None)
             if line is None:
                 return  # an old request's late error
-            kind = _Kind.UNDERLYING if req_id == self._underlying else _Kind.OPTION
-            if kind is _Kind.UNDERLYING:
+            if req_id == self._underlying:
                 self._underlying = None
+                what = _Kind.UNDERLYING.value
+            elif line.contract_id in self._pinned:
+                what = f"held {line.contract_id}"  # asked again by _ensure_held
             else:
                 self._center = None  # resubscribe the window on the next step
-            self._failed(kind.value, f"IBKR {code}: {message} ({line.contract_id})")
+                what = _Kind.OPTION.value
+            self._failed(what, f"IBKR {code}: {message} ({line.contract_id})")
 
     # --- answers ----------------------------------------------------------------------
 
@@ -442,15 +457,18 @@ class MarketData:
         if request.kind is _Kind.HISTORY:
             store = self._raw.setdefault(request.con_id, {})
             for b in request.bars:
-                store[b.ts] = self._bar(b)
+                if b.ts + _MINUTE <= request.sent_at:  # a day still under way keeps no partial
+                    store[b.ts] = self._bar(b)
             assert request.day is not None
             self._loaded.add((request.con_id, request.day))
             self._dirty = True
             return
-        # a poll: keep only bars that had closed when it was sent
+        # A poll: a bar counts as complete only once IBKR itself has moved on (a later
+        # minute in the same answer: IBKR's clock, not ours) and it had closed by ours too.
         store = self._raw.setdefault(request.con_id, {})
+        latest = max((b.ts for b in request.bars), default=None)
         for b in request.bars:
-            if b.ts + _MINUTE > request.sent_at:
+            if latest is None or b.ts >= latest or b.ts + _MINUTE > request.sent_at:
                 continue
             bar = self._bar(b)
             old = store.get(b.ts)
@@ -504,12 +522,54 @@ class MarketData:
                 self._ask_futures(now)
                 if self._futures is None:
                     return
+            self._read_held()
             self._follow_front(now)
+            self._ensure_held(now)
             if self._front is None:
                 return
             self._ensure_underlying(now)
             self._ensure_options(now)
+            self._release(now)
             self._ensure_bars(now)
+
+    def _read_held(self) -> None:
+        try:
+            self._pinned = frozenset(self._held())
+        except Exception as exc:  # keep the last known set: never drop a held stream
+            log.exception("could not read the held contracts")
+            self._alarm_once("held", f"MARKET DATA: could not read the held contracts ({exc!r})")
+
+    def _ensure_held(self, now: datetime) -> None:
+        """Every held option is streamed, whatever the window, expiry or roll."""
+        streaming = {
+            line.contract_id for req, line in self._lines.items() if req != self._underlying
+        }
+        for contract_id in sorted(self._pinned - streaming):
+            if not self._ready(f"held {contract_id}", now):
+                continue
+            try:
+                contract = self._contracts.ib(contract_id)
+            except KeyError:
+                self._alarm_once(
+                    f"held {contract_id}",
+                    f"MARKET DATA: cannot stream the held {contract_id}: not a known contract",
+                )
+                continue
+            req = self._claim()
+            self._lines[req] = _Line(contract, contract_id)
+            if not self._call(partial(self._gw.request_quotes, req, contract)):
+                self._lines.pop(req, None)
+                self._failed(f"held {contract_id}", "could not be sent")
+
+    def _release(self, now: datetime) -> None:
+        """A stream no longer held and outside the window is cancelled."""
+        for req, line in list(self._lines.items()):
+            if req == self._underlying or line.contract_id in self._pinned:
+                continue
+            if line.contract.con_id in self._window:  # (window ids are all in the chain)
+                continue
+            self._call(partial(self._gw.cancel_quotes, req))
+            self._lines.pop(req, None)
 
     def _expire(self, now: datetime) -> None:
         timeout = timedelta(seconds=self._s.request_timeout_seconds)
@@ -600,12 +660,16 @@ class MarketData:
         self._dirty = True
 
     def _cancel_all_lines(self) -> None:
-        for req in list(self._lines):
+        """At a roll: everything but the held options' streams."""
+        for req, line in list(self._lines.items()):
+            if req != self._underlying and line.contract_id in self._pinned:
+                continue
             self._call(partial(self._gw.cancel_quotes, req))
-        self._lines.clear()
+            self._lines.pop(req, None)
         self._underlying = None
         self._center = None
         self._chosen = None
+        self._window = set()
 
     # the future's quote
 
@@ -690,10 +754,13 @@ class MarketData:
         return None if best is None else (best[3], best[2])
 
     def _drop_option_lines(self) -> None:
-        for req in [r for r in self._lines if r != self._underlying]:
+        for req, line in list(self._lines.items()):
+            if req == self._underlying or line.contract_id in self._pinned:
+                continue
             self._call(partial(self._gw.cancel_quotes, req))
             self._lines.pop(req, None)
         self._center = None
+        self._window = set()
 
     def _ensure_window(self, contracts: tuple[IbContract, ...], now: datetime) -> None:
         if self._underlying is None:
@@ -706,8 +773,17 @@ class MarketData:
             return
         if not self._ready(_Kind.OPTION.value, now):
             return
-        room = self._s.max_quote_lines - 1  # the future holds one line
-        inside = [c for c in contracts if abs(c.strike - mid) <= self._s.strike_window_points]
+        held = {
+            line.contract.con_id
+            for req, line in self._lines.items()
+            if req != self._underlying and line.contract_id in self._pinned
+        }
+        room = max(0, self._s.max_quote_lines - 1 - len(held))  # the future holds one line
+        inside = [
+            c
+            for c in contracts
+            if abs(c.strike - mid) <= self._s.strike_window_points and c.con_id not in held
+        ]
         inside.sort(key=lambda c: (abs(c.strike - mid), c.strike, c.right))
         wanted = {c.con_id: c for c in inside[:room]}
         if len(inside) > room:
@@ -719,7 +795,7 @@ class MarketData:
         current = {
             line.contract.con_id: req
             for req, line in self._lines.items()
-            if req != self._underlying
+            if req != self._underlying and line.contract.con_id not in held
         }
         for con_id, req in current.items():
             if con_id not in wanted:
@@ -736,6 +812,11 @@ class MarketData:
                 self._lines.pop(req, None)
                 self._failed(_Kind.OPTION.value, "could not be sent")
                 return
+        self._window = set(wanted) | {  # a held strike counts only while inside
+            c.con_id
+            for c in contracts
+            if c.con_id in held and abs(c.strike - mid) <= self._s.strike_window_points
+        }
         streaming = {line.contract.con_id for line in self._lines.values()}
         if all(con_id in streaming for con_id in wanted):  # none refused during the calls
             self._center = mid
@@ -827,6 +908,10 @@ class MarketData:
         self._dirty = True
         log.info("market data: history loaded (%s days)", self._s.history_days)
 
+    def _is_loaded(self, day: date) -> bool:
+        owner = self.front_for(day)
+        return owner is not None and (owner.con_id, day) in self._loaded
+
     def _forget_empty_days(self) -> None:
         for con_id, day in list(self._loaded):
             store = self._raw.get(con_id, {})
@@ -836,19 +921,18 @@ class MarketData:
     def _poll(self, now: datetime, boundary: datetime) -> None:
         assert self._front is not None
         store = self._raw.get(self._front.con_id, {})
-        newest = max(store) if store else None
-        midnight = datetime.combine(now.date(), time(0), tzinfo=UTC)
-        if (
-            newest is not None
-            and (self._front.con_id, newest.date()) not in self._loaded
-            and newest.date() in self._history_days(now.date())
-        ):
-            # The polls covered an earlier day only in part (the day ended, or an outage
-            # ran past midnight): load it, and any day after it, whole. Then poll.
-            self._history_ready = False
-            return
-        start = midnight if newest is None or newest < midnight else newest
-        span = max(now - start + _MINUTE, timedelta(seconds=self._s.min_poll_seconds))
+        newest = max(store) if store else now
+        span = max(now - newest + _MINUTE, timedelta(seconds=self._s.min_poll_seconds))
+        if span > _DAY:  # IBKR's limit for one request; a longer outage needs whole days
+            unloaded = [
+                day
+                for day in self._history_days(now.date())
+                if day >= newest.date() and not self._is_loaded(day)
+            ]
+            if unloaded:
+                self._history_ready = False  # load them, then poll
+                return
+            span = _DAY  # every earlier day is loaded: no hole
         self._polled_for = boundary
         self._send_bars(_Kind.POLL, self._front, None, None, span, now)
 

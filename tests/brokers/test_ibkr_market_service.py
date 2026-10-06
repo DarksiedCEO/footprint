@@ -124,6 +124,7 @@ class World:
             if params is not None
             else [("Q2C", "20", frozenset({"20261007", "20261008"}), frozenset({D(25000)}))]
         )
+        self.held: set[str] = set()
         self.no_answer: set[str] = set()
         self.missing: set[tuple[int, date]] = set()  # (con_id, day) with no trades at all
         self.md = MarketData(
@@ -134,6 +135,7 @@ class World:
             self.execution,
             self.alarms.append,
             self.clock,
+            held=lambda: self.held,
         )
 
     def _answer(self, name: str, args: tuple[Any, ...]) -> None:
@@ -392,6 +394,7 @@ def test_a_revised_bar_is_counted(world: World) -> None:
     # a later poll carries a different version of a bar already counted complete
     world.md._pending[req] = world.md._pending.get(req) or _poll_request(world)
     world.md.on_bar(req, IbBar(done.ts, done.open, done.high + 5, done.low, done.close, 99))
+    world.md.on_bar(req, ib_bar(DEC.con_id, done.ts + MINUTE))  # IBKR has moved on
     world.md.on_bars_end(req)
     assert world.md.revisions == 1
 
@@ -992,21 +995,33 @@ def test_a_stream_refused_while_subscribing_is_asked_again_without_a_price_move(
     assert len(asks) == 2
 
 
-def test_at_utc_midnight_the_finished_day_is_loaded_whole_then_polls_go_on(
+def test_bars_run_on_across_utc_midnight_without_a_reload(
     execution: ExecutionProfile, instrument: InstrumentProfile
 ) -> None:
     w = World(execution, instrument, now=datetime(2026, 10, 6, 23, 58, tzinfo=UTC))
     ready(w)
     loaded = len(w.history_requests())
-    w.clock.now = datetime(2026, 10, 7, 0, 0, 6, tzinfo=UTC)
-    w.run(10)
-    assert (DEC.con_id, date(2026, 10, 7), "86400 S") in w.history_requests()[loaded:]
-    w.clock.now = datetime(2026, 10, 7, 0, 1, 6, tzinfo=UTC)
-    w.run(3)
+    for minute in range(4):  # 23:59 .. 00:02, one poll a minute
+        w.clock.now = datetime(2026, 10, 6, 23, 59, 6, tzinfo=UTC) + minute * MINUTE
+        w.run(3)
+    assert len(w.history_requests()) == loaded  # the polls covered the day: no reload
     bars = w.md.bars(w.clock.now)
-    assert bars[-1].ts == datetime(2026, 10, 7, 0, 0, tzinfo=UTC)
     stamps = [b.ts for b in bars if b.ts >= datetime(2026, 10, 6, 23, 0, tzinfo=UTC)]
+    assert stamps[-1] == datetime(2026, 10, 7, 0, 1, tzinfo=UTC)  # the last poll: 00:02:06
     assert all(b - a == MINUTE for a, b in pairwise(stamps))
+
+
+def test_a_poll_counts_a_minute_complete_only_once_ibkr_has_moved_on(world: World) -> None:
+    """Our clock may run ahead of IBKR's: the newest minute IBKR returns is never stored."""
+    ready(world)
+    req = MARKET_REQUEST_BASE + 20_000
+    world.md._pending[req] = _poll_request(world)
+    world.md._pending[req].sent_at = world.clock.now + timedelta(minutes=10)  # we are ahead
+    forming = world.clock.now.replace(second=0)
+    world.md.on_bar(req, ib_bar(DEC.con_id, forming))  # IBKR's own newest: maybe forming
+    world.md.on_bars_end(req)
+    assert forming not in world.md._raw[DEC.con_id]
+    assert all(b.ts != forming for b in world.md.bars(world.clock.now))
 
 
 def test_a_weekend_gap_polls_instead_of_reloading_forever(
@@ -1024,7 +1039,8 @@ def test_a_weekend_gap_polls_instead_of_reloading_forever(
     w.run(3)
     polls = [a for a in w.gw.named("bars")[before - 2 :] if a[2] == ""]
     assert polls
-    assert all(int(a[3].split()[0]) <= 23 * 3600 for a in polls)  # from Sunday, not Friday
+    assert all(int(a[3].split()[0]) <= 24 * 3600 for a in polls)  # never over IBKR's limit
+    assert (DEC.con_id, date(2026, 10, 10), "86400 S") in w.history_requests()  # Friday whole
     assert w.md.bars(w.clock.now)[-1].ts.date() == date(2026, 10, 11)
 
 
@@ -1052,3 +1068,158 @@ def test_a_stray_bar_on_a_day_never_loaded_cannot_trap_the_polls(world: World) -
     world.clock.now = world.clock.now.replace(second=0) + MINUTE + timedelta(seconds=6)
     world.run(5)
     assert world.md.bars(world.clock.now)  # polled on; not stuck reloading
+
+
+# --- review round 1: the held option is never left without prices ---------------------------
+
+
+def held_world(execution: ExecutionProfile, instrument: InstrumentProfile, **kw: Any) -> Any:
+    w = chain_world(execution, instrument, strike_window_points=D(75), **kw)
+    target = next(c for c in CHAIN if c.strike == D(19960) and c.right == "C")  # window edge
+    w.contracts.register(option_contract_id(target), target)  # it was traded: registered
+    w.held.add(option_contract_id(target))
+    w.run(1)
+    return w, target
+
+
+def test_a_held_strike_leaving_the_window_keeps_streaming_to_the_book(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    req = w.line(held)
+    w.tick(DEC, D("20105"), D("20105.50"))  # 80 points up: 19960 leaves the window
+    w.run(2)
+    assert ("cancel_quotes", (req,)) not in w.gw.sent
+    w.md.on_quote(req, QuoteField.BID, D(140))
+    w.md.on_quote(req, QuoteField.ASK, D(141))
+    w.run(1)
+    assert w.published[-1].contract_id == option_contract_id(held)
+    assert w.published[-1].bid == D(140)
+
+
+def test_the_held_stream_survives_an_expiry_change_and_is_not_offered(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    req = w.line(held)
+    w.clock.now = datetime(2026, 10, 6, 22, 1, tzinfo=UTC)  # 15:01 PT: Wednesday's session
+    w.tick(DEC, D("20025.00"), D("20025.50"))
+    w.run(3)
+    assert ("cancel_quotes", (req,)) not in w.gw.sent
+    w.md.on_quote(req, QuoteField.BID, D(140))
+    w.md.on_quote(req, QuoteField.ASK, D(141))
+    chain = w.md.chain(w.clock.now)
+    assert chain is None or option_contract_id(held) not in {q.contract_id for q in chain.quotes}
+
+
+def test_the_held_stream_survives_a_roll(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, now=datetime(2026, 12, 9, 23, 58, tzinfo=UTC))
+    w.connect()
+    w.run(3)
+    held = opt(4242, "20261211", 21000, "C", "Q4C")  # an option on the Dec future
+    w.contracts.register(option_contract_id(held), held)
+    w.held.add(option_contract_id(held))
+    w.run(2)
+    req = w.line(held)
+    w.clock.now = datetime(2026, 12, 10, 0, 0, 30, tzinfo=UTC)  # the roll to March
+    w.run(3)
+    assert w.md.front == MAR
+    assert ("cancel_quotes", (req,)) not in w.gw.sent
+    assert ("cancel_quotes", (w.line(DEC),)) in w.gw.sent  # the old future itself goes
+
+
+def test_a_released_stream_outside_the_window_is_cancelled(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    req = w.line(held)
+    w.tick(DEC, D("20105"), D("20105.50"))
+    w.run(2)
+    w.held.clear()  # the position closed
+    w.run(1)
+    assert ("cancel_quotes", (req,)) in w.gw.sent
+
+
+def test_a_held_contract_is_streamed_again_after_a_reconnect(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    first = w.line(held)
+    w.md.on_market_connection(Connection.LOST)
+    w.connect()
+    w.run(2)  # before the future's price is back: the held option comes first
+    assert w.line(held) != first
+
+
+def test_a_held_contract_nobody_knows_is_alarmed_once(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    w.held.add("conid:777")
+    w.run(5)
+    assert sum("cannot stream the held conid:777" in a for a in w.alarms) == 1
+
+
+def test_an_unreadable_held_set_keeps_the_last_one(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    req = w.line(held)
+
+    def broken() -> set[str]:
+        raise RuntimeError("runner state unavailable")
+
+    w.md._held = broken
+    w.tick(DEC, D("20105"), D("20105.50"))
+    w.run(3)
+    assert ("cancel_quotes", (req,)) not in w.gw.sent  # still pinned
+    assert sum("could not read the held contracts" in a for a in w.alarms) == 1
+
+
+def test_a_refused_held_stream_is_asked_again(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument, retry_seconds=5)
+    first = w.line(held)
+    w.md.on_market_error(first, 354, "not subscribed")
+    w.run(2)
+    assert w.line(held) == first  # waiting out retry_seconds
+    w.run(5)
+    assert w.line(held) != first
+
+
+def test_held_streams_are_reserved_inside_the_line_cap(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument, max_quote_lines=6)
+    w.tick(DEC, D("20105"), D("20105.50"))  # the held strike is now outside the window
+    w.run(2)
+    live = {r for r, _c in w.gw.named("quotes")} - {r for (r,) in w.gw.named("cancel_quotes")}
+    assert len(live) <= 6
+    assert w.line(held) in live
+
+
+def test_a_held_strike_inside_the_window_has_one_stream_not_two(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w, held = held_world(execution, instrument)
+    w.tick(DEC, D("19990"), D("19990.50"))  # 35 points down: recentre, 19960 well inside
+    w.run(2)
+    live = {r for r, _c in w.gw.named("quotes")} - {r for (r,) in w.gw.named("cancel_quotes")}
+    streams = [r for r, c in w.gw.named("quotes") if c == held and r in live]
+    assert len(streams) == 1
+
+
+def test_a_history_day_never_stores_a_bar_that_had_not_closed(world: World) -> None:
+    from footprint.brokers.ibkr.market import _Kind, _Request
+
+    ready(world)
+    req = MARKET_REQUEST_BASE + 30_000
+    sent = world.clock.now
+    world.md._pending[req] = _Request(_Kind.HISTORY, sent, con_id=DEC.con_id, day=sent.date())
+    later = sent.replace(second=0) + MINUTE  # a minute that had not closed when asked
+    world.md.on_bar(req, ib_bar(DEC.con_id, later))
+    world.md.on_bars_end(req)
+    assert later not in world.md._raw[DEC.con_id]
