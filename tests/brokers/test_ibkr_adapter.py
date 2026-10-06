@@ -740,3 +740,109 @@ def test_another_clients_reference_never_lends_its_id_to_our_order(ib: Ib) -> No
     )
     ib.adapter.place(sell("p9-exit-1", price=300))
     assert ib.fake.sends[-1].ib_id == 100  # its own id from IBKR, never the other's 0
+
+
+# --- what the market data must keep streaming (PR C) ------------------------------------------
+
+
+def test_held_contracts_names_positions_and_live_orders_without_waiting(ib: Ib) -> None:
+    assert ib.adapter.held_contracts() == frozenset()
+    ib.adapter.place(buy(price=152))  # filled: held
+    assert ib.adapter.held_contracts() == {C}
+    other = "NQ other"
+    ib.contracts.register(other, contract(502, strike=23800))
+    ib.adapter.place(Order("p2-entry", other, Side.BUY, 1, OrderType.LIMIT, D(1)))  # rests
+    assert ib.adapter.held_contracts() == {C, other}
+
+
+def test_held_contracts_answers_in_doubt_and_while_disconnected(ib: Ib) -> None:
+    ib.fake.position_lag = True
+    ib.adapter.place(buy(price=152))  # fills say 1; the report says nothing yet
+    started = time.monotonic()
+    assert ib.adapter.held_contracts() == {C}  # no PositionsInDoubt, no wait
+    assert time.monotonic() - started < FAST.total_seconds()
+    ib.fake.lose()
+    assert ib.adapter.held_contracts() == {C}  # still named while the line is down
+
+
+def test_held_contracts_names_a_report_the_fills_do_not_explain(ib: Ib) -> None:
+    ib.fake.told_positions[501] = 1  # IBKR reports a holding no fill accounts for
+    ib.adapter._ib_positions[C] = 1
+    assert C in ib.adapter.held_contracts()
+
+
+# --- PR C review: an order refused before it was sent leaves no trace ----------------------
+
+
+def test_an_order_refused_while_disconnected_leaves_no_record(ib: Ib) -> None:
+    from footprint.brokers.ibkr.adapter import NotReady
+    from footprint.execution.orders import BrokerDown, NotSent
+
+    ib.fake.lose()
+    with pytest.raises(NotReady) as refused:
+        ib.tracked.place(buy("p9-entry"))
+    assert isinstance(refused.value, NotSent)
+    assert isinstance(refused.value, BrokerDown)
+    assert ib.tracked.unfinished == {}  # nothing reached IBKR: nothing to follow
+    ib.fake.restore(data_lost=True)
+    assert ib.fake.sends == []
+    assert ib.tracked.working() == {}
+    assert ib.fake.global_cancels == 0
+    assert not any("broker-wide" in a for a in ib.alarms)
+
+
+def test_an_order_id_ibkr_never_received_is_never_placed_not_cancelled_broker_wide(
+    ib: Ib,
+) -> None:
+    from footprint.execution.orders import NeverPlaced
+
+    with pytest.raises(NeverPlaced):
+        ib.adapter.cancel("ghost")
+    with pytest.raises(NeverPlaced):
+        ib.adapter.status("ghost")
+    assert ib.fake.global_cancels == 0
+    ib.tracked._sent["ghost"] = buy("ghost")  # a record left from an older bug
+    status = ib.tracked.cancel("ghost")
+    assert (status.state, status.filled) == (OrderState.CANCELLED, 0)
+    assert ib.tracked.unfinished == {}
+
+
+def test_a_status_that_cannot_be_asked_now_is_not_never_placed(ib: Ib) -> None:
+    ib.adapter.place(sell("p1-stop", price=300, group="p1"))  # rests at IBKR
+    ib.tracked._sent["p1-stop"] = sell("p1-stop", price=300, group="p1")
+    ib.fake.lose()
+    from footprint.brokers.ibkr.adapter import BrokerUnavailable
+
+    with pytest.raises(BrokerUnavailable):
+        ib.tracked.status("p1-stop")  # cannot ask: NOT taken as cancelled
+    assert "p1-stop" in ib.tracked.unfinished
+
+
+def test_an_order_with_an_unknown_outcome_is_kept_even_if_a_resend_is_refused(ib: Ib) -> None:
+    from footprint.execution.orders import BrokerDown
+
+    order = buy("p8-entry")
+    ib.tracked._sent[order.order_id] = order  # an earlier send whose answer was lost
+    ib.fake.lose()
+    with pytest.raises(BrokerDown):
+        ib.tracked.place(order)
+    assert order.order_id in ib.tracked.unfinished  # its outcome is still unknown
+
+
+def test_an_unknown_contract_is_refused_before_sending_and_leaves_no_record(ib: Ib) -> None:
+    from footprint.execution.orders import NotSent
+
+    with pytest.raises(NotSent):
+        ib.tracked.place(Order("x", "PUT1-20260916", Side.BUY, 1, OrderType.LIMIT, D(1)))
+    assert ib.tracked.unfinished == {}
+    assert ib.fake.sends == []
+
+
+def test_a_ghost_record_is_dropped_by_status_and_never_counted_working(ib: Ib) -> None:
+    ib.tracked._sent["ghost"] = buy("ghost")  # recorded, never received by IBKR
+    status = ib.tracked.status("ghost")
+    assert status.state is OrderState.CANCELLED
+    assert ib.tracked.unfinished == {}
+    ib.tracked._sent["ghost2"] = buy("ghost2")
+    assert ib.tracked.working() == {}  # so reconcile can agree
+    assert ib.tracked.unfinished == {}

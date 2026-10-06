@@ -101,6 +101,25 @@ class DuplicateOrderId(ValueError):
     lost answer is resolved safely (see TrackedBroker.place)."""
 
 
+class BrokerDown(ConnectionError):
+    """The broker cannot be reached right now (disconnected, or reconnected and not yet
+    resynced). Nothing can be known or done until it is back: wait, never halt on it
+    alone. A broker adapter raises this (or a subclass) for every call it cannot answer
+    for that reason."""
+
+
+class NotSent(Exception):
+    """A placed order was refused before anything reached the broker (not ready, no
+    order id yet, an unknown contract): it does not exist there, so its record can be
+    dropped. Raised by `place` only; a refused status or cancel says nothing about the
+    order itself."""
+
+
+class NeverPlaced(KeyError):
+    """Asked about (status, cancel) an order id the broker never received: it does not
+    exist there and never did. Not the same as "cannot ask right now" (BrokerDown)."""
+
+
 class PositionsUncertain(ConnectionError):
     """The broker cannot say right now what is held (its fills and its position
     report disagree). Nothing may be sold or booked on it: wait and ask again."""
@@ -157,11 +176,16 @@ class TrackedBroker:
         the broker takes it (the first never arrived) or refuses the duplicate id (the
         first did). Only if that second send also fails is the outcome unknown; the
         error is raised, and the order stays recorded as possibly working."""
+        known = order.order_id in self._sent  # an earlier send's outcome may be unknown
         self._sent[order.order_id] = order  # recorded before it can reach the broker
         try:
             return self._seen(self._inner.place(order))
         except DuplicateOrderId:
             raise  # the caller reused an id: a bug, never a lost answer
+        except NotSent:
+            if not known:
+                self._sent.pop(order.order_id, None)  # it never reached the broker
+            raise
         except Exception as first:
             log.critical(
                 "send of %s failed (%r); sending again under its id", order.order_id, first
@@ -180,10 +204,24 @@ class TrackedBroker:
         return self._seen(self._inner.modify(order_id, limit_price, stop_price))
 
     def cancel(self, order_id: str) -> OrderStatus:
-        return self._seen(self._inner.cancel(order_id))
+        try:
+            return self._seen(self._inner.cancel(order_id))
+        except NeverPlaced:
+            return self._never_placed(order_id)
 
     def status(self, order_id: str) -> OrderStatus:
-        return self._seen(self._inner.status(order_id))
+        try:
+            return self._seen(self._inner.status(order_id))
+        except NeverPlaced:
+            return self._never_placed(order_id)
+
+    def _never_placed(self, order_id: str) -> OrderStatus:
+        """The broker never received it: finished, with nothing filled."""
+        order = self._sent.pop(order_id, None)
+        if order is None:
+            raise NeverPlaced(order_id)  # not even in the record: the caller decides
+        log.warning("%s never reached the broker: dropped from the record", order_id)
+        return OrderStatus(order, OrderState.CANCELLED, 0, None)
 
     def _seen(self, status: OrderStatus) -> OrderStatus:
         """Any answer from the broker that an order is finished ends its record."""
@@ -196,6 +234,12 @@ class TrackedBroker:
 
     def open_orders(self) -> list[Order]:
         return self._inner.open_orders()
+
+    @property
+    def ready(self) -> bool:
+        """Whether the broker says it will answer now (a broker with no such notion,
+        like the simulator, always will)."""
+        return bool(getattr(self._inner, "ready", True))
 
     def working(self) -> dict[str, OrderStatus]:
         """Every order that may still be working, by id (see the class docstring)."""
@@ -213,6 +257,9 @@ class TrackedBroker:
         """The broker's status, or (if it cannot be read) `order` as wholly working."""
         try:
             return self.status(order_id)
+        except NeverPlaced:
+            self._sent.pop(order_id, None)
+            return OrderStatus(order, OrderState.CANCELLED, 0, None)  # finished, unfilled
         except Exception as exc:
             log.critical("cannot read the status of %s: %r", order_id, exc)
             return OrderStatus(order, OrderState.WORKING, 0, None)
@@ -353,7 +400,7 @@ class SimulatedBroker:
         return status
 
     def cancel(self, order_id: str) -> OrderStatus:
-        status = self._orders[order_id]
+        status = self._known(order_id)
         if status.state is OrderState.WORKING:
             status = replace(status, state=OrderState.CANCELLED)
             self._orders[order_id] = status
@@ -361,7 +408,13 @@ class SimulatedBroker:
         return status
 
     def status(self, order_id: str) -> OrderStatus:
-        return self._orders[order_id]
+        return self._known(order_id)
+
+    def _known(self, order_id: str) -> OrderStatus:
+        try:
+            return self._orders[order_id]
+        except KeyError:
+            raise NeverPlaced(order_id) from None  # the broker contract for an unknown id
 
     def positions(self) -> dict[str, int]:
         return dict(self._positions)

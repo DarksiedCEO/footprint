@@ -100,6 +100,14 @@ def _ibkr_end(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y%m%d-%H:%M:%S")
 
 
+def _conid(contract_id: str) -> int | None:
+    """The IBKR conId in the adapter's stand-in id for an unregistered contract."""
+    prefix, _, number = contract_id.partition(":")
+    if prefix != "conid" or not number.isdigit():
+        return None
+    return int(number)
+
+
 def option_contract_id(contract: IbContract) -> str:
     """Ours for an option: readable, and unique by IBKR's conId."""
     strike = f"{contract.strike.normalize():f}"
@@ -114,6 +122,7 @@ class _Kind(Enum):
     HISTORY = "history"
     POLL = "poll"
     PARAMS = "option params"
+    RESOLVE = "held contract lookup"
     EXPIRY = "option contracts"
     UNDERLYING = "future quote"
     OPTION = "option quote"
@@ -336,6 +345,8 @@ class MarketData:
                 return
             if request.kind is _Kind.FUTURES:
                 self._take_futures(request.contracts)
+            elif request.kind is _Kind.RESOLVE:
+                self._take_resolved(request)
             elif request.kind is _Kind.EXPIRY and request.key is not None:
                 assert request.day is not None
                 self._take_expiry(request.key, request.day, request.contracts)
@@ -518,13 +529,13 @@ class MarketData:
             if not self._connected:
                 return
             self._expire(now)
+            self._read_held()  # held options first: they need no future looked up
+            self._ensure_held(now)
             if self._futures is None:
                 self._ask_futures(now)
                 if self._futures is None:
                     return
-            self._read_held()
             self._follow_front(now)
-            self._ensure_held(now)
             if self._front is None:
                 return
             self._ensure_underlying(now)
@@ -550,16 +561,58 @@ class MarketData:
             try:
                 contract = self._contracts.ib(contract_id)
             except KeyError:
-                self._alarm_once(
-                    f"held {contract_id}",
-                    f"MARKET DATA: cannot stream the held {contract_id}: not a known contract",
-                )
+                self._resolve(contract_id, now)  # e.g. held from before a restart
                 continue
             req = self._claim()
             self._lines[req] = _Line(contract, contract_id)
             if not self._call(partial(self._gw.request_quotes, req, contract)):
                 self._lines.pop(req, None)
                 self._failed(f"held {contract_id}", "could not be sent")
+
+    def _resolve(self, contract_id: str, now: datetime) -> None:
+        """Look up a held contract the system never registered: the adapter names it
+        `conid:<IBKR conId>`. Once found, it is registered under that same id, so the
+        adapter, reconcile and this service all agree on it."""
+        con_id = _conid(contract_id)
+        if con_id is None:
+            self._alarm_once(
+                f"held {contract_id}",
+                f"MARKET DATA: cannot stream the held {contract_id}: not a known contract",
+            )
+            return
+        busy = any(
+            r.kind is _Kind.RESOLVE and r.key == (contract_id, "") for r in self._pending.values()
+        )
+        if busy:
+            return
+        query = ContractQuery(
+            self._instrument.symbol,
+            self._option_type,
+            self._instrument.exchange,
+            self._instrument.currency,
+            con_id=con_id,
+        )
+        self._send(
+            _Request(_Kind.RESOLVE, now, con_id=con_id, key=(contract_id, "")),
+            lambda r: self._gw.request_contract_details(r, query),
+        )
+
+    def _take_resolved(self, request: _Request) -> None:
+        assert request.key is not None
+        contract_id = request.key[0]
+        found = [
+            c
+            for c in request.contracts
+            if c.con_id == request.con_id
+            and _as_decimal(c.multiplier) == self._instrument.point_value
+        ]
+        if len(found) != 1:
+            self._failed(
+                f"held {contract_id}",
+                f"IBKR does not know {contract_id} as one of the instrument's options",
+            )
+            return
+        self._contracts.register(contract_id, found[0])
 
     def _release(self, now: datetime) -> None:
         """A stream no longer held and outside the window is cancelled."""
