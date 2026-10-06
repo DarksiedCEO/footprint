@@ -42,7 +42,7 @@ from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
-from footprint.execution.alarms import AlarmLine
+from footprint.execution.channels import AlarmHub, ChannelSettings, Post, alarm_hub, http_post
 from footprint.execution.executor.diego import Executor
 from footprint.execution.halt import Halt
 from footprint.execution.journal.josephine import Journal
@@ -62,9 +62,9 @@ def utc_now() -> datetime:
 
 
 class AlarmFile:
-    """The alarm sink until a real channel is chosen (decision D20): one JSON line per
-    alarm in `path`, flushed to disk, and the alarm printed to the terminal. A write
-    that fails raises, so the alarm line retries it (and never loses it silently)."""
+    """The record of every alarm: one JSON line per alarm in `path`, and the alarm
+    printed to the terminal (the phone channels, D20, come on top). A write that fails
+    raises, so its alarm line retries it (and never loses it silently)."""
 
     def __init__(self, path: Path, out: Any = None) -> None:
         self._path = path
@@ -91,7 +91,7 @@ class Live:
     runner: Runner
     ledger: Ledger
     halt: Halt
-    alarms: AlarmLine
+    alarms: AlarmHub
     clock: Callable[[], datetime] = field(default=utc_now)
     _calendar_checked: date | None = field(default=None, init=False)
 
@@ -128,6 +128,8 @@ def build(
     sink: Callable[[Alarm], None],
     blackouts: Callable[[datetime], Iterable[NewsBlackout]],
     *,
+    channels: ChannelSettings | None = None,
+    post: Post = http_post,
     new_ledger: bool = False,
     client_factory: Callable[[Any], Any] | None = None,
     clock: Callable[[], datetime] = utc_now,
@@ -141,7 +143,7 @@ def build(
             "Going live is not built or verified"
         )
     state_dir.mkdir(parents=True, exist_ok=True)
-    alarms = AlarmLine.from_settings(sink, p.execution.alarms)
+    alarms = alarm_hub(sink, p.execution.alarms, channels, post)  # D20
 
     def alarm(message: str) -> None:
         alarms.submit(Alarm(clock(), message))

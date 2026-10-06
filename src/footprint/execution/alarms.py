@@ -40,6 +40,7 @@ class AlarmLine:
         retry: timedelta,
         max_pending: int,
         fallback: AlarmLine | None = None,
+        announce: bool = True,
     ) -> None:
         if retry <= timedelta(0):
             raise ValueError("retry must be positive")
@@ -57,6 +58,7 @@ class AlarmLine:
         self._in_flight_since: float | None = None  # time.monotonic()
         self._failing = False
         self._fallback = fallback
+        self._announce = announce  # log each alarm as it is submitted
         self._forwarding = False
         self._cv = threading.Condition()
         self._worker = threading.Thread(target=self._run, name="alarm-line", daemon=True)
@@ -72,6 +74,7 @@ class AlarmLine:
         sink: Callable[[Alarm], None],
         settings: AlarmSettings,
         fallback: AlarmLine | None = None,
+        announce: bool = True,
     ) -> AlarmLine:
         """The live line, with the retry and cap from config/execution.yaml."""
         return cls(
@@ -79,6 +82,7 @@ class AlarmLine:
             retry=timedelta(seconds=settings.retry_seconds),
             max_pending=settings.max_pending,
             fallback=fallback,
+            announce=announce,
         )
 
     def _unhealthy(self) -> bool:
@@ -91,7 +95,8 @@ class AlarmLine:
     def submit(self, alarm: Alarm) -> None:
         """Queue an alarm. Never blocks on the sink and never raises."""
         try:
-            log.critical(alarm.message)
+            if self._announce:
+                log.critical(alarm.message)
             forward: list[Alarm] = []
             with self._cv:
                 if self._fallback is not None and self._unhealthy():
