@@ -98,6 +98,8 @@ class IbConnectionSettings:
     reconnect_seconds: float
     require_paper: bool
     paper_account_prefix: str
+    escalate_after_failures: int
+    max_reconnect_seconds: float
 
     @classmethod
     def from_env(cls, env: dict[str, str], ibkr: IbkrConfig) -> IbConnectionSettings:
@@ -121,6 +123,8 @@ class IbConnectionSettings:
             reconnect_seconds=float(ibkr.reconnect_seconds),
             require_paper=ibkr.require_paper,
             paper_account_prefix=ibkr.paper_account_prefix,
+            escalate_after_failures=ibkr.escalate_after_failures,
+            max_reconnect_seconds=float(ibkr.max_reconnect_seconds),
         )
 
 
@@ -394,10 +398,19 @@ class IbBinding:
 
     def run(self, stop: threading.Event) -> None:
         """Connect, process IBKR's messages, and reconnect after any drop, until
-        `stop` is set or the account is refused."""
+        `stop` is set or the account is refused.
+
+        A session that never opened (Gateway unreachable, login refused) or that ended
+        in an exception is a failure. After `escalate_after_failures` in a row, one alarm
+        says a person is needed, the per-failure alarms stop, and the wait between
+        attempts doubles up to `max_reconnect_seconds`. A session that opens and later
+        drops normally resets the count (and says so, if it had escalated)."""
         if self._refused is not None:
             return  # refused for good: never connect again
+        failures = 0
+        escalated = False
         while not stop.is_set():
+            crash: str | None = None
             client = self._factory(self._wrapper)
             with self._lock:
                 self._client = client
@@ -409,8 +422,11 @@ class IbBinding:
                     client.run()  # until the connection drops (it disconnects on the way out)
             except Exception as exc:  # a bug anywhere must never end the reconnect loop
                 log.exception("IBKR session failed")
-                self._alarm(f"IBKR session failed unexpectedly ({exc!r}); reconnecting")
+                crash = f"session failed unexpectedly ({exc!r})"
+                if not escalated:
+                    self._alarm(f"IBKR {crash}; reconnecting")
                 self._disconnect(client)
+            opened = self._wrapper.was_announced()
             try:
                 self._wrapper.closed()
             except Exception as exc:
@@ -418,7 +434,27 @@ class IbBinding:
                 self._alarm(f"IBKR session close failed ({exc!r}); reconnecting anyway")
             if self._refused is not None:
                 return
-            stop.wait(self._s.reconnect_seconds)  # returns at once when stopped
+            if opened and crash is None:
+                if escalated:
+                    self._alarm("IBKR SESSION RESTORED after repeated failures")
+                failures, escalated = 0, False
+            else:
+                failures += 1
+                if failures >= self._s.escalate_after_failures and not escalated:
+                    escalated = True
+                    why = crash or "the session never opened (is IB Gateway running and logged in?)"
+                    self._alarm(
+                        f"IBKR SESSION KEEPS FAILING: {failures} attempts in a row; last: {why}. "
+                        "Needs a person. Retrying less often"
+                    )
+            stop.wait(self._wait(failures))  # returns at once when stopped
+
+    def _wait(self, failures: int) -> float:
+        over = failures - self._s.escalate_after_failures
+        if over < 0:
+            return self._s.reconnect_seconds
+        doubled = self._s.reconnect_seconds * float(2 ** (over + 1))
+        return min(doubled, self._s.max_reconnect_seconds)
 
     def stop(self) -> None:
         """Disconnect now (run returns once `stop` is also set)."""
@@ -515,6 +551,11 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
     def _is_live(self, req_id: int) -> bool:
         with self._session_lock:
             return req_id not in self._not_live  # (void requests: _market_guard)
+
+    def was_announced(self) -> bool:
+        """Whether this session opened (the adapter was told CONNECTED)."""
+        with self._session_lock:
+            return self._announced
 
     def foreign_open(self) -> int:
         with self._session_lock:

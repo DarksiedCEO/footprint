@@ -55,6 +55,11 @@ ibkr:
   require_paper: true         # SAFETY: refuse to connect unless the account is a paper
                               #   account. Changing this to false is going live: Andre only
   paper_account_prefix: DU    # IBKR paper account ids begin with this
+  escalate_after_failures: 5  # DEFAULT: this many failed sessions in a row (Gateway not
+                              #   reachable, never logged in, or a crash) raise one alarm
+                              #   that a person is needed; retries then slow down
+  max_reconnect_seconds: 300  # DEFAULT: the wait between attempts doubles after the
+                              #   escalation, up to this
 market_data:
   history_days: 35            # DEFAULT: calendar days of 1-minute bars loaded at start (the
                               #   readers look back 20 sessions; 35 days covers holidays)

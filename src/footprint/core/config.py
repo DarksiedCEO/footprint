@@ -513,6 +513,8 @@ class IbkrConfig:
     option_security_type: str
     require_paper: bool
     paper_account_prefix: str
+    escalate_after_failures: int
+    max_reconnect_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -626,7 +628,11 @@ def load_execution(path: Path) -> ExecutionProfile:
         option_security_type=_text(ib, "option_security_type", i_where),
         require_paper=_boolean(ib, "require_paper", i_where),
         paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
+        escalate_after_failures=_integer(ib, "escalate_after_failures", i_where, minimum=1),
+        max_reconnect_seconds=_integer(ib, "max_reconnect_seconds", i_where, minimum=1),
     )
+    if ibkr.max_reconnect_seconds < ibkr.reconnect_seconds:
+        raise ConfigError(f"{i_where}: max_reconnect_seconds must be >= reconnect_seconds")
     m_where = f"{where}: market_data"
     m = _check_keys(raw["market_data"], {f.name for f in fields(MarketDataSettings)}, m_where)
     market_data = MarketDataSettings(
