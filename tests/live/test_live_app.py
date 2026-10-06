@@ -7,7 +7,6 @@ import io
 import json
 import queue
 import threading
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -62,20 +61,24 @@ def delivered(live: Live, sink: Sink) -> list[str]:
 # --- build ---------------------------------------------------------------------------------
 
 
-def test_a_live_config_is_refused(profiles: Profiles, tmp_path: Path) -> None:
-    live_config = replace(
-        profiles,
-        execution=replace(
-            profiles.execution, ibkr=replace(profiles.execution.ibkr, require_paper=False)
-        ),
-    )
-    with pytest.raises(ValueError, match="paper account only"):
-        make(live_config, tmp_path)
+def test_settings_smuggled_past_the_check_are_refused_by_build(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    """Settings forced into existence without their own check still never build."""
+    from dataclasses import fields
 
+    from footprint.brokers.ibkr.binding import IbConnectionSettings
+    from footprint.brokers.ibkr.paper import LiveAccountRefused
 
-def test_settings_that_do_not_require_paper_are_refused(profiles: Profiles, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="paper account only"):
-        build(profiles, settings(require_paper=False), tmp_path, Sink(), lambda now: ())
+    good = settings()
+    for account, port in (("U1234567", 4002), ("DU1234567", 4001), ("DU1234567", 7496)):
+        smuggled = object.__new__(IbConnectionSettings)
+        for f in fields(IbConnectionSettings):
+            object.__setattr__(smuggled, f.name, getattr(good, f.name))
+        object.__setattr__(smuggled, "account", account)
+        object.__setattr__(smuggled, "port", port)
+        with pytest.raises(LiveAccountRefused, match="paper account only"):
+            build(profiles, smuggled, tmp_path, Sink(), lambda now: ())
 
 
 def test_a_missing_ledger_is_never_created_unless_asked(profiles: Profiles, tmp_path: Path) -> None:

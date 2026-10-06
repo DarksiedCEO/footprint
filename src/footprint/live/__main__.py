@@ -20,6 +20,7 @@ import threading
 from pathlib import Path
 
 from footprint.brokers.ibkr.binding import IbConnectionSettings, read_env_file
+from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.core.config import load_profiles
 from footprint.data.news import blackouts_from
 from footprint.execution.channels import ChannelSettings
@@ -59,7 +60,11 @@ def main(argv: list[str] | None = None) -> int:
 
     profiles = load_profiles(args.config, args.instrument)
     env = read_env_file(str(args.env))
-    settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
+    try:
+        settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
+    except LiveAccountRefused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     channels = None
     if args.alarms_local_only:
         print("ALARMS LOCAL ONLY: nothing reaches your phone", file=sys.stderr)

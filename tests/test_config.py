@@ -390,7 +390,6 @@ def test_execution_profile_loads(execution_path: Path) -> None:
     assert e.entry.timeout_seconds == 30
     assert e.entry.max_over_mid_pct_of_spread == Decimal(25)
     assert e.stop_order.limit_offset_ticks == 20
-    assert (e.ibkr.require_paper, e.ibkr.paper_account_prefix) == (True, "DU")
     assert (e.ibkr.option_security_type, e.ibkr.reconnect_seconds) == ("FOP", 15)
 
 
@@ -407,10 +406,12 @@ def test_execution_profile_loads(execution_path: Path) -> None:
         ("stop_order", {"limit_offset_ticks": 0}),
         ("stop_order", {"extra": 1}),
         ("ibkr", {"reconnect_seconds": 0}),
-        ("ibkr", {"require_paper": "yes"}),  # only a real true/false switches the guard
-        ("ibkr", {"require_paper": 0}),
         ("ibkr", {"option_security_type": ""}),
-        ("ibkr", {"paper_account_prefix": " "}),
+        # Paper only is hard-coded: no key can set it (unknown keys are refused).
+        ("ibkr", {"require_paper": False}),
+        ("ibkr", {"require_paper": True}),
+        ("ibkr", {"paper_account_prefix": "U"}),
+        ("ibkr", {"allow_live": True}),
     ],
 )
 def test_bad_execution_values_are_rejected(

@@ -59,9 +59,8 @@ ibkr:
                               #   resync before anything is sent)
   option_security_type: FOP   # IBKR's security type for the instrument's options; the
                               #   system sees nothing else in the account
-  require_paper: true         # SAFETY: refuse to connect unless the account is a paper
-                              #   account. Changing this to false is going live: Andre only
-  paper_account_prefix: DU    # IBKR paper account ids begin with this
+  # (Paper only is hard-coded, not set here: brokers/ibkr/paper.py. A key here that
+  #  tries to set it is refused as unknown.)
   escalate_after_failures: 5  # DEFAULT: this many failed sessions in a row (Gateway not
                               #   reachable, never logged in, or a crash) raise one alarm
                               #   that a person is needed; retries then slow down

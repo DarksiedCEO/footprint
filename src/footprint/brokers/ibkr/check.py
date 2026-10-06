@@ -35,6 +35,7 @@ except ModuleNotFoundError as missing:  # pragma: no cover - only without ibapi
         raise
     sys.exit("ibapi is not installed: run  uv run python scripts/install_ibapi.py")
 from footprint.brokers.ibkr.gateway import IbGateway, IbOrderRequest
+from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.core.config import Profiles, load_profiles
 
 _POLL_SECONDS = 0.1
@@ -148,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     profiles = load_profiles(args.config, args.instrument)
     ibkr = profiles.execution.ibkr
-    settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), ibkr)
+    try:
+        settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), ibkr)
+    except LiveAccountRefused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     wait = args.wait
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)

@@ -6,8 +6,9 @@
                    IBKR connection runs on its own thread
 
 Safety, in order of what can go wrong:
-- Paper only. `ibkr.require_paper` false is refused here as well as by the binding:
-  going live is not built or verified, and must never happen by a config edit alone.
+- Paper only, hard-coded (brokers/ibkr/paper.py): a live account or a live port is
+  refused here as well as when the settings are made and by the binding. Going live
+  is not built or verified, and no setting can switch it on.
 - The runner starts reconciling and sends no entry until a person clears it to trade
   by name (`clear <name>` at the prompt). This program never clears it.
 - The ledger file must already exist unless `new_ledger` is asked for, so a restart can
@@ -37,6 +38,7 @@ from zoneinfo import ZoneInfo
 from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
 from footprint.brokers.ibkr.market import MarketData
+from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
@@ -137,11 +139,7 @@ def build(
     """Everything, wired; nothing connected yet (the Driver starts the connection)."""
     p = profiles
     ibkr = p.execution.ibkr
-    if not ibkr.require_paper or not settings.require_paper:
-        raise ValueError(
-            "ibkr.require_paper is false: this program runs IBKR's paper account only. "
-            "Going live is not built or verified"
-        )
+    check_paper(settings.account, settings.port)  # LiveAccountRefused
     state_dir.mkdir(parents=True, exist_ok=True)
     alarms = alarm_hub(sink, p.execution.alarms, channels, post)  # D20
 

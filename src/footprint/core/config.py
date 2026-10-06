@@ -589,8 +589,6 @@ class IbkrConfig:
     resync_realarm_seconds: int
     reconnect_seconds: int
     option_security_type: str
-    require_paper: bool
-    paper_account_prefix: str
     escalate_after_failures: int
     max_reconnect_seconds: int
     min_healthy_session_seconds: int
@@ -715,8 +713,6 @@ def load_execution(path: Path) -> ExecutionProfile:
         resync_realarm_seconds=_integer(ib, "resync_realarm_seconds", i_where, minimum=1),
         reconnect_seconds=_integer(ib, "reconnect_seconds", i_where, minimum=1),
         option_security_type=_text(ib, "option_security_type", i_where),
-        require_paper=_boolean(ib, "require_paper", i_where),
-        paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
         escalate_after_failures=_integer(ib, "escalate_after_failures", i_where, minimum=1),
         max_reconnect_seconds=_integer(ib, "max_reconnect_seconds", i_where, minimum=1),
         min_healthy_session_seconds=_integer(ib, "min_healthy_session_seconds", i_where, minimum=0),

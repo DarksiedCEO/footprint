@@ -12,8 +12,10 @@ This layer only translates. Every decision about what to trust lives in the adap
   dropped before any number in them is read, and an order outside it is passed on
   only so the adapter knows it is open: a fractional stock holding of Andre's can
   never upset the system.
-- Paper only (while `require_paper` is set): the connection is refused, and never
-  retried, unless the login manages `account` and that account is a paper account.
+- Paper only, hard-coded (paper.py; no setting can change it): settings with a
+  live account or a live port cannot be made, every connection attempt checks again,
+  and the connection is refused, and never retried, unless the login manages
+  `account` and manages only paper accounts.
   The adapter hears CONNECTED only after that check, with IBKR's next valid order id.
 - Exact numbers: prices arrive as floats and become Decimals through their shortest
   text form (151.25 -> Decimal("151.25")); quantities must be whole numbers. A value
@@ -63,6 +65,7 @@ from footprint.brokers.ibkr.gateway import (
     IbOrderRequest,
     QuoteField,
 )
+from footprint.brokers.ibkr.paper import LiveAccountRefused, check_paper, check_paper_login
 from footprint.core.config import IbkrConfig
 
 log = logging.getLogger("footprint.ibkr.binding")
@@ -98,11 +101,12 @@ class IbConnectionSettings:
     client_id: int
     account: str
     reconnect_seconds: float
-    require_paper: bool
-    paper_account_prefix: str
     escalate_after_failures: int
     max_reconnect_seconds: float
     min_healthy_session_seconds: float
+
+    def __post_init__(self) -> None:
+        check_paper(self.account, self.port)  # LiveAccountRefused: never built
 
     @classmethod
     def from_env(cls, env: dict[str, str], ibkr: IbkrConfig) -> IbConnectionSettings:
@@ -124,8 +128,6 @@ class IbConnectionSettings:
             client_id=client_id,
             account=env["BROKER_ACCOUNT_ID"].strip(),
             reconnect_seconds=float(ibkr.reconnect_seconds),
-            require_paper=ibkr.require_paper,
-            paper_account_prefix=ibkr.paper_account_prefix,
             escalate_after_failures=ibkr.escalate_after_failures,
             max_reconnect_seconds=float(ibkr.max_reconnect_seconds),
             min_healthy_session_seconds=float(ibkr.min_healthy_session_seconds),
@@ -414,6 +416,11 @@ class IbBinding:
         drops normally resets the count (and says so, if it had escalated)."""
         if self._refused is not None:
             return  # refused for good: never connect again
+        try:
+            check_paper(self._s.account, self._s.port)  # again: settings are only data
+        except LiveAccountRefused as exc:
+            self._refuse(str(exc))
+            return
         failures = 0
         escalated = False
         while not stop.is_set():
@@ -653,8 +660,11 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         if s.account not in accounts:
             self._b._refuse(f"the login manages {accounts}, not {s.account}")
             return
-        if s.require_paper and not s.account.startswith(s.paper_account_prefix):
-            self._b._refuse(f"{s.account} is not a paper account and require_paper is set")
+        try:
+            check_paper(s.account, s.port)
+            check_paper_login(accounts)
+        except LiveAccountRefused as exc:
+            self._b._refuse(str(exc))
             return
         with self._session_lock:
             self._accounts_ok = True

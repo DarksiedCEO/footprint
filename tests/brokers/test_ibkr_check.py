@@ -130,8 +130,8 @@ def test_the_check_reports_what_the_system_would_see(profiles: Profiles) -> None
     assert "disconnecting as planned" in out
 
 
-def test_the_check_refuses_a_live_account(profiles: Profiles) -> None:
-    code, out, _ = run_check(profiles, settings(account="U1234567"), accounts="U1234567")
+def test_the_check_refuses_a_live_login(profiles: Profiles) -> None:
+    code, out, _ = run_check(profiles, settings(), accounts=f"U1234567,{ACCOUNT}")
     assert code == 1
     assert "REFUSED" in out
 
