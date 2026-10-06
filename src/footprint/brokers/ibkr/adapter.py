@@ -468,8 +468,11 @@ class IbkrBroker:
 
     @property
     def ready(self) -> bool:
-        """Connected and resynced: calls will be answered."""
+        """Connected and resynced: calls will be answered. (Asking also notes a stuck
+        resync: the runner asks every step while flat.)"""
         with self._cv:
+            if not (self._connected and self._ready):
+                self._note_stuck_resync()
             return self._connected and self._ready
 
     @property
@@ -718,10 +721,18 @@ class IbkrBroker:
     def _require_ready(self) -> None:
         if self._connected and self._ready:
             return
+        self._note_stuck_resync()
+        raise NotReady("IBKR is disconnected or not yet resynced")
+
+    def _note_stuck_resync(self) -> None:
+        """Under the lock: alarm a resync that is not completing, first after the
+        disagreement limit, then again every `resync_realarm` while it lasts. Run from
+        every question asked of the adapter, `ready` included, so it is said even while
+        nothing is held (when nothing else would ask)."""
         now = time.monotonic()
         if (
             self._connected
-            and self._resync_since is not None
+            and self._resync_since is not None  # (cleared once resynced)
             and now - self._resync_since >= self._doubt_limit
             and (self._resync_alarmed_at is None or now - self._resync_alarmed_at >= self._realarm)
         ):
@@ -730,7 +741,6 @@ class IbkrBroker:
                 f"IBKR resync is not completing ({now - self._resync_since:.0f}s): nothing is "
                 "sent or trusted; a held position has only its resting stop"
             )
-        raise NotReady("IBKR is disconnected or not yet resynced")
 
     def _allocate(self, order_id: str) -> int:
         if self._next_id is None:

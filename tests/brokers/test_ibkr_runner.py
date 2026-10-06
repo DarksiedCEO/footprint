@@ -228,3 +228,29 @@ def test_a_failsafe_flatten_that_cannot_reach_the_broker_is_no_halt(
         runner.step(fill + second * SEC)
     assert not stack.halt.tripped
     assert runner.reconciling
+
+
+def test_a_stuck_resync_while_flat_is_alarmed_and_repeated(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Nothing is held, so nothing calls the broker but the runner's 'ready?' each step:
+    that is enough for a resync that never completes to be said, and said again."""
+    import time
+
+    ib_alarms: list[str] = []
+    fake, adapter = through_ibkr(stack, ib_alarms)
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    adapter._on_resync = runner.doubt
+    runner.step(DECISION_TIME)  # reconcile: agreed, flat
+    fake.lose()
+    fake.defer_executions = True
+    fake.restore(data_lost=True)  # the resync starts and sticks
+    started = time.monotonic()
+    t = DECISION_TIME
+    while time.monotonic() - started < FAST.total_seconds() * 5.5:  # alarms at ~1 and ~4
+        t += SEC
+        runner.step(t)
+        time.sleep(FAST.total_seconds() / 4)
+    stuck = [a for a in ib_alarms if "not completing" in a]
+    assert len(stuck) == 2  # after the limit, then once more after the re-alarm interval
+    assert not stack.halt.tripped
