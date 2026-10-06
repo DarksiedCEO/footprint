@@ -260,6 +260,8 @@ class Runner:
                 self._alarm(now, f"journal failed for {closed.position_id}: {exc!r}")
 
     def _decide(self, now: datetime, blackouts: tuple[NewsBlackout, ...]) -> None:
+        if not self._executor.broker_ready:
+            return  # nothing could be sent (e.g. IBKR resyncing): the minute is not used up
         bars = self._bars(now)
         closed_bars = [b for b in bars if b.ts + _MINUTE <= now]
         if not closed_bars:

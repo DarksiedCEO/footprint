@@ -76,6 +76,8 @@ from footprint.core.config import IbkrConfig
 from footprint.execution.orders import (
     BrokerDown,
     DuplicateOrderId,
+    NeverPlaced,
+    NotSent,
     Order,
     OrderState,
     OrderStatus,
@@ -106,6 +108,14 @@ _EXTRA = "#"  # an extra live copy of an order is listed as "<order id>#<permId>
 
 class BrokerUnavailable(BrokerDown):
     """Disconnected, or not yet resynced: nothing is sent and nothing is trusted."""
+
+
+class NotReady(BrokerUnavailable, NotSent):
+    """Disconnected or resyncing: refused before anything was sent."""
+
+
+class UnknownContract(NotSent, KeyError):
+    """No IBKR contract is registered for this contract id: nothing was sent."""
 
 
 class PositionsInDoubt(BrokerUnavailable, PositionsUncertain):
@@ -260,7 +270,10 @@ class IbkrBroker:
     # --- OrderBroker ------------------------------------------------------------------
 
     def place(self, order: Order) -> OrderStatus:
-        contract = self._contracts.ib(order.contract_id)
+        try:
+            contract = self._contracts.ib(order.contract_id)
+        except KeyError:
+            raise UnknownContract(order.contract_id) from None
         with self._cv:
             self._require_ready()
             ib_id = self._ids.get(order.order_id)
@@ -315,6 +328,8 @@ class IbkrBroker:
         with self._cv:
             self._require_ready()
             ib_id = self._ids.get(order_id)
+            if ib_id is None and _EXTRA not in order_id and not self._copies_of(order_id):
+                raise NeverPlaced(order_id)  # never sent: nothing to cancel, broker-wide or not
             extra = _EXTRA in order_id or ib_id is None or self._live_copies(order_id) > 1
             if not extra:
                 assert ib_id is not None
@@ -383,6 +398,12 @@ class IbkrBroker:
     def status(self, order_id: str) -> OrderStatus:
         with self._cv:
             self._require_ready()
+            if (
+                order_id not in self._ids
+                and _EXTRA not in order_id
+                and not self._copies_of(order_id)
+            ):
+                raise NeverPlaced(order_id)
             return self._status(order_id)
 
     def positions(self) -> dict[str, int]:
@@ -702,11 +723,11 @@ class IbkrBroker:
         ):
             self._resync_alarmed = True
             self._alarm("IBKR resync is not completing: nothing is sent or trusted")
-        raise BrokerUnavailable("IBKR is disconnected or not yet resynced")
+        raise NotReady("IBKR is disconnected or not yet resynced")
 
     def _allocate(self, order_id: str) -> int:
         if self._next_id is None:
-            raise BrokerUnavailable("no order id from IBKR yet")
+            raise NotReady("no order id from IBKR yet")
         ib_id = self._next_id
         self._next_id += 1
         self._ids[order_id] = ib_id

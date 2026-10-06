@@ -785,3 +785,20 @@ def test_every_close_is_confirmed_by_reconcile(
     assert runner.reconciling
     runner.step(drop + SEC)
     assert not runner.reconciling  # flat and agreed
+
+
+def test_no_decision_is_made_while_the_broker_cannot_answer(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """IBKR resyncing after a reconnect (quotes already back): nothing could be sent, so
+    nothing is decided, and the minute is not used up."""
+    runner, journal, _ = runner_for(stack, bars, tmp_path)
+    runner.step(DECISION_TIME)  # reconcile: agreed
+    stack.broker.ready = False  # type: ignore[attr-defined]
+    for second in range(1, 4):
+        runner.step(DECISION_TIME + second * SEC)
+    assert journal.decisions() == []
+    assert runner.last_decided is None
+    stack.broker.ready = True  # type: ignore[attr-defined]
+    runner.step(DECISION_TIME + 4 * SEC)
+    assert len(journal.decisions()) == 1
