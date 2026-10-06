@@ -59,6 +59,9 @@ class InstrumentProfile:
     trading_days: frozenset[int]
     holidays: frozenset[date]
     early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
+    # Open at the exchange, but Footprint treats them as closed (no session, no entry)
+    # until they are reviewed and approved (US-holiday sessions, remediation item 8).
+    no_trade_days: frozenset[date]
     calendar_through: date  # holidays and early closes are complete up to this date
     calendar_warn_days: int  # say so this many days before the calendar runs out
 
@@ -273,6 +276,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
         trading_days=_trading_days(raw, "trading_days", where),
         holidays=_holidays(raw, "holidays", where),
         early_closes=_early_closes(raw, "early_closes", where),
+        no_trade_days=_holidays(raw, "no_trade_days", where),
         calendar_through=_date(raw, "calendar_through", where),
         calendar_warn_days=_integer(raw, "calendar_warn_days", where, minimum=1),
     )
@@ -294,7 +298,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
-    for day in (*profile.holidays, *profile.early_closes):
+    for day in (*profile.holidays, *profile.early_closes, *profile.no_trade_days):
         if day.weekday() not in profile.trading_days:
             raise ConfigError(
                 f"{where}: {day} is a {day:%A}, not a trading day: a holiday or early close "
@@ -308,7 +312,11 @@ def load_instrument(path: Path) -> InstrumentProfile:
                 f"{where}: early close {day} {close} must be after the cash open and "
                 "before the normal prime close"
             )
-    late = [d for d in (*profile.holidays, *profile.early_closes) if d > profile.calendar_through]
+    for day in profile.no_trade_days:
+        if day in profile.holidays:
+            raise ConfigError(f"{where}: {day} is both a holiday and a no-trade day")
+    dated = (*profile.holidays, *profile.early_closes, *profile.no_trade_days)
+    late = [d for d in dated if d > profile.calendar_through]
     if late:
         raise ConfigError(f"{where}: {sorted(late)[0]} is after calendar_through")
     return profile

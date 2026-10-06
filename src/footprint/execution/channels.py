@@ -54,6 +54,7 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "resync is not completing",
     "EXCHANGE CALENDAR EXPIRED",
     "market data step failed",
+    "IBKR connection lost",
 )
 
 _TELEGRAM = "https://api.telegram.org"

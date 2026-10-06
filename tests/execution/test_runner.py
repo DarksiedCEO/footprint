@@ -799,6 +799,10 @@ def test_no_decision_is_made_while_the_broker_cannot_answer(
         runner.step(DECISION_TIME + second * SEC)
     assert journal.decisions() == []
     assert runner.last_decided is None
+    assert runner.reconciling  # D35: back means reconcile first
     stack.broker.ready = True  # type: ignore[attr-defined]
-    runner.step(DECISION_TIME + 4 * SEC)
+    runner.step(DECISION_TIME + 4 * SEC)  # back: reconciles (agrees), decides nothing
+    assert not runner.reconciling
+    assert journal.decisions() == []
+    runner.step(DECISION_TIME + 5 * SEC)
     assert len(journal.decisions()) == 1

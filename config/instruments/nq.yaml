@@ -57,5 +57,20 @@ early_closes:
   2026-12-24: "10:00"   # Christmas Eve: 12:15 CT per most sources; 12:00 per one
   2027-01-18: "10:00"   # Martin Luther King Jr. Day: 12:00 CT halt (CME pattern)
   2027-02-15: "10:00"   # Presidents Day: 12:00 CT halt (CME pattern)
-calendar_through: 2027-03-31  # the lists above are complete up to here: extend before then
+# No-trade days (Andre, remediation item 8): US-holiday sessions. The exchange is open
+# (a short futures-only session, early close above) but the stock market is closed:
+# Footprint treats them as CLOSED (no session, no entry, never the "prior day") until
+# they are separately reviewed and explicitly approved.
+no_trade_days:
+  - 2026-01-19   # Martin Luther King Jr. Day
+  - 2026-02-16   # Presidents Day
+  - 2026-05-25   # Memorial Day
+  - 2026-06-19   # Juneteenth
+  - 2026-07-03   # Independence Day (observed)
+  - 2026-09-07   # Labor Day
+  - 2026-11-26   # Thanksgiving
+  - 2027-01-18   # Martin Luther King Jr. Day
+  - 2027-02-15   # Presidents Day
+calendar_through: 2027-03-31  # the lists above are complete up to here. FAIL CLOSED:
+                              #   every later day is treated as closed until extended
 calendar_warn_days: 30        # alarm this many days before calendar_through

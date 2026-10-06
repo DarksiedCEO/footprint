@@ -116,7 +116,7 @@ def test_a_lost_connection_stops_everything_until_resynced(ib: Ib) -> None:
     assert ib.fake.sends == []
     assert any("connection lost" in a for a in ib.alarms)
     ib.fake.restore(data_lost=True)
-    assert ib.resyncs == [1, 1]
+    assert ib.resyncs == [1, 1, 1]  # start-up, the loss itself, and before ready again
     assert ib.adapter.place(buy()).state is OrderState.WORKING
 
 
@@ -617,7 +617,7 @@ def test_a_resend_that_does_not_match_the_original_proves_it_exists(ib: Ib) -> N
 def test_restored_with_data_maintained_still_resyncs(ib: Ib) -> None:
     ib.fake.lose()
     ib.fake.restore(data_lost=False)  # 1102
-    assert ib.resyncs == [1, 1]
+    assert ib.resyncs == [1, 1, 1]  # start-up, the loss, and before ready again
     assert ib.adapter.place(buy()).state is OrderState.WORKING
 
 
@@ -696,7 +696,7 @@ def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: I
     ib.fake._report(force=stop.ib_id)  # IBKR reports it live after all
     assert ib.adapter.status("p1-stop").state is OrderState.WORKING
     assert any("LIVE again" in a for a in ib.alarms)
-    assert ib.resyncs == [1, 1, 1]  # and the runner is sent to reconcile
+    assert ib.resyncs == [1, 1, 1, 1]  # and the runner is sent to reconcile
 
 
 def test_the_open_orders_are_listed_afresh_before_a_broker_wide_cancel(ib: Ib) -> None:
@@ -879,3 +879,15 @@ def test_each_stuck_resync_is_alarmed_after_its_own_limit(ib: Ib) -> None:
     with pytest.raises(BrokerUnavailable):
         ib.adapter.positions()
     assert sum("not completing" in a for a in ib.alarms) == 2  # the new one is said too
+
+
+def test_the_runner_is_told_at_the_loss_and_before_ready_again(ib: Ib) -> None:
+    """D35: entries stop the moment the connection is lost, and no step can see the
+    adapter ready again before the doubt is set (it is set first, under the lock)."""
+    seen_ready_at_doubt: list[bool] = []
+    ib.adapter._on_resync = lambda: seen_ready_at_doubt.append(ib.adapter.ready)
+    ib.fake.lose()
+    assert seen_ready_at_doubt == [False]  # told at the loss
+    ib.fake.restore(data_lost=True)
+    assert seen_ready_at_doubt == [False, False]  # told again, while still not ready
+    assert ib.adapter.ready

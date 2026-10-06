@@ -240,6 +240,10 @@ class IbkrBroker:
         self._doubt_limit = settings.positions_disagree_alarm.total_seconds()
         self._realarm = settings.resync_realarm.total_seconds()
         self._on_alarm = on_alarm
+        # The runner must reconcile: called on a lost connection, BEFORE the adapter
+        # turns ready again after a resync (so no step can see "ready" without the
+        # doubt already set), and when IBKR shows something unexpected. It may be
+        # called under the adapter's lock: it must only set a flag, never call back in.
         self._on_resync = on_resync
         self._cv = threading.Condition()
         self._connected = False
@@ -496,6 +500,7 @@ class IbkrBroker:
                     self._next_id = max(next_valid_id, self._next_id or 0)
                 self._begin_resync()
         if state is Connection.LOST:
+            self._on_resync()  # no entry from now until it is back, resynced and reconciled
             self._alarm("IBKR connection lost: nothing is sent until it is back and resynced")
             return
         self._request_resync()
@@ -1003,14 +1008,14 @@ class IbkrBroker:
             return False
         alarms += self._settle_unlisted(self._unlisted_at_resync)
         self._unlisted_at_resync = set()
+        self._on_resync()  # the runner reconciles before it can see "ready" (D35)
         self._ready = True
         self._resync_since = None
         self._cv.notify_all()
         return True
 
     def _resynced(self) -> None:
-        log.info("IBKR resynced")
-        self._on_resync()
+        log.info("IBKR resynced")  # (the runner was told before it turned ready)
 
     def _alarm(self, message: str) -> None:
         log.critical(message)

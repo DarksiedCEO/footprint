@@ -221,13 +221,13 @@ def test_the_critical_alarms_are_the_ones_that_need_hands() -> None:
         "IBKR SESSION KEEPS FAILING: 5 attempts in a row",
         "p1: unprotected, flattening",
         "market data step failed (TimeoutError()): no new data until fixed",
+        "IBKR connection lost: nothing is sent until it is back and resynced",
     ):
         assert is_critical(message), message
     for message in (
         "STARTED: reconciling; no entries until Andre clears to trade",
         "cleared to trade by Andre",
         "market data is stepping again",
-        "IBKR connection lost: nothing is sent until it is back and resynced",
     ):
         assert not is_critical(message), message
 
