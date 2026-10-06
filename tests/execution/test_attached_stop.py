@@ -219,3 +219,28 @@ def test_a_fill_during_an_outage_is_flattened_after_the_reconnect(
     assert stack.broker.positions() == {}  # flattened by the reconcile
     assert stack.broker.open_orders() == []  # the stop went with it
     assert not runner.reconciling
+
+
+def test_a_fill_below_the_limit_moves_the_stop_down_to_the_real_fill(stack: Stack) -> None:
+    """Priced from the limit (151.5) while working; filled at 151.25 (the ask when the
+    step arrives): the stop moves to the 151.25 fill's level."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)  # floor 151, ask 152: rests
+    stack.quote(150, D("151.25"), SEND + SEC)  # ask still above the 151 limit
+    ticket = stack.executor.on_time(ticket, SEND + 10 * SEC)  # steps to 151.5: fills at 151.25
+    assert ticket.position is not None
+    assert ticket.position.entry_price == D("151.25")
+    at_fill = stack.stops.resting_order(ticket.position_id)
+    at_limit = stack.stops.preview(D("151.5"), 1)
+    assert at_fill.trigger < at_limit.trigger
+    stop = stack.broker.status(f"{ticket.position_id}-stop").order
+    assert (stop.stop_price, stop.limit_price) == (at_fill.trigger, at_fill.limit)
+
+
+def test_preview_refuses_a_price_too_small_to_carry_the_stop(stack: Stack) -> None:
+    tick = stack.profiles.instrument.option_tick_size
+    with pytest.raises(ValueError, match="too small"):
+        stack.stops.preview(tick, 1)
+    with pytest.raises(ValueError, match="max_contracts"):
+        stack.stops.preview(D(151), stack.profiles.risk.max_contracts + 1)
+    with pytest.raises(ValueError, match="tick"):
+        stack.stops.preview(D("151.1"), 1)

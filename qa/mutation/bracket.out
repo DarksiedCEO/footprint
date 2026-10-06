@@ -1,0 +1,19 @@
+  1 KILLED   [bracket] src/footprint/execution/orders.py: sim: a held child fills before its parent
+  2 KILLED   [bracket] src/footprint/execution/orders.py: sim: unfilled parent activates its child
+  3 KILLED   [bracket] src/footprint/execution/orders.py: sim: child not held
+  4 KILLED   [bracket] src/footprint/execution/orders.py: sim: cancelling the parent leaves the child
+  5 KILLED   [bracket] src/footprint/execution/orders.py: tracker: child not recorded
+  6 KILLED   [bracket] src/footprint/execution/executor/diego.py: H-2 regression: entry sent without its stop
+  7 KILLED   [bracket] src/footprint/execution/executor/diego.py: stop not raised with the entry's price
+  8 KILLED   [bracket] src/footprint/execution/executor/diego.py: stop priced from the ceiling at send
+  9 SURVIVED [bracket] src/footprint/execution/executor/diego.py: stop never moved to the real fill
+ 10 SURVIVED [bracket] src/footprint/execution/executor/diego.py: a dead attached stop is adopted
+ 11 KILLED   [bracket] src/footprint/execution/executor/diego.py: unfilled entry: stop not confirmed ended
+ 12 KILLED   [bracket] src/footprint/execution/executor/diego.py: stop adopted without a stop level
+ 13 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: parent transmitted alone
+ 14 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: child not attached at IBKR
+ 15 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: held child cancelled as Inactive
+ 16 KILLED   [bracket] src/footprint/brokers/ibkr/binding.py: binding drops parentId
+ 17 KILLED   [bracket] src/footprint/brokers/ibkr/binding.py: binding always transmits
+ 18 SURVIVED [bracket] src/footprint/decision/stop.py: preview skips the fit check
+18 mutants, 3 survived

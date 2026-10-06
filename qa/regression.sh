@@ -30,4 +30,6 @@ run "Telegram fallback (Telegram down)" $A $CH -k "telegram_down or telegram_fai
 run "SMS fallback" $CH $A -k "sms_fallback or telegram_fails or sms_down or each_channel_down"
 run "Telegram-only degraded mode" $A -k "degraded or telegram_only or unattended or attended or quiet or full_alerting"
 run "no network in tests" $CH -k "cannot_reach or proxy"
+run "H-2 entry protected during an outage (attached stop)" tests/execution/test_attached_stop.py tests/brokers/test_ibkr_adapter.py tests/brokers/test_ibkr_binding.py -k "attached or bracket or outage or held or real_fill"
+run "D37 outage excluded from the failsafe, flapping cannot hold it off" $D -k "flapping or only_the_outage or mid_step"
 exit $fail
