@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -51,6 +53,7 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "IBKR SESSION KEEPS FAILING",
     "resync is not completing",
     "EXCHANGE CALENDAR EXPIRED",
+    "market data step failed",
 )
 
 _TELEGRAM = "https://api.telegram.org"
@@ -82,13 +85,18 @@ def http_post(
             return int(response.status)
     except urllib.error.HTTPError as exc:
         return int(exc.code)
-    except (urllib.error.URLError, OSError) as exc:
+    except Exception as exc:  # anything: some (http.client.InvalidURL) quote the URL
         reason = type(exc.reason if isinstance(exc, urllib.error.URLError) else exc).__name__
         raise ChannelError(f"no answer ({reason})") from None
 
 
+def critical_marker(message: str) -> str | None:
+    """The first critical marker in the message, or None."""
+    return next((marker for marker in CRITICAL_MARKERS if marker in message), None)
+
+
 def is_critical(message: str) -> bool:
-    return any(marker in message for marker in CRITICAL_MARKERS)
+    return critical_marker(message) is not None
 
 
 def _text(alarm: Alarm) -> str:
@@ -179,8 +187,9 @@ class TwilioCallSink:
 
 class CriticalCalls:
     """A sink that rings only for critical alarms, at most once per `cooldown` seconds
-    (a repeating alarm still reaches Telegram and SMS each time). A call that fails
-    raises, so the alarm line retries it."""
+    for each kind (marker): a repeating alarm still reaches Telegram and SMS each time,
+    and one kind ringing never silences another (a stuck resync must not hold back a
+    kill switch). A call that fails raises, so the alarm line retries it."""
 
     def __init__(
         self,
@@ -191,17 +200,19 @@ class CriticalCalls:
         self._call = call
         self._cooldown = cooldown
         self._monotonic = monotonic
-        self._last: float | None = None
+        self._last: dict[str, float] = {}
 
     def __call__(self, alarm: Alarm) -> None:
-        if not is_critical(alarm.message):
+        marker = critical_marker(alarm.message)
+        if marker is None:
             return
         now = self._monotonic()
-        if self._last is not None and now - self._last < self._cooldown:
-            log.info("critical alarm not rung (a call was made %.0fs ago)", now - self._last)
+        last = self._last.get(marker)
+        if last is not None and now - last < self._cooldown:
+            log.info("%r not rung again (rung %.0fs ago)", marker, now - last)
             return
         self._call(alarm)  # raises on failure: retried, and the cooldown not started
-        self._last = now
+        self._last[marker] = now
 
 
 @dataclass(frozen=True)
@@ -226,15 +237,33 @@ class ChannelSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ChannelSettings:
-        """All six keys, or ValueError naming the missing ones (never a value)."""
+        """All six keys in their expected shape, or ValueError naming the missing or
+        malformed ones (never a value). A stray space or an inline comment would
+        otherwise go into a URL."""
         missing = [k for k in cls.KEYS if not env.get(k, "").strip()]
         if missing:
             raise ValueError(f"missing in .env: {', '.join(missing)}")
         values = [env[k].strip() for k in cls.KEYS]
+        bad = [k for k, v in zip(cls.KEYS, values, strict=True) if not _SHAPES[k].fullmatch(v)]
+        if bad:
+            raise ValueError(
+                f"malformed in .env (no spaces or comments after the value): {', '.join(bad)}"
+            )
         return cls(*values)
 
     def __repr__(self) -> str:
         return "ChannelSettings(<credentials>)"
+
+
+_PHONE = re.compile(r"\+[1-9]\d{7,14}")  # E.164
+_SHAPES: dict[str, re.Pattern[str]] = {
+    "TELEGRAM_BOT_TOKEN": re.compile(r"\d+:[A-Za-z0-9_-]+"),
+    "TELEGRAM_CHAT_ID": re.compile(r"-?\d+"),
+    "TWILIO_ACCOUNT_SID": re.compile(r"AC[0-9a-fA-F]{32}"),
+    "TWILIO_AUTH_TOKEN": re.compile(r"[A-Za-z0-9]+"),
+    "TWILIO_FROM_NUMBER": _PHONE,
+    "ALARM_PHONE_NUMBER": _PHONE,
+}
 
 
 class AlarmHub:
@@ -255,7 +284,18 @@ class AlarmHub:
         return sum(line.pending for line in self._all)
 
     def close(self, timeout: timedelta) -> bool:
-        return all([line.close(timeout) for line in self._all])
+        """Every line at once, so hung channels cost one timeout, not one each."""
+        results: list[bool] = []
+
+        def close_one(line: AlarmLine) -> None:
+            results.append(line.close(timeout))
+
+        threads = [threading.Thread(target=close_one, args=(line,)) for line in self._all]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(2 * timeout.total_seconds() + 1)  # a line joins worker + watchdog
+        return len(results) == len(self._all) and all(results)
 
 
 def alarm_hub(
@@ -265,7 +305,8 @@ def alarm_hub(
     post: Post = http_post,
 ) -> AlarmHub:
     """The record (file and terminal) always; with `channels`, Telegram for every alarm
-    with SMS as its fallback, and a phone call for the critical ones."""
+    with SMS as its fallback, and a phone call for the critical ones. Only the record's
+    line logs each alarm (the others would repeat it)."""
     file_line = AlarmLine.from_settings(record, settings)
     if channels is None:
         return AlarmHub([file_line])
@@ -274,12 +315,16 @@ def alarm_hub(
     sms = AlarmLine.from_settings(
         TwilioSmsSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post),
         settings,
+        announce=False,
     )
     push = AlarmLine.from_settings(
-        TelegramSink(c.telegram_token, c.telegram_chat_id, timeout, post), settings, fallback=sms
+        TelegramSink(c.telegram_token, c.telegram_chat_id, timeout, post),
+        settings,
+        fallback=sms,
+        announce=False,
     )
     call = TwilioCallSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post)
     calls = AlarmLine.from_settings(
-        CriticalCalls(call, float(settings.call_cooldown_seconds)), settings
+        CriticalCalls(call, float(settings.call_cooldown_seconds)), settings, announce=False
     )
     return AlarmHub([file_line, push, calls], also_close=[sms])

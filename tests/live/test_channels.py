@@ -35,7 +35,7 @@ from tests.conftest import REPO_ROOT
 
 NOW = datetime(2026, 10, 6, 14, 0, tzinfo=UTC)
 TOKEN = "123456:SECRET-TOKEN"
-SID, AUTH = "AC0000SID", "twilio-SECRET"
+SID, AUTH = "AC" + "0123456789abcdef" * 2, "twilioSECRET0123"
 FROM, PHONE = "+15550001111", "+15559998888"
 SECRETS = (TOKEN, AUTH, PHONE)
 
@@ -62,6 +62,11 @@ def alarm(message: str = "something happened") -> Alarm:
 
 def channels() -> ChannelSettings:
     return ChannelSettings(TOKEN, "4242", SID, AUTH, FROM, PHONE)
+
+
+def env_values() -> dict[str, str]:
+    """A well-formed .env for the six keys."""
+    return dict(zip(ChannelSettings.KEYS, [TOKEN, "4242", SID, AUTH, FROM, PHONE], strict=True))
 
 
 def no_secret(text: str) -> None:
@@ -171,6 +176,32 @@ def test_http_post_returns_an_error_status_instead_of_raising(server: Any) -> No
     assert http_post(url, {}, None, 5) == 401
 
 
+@pytest.mark.parametrize("bad", [" # comment", "\tx", "\nx"])
+def test_http_post_never_shows_a_malformed_url(bad: str) -> None:
+    """http.client refuses a URL with a space or control character with an error that
+    quotes it (InvalidURL, not an OSError): it must not escape with the token in it."""
+    url = f"https://api.telegram.org/bot{TOKEN}{bad}/sendMessage"
+    with pytest.raises(ChannelError) as failed:
+        http_post(url, {}, None, 2)
+    no_secret(str(failed.value))
+    assert failed.value.__cause__ is None
+    assert failed.value.__suppress_context__
+
+
+def test_a_failing_channel_never_logs_a_secret(
+    profiles: Profiles, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The real http_post on a malformed URL, through the hub's retrying line."""
+    broken = replace(channels(), telegram_token=TOKEN + " # x")  # (from_env refuses this)
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), broken, http_post)
+    with caplog.at_level("DEBUG"):
+        hub.submit(alarm("cleared to trade by Andre"))
+        time.sleep(1.5)
+        hub.close(timedelta(seconds=1))
+    assert "alarm line down" in caplog.text
+    no_secret(caplog.text)
+
+
 def test_http_post_never_shows_the_url_when_nothing_answers() -> None:
     url = f"http://127.0.0.1:9/bot{TOKEN}/sendMessage"  # nothing listens on port 9
     with pytest.raises(ChannelError) as failed:
@@ -189,6 +220,7 @@ def test_the_critical_alarms_are_the_ones_that_need_hands() -> None:
         "cannot price the SELL of 1 NQ-x: no quote seen yet. ... flatten by hand if it does not",
         "IBKR SESSION KEEPS FAILING: 5 attempts in a row",
         "p1: unprotected, flattening",
+        "market data step failed (TimeoutError()): no new data until fixed",
     ):
         assert is_critical(message), message
     for message in (
@@ -222,6 +254,16 @@ def test_calls_ring_only_for_critical_alarms_and_at_most_once_per_cooldown() -> 
     assert [a.message for a in rung] == ["HALT: one", "HALT: three"]
 
 
+def test_one_kind_of_critical_alarm_never_silences_another() -> None:
+    rung: list[str] = []
+    calls = CriticalCalls(lambda a: rung.append(a.message), 600, lambda: 0.0)
+    calls(alarm("IBKR resync is not completing (900s): nothing is sent or trusted"))
+    calls(alarm("IBKR resync is not completing (1200s): nothing is sent or trusted"))
+    calls(alarm("KILL SWITCH LATCHED: no entries until Andre clears it"))
+    calls(alarm("p1: unprotected, flattening"))
+    assert [m.split(" ")[0] for m in rung] == ["IBKR", "KILL", "p1:"]
+
+
 def test_a_failed_call_is_retried_and_starts_no_cooldown() -> None:
     clock = [0.0]
     attempts: list[str] = []
@@ -248,9 +290,32 @@ def test_channel_settings_need_all_six_keys_and_never_echo_a_value() -> None:
     assert "TWILIO_ACCOUNT_SID" in str(missing.value)
     assert "ALARM_PHONE_NUMBER" in str(missing.value)
     assert "v1" not in str(missing.value)
-    ok = ChannelSettings.from_env({k: f" {k.lower()} " for k in ChannelSettings.KEYS})
-    assert ok.telegram_token == "telegram_bot_token"
-    assert "telegram_bot_token" not in repr(ok)
+    ok = ChannelSettings.from_env({k: f" {v} " for k, v in env_values().items()})
+    assert ok == channels()
+    no_secret(repr(ok))
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("TELEGRAM_BOT_TOKEN", TOKEN + "   # from BotFather"),
+        ("TELEGRAM_BOT_TOKEN", "123456:SECRET\tTOKEN"),
+        ("TELEGRAM_BOT_TOKEN", "SECRET-TOKEN"),
+        ("TELEGRAM_CHAT_ID", "@andre"),
+        ("TWILIO_ACCOUNT_SID", SID + " x"),
+        ("TWILIO_ACCOUNT_SID", "AC123"),
+        ("TWILIO_AUTH_TOKEN", AUTH + " #"),
+        ("TWILIO_FROM_NUMBER", "555-000-1111"),
+        ("ALARM_PHONE_NUMBER", "15559998888"),
+    ],
+)
+def test_a_malformed_key_is_refused_by_name_never_by_value(key: str, value: str) -> None:
+    env = env_values() | {key: value}
+    with pytest.raises(ValueError, match="malformed") as bad:
+        ChannelSettings.from_env(env)
+    assert key in str(bad.value)
+    assert value.strip() not in str(bad.value)
+    no_secret(str(bad.value))
 
 
 def test_the_example_env_lists_every_key_empty() -> None:
@@ -362,6 +427,61 @@ def test_the_sms_fallback_is_waited_for_and_counted_on_close(profiles: Profiles)
         release.set()
 
 
+def test_a_hung_telegram_hands_the_alarm_to_sms(profiles: Profiles) -> None:
+    release = threading.Event()
+
+    class TelegramHangs(Post):
+        def __call__(self, url: str, *args: Any) -> int:
+            super().__call__(url, *args)
+            if "telegram" in url:
+                release.wait(10)  # never answers (until the test ends)
+            return 201
+
+    post = TelegramHangs()
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), post)
+    try:
+        hub.submit(alarm("cleared to trade by Andre"))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not any(
+            u.endswith("Messages.json") for u, *_ in post.calls
+        ):
+            time.sleep(0.05)
+        sms = [d["Body"] for u, d, _, _ in post.calls if u.endswith("Messages.json")]
+        assert sms
+        assert "cleared to trade by Andre" in sms[0]
+    finally:
+        release.set()
+        hub.close(timedelta(seconds=1))
+
+
+def test_each_alarm_is_logged_once(profiles: Profiles, caplog: pytest.LogCaptureFixture) -> None:
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), Post())
+    with caplog.at_level("CRITICAL"):
+        hub.submit(alarm("HALT: logged once"))
+        assert hub.close(timedelta(seconds=2))
+    assert caplog.text.count("HALT: logged once") == 1
+
+
+def test_closing_hung_channels_costs_one_timeout_not_one_each(profiles: Profiles) -> None:
+    release = threading.Event()
+
+    class AllHang(Post):
+        def __call__(self, url: str, *args: Any) -> int:
+            super().__call__(url, *args)
+            release.wait(10)
+            return 200
+
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), AllHang())
+    try:
+        hub.submit(alarm("HALT: everything hangs"))
+        time.sleep(1.3)  # SMS gets it too, and hangs
+        started = time.monotonic()
+        assert not hub.close(timedelta(seconds=0.5))
+        assert time.monotonic() - started < 1.5  # three hung lines in parallel
+    finally:
+        release.set()
+
+
 def test_the_live_program_sends_its_alarms_through_the_channels(
     profiles: Profiles, tmp_path: Path
 ) -> None:
@@ -439,7 +559,8 @@ def test_the_test_send_reports_each_channel_without_secrets() -> None:
     results = send_tests(channels(), 8, SmsDown())
     assert results[0] == ("Telegram", "OK")
     assert results[1] == ("SMS", "FAILED: Twilio SMS answered HTTP 401")
-    assert results[2] == ("call", "OK")
+    assert results[2][0] == "call"
+    assert results[2][1].startswith("ACCEPTED by Twilio (not proof of delivery)")
     no_secret(str(results))
 
 
@@ -457,11 +578,12 @@ def test_the_setup_test_fails_when_any_channel_fails(tmp_path: Path) -> None:
     from footprint.live.alarm_setup import main
 
     env = tmp_path / ".env"
-    env.write_text("".join(f"{k}=v{i}\n" for i, k in enumerate(ChannelSettings.KEYS)))
+    env.write_text("".join(f"{k}={v}\n" for k, v in env_values().items()))
     config = ["--env", str(env), "--config", str(REPO_ROOT / "config")]
     out = io.StringIO()
     assert main(["test", *config], out, post=Post(200)) == 0
-    assert out.getvalue().count(": OK") == 3
+    assert "Telegram: OK" in out.getvalue()
+    assert out.getvalue().count("ACCEPTED by Twilio") == 2  # SMS and call: check the phone
     out = io.StringIO()
     assert main(["test", *config], out, post=Post(401)) == 1
     assert "FAILED" in out.getvalue()
@@ -482,3 +604,52 @@ def test_the_setup_chat_id_prints_the_line_for_env(tmp_path: Path) -> None:
     out = io.StringIO()
     assert main(config, out, fetch=lambda url, timeout: {"result": []}) == 1
     assert "send your bot any message" in out.getvalue()
+
+
+def test_the_setup_tool_never_shows_the_token_in_a_malformed_url() -> None:
+    from footprint.live.alarm_setup import chat_ids
+
+    with pytest.raises(ChannelError) as failed:
+        chat_ids(TOKEN + " # from BotFather", 2)  # the real GET
+    no_secret(str(failed.value))
+    assert failed.value.__cause__ is None
+
+
+def test_an_sms_fallback_does_not_log_the_alarm_again(
+    profiles: Profiles, caplog: pytest.LogCaptureFixture
+) -> None:
+    class TelegramDown(Post):
+        def __call__(self, url: str, *args: Any) -> int:
+            super().__call__(url, *args)
+            return 502 if "telegram" in url else 201
+
+    post = TelegramDown()
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), post)
+    with caplog.at_level("CRITICAL"):
+        hub.submit(alarm("cleared to trade by Andre"))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not any(
+            u.endswith("Messages.json") for u, *_ in post.calls
+        ):
+            time.sleep(0.05)
+        hub.close(timedelta(seconds=1))
+    assert any(u.endswith("Messages.json") for u, *_ in post.calls)
+    said = [r for r in caplog.records if r.getMessage() == "cleared to trade by Andre"]
+    assert len(said) == 1  # (Telegram closing with it undelivered says so, separately)
+
+
+def test_a_line_that_will_not_close_in_time_is_reported() -> None:
+    from footprint.execution.channels import AlarmHub
+
+    class Stuck:
+        pending = 0
+
+        def submit(self, alarm: Alarm) -> None:
+            pass
+
+        def close(self, timeout: timedelta) -> bool:
+            time.sleep(1.5)
+            return True
+
+    hub = AlarmHub([Stuck()])  # type: ignore[list-item]
+    assert not hub.close(timedelta(seconds=0.1))

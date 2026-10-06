@@ -26,9 +26,11 @@ to start against a live account or with `ibkr.require_paper: false`.
 
 Every alarm goes to Telegram; if Telegram fails it goes by SMS instead; the critical
 ones (a halt, the kill switch, a position without its stop or needing hands, IBKR
-refusing or failing for good, an expired exchange calendar) also ring your phone, at
-most once every `call_cooldown_seconds` (10 minutes). Every alarm is also in the
-terminal and `state/alarms.log`.
+refusing or failing for good, a stuck resync, market data failing, an expired exchange
+calendar) also ring your phone: each kind at most once every `call_cooldown_seconds`
+(30 minutes), and one kind ringing never silences another. A stuck resync re-alarms
+every 5 minutes, so it rings every 30 minutes for as long as it lasts, even while flat.
+Every alarm is also in the terminal and `state/alarms.log`.
 
 All six keys go in `.env` only (never in chat, never committed):
 
@@ -40,10 +42,14 @@ All six keys go in `.env` only (never in chat, never committed):
    `TWILIO_AUTH_TOKEN`; a Twilio number that can send SMS and call in
    `TWILIO_FROM_NUMBER`; your mobile in `ALARM_PHONE_NUMBER`. Both numbers in
    +1XXXXXXXXXX form. A trial Twilio account only reaches verified numbers and prefixes
-   messages and calls with a trial notice.
+   messages and calls with a trial notice. **US SMS needs the sending number
+   registered** (A2P 10DLC for a local number, or toll-free verification): without it
+   Twilio accepts the text and the carrier silently blocks it.
 3. Check: `uv run python -m footprint.live.alarm_setup test` sends one test alarm per
-   channel (Telegram, SMS, a call) and prints OK or FAILED for each. Expect your phone
-   to ring once.
+   channel (Telegram, SMS, a call). Telegram prints OK or FAILED; SMS and the call print
+   ACCEPTED or FAILED, because Twilio accepting them is not delivery: **check that the
+   text arrived and the phone rang.** A malformed key (a space, a comment after the
+   value) is refused by name before anything is sent.
 
 Nothing prints a token, a password or a phone number, and an error never shows a URL
 (Telegram's carries the token).

@@ -32,6 +32,8 @@ from footprint.execution.channels import (
 from footprint.execution.management.malik import Alarm
 
 Fetch = Callable[[str, float], Any]
+ACCEPTED = "ACCEPTED by Twilio (not proof of delivery)"
+_FAILED = "FAILED"
 
 
 def http_get_json(url: str, timeout: float) -> Any:
@@ -41,7 +43,7 @@ def http_get_json(url: str, timeout: float) -> Any:
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
         raise ChannelError(f"Telegram answered HTTP {exc.code}") from None
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except Exception as exc:  # anything: some (http.client.InvalidURL) quote the URL
         raise ChannelError(f"Telegram: no usable answer ({type(exc).__name__})") from None
 
 
@@ -60,24 +62,25 @@ def chat_ids(token: str, timeout: float, fetch: Fetch = http_get_json) -> list[t
 def send_tests(
     channels: ChannelSettings, timeout: float, post: Post = http_post
 ) -> list[tuple[str, str]]:
-    """One test alarm per channel; (channel, OK or the failure) for each."""
+    """One test alarm per channel; (channel, result) for each. Twilio accepting an SMS
+    or a call is not delivery (an unregistered number's SMS is accepted, then blocked
+    by the carrier), so those say to check the phone."""
     alarm = Alarm(datetime.now(UTC), "TEST: Footprint alarm channel check. No action needed")
     c = channels
-    sinks: list[tuple[str, Callable[[Alarm], None]]] = [
-        ("Telegram", TelegramSink(c.telegram_token, c.telegram_chat_id, timeout, post)),
-        ("SMS", TwilioSmsSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post)),
-        (
-            "call",
-            TwilioCallSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post),
-        ),
+    sms = TwilioSmsSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post)
+    call = TwilioCallSink(c.twilio_sid, c.twilio_token, c.twilio_from, c.phone, timeout, post)
+    sinks: list[tuple[str, Callable[[Alarm], None], str]] = [
+        ("Telegram", TelegramSink(c.telegram_token, c.telegram_chat_id, timeout, post), "OK"),
+        ("SMS", sms, f"{ACCEPTED}: confirm the text arrived on your phone"),
+        ("call", call, f"{ACCEPTED}: your phone should ring now"),
     ]
     results = []
-    for name, sink in sinks:
+    for name, sink, ok in sinks:
         try:
             sink(alarm)
-            results.append((name, "OK"))
+            results.append((name, ok))
         except ChannelError as exc:
-            results.append((name, f"FAILED: {exc}"))
+            results.append((name, f"{_FAILED}: {exc}"))
     return results
 
 
@@ -121,7 +124,7 @@ def main(
     results = send_tests(channels, timeout, post)
     for name, result in results:
         print(f"{name}: {result}", file=out)
-    return 0 if all(result == "OK" for _, result in results) else 1
+    return 1 if any(result.startswith(_FAILED) for _, result in results) else 0
 
 
 if __name__ == "__main__":
