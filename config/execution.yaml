@@ -55,3 +55,25 @@ ibkr:
   require_paper: true         # SAFETY: refuse to connect unless the account is a paper
                               #   account. Changing this to false is going live: Andre only
   paper_account_prefix: DU    # IBKR paper account ids begin with this
+market_data:
+  history_days: 35            # DEFAULT: calendar days of 1-minute bars loaded at start (the
+                              #   readers look back 20 sessions; 35 days covers holidays)
+  roll_days_before_expiry: 8  # DEFAULT: trade the next quarterly future from this many
+                              #   calendar days before the front one expires (CME's usual
+                              #   volume roll); older history is spliced and price-adjusted
+  bar_poll_delay_seconds: 5   # DEFAULT: ask for the finished minute bar this long after the
+                              #   minute closes (IBKR's last trades need a moment to land)
+  min_poll_seconds: 300       # DEFAULT: each poll asks for at least this much recent
+                              #   history (more after a gap, so a reconnect heals itself)
+  history_request_gap_seconds: 2  # DEFAULT: wait between historical data requests (IBKR
+                              #   pacing: no more than 6 alike in 2 seconds, 60 in 10 minutes)
+  request_timeout_seconds: 30 # DEFAULT: a lookup or history request unanswered this long is
+                              #   dropped and tried again later
+  retry_seconds: 60           # DEFAULT: wait before retrying a failed request or a quote
+                              #   stream IBKR refused (e.g. no subscription: error 354)
+  strike_window_points: 100   # DEFAULT: stream option strikes this close to the future;
+                              #   must cover contract.max_strike_distance + recenter_points
+  recenter_points: 25         # DEFAULT: move the strike window once the future has moved
+                              #   this far from where the window was centred
+  max_quote_lines: 80         # DEFAULT: never hold more market data lines than this (IBKR
+                              #   allows 100 by default; the future takes one)

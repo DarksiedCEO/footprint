@@ -231,7 +231,7 @@ class LevelsReader:
         max_gap_minutes at the start, inside or at the end, and (need_last) the final
         minute itself, so a session's close is its real close.
         """
-        span = int((end - begin).total_seconds() // 60)
+        span = (end - begin) // timedelta(minutes=1)
         if not bars:
             return f"0 of {span} minutes"
         need = Decimal(span) * self._data.min_session_coverage_pct.scaleb(-2)

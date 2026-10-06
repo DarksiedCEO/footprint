@@ -164,6 +164,7 @@ class ContractQuery:
     right: str = ""  # "C" or "P"
     trading_class: str = ""
     con_id: int = 0
+    include_expired: bool = False  # a future that has expired (history across a roll)
 
 
 @dataclass(frozen=True, slots=True)

@@ -90,6 +90,7 @@ def test_profiles_yield_the_expected_forbidden_values(
     assert forbidden_words(instrument_path) == {
         "NQ",
         "CME",
+        "USD",
         "04:00",
         "14:00",
         "15:00",
