@@ -21,8 +21,8 @@ This layer only translates. Every decision about what to trust lives in the adap
   text form (151.25 -> Decimal("151.25")); quantities must be whole numbers. A value
   that cannot be read exactly is never guessed: the connection is dropped and alarmed,
   and the reconnect's resync reads the account afresh.
-- Stops trigger outside regular trading hours too (outsideRth), since the system
-  holds positions in the overnight session.
+- Stops trigger outside regular trading hours too (outsideRth): the prime session
+  opens before the cash market (D26). Nothing is held overnight.
 - A supervisor (`run`) reconnects after any drop, after `reconnect_seconds`.
 
 Callbacks arrive on ibapi's message thread. The adapter's waits happen on the
