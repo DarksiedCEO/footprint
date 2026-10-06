@@ -871,11 +871,16 @@ class IbkrBroker:
             if priced
             else None
         )
-        # Held back: every live copy is Inactive, or being cancelled (by us after it was
-        # Inactive, or any PendingCancel): none of them is protection (AEGIS N1, J-1).
-        held_back = bool(live) and all(
-            c.status in (_INACTIVE, _PENDING_CANCEL) or c.cancel_sent for c in live
-        )
+        # A copy that can still act: live, not Inactive, not being cancelled. With none,
+        # the order is no protection. Held back if any copy is Inactive (or cancelled by
+        # us after it was) (AEGIS N1); otherwise every copy is PendingCancel: cancelling,
+        # still live and able to fill (AEGIS J-1, K-1, K-2, K-M2).
+        acting = [
+            c for c in live if c.status not in (_INACTIVE, _PENDING_CANCEL) and not c.cancel_sent
+        ]
+        unable = bool(live) and not acting
+        held_back = unable and any(c.status == _INACTIVE or c.cancel_sent for c in live)
+        cancelling = unable and not held_back
         if live:
             state = OrderState.WORKING
         elif any(c.status == _FILLED for c in copies):
@@ -884,7 +889,7 @@ class IbkrBroker:
             state = OrderState.CANCELLED
         else:
             state = OrderState.REJECTED
-        return OrderStatus(order, state, filled, avg, held_back=held_back)
+        return OrderStatus(order, state, filled, avg, held_back=held_back, cancelling=cancelling)
 
     def _exec_filled(self, perm_id: int) -> int:
         return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)

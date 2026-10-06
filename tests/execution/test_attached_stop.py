@@ -387,13 +387,18 @@ def test_a_held_back_attached_stop_cancels_the_working_entry(stack: Stack) -> No
     assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
 
 
-def test_a_held_back_attached_stop_is_replaced_on_the_fill(stack: Stack) -> None:
+def test_a_held_back_attached_stop_is_kept_never_doubled_on_the_fill(stack: Stack) -> None:
+    """AEGIS K-2: a held-back attached stop is still live at the broker (it can come
+    back and sell): no second stop goes beside it. The position keeps it, unprotected,
+    and management gets out through its cancel."""
     ticket = stack.executor.submit(stack.approved, (), SEND)
     stack.quote(150, D(151), SEND)  # filled; the stop activates...
     _hold_back(stack, f"{ticket.position_id}-stop")  # ...but is reported held back
     ticket = stack.executor.on_time(ticket, SEND)
     assert ticket.position is not None
-    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop-2"
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop"
+    assert f"{ticket.position_id}-stop-2" not in stack.broker._orders  # never placed
 
 
 def test_malik_flattens_a_position_whose_stop_is_held_back(stack: Stack) -> None:
@@ -517,3 +522,91 @@ def test_an_exit_never_waits_forever_on_another_order(stack: Stack) -> None:
     assert raised_at is not None, "the exit waited forever"
     assert len([a for a in stack.alarms if "exit waits" in a.message]) == 1
     assert stack.halt.tripped  # (AEGIS I-N7: the escalation stands entries down)
+
+
+def _mark(stack: Stack, stop_id: str, *, held_back: bool = False, cancelling: bool = False) -> None:
+    """The stop is reported live but held back, or with its cancel pending."""
+    from dataclasses import replace as swap
+
+    original = stack.broker.status
+
+    def marked(order_id: str) -> OrderStatus:
+        status = original(order_id)
+        if order_id == stop_id and status.state is OrderState.WORKING:
+            return swap(status, held_back=held_back, cancelling=cancelling)
+        return status
+
+    stack.broker.status = marked  # type: ignore[method-assign]
+
+
+def test_an_attached_stop_being_cancelled_is_kept_never_doubled_on_the_fill(
+    stack: Stack,
+) -> None:
+    """AEGIS K-2: an attached stop whose cancel is pending can still fill: a second stop
+    beside it could sell twice. The position keeps it and management exits around it."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND)
+    _mark(stack, f"{ticket.position_id}-stop", cancelling=True)
+    ticket = stack.executor.on_time(ticket, SEND)
+    assert ticket.position is not None
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop"
+    assert f"{ticket.position_id}-stop-2" not in stack.broker._orders
+
+
+def test_a_move_that_leaves_the_attached_stop_held_back_never_doubles_it(stack: Stack) -> None:
+    """The move to the fill leaves the stop live but held back: kept, not doubled."""
+    original = stack.broker.modify
+    held: set[str] = set()
+
+    def holds_back(order_id: str, limit_price: Decimal, stop_price: Decimal | None) -> OrderStatus:
+        from dataclasses import replace as swap
+
+        status = original(order_id, limit_price, stop_price)
+        if order_id.endswith("-stop") and stop_price == D("113.75"):
+            held.add(order_id)
+            return swap(status, held_back=True)
+        return status
+
+    stack.broker.modify = holds_back  # type: ignore[method-assign]
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    from dataclasses import replace as swap
+
+    plain = stack.broker.status
+
+    def reported(order_id: str) -> OrderStatus:
+        status = plain(order_id)
+        return swap(status, held_back=True) if order_id in held else status
+
+    stack.broker.status = reported  # type: ignore[method-assign]
+    stack.quote(150, D("151.25"), SEND + SEC)
+    ticket = stack.executor.on_time(ticket, SEND + 10 * SEC)
+    assert ticket.position is not None
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position.stop_order_id == stop_id
+    assert f"{stop_id}-2" not in stack.broker._orders
+
+
+def test_the_uncertain_stop_path_never_counts_a_held_back_stop_as_protection(
+    stack: Stack,
+) -> None:
+    """AEGIS K: the move to the fill raises; the broker then reports the attached stop
+    live but held back: kept (nothing beside it), but UNPROTECTED, never PROTECTED."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    original = stack.broker.modify
+
+    def fails(order_id: str, limit_price: Decimal, stop_price: Decimal | None) -> OrderStatus:
+        if order_id == stop_id and stop_price == D("113.75"):
+            _mark(stack, stop_id, held_back=True)
+            raise ConnectionError("lost mid-move")
+        return original(order_id, limit_price, stop_price)
+
+    stack.broker.modify = fails  # type: ignore[method-assign]
+    stack.quote(150, D("151.25"), SEND + SEC)
+    ticket = stack.executor.on_time(ticket, SEND + 10 * SEC)
+    assert ticket.position is not None
+    assert ticket.outcome is EntryOutcome.UNPROTECTED
+    assert ticket.position.stop_order_id == stop_id
+    assert f"{stop_id}-2" not in stack.broker._orders

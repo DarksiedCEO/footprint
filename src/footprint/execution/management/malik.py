@@ -121,6 +121,9 @@ class Manager:
         self._stop_stuck_since: dict[str, datetime] = {}
         self._exit_wait_since: dict[str, datetime] = {}  # an order the exit waits on
         self._held_back_alarmed: set[str] = set()
+        self._cancels_sent: set[str] = set()  # orders this system asked the broker to cancel
+        self._cancelling_since: dict[str, datetime] = {}  # first seen PendingCancel
+        self._exit_started: dict[str, ExitReason] = {}  # why an exit began, before it is out
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -171,6 +174,32 @@ class Manager:
                         now, f"{pid}: resting stop held back at the broker; unprotected, flattening"
                     )
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
+            if stop_status.cancelling:
+                # Its cancel is pending at the broker: no protection, but still live (it
+                # can still fill), so nothing goes beside it. Our own exit's cancel: the
+                # exit carries on (bounded by cancel_escalate_seconds). Anyone else's:
+                # unprotected, get out (AEGIS K-1, K-3).
+                stop_id = position.stop_order_id
+                self._cancelling_since.setdefault(stop_id, now)
+                if stop_id in self._cancels_sent:
+                    started = self._exit_started.get(pid, ExitReason.UNPROTECTED)
+                    return self._start_exit(position, quote, now, started)
+                if pid not in self._held_back_alarmed:
+                    self._held_back_alarmed.add(pid)
+                    self._alarm(
+                        now,
+                        f"{pid}: resting stop being cancelled at the broker, not by this "
+                        "system; unprotected, flattening",
+                    )
+                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
+            if (
+                stop_status.state is OrderState.CANCELLED
+                and position.stop_order_id in self._cancels_sent
+                and pid in self._exit_started
+            ):
+                # Our own exit's cancel landed: the exit carries on, no false alarm.
+                position.stop_order_id = None
+                return self._start_exit(position, quote, now, self._exit_started[pid])
             if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
                 # Gone at the broker without this system cancelling it (by hand, or
                 # by the broker): the position is unprotected. Get out.
@@ -289,6 +318,7 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         pid = position.position_id
+        self._exit_started.setdefault(pid, reason)
         try:
             # What is held is read once, BEFORE the stop comes down: a broker in doubt
             # about its positions keeps the stop, and the exit waits. The exit is sized
@@ -302,6 +332,7 @@ class Manager:
                 log.warning("%s: positions uncertain (%r); the exit waits", pid, exc)
                 return None
             if position.stop_order_id is not None:
+                self._cancels_sent.add(position.stop_order_id)
                 self._broker.cancel(position.stop_order_id)
                 cancelled = self._broker.status(position.stop_order_id)
                 if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
@@ -349,6 +380,7 @@ class Manager:
                     continue
                 order = live.order
                 try:
+                    self._cancels_sent.add(order_id)
                     self._broker.cancel(order_id)
                     gone = self._broker.status(order_id)
                 except Exception as exc:
@@ -610,6 +642,16 @@ class Manager:
         # position's protection: never "agreed" with (AEGIS I-1). The disagreement path
         # then halts, chases its cancel (CANCEL STUCK to Andre) and flattens around it.
         expected_orders -= {oid for oid, status in working.items() if status.held_back}
+        # A stop whose cancel is pending is still live (it can fill), and a normal exit
+        # passes through PendingCancel: agreed with for cancel_escalate_seconds, then
+        # no longer (AEGIS J-1, K-1).
+        escalate = timedelta(seconds=self._p.execution.reconcile.cancel_escalate_seconds)
+        for oid, status in working.items():
+            if status.cancelling:
+                if now - self._cancelling_since.setdefault(oid, now) >= escalate:
+                    expected_orders.discard(oid)
+            else:
+                self._cancelling_since.pop(oid, None)
         if actual == expected and ledger_ok and working_ids == expected_orders:
             self._reset_reconcile()
             return True
@@ -636,6 +678,7 @@ class Manager:
         self._halt.trip("unclear recovery: broker, ledger and records disagree")
         for order_id in working:
             try:
+                self._cancels_sent.add(order_id)
                 self._broker.cancel(order_id)
             except Exception as exc:  # chased again next round
                 log.critical("reconcile could not cancel %s: %r", order_id, exc)

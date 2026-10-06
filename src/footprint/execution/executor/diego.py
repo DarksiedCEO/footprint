@@ -254,18 +254,23 @@ class Executor:
         self, stop_id: str, spec: StopOrderSpec, filled: int
     ) -> tuple[Order | None, bool]:
         """The attached stop, moved to the stop at the real fill: (order, protected).
-        Not protected (a new stop is placed) when it is not working at the broker, or
-        is for another size than was filled."""
+        Not protected, with no order (a new stop is placed), when it is finished at the
+        broker, or is for another size than was filled. Not protected WITH the order
+        when it is still live but cannot be relied on (held back, or its cancel is
+        pending): no second stop may go beside it (it can still fill, AEGIS K-2), so
+        management gets out through its cancel instead."""
         held = self._broker.status(stop_id)
         if held.state is OrderState.FILLED:
             return held.order, True  # already triggered and filled: management books it
-        if not held.protects:
+        if held.state is OrderState.WORKING and not held.protects:
             log.critical(
-                "attached stop %s is %s%s: placing a new one",
+                "attached stop %s is still live but %s: no second stop beside it; flattening",
                 stop_id,
-                held.state.value,
-                " (held back)" if held.held_back else "",
+                "held back" if held.held_back else "being cancelled",
             )
+            return held.order, False
+        if not held.protects:
+            log.critical("attached stop %s is %s: placing a new one", stop_id, held.state.value)
             return None, False
         if held.order.quantity != filled:
             log.critical(
@@ -278,7 +283,15 @@ class Executor:
             return None, False
         if (held.order.stop_price, held.order.limit_price) != (spec.trigger, spec.limit):
             held = self._broker.modify(stop_id, spec.limit, spec.trigger)
-        return held.order, held.protects or held.state is OrderState.FILLED
+        if held.protects or held.state is OrderState.FILLED:
+            return held.order, True
+        if held.state is OrderState.WORKING:  # live, not protecting: nothing beside it
+            log.critical("attached stop %s cannot be relied on after the move", stop_id)
+            return held.order, False
+        log.critical(
+            "attached stop %s is %s after the move: placing a new one", stop_id, held.state.value
+        )
+        return None, False
 
     def _end_attached(self, ticket: EntryTicket) -> None:
         """An unfilled entry takes its attached stop with it at the broker; confirm it
@@ -314,6 +327,7 @@ class Executor:
         session = session_at(now, self._p.instrument)
         protected = False
         stop: Order | None = None
+        kept: Order | None = None  # the stop the position keeps: live or filled at the broker
         stop_id = ticket.stop_order_id or f"{ticket.position_id}-stop"
         opened = False
         try:
@@ -322,7 +336,8 @@ class Executor:
             spec = self._stops.resting_order(ticket.position_id)
             if ticket.stop_order_id is not None:
                 stop, protected = self._adopt_attached(ticket.stop_order_id, spec, filled)
-            if not protected:
+                kept = stop
+            if not protected and stop is None:
                 # No attached stop working: a new one (its own id: ids are never reused).
                 stop_id = f"{ticket.position_id}-stop" + ("-2" if ticket.stop_order_id else "")
                 stop = Order(
@@ -337,6 +352,7 @@ class Executor:
                 )
                 stop_status = self._broker.place(stop)
                 protected = stop_status.state in (OrderState.WORKING, OrderState.FILLED)
+                kept = stop if protected else None
         except Exception as exc:  # any failure here: find out what the broker really has
             log.critical("resting stop for %s uncertain: %r", ticket.position_id, exc)
             try:
@@ -344,7 +360,11 @@ class Executor:
                     raise RuntimeError("the fill could not open a stop") from exc
                 held = self._broker.status(stop_id)  # did it reach the broker after all?
                 if held.state in (OrderState.WORKING, OrderState.FILLED):
-                    stop, protected = held.order, True  # adopt it (a fill is handled next)
+                    # Adopt it (a fill is handled next). Live but not protecting (held
+                    # back, cancel pending): kept, so management exits through its
+                    # cancel, never beside it (AEGIS K-2).
+                    kept = held.order
+                    protected = held.protects or held.state is OrderState.FILLED
             except Exception as again:  # unknown to the broker, or cannot ask: unprotected
                 log.critical("cannot confirm the stop %s: %r", stop_id, again)
         try:
@@ -359,7 +379,9 @@ class Executor:
             entry_price=price,
             entry_ts=now,
             session=session,
-            stop_order_id=stop.order_id if protected and stop is not None else None,
+            # The attached stop when it is live but not protecting: management then
+            # sees it and gets out through its cancel (never a sell beside it).
+            stop_order_id=kept.order_id if kept is not None else None,
         )
         ticket.outcome = EntryOutcome.PROTECTED if protected else EntryOutcome.UNPROTECTED
         if not protected:

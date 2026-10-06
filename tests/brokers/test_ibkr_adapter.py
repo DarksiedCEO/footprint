@@ -1016,12 +1016,82 @@ def test_a_stop_pending_its_inactive_cancel_is_still_held_back(ib: Ib) -> None:
     ib.adapter.place_attached(buy(price=140), attached_stop())
     child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
     ib.fake.slow_cancels = True
+    doubts = len(ib.resyncs)
     ib.fake.inactivate(child.perm_id)  # the adapter cancels; IBKR answers PendingCancel
     status = ib.adapter.status("p1-stop")
     assert status.state is OrderState.WORKING
     assert status.held_back
+    assert not status.cancelling  # held back wins: never agreed with by reconcile
     ib.fake.finish_cancels()
     assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+    # AEGIS K-M14: Inactive -> our cancel -> PendingCancel -> Cancelled is no revival.
+    assert len(ib.resyncs) == doubts
+    assert not any("LIVE again" in a for a in ib.alarms)
+
+
+def test_a_stale_pending_submit_after_our_inactive_cancel_is_still_held_back(ib: Ib) -> None:
+    """A stale PendingSubmit delivered after IBKR said Inactive and we cancelled it:
+    the copy is not acting (only PreSubmitted/Submitted revive it), so the stop stays
+    held back and is never counted as protection."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingSubmit", 0, 1, D(0))
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+    assert not status.protects
+
+
+def test_a_stop_whose_ordinary_cancel_is_pending_is_cancelling_not_held_back(ib: Ib) -> None:
+    """AEGIS K-1/K-2: PendingCancel from our own cancel of a working stop: still live
+    (it can fill), no protection, but not held back."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.fake.slow_cancels = True
+    ib.adapter.cancel("p1-stop")
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.cancelling
+    assert not status.held_back
+    assert not status.protects
+
+
+def _second_copy(ib: Ib, order_id: str, status: str) -> None:
+    """IBKR holding a second live copy of the same order (as after a resend)."""
+    from dataclasses import replace as clone
+
+    first = next(c for c in ib.adapter._copies.values() if c.order_id == order_id)
+    perm = max(ib.adapter._copies) + 1000
+    ib.adapter._copies[perm] = clone(first, perm_id=perm, status=status)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "protects", "held_back", "cancelling"),
+    [
+        ("Submitted", "PendingCancel", True, False, False),  # one copy still acts
+        ("Inactive", "Submitted", True, False, False),
+        ("Inactive", "PendingCancel", False, True, False),  # none acts; one Inactive
+        ("PendingCancel", "PendingCancel", False, False, True),
+        ("Inactive", "Inactive", False, True, False),
+    ],
+)
+def test_several_copies_protect_only_if_one_can_act(
+    ib: Ib, first: str, second: str, protects: bool, held_back: bool, cancelling: bool
+) -> None:
+    """AEGIS K-M2: with several live copies, the order protects iff one of them can
+    still act; with none, any Inactive copy makes it held back, else cancelling."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    copy = next(c for c in ib.adapter._copies.values() if c.order_id == "p1-stop")
+    copy.status = first
+    _second_copy(ib, "p1-stop", second)
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert (status.protects, status.held_back, status.cancelling) == (
+        protects,
+        held_back,
+        cancelling,
+    )
 
 
 def test_an_order_taken_as_finished_that_reappears_pending_raises_a_doubt(ib: Ib) -> None:
