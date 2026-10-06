@@ -244,6 +244,14 @@ class Driver:
         elif word == "status":
             self._say(self.status())
         elif word == "quit":
+            held = self._live.held()
+            if held:
+                self._say(
+                    f"WARNING: stopping with {sorted(held)} held or working. Nothing manages "
+                    "it now: only the resting stop protects it, and only until IBKR's session "
+                    "ends (DAY). The next start flattens any leftover. Flatten by hand or "
+                    "check the stop in IBKR now"
+                )
             self._say("stopping")
             stop.set()
         elif word:

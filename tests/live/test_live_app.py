@@ -296,3 +296,28 @@ def test_the_program_needs_a_news_choice(capsys: pytest.CaptureFixture[str]) -> 
         main(["--env", "nowhere"])
     assert exc.value.code == 2
     assert "--blackouts" in capsys.readouterr().err
+
+
+def test_the_first_tick_before_ibkr_connects_is_no_halt(profiles: Profiles, tmp_path: Path) -> None:
+    live, sink = make(profiles, tmp_path)
+    driver = Driver(live, out=io.StringIO())
+    for k in range(3):  # IBKR not connected yet: the adapter is not ready
+        driver.tick(NOW + timedelta(seconds=k))
+    assert not live.halt.tripped
+    assert live.runner.reconciling
+    assert not any(m.startswith("HALT") for m in delivered(live, sink))
+
+
+def test_quitting_with_something_held_warns(
+    profiles: Profiles, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live, _ = make(profiles, tmp_path)
+    out = io.StringIO()
+    monkeypatch.setattr(live.adapter, "held_contracts", lambda: frozenset({"conid:9"}))
+    Driver(live, out=out).command("quit", threading.Event())
+    assert "WARNING: stopping with ['conid:9'] held" in out.getvalue()
+    quiet = io.StringIO()
+    monkeypatch.setattr(live.adapter, "held_contracts", frozenset)
+    Driver(live, out=quiet).command("quit", threading.Event())
+    assert "WARNING" not in quiet.getvalue()
+    live.alarms.close(timedelta(seconds=1))

@@ -125,6 +125,7 @@ class Manager:
         self._reconcile_orders: dict[str | None, list[str]] = {}
         self._seen: dict[str, tuple[object, datetime]] = {}
         self._reconcile_prices: dict[tuple[str, Side], Decimal] = {}
+        self._unpriced_alarmed: set[tuple[str, Side]] = set()  # alarmed: no quote to sell at
         self._alarmed_mismatch: object = None
         self._alarmed_pending: tuple[str, ...] = ()
         self._cancels_stuck_since: datetime | None = None
@@ -646,7 +647,14 @@ class Manager:
                 )
             price = self._reconcile_price(contract_id, side, now)
             if price is None:
-                self._alarm(now, f"cannot price a buy-back for {contract_id}: no ask")
+                if (contract_id, side) not in self._unpriced_alarmed:
+                    self._unpriced_alarmed.add((contract_id, side))
+                    self._alarm(
+                        now,
+                        f"cannot price the {side.value} of {abs(qty)} {contract_id}: no quote "
+                        "seen yet. Nothing is sent until one arrives; flatten by hand if it "
+                        "does not",
+                    )
                 continue
             self._reprice_stuck(reducing, stuck_before, abs(qty), price)
             if needed <= 0:
@@ -796,8 +804,10 @@ class Manager:
             price = touch
         elif last is not None:
             price = max(tick, last - tick) if side is Side.SELL else last + tick
+        elif side is Side.SELL and quote is not None:
+            price = touch if touch is not None else tick  # seen with no bid: one tick
         elif side is Side.SELL:
-            price = touch if touch is not None else tick
+            price = None  # never seen a quote: no price to sell at (never one tick blind)
         else:
             price = touch  # a buy with no ask ever seen cannot be priced
         if price is not None:
@@ -812,6 +822,7 @@ class Manager:
         self._stuck_ids = set()
         self._seen.clear()
         self._reconcile_prices.clear()
+        self._unpriced_alarmed = set()
         self._alarmed_mismatch = None
         self._alarmed_pending = ()
         self._cancels_stuck_since, self._cancel_escalated = None, False

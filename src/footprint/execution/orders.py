@@ -101,6 +101,13 @@ class DuplicateOrderId(ValueError):
     lost answer is resolved safely (see TrackedBroker.place)."""
 
 
+class BrokerDown(ConnectionError):
+    """The broker cannot be reached right now (disconnected, or reconnected and not yet
+    resynced). Nothing can be known or done until it is back: wait, never halt on it
+    alone. A broker adapter raises this (or a subclass) for every call it cannot answer
+    for that reason."""
+
+
 class PositionsUncertain(ConnectionError):
     """The broker cannot say right now what is held (its fills and its position
     report disagree). Nothing may be sold or booked on it: wait and ask again."""

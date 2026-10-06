@@ -74,6 +74,7 @@ from footprint.brokers.ibkr.gateway import (
 )
 from footprint.core.config import IbkrConfig
 from footprint.execution.orders import (
+    BrokerDown,
     DuplicateOrderId,
     Order,
     OrderState,
@@ -103,7 +104,7 @@ _OCA_CANCEL_WITH_BLOCK = 1
 _EXTRA = "#"  # an extra live copy of an order is listed as "<order id>#<permId>"
 
 
-class BrokerUnavailable(ConnectionError):
+class BrokerUnavailable(BrokerDown):
     """Disconnected, or not yet resynced: nothing is sent and nothing is trusted."""
 
 

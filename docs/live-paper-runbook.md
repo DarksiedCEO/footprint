@@ -11,8 +11,10 @@ to start against a live account or with `ibkr.require_paper: false`.
 2. `.env` in the repo folder has `BROKER_HOST`, `BROKER_PORT`, `BROKER_ACCOUNT_ID`,
    `BROKER_CLIENT_ID` (the same values the read-only check used). Never commit it.
 3. The read-only check passes: `uv run python -m footprint.brokers.ibkr.check`.
-4. Real-time CME data on the paper login (otherwise every quote is refused, the chain
-   stays empty and nothing trades: safe, but nothing to see).
+4. Real-time CME data on the paper login. Without it every quote is refused: the chain
+   stays empty, so no new trade is ever opened. But nothing can be priced either: if a
+   position is left over from an earlier run, the system will not sell it blind and
+   asks you (an alarm) to flatten it by hand in IBKR.
 5. A news calendar CSV (`name,start,end`, ISO times **with offsets**, e.g.
    `CPI,2026-10-14T08:28:00-04:00,2026-10-14T08:32:00-04:00`), or decide to run
    without one (`--no-blackouts`).
@@ -37,6 +39,22 @@ It starts reconciling and **sends nothing** until you clear it. At the prompt:
 
 Loading 35 days of history takes about a minute after the connection opens
 (`status` shows the bar count growing from 0).
+
+## Stopping with a position open
+
+`quit` (or Ctrl-C) stops managing at once; it does not flatten. It warns you if
+anything is held or working. After that only the resting stop at IBKR protects the
+position, and it is a DAY order: it lasts until IBKR's trading session ends. The next
+start flattens anything still held (priced at the market once a quote arrives; never
+sold blind). Flatten by hand in IBKR, or check the stop there, before you walk away.
+
+## Gateway restarts and disconnects
+
+IB Gateway restarts itself every night. A disconnect is not a fault: the system waits,
+reconciles once IBKR is back, and carries on (D35). After 5 failed reconnects in a row
+it alarms once that a person is needed and retries less often (D32). A halt (a real
+disagreement: something held that should not be, an order that will not cancel) only
+clears with a restart, after you have looked at why.
 
 ## Where things go (all in `state/`, git-ignored)
 

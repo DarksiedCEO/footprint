@@ -15,6 +15,7 @@ from footprint.execution.orders import (
     OrderState,
     OrderStatus,
     OrderType,
+    Quote,
     Side,
     SimulatedBroker,
 )
@@ -756,3 +757,25 @@ def test_reconcile_books_its_own_flatten_at_the_real_fill(stack: Stack) -> None:
     assert [(c.position_id, c.exit_price) for c in closes] == [(position.position_id, D(160))]
     expected = stack.profiles.risk.bankroll + (D(160) - D("151.5")) * 20 - 5
     assert stack.ledger.account(t).equity == expected
+
+
+# --- PR C review: never sell blind ------------------------------------------------------------
+
+
+def test_a_leftover_with_no_quote_ever_seen_is_never_sold_blind(stack: Stack) -> None:
+    """A restart while the broker still holds an option no quote has arrived for yet:
+    nothing is sent at a guessed price (once, it was one tick); Andre is told once."""
+    leftover = "NQ-leftover"
+    stack.broker._positions[leftover] = 1
+    t = FILLED_AT + 60 * SEC
+    for k in range(8):
+        stack.book.mark_time(t + k * SEC)
+        stack.manager.reconcile(None, t + k * SEC)
+    sent = [s for s in reconcile_orders(stack) if s.order.contract_id == leftover]
+    assert sent == []
+    assert sum("cannot price the SELL of 1 NQ-leftover" in a.message for a in stack.alarms) == 1
+    later = t + 8 * SEC
+    stack.book.publish(Quote(leftover, D(40), D(41), later))  # the first quote arrives
+    stack.manager.reconcile(None, later)
+    sent = [s for s in reconcile_orders(stack) if s.order.contract_id == leftover]
+    assert [s.order.limit_price for s in sent] == [D(40)]  # priced at the bid

@@ -61,7 +61,7 @@ def test_one_trade_through_ibkr_from_decision_to_journal(
     assert adapter.positions() == {}
 
 
-def test_losing_ibkr_while_holding_halts_and_the_stop_still_protects(
+def test_losing_ibkr_while_holding_waits_without_a_halt_and_the_stop_still_protects(
     stack: Stack, bars: list[Bar], tmp_path: Path
 ) -> None:
     ib_alarms: list[str] = []
@@ -77,8 +77,8 @@ def test_losing_ibkr_while_holding_halts_and_the_stop_still_protects(
     position = runner.position
     assert position is not None
     fake.lose()
-    runner.step(fill + SEC)  # management cannot reach IBKR: halt, reconcile
-    assert stack.halt.tripped
+    runner.step(fill + SEC)  # management cannot reach IBKR: reconcile once it is back
+    assert not stack.halt.tripped  # an outage (e.g. Gateway's nightly restart) is no fault
     assert runner.reconciling
     stop_copy = next(c for c in fake.copies.values() if c.request.order_ref.endswith("-stop"))
     assert fake.sim.status(stop_copy.sim_id).state is OrderState.WORKING  # still resting
@@ -87,6 +87,7 @@ def test_losing_ibkr_while_holding_halts_and_the_stop_still_protects(
     assert not runner.reconciling  # the broker, the ledger and the records agree
     assert runner.position is position
     assert any("connection lost" in a for a in ib_alarms)
+    assert not stack.halt.tripped  # entries stay possible after the outage
 
 
 def open_through_ibkr(
@@ -161,3 +162,67 @@ def open_through_ibkr_status_first(
     stack.quote(150, D("151.5"), fill)
     runner.step(fill)
     return fake, adapter, runner, fill
+
+
+# --- PR C review: starting before IBKR answers, and the failsafe during an outage ---------
+
+
+def test_a_runner_started_before_ibkr_connects_waits_then_trades(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """The live program steps the runner from its first second, before IB Gateway has
+    connected and resynced: that is waiting, never a halt."""
+    contracts = ContractBook()
+    contracts.register(stack.contract, contract(501))
+    fake = FakeIbkr(stack.book, contracts)
+    adapter = IbkrBroker(fake, contracts, IbkrSettings(FAST, FAST), ("NQ", "FOP"))
+    fake.attach(adapter)
+    tracked = TrackedBroker(adapter)
+    stack.executor._broker = tracked
+    stack.manager._broker = tracked
+    runner, _, _ = runner_for(stack, bars, tmp_path)
+    adapter._on_resync = runner.doubt
+    for second in range(5):  # IBKR not there yet
+        runner.step(DECISION_TIME + second * SEC)
+    assert not stack.halt.tripped
+    assert runner.reconciling
+    fake.connect(next_valid_id=1)  # connects and resyncs
+    for second in range(5, 17):
+        stack.quote(150, 152, DECISION_TIME + second * SEC)  # prices keep arriving
+        runner.step(DECISION_TIME + second * SEC)
+    fill = DECISION_TIME + 17 * SEC
+    stack.quote(150, D("151.5"), fill)
+    runner.step(fill)
+    assert not stack.halt.tripped
+    assert runner.position is not None  # an entry went out and filled
+
+
+def test_the_failsafe_waits_without_a_halt_while_ibkr_is_down(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    fake, _, runner, fill = open_through_ibkr(stack, bars, tmp_path, [])
+    fake.lose()
+    unmanaged = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, unmanaged + 5):  # long past the failsafe's limit
+        runner.step(fill + second * SEC)
+    assert not stack.halt.tripped  # nothing could be sent; that is no fault
+    assert runner.position is not None  # still the system's, its stop resting at IBKR
+
+
+def test_a_failsafe_flatten_that_cannot_reach_the_broker_is_no_halt(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    from footprint.brokers.ibkr.adapter import BrokerUnavailable
+
+    _, _, runner, fill = open_through_ibkr(stack, bars, tmp_path, [])
+
+    def unreachable(*args: object) -> None:
+        raise BrokerUnavailable("IB Gateway is restarting")
+
+    stack.manager.flatten = unreachable  # type: ignore[assignment]
+    stack.manager.manage = unreachable  # type: ignore[assignment]
+    unmanaged = stack.profiles.execution.runner.max_unmanaged_seconds
+    for second in range(1, unmanaged + 5):
+        runner.step(fill + second * SEC)
+    assert not stack.halt.tripped
+    assert runner.reconciling

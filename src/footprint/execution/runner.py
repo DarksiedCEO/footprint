@@ -53,6 +53,7 @@ from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger
 from footprint.execution.management.malik import Alarm, Closed, ExitReason, Manager
 from footprint.execution.market import QuoteBook
+from footprint.execution.orders import BrokerDown
 
 log = logging.getLogger("footprint.runner")
 
@@ -180,6 +181,12 @@ class Runner:
             self._book.mark_time(now)
             self._step(now)
             self._watch_latch(now)
+        except BrokerDown as exc:
+            # The broker is unreachable (a disconnect, or IB Gateway's nightly restart):
+            # nothing can be known or done until it is back. Not a fault: no halt.
+            # Reconcile again once it answers; the broker's own line alarms the outage.
+            self.doubt()
+            log.warning("broker unreachable: %s; reconciling once it is back", exc)
         except Exception as exc:
             kind = type(exc).__name__
             self._halt.trip(f"step failed: {kind}")  # safety first, then the alarm
@@ -336,6 +343,11 @@ class Runner:
             closed = self._manager.flatten(position, now)
             if closed is not None:
                 self._trade_done(position, closed, now)
+        except BrokerDown:
+            # Nothing can be sent while the broker is unreachable; the resting stop at
+            # the broker still protects the position. Tried again every step.
+            self.doubt()
+            log.warning("failsafe flatten waits: the broker is unreachable")
         except Exception as exc:
             self._halt.trip(f"failsafe flatten failed: {type(exc).__name__}")
             self.doubt()
