@@ -1,0 +1,5 @@
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: I-1: reconcile agrees with a held-back stop
+  2 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: I-4: revival only when acting
+  3 KILLED   [config] src/footprint/core/config.py: I-3: duplicate rule names allowed
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: I-N7: exit-wait escalation without halt
+4 mutants, 0 survived

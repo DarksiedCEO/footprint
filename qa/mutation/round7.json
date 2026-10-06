@@ -1,0 +1,73 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        expected_orders -= {oid for oid, status in working.items() if status.held_back}\n",
+   "",
+   "I-1: reconcile agrees with a held-back stop"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if copy.settled_unseen and copy.status in _LIVE:  # any live status (AEGIS I-4)",
+   "        if copy.settled_unseen and copy.status in _ACTING:",
+   "I-4: revival only when acting"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if repeated:  # AEGIS I-3: a second rule of the same name could mask the first\n        raise",
+   "    if False:\n        raise",
+   "I-3: duplicate rule names allowed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        self._stand_down(now, f\"{pid}: {order.order_id} will not cancel\")\n",
+   "",
+   "I-N7: exit-wait escalation without halt"
+  ]
+ ]
+}
