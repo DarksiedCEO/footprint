@@ -108,10 +108,16 @@ class Runner:
         self._ticket: EntryTicket | None = None
         self._position: Position | None = None
         self._birth: Decision | None = None
-        self._last_decided: datetime | None = None
+        self._last_decided: datetime | None = ledger.last_decided  # survives a restart
         self._latched = False
         self.closed: list[Closed] = []
         self._alarm(started, "STARTED: reconciling; no entries until Andre clears to trade")
+        if self._last_decided is not None and self._last_decided > started:
+            self._alarm(
+                started,
+                f"the last decided minute ({self._last_decided.isoformat()}) is in the future: "
+                "no decision will be made until then. Check the clock",
+            )
         self._watch_latch(started)
 
     def clear_to_trade(self, by: str) -> None:
@@ -254,6 +260,16 @@ class Runner:
         newest = closed_bars[-1].ts
         if self._last_decided is not None and newest <= self._last_decided:
             return  # decide once per newly completed minute
+        try:
+            # Durable before the decision: a crash inside it (or in the send it leads
+            # to) can never make a restart decide this minute again.
+            self._ledger.mark_decided(newest)
+        except Exception as exc:
+            self._halt.trip("cannot save the decided minute")
+            if "decided" not in self._failure_kinds:
+                self._failure_kinds.add("decided")
+                self._alarm(now, f"cannot save the decided minute: {exc!r}; not deciding")
+            return
         self._last_decided = newest
         decision = self._pipeline.decide(
             bars, self._chain(now), self._ledger.account(now), blackouts, now

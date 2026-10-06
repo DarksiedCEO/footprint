@@ -131,6 +131,7 @@ class Manager:
         self._cancel_escalated = False
         self._acting = False
         self._unbooked_alarmed = False
+        self._unrecorded_alarmed: set[str] = set()
         self._unsettled_since: datetime | None = None
         self._settle_escalated = False
         self._stuck_ids: set[str] = set()
@@ -618,6 +619,18 @@ class Manager:
         self._stuck_ids = {status.order.order_id for status in pending}
         for contract_id, qty in remaining.items():
             side = Side.SELL if qty > 0 else Side.BUY
+            if ledger_open is None and contract_id not in self._unrecorded_alarmed:
+                # Held at the broker with no open position in the ledger (the process
+                # died, or the ledger's write failed, between the fill and the record):
+                # however it is flattened (by reconcile or by an order already working),
+                # its P&L will not be booked.
+                self._unrecorded_alarmed.add(contract_id)
+                self._alarm(
+                    now,
+                    f"flattening {qty} of {contract_id} that the ledger never recorded: its P&L "
+                    "is not booked (daily loss and drawdown are understated). Book it with "
+                    "Ledger.book_by_hand from the broker statement",
+                )
             reducing = [
                 status
                 for status in pending
@@ -794,6 +807,7 @@ class Manager:
     def _reset_reconcile(self) -> None:
         self._acting = False
         self._unbooked_alarmed = False
+        self._unrecorded_alarmed = set()
         self._unsettled_since, self._settle_escalated = None, False
         self._stuck_ids = set()
         self._seen.clear()

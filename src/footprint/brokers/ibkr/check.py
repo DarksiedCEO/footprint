@@ -78,13 +78,21 @@ def check(
         print(message, file=out, flush=True)
 
     scope = (profiles.instrument.symbol, profiles.execution.ibkr.option_security_type)
-    binding = binding_factory(settings, scope, lambda message: say(f"ALARM: {message}"))
+    closing = threading.Event()
+
+    def alarm(message: str) -> None:
+        if closing.is_set():
+            say(f"(disconnecting as planned: {message})")
+        else:
+            say(f"ALARM: {message}")
+
+    binding = binding_factory(settings, scope, alarm)
     adapter = IbkrBroker(
         ReadOnlyGateway(binding),
         ContractBook(),
         IbkrSettings.from_config(profiles.execution.ibkr),
         scope,
-        on_alarm=lambda message: say(f"ALARM: {message}"),
+        on_alarm=alarm,
     )
     binding.attach(adapter)
     stop = threading.Event()
@@ -120,6 +128,7 @@ def check(
         say(f"lost IB Gateway during the check: {exc}")
         return 1
     finally:
+        closing.set()  # the check's own hang-up is not an alarm
         stop.set()
         binding.stop()
         worker.join(timeout=wait_seconds)
