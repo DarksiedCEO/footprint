@@ -120,3 +120,85 @@ def test_a_minute_that_cannot_be_saved_is_not_decided(
     assert decided == []  # never decide what a restart could decide again
     assert stack.halt.tripped
     assert any("disk full" in a.message for a in alarms)
+
+
+# --- review follow-ups ---------------------------------------------------------------------
+
+
+def test_a_decided_minute_in_the_future_is_alarmed_at_start(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """A clock that ran ahead and was corrected would otherwise silence every decision."""
+    stack.ledger.mark_decided(DECISION_TIME + timedelta(days=2))
+    stack.ledger = reopened(stack)
+    _, _, alarms = runner_for(stack, bars, tmp_path)
+    assert any("in the future" in a.message for a in alarms)
+
+
+def test_a_decided_minute_in_the_past_raises_no_alarm(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    stack.ledger.mark_decided(DECISION_TIME - MINUTE)
+    stack.ledger = reopened(stack)
+    _, _, alarms = runner_for(stack, bars, tmp_path)
+    assert not any("in the future" in a.message for a in alarms)
+
+
+def test_flattening_a_holding_the_ledger_never_recorded_asks_for_it_to_be_booked(
+    stack: Stack,
+) -> None:
+    """The runner died after the entry filled but before the ledger recorded it: the
+    restart flattens it, and its P&L must be booked by hand (limits would be wrong)."""
+    stack.broker._positions[stack.contract] = 1  # held at the broker; unknown to the ledger
+    assert stack.ledger.open_position_id is None
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    t = DECISION_TIME
+    for second in range(2 * settle + 2):
+        stack.quote(160, 161, t + second * timedelta(seconds=1))
+        stack.manager.reconcile(None, t + second * timedelta(seconds=1))
+    booking = [a.message for a in stack.alarms if "book_by_hand" in a.message]
+    assert len(booking) == 1  # once, not every round
+    assert stack.contract in booking[0]
+
+
+def test_the_unbooked_holding_is_alarmed_once_even_when_the_flatten_is_sent_again(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stack.broker._positions[stack.contract] = 1
+    real_try, real_place = stack.broker._try_fill, stack.broker.place
+
+    def never_fills(status: Any, quote: Any, *, at_touch: bool) -> Any:
+        if status.order.order_id.startswith("reconcile-"):
+            return status
+        return real_try(status, quote, at_touch=at_touch)
+
+    def place_then_lost(order: Any) -> Any:
+        status = real_place(order)
+        if order.order_id.startswith("reconcile-"):
+            stack.broker.cancel(order.order_id)  # the broker drops it: sent again next round
+        return status
+
+    monkeypatch.setattr(stack.broker, "_try_fill", never_fills)
+    monkeypatch.setattr(stack.broker, "place", place_then_lost)
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    for second in range(4 * settle + 4):
+        t = DECISION_TIME + second * timedelta(seconds=1)
+        stack.quote(160, 161, t)
+        stack.manager.reconcile(None, t)
+    sent = [o for o in stack.broker._orders if o.startswith("reconcile-")]
+    assert len(sent) >= 2  # the flatten really was sent more than once
+    assert sum("book_by_hand" in a.message for a in stack.alarms) == 1
+
+
+def test_flattening_a_holding_the_ledger_did_record_is_not_called_unrecorded(
+    stack: Stack,
+) -> None:
+    from tests.execution.test_execution import filled_position
+
+    filled_position(stack)  # recorded in the ledger at its fill
+    settle = stack.profiles.execution.reconcile.settle_seconds
+    for second in range(2 * settle + 2):
+        t = DECISION_TIME + timedelta(minutes=5) + second * timedelta(seconds=1)
+        stack.quote(160, 161, t)
+        stack.manager.reconcile(None, t)  # a restart: flattened, but it was recorded
+    assert not any("never recorded" in a.message for a in stack.alarms)

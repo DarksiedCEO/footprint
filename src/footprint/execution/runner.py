@@ -112,6 +112,12 @@ class Runner:
         self._latched = False
         self.closed: list[Closed] = []
         self._alarm(started, "STARTED: reconciling; no entries until Andre clears to trade")
+        if self._last_decided is not None and self._last_decided > started:
+            self._alarm(
+                started,
+                f"the last decided minute ({self._last_decided.isoformat()}) is in the future: "
+                "no decision will be made until then. Check the clock",
+            )
         self._watch_latch(started)
 
     def clear_to_trade(self, by: str) -> None:

@@ -131,6 +131,7 @@ class Manager:
         self._cancel_escalated = False
         self._acting = False
         self._unbooked_alarmed = False
+        self._unrecorded_alarmed: set[str] = set()
         self._unsettled_since: datetime | None = None
         self._settle_escalated = False
         self._stuck_ids: set[str] = set()
@@ -647,6 +648,17 @@ class Manager:
                 limit_price=price,
             )
             owner = position.position_id if position is not None else None
+            if ledger_open is None and contract_id not in self._unrecorded_alarmed:
+                # Held at the broker with no open position in the ledger (the process
+                # died, or the ledger's write failed, between the fill and the record):
+                # its P&L will not be booked.
+                self._unrecorded_alarmed.add(contract_id)
+                self._alarm(
+                    now,
+                    f"flattening {qty} of {contract_id} that the ledger never recorded: its P&L "
+                    "is not booked (daily loss and drawdown are understated). Book it with "
+                    "Ledger.book_by_hand from the broker statement",
+                )
             self._reconcile_orders.setdefault(owner, []).append(order.order_id)
             self._broker.place(order)  # recorded and followed by id from now on
         if not remaining and position is not None and ledger_open == position.position_id:
@@ -794,6 +806,7 @@ class Manager:
     def _reset_reconcile(self) -> None:
         self._acting = False
         self._unbooked_alarmed = False
+        self._unrecorded_alarmed = set()
         self._unsettled_since, self._settle_escalated = None, False
         self._stuck_ids = set()
         self._seen.clear()
