@@ -244,8 +244,83 @@ def test_bad_trading_calendar_is_rejected(
 
 
 def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None:
-    target = rewrite(instrument_path, tmp_path, holidays=[date(2026, 12, 25)])
-    assert load_instrument(target).holidays == frozenset({date(2026, 12, 25)})
+    listed = yaml.safe_load(instrument_path.read_text())["holidays"]
+    target = rewrite(instrument_path, tmp_path, holidays=list(reversed(listed)))
+    assert load_instrument(target).holidays == frozenset(listed)
+    assert date(2026, 12, 25) in load_instrument(target).holidays
+
+
+@pytest.mark.parametrize(
+    ("changes", "missing"),
+    [
+        ({"calendar_through": date(2099, 12, 31)}, "easter_sundays has no date in 2028"),
+        ({"calendar_through": date(2027, 5, 31)}, "2027-05-31 (Memorial Day)"),
+        ({"holidays": ["2026-04-03", "2026-12-25", "2027-01-01", "2027-03-26"]}, "New Year"),
+    ],
+)
+def test_an_incomplete_calendar_is_refused(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], missing: str
+) -> None:
+    data = dict(changes)
+    if "holidays" in data:
+        data["holidays"] = [date.fromisoformat(d) for d in data["holidays"]]
+    target = rewrite(instrument_path, tmp_path, **data)
+    with pytest.raises(ConfigError) as refused:  # AEGIS re-audit M-3
+        load_instrument(target)
+    assert missing in str(refused.value)
+
+
+def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
+    from footprint.core.holiday_rules import missing_days, rule_date
+
+    nq = load_instrument(instrument_path)
+    easters = {d.year: d for d in nq.easter_sundays}
+    days = {r.name: rule_date(r, 2026, easters) for r in nq.holiday_rules}
+    assert days == {
+        "New Year's Day": date(2026, 1, 1),
+        "Martin Luther King Jr. Day": date(2026, 1, 19),
+        "Presidents Day": date(2026, 2, 16),
+        "Good Friday": date(2026, 4, 3),
+        "Memorial Day": date(2026, 5, 25),
+        "Juneteenth": date(2026, 6, 19),
+        "Independence Day": date(2026, 7, 3),  # Saturday -> Friday
+        "Labor Day": date(2026, 9, 7),
+        "Thanksgiving": date(2026, 11, 26),
+        "Christmas Day": date(2026, 12, 25),
+    }
+    rules = {r.name: r for r in nq.holiday_rules}
+    assert rule_date(rules["New Year's Day"], 2022, {}) is None  # a Saturday: not observed
+    assert rule_date(rules["New Year's Day"], 2023, {}) == date(2023, 1, 2)  # Sunday -> Mon
+    assert rule_date(rules["Christmas Day"], 2027, {}) == date(2027, 12, 24)
+    assert rule_date(rules["Memorial Day"], 2027, {}) == date(2027, 5, 31)
+    listed = {*nq.holidays, *nq.early_closes, *nq.no_trade_days}
+    assert (
+        missing_days(
+            nq.holiday_rules, nq.easter_sundays, listed, date(2026, 1, 1), nq.calendar_through
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"easter_sundays": [date(2026, 4, 5)]}, "no date in 2027"),
+        ({"easter_sundays": [date(2026, 4, 5), date(2027, 3, 27)]}, "not a Sunday"),
+        ({"holiday_rules": [{"name": "X", "month": 13, "day": 1}]}, "holiday_rules"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "weekday": "MON", "nth": 6}]}, "nth"),
+        ({"holiday_rules": [{"name": "X", "month": 2}]}, "exactly one"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "observed": "x"}]}, "observed"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "extra": 1}]}, "only"),
+        ({"holiday_rules": []}, "non-empty"),
+    ],
+)
+def test_bad_holiday_rules_are_refused(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
+) -> None:
+    target = rewrite(instrument_path, tmp_path, **changes)
+    with pytest.raises(ConfigError, match=message):
+        load_instrument(target)
 
 
 @pytest.mark.parametrize(

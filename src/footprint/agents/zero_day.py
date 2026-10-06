@@ -137,8 +137,11 @@ class ZeroDayAgent:
         by_day: dict[date, list[Bar]] = {}
         for bar in bars:
             local = local_time(bar.ts, prime.timezone)
-            if prime.start <= local.time() < cutoff and is_trading_day(
-                local.date(), self._instrument
+            day = local.date()
+            if (
+                prime.start <= local.time() < cutoff
+                and is_trading_day(day, self._instrument)
+                and day not in self._instrument.no_trade_days  # a stub session: not a day
             ):
                 by_day.setdefault(local.date(), []).append(bar)
         today = by_day.pop(local_now.date(), [])

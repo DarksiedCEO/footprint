@@ -35,7 +35,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from http import HTTPStatus
@@ -63,6 +63,10 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "resync is not completing",
     "EXCHANGE CALENDAR EXPIRED",
     "market data step failed",
+    "that data is missing",  # MARKET DATA: <bars, chain, history...> failed
+    "could not read the held contracts",
+    "cannot stream the held",
+    "no future to trade",
     "IBKR connection lost",
     "ALARM CHANNEL DOWN",
     "UNATTENDED",
@@ -81,10 +85,18 @@ class ChannelError(RuntimeError):
     """A delivery failed. The message names the channel and the HTTP status only."""
 
 
-def within[T](seconds: float, action: Callable[[], T]) -> T:
+def within[T](seconds: float, action: Callable[[], T], busy: threading.Event | None = None) -> T:
     """`action()`, or ChannelError if it has not answered within `seconds` (it is left
     to finish on its own daemon thread, never waited for). Any other error becomes a
-    ChannelError naming only its type."""
+    ChannelError naming only its type.
+
+    `busy` (one per channel) bounds what a dead channel can pile up: while an earlier
+    send of the channel is still running, the next one fails at once instead of
+    starting another thread, so a channel never holds more than one abandoned send."""
+    if busy is not None:
+        if busy.is_set():
+            raise ChannelError("the previous send has not answered yet")
+        busy.set()
     box: list[tuple[bool, object]] = []
 
     def run() -> None:
@@ -92,6 +104,9 @@ def within[T](seconds: float, action: Callable[[], T]) -> T:
             box.append((True, action()))
         except BaseException as exc:  # carried back to the caller
             box.append((False, exc))
+        finally:
+            if busy is not None:
+                busy.clear()
 
     worker = threading.Thread(target=run, name="alarm-send", daemon=True)
     worker.start()
@@ -170,13 +185,18 @@ class TelegramSink:
     timeout: float
     post: Post = http_post
     prefix: str = ""  # e.g. the DEGRADED_ALERTING banner, on every message
+    _busy: threading.Event = field(
+        default_factory=threading.Event, init=False, repr=False, compare=False
+    )
 
     def __call__(self, alarm: Alarm) -> None:
         url = f"{_TELEGRAM}/bot{self.token}/sendMessage"
         text = _clip(self.prefix + _text(alarm), _TELEGRAM_MAX)
         data = {"chat_id": self.chat_id, "text": text}
         try:
-            status = within(self.timeout, lambda: self.post(url, data, None, self.timeout))
+            status = within(
+                self.timeout, lambda: self.post(url, data, None, self.timeout), self._busy
+            )
         except ChannelError as exc:
             raise ChannelError(f"Telegram: {exc}") from None
         _ok(status, "Telegram")
@@ -193,6 +213,9 @@ class TwilioSmsSink:
     to_number: str
     timeout: float
     post: Post = http_post
+    _busy: threading.Event = field(
+        default_factory=threading.Event, init=False, repr=False, compare=False
+    )
 
     def __call__(self, alarm: Alarm) -> None:
         url = f"{_TWILIO}/{self.account_sid}/Messages.json"
@@ -205,6 +228,7 @@ class TwilioSmsSink:
             status = within(
                 self.timeout,
                 lambda: self.post(url, data, (self.account_sid, self.auth_token), self.timeout),
+                self._busy,
             )
         except ChannelError as exc:
             raise ChannelError(f"Twilio SMS: {exc}") from None
@@ -222,6 +246,9 @@ class TwilioCallSink:
     to_number: str
     timeout: float
     post: Post = http_post
+    _busy: threading.Event = field(
+        default_factory=threading.Event, init=False, repr=False, compare=False
+    )
 
     def __call__(self, alarm: Alarm) -> None:
         url = f"{_TWILIO}/{self.account_sid}/Calls.json"
@@ -235,6 +262,7 @@ class TwilioCallSink:
             status = within(
                 self.timeout,
                 lambda: self.post(url, data, (self.account_sid, self.auth_token), self.timeout),
+                self._busy,
             )
         except ChannelError as exc:
             raise ChannelError(f"Twilio call: {exc}") from None

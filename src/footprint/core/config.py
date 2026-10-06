@@ -12,6 +12,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
+from footprint.core.holiday_rules import (
+    OBSERVED,
+    HolidayRule,
+    MissingEaster,
+    missing_days,
+)
+
 _PERCENT_MAX = Decimal(100)  # allow-literal: upper bound of a percentage
 
 
@@ -62,6 +69,11 @@ class InstrumentProfile:
     # Open at the exchange, but Footprint treats them as closed (no session, no entry)
     # until they are reviewed and approved (US-holiday sessions, remediation item 8).
     no_trade_days: frozenset[date]
+    # The exchange's standard closures by rule, and Easter Sundays (for rules counted
+    # from Easter): a calendar missing one of these days up to calendar_through is
+    # refused (core/holiday_rules.py).
+    holiday_rules: tuple[HolidayRule, ...]
+    easter_sundays: frozenset[date]
     calendar_through: date  # holidays and early closes are complete up to this date
     calendar_warn_days: int  # say so this many days before the calendar runs out
 
@@ -250,6 +262,55 @@ def _early_closes(raw: Mapping[str, object], key: str, where: str) -> Mapping[da
     return MappingProxyType(closes)
 
 
+_RULE_KEYS = {"name", "month", "day", "observed", "weekday", "nth", "days_from_easter"}
+
+
+def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[HolidayRule, ...]:
+    value = raw[key]
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{where}: {key} must be a non-empty list of rules")
+    rules = []
+    for item in value:
+        if not isinstance(item, dict) or not set(item) <= _RULE_KEYS or "name" not in item:
+            raise ConfigError(f"{where}: {key}: each rule needs a name and only {_RULE_KEYS}")
+        name = item["name"]
+        weekday = item.get("weekday")
+        if weekday is not None and weekday not in _WEEKDAYS:
+            raise ConfigError(f"{where}: {key} {name}: weekday must be one of {_WEEKDAYS}")
+        observed = item.get("observed", "none")
+        if observed not in OBSERVED:
+            raise ConfigError(f"{where}: {key} {name}: observed must be one of {OBSERVED}")
+        numbers = {k: item.get(k) for k in ("month", "day", "nth", "days_from_easter")}
+        if any(
+            v is not None and (not isinstance(v, int) or isinstance(v, bool))
+            for v in numbers.values()
+        ):
+            raise ConfigError(
+                f"{where}: {key} {name}: month, day, nth, days_from_easter are integers"
+            )
+        rule = HolidayRule(
+            name=str(name),
+            month=numbers["month"],
+            day=numbers["day"],
+            observed=observed,
+            weekday=None if weekday is None else _WEEKDAYS.index(weekday),
+            nth=numbers["nth"],
+            days_from_easter=numbers["days_from_easter"],
+        )
+        by_easter = rule.days_from_easter is not None
+        by_weekday = rule.weekday is not None and rule.nth is not None and rule.month is not None
+        by_day = rule.day is not None and rule.month is not None
+        if [by_easter, by_weekday, by_day].count(True) != 1:
+            raise ConfigError(
+                f"{where}: {key} {name}: exactly one of month+day, month+weekday+nth, "
+                "or days_from_easter"
+            )
+        if rule.nth is not None and rule.nth not in (-1, 1, 2, 3, 4, 5):
+            raise ConfigError(f"{where}: {key} {name}: nth must be 1-5, or -1 for the last")
+        rules.append(rule)
+    return tuple(rules)
+
+
 def _date(raw: Mapping[str, object], key: str, where: str) -> date:
     value = raw[key]
     if not isinstance(value, date) or isinstance(value, datetime):
@@ -277,6 +338,8 @@ def load_instrument(path: Path) -> InstrumentProfile:
         holidays=_holidays(raw, "holidays", where),
         early_closes=_early_closes(raw, "early_closes", where),
         no_trade_days=_holidays(raw, "no_trade_days", where),
+        holiday_rules=_holiday_rules(raw, "holiday_rules", where),
+        easter_sundays=_holidays(raw, "easter_sundays", where),
         calendar_through=_date(raw, "calendar_through", where),
         calendar_warn_days=_integer(raw, "calendar_warn_days", where, minimum=1),
     )
@@ -319,6 +382,32 @@ def load_instrument(path: Path) -> InstrumentProfile:
     late = [d for d in dated if d > profile.calendar_through]
     if late:
         raise ConfigError(f"{where}: {sorted(late)[0]} is after calendar_through")
+    # Complete through calendar_through: every standard US exchange holiday from the
+    # first listed year on must be listed (closed, early close or no-trade day), so
+    # moving calendar_through forward alone is refused (fail closed, D34).
+    for easter in profile.easter_sundays:
+        if easter.weekday() != _WEEKDAYS.index("SUN"):
+            raise ConfigError(f"{where}: easter_sundays {easter} is not a Sunday")
+    first = min(dated, default=profile.calendar_through)
+    try:
+        missing = missing_days(
+            profile.holiday_rules,
+            profile.easter_sundays,
+            set(dated),
+            date(first.year, 1, 1),
+            profile.calendar_through,
+        )
+    except MissingEaster as exc:
+        raise ConfigError(f"{where}: {exc}") from None
+    except ValueError as exc:  # a rule naming a day that does not exist
+        raise ConfigError(f"{where}: holiday_rules: {exc}") from None
+    if missing:
+        day, name = missing[0]
+        raise ConfigError(
+            f"{where}: calendar_through {profile.calendar_through} but {day} ({name}) is not "
+            f"listed ({len(missing)} standard holiday(s) missing): list the exchange's "
+            "holidays and early closes up to calendar_through"
+        )
     return profile
 
 

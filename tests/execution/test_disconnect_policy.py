@@ -185,3 +185,89 @@ def test_a_doubt_set_while_turning_ready_stops_the_decision_in_flight(
     assert reads[0] >= 2  # the step got as far as _decide
     assert journal.decisions() == []  # nothing decided on the step the doubt landed in
     assert runner.reconciling
+
+
+# --- AEGIS re-audit H-1 and M-1 --------------------------------------------------------------
+
+
+def _manage_breaks(stack: Stack) -> None:
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("manage broken")
+
+    stack.manager.manage = broken  # type: ignore[method-assign]
+
+
+def test_a_flapping_connection_cannot_hold_the_failsafe_off(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """D17's case (management failing every step) while IBKR blips for a second every
+    20 s (under the 30 s limit): only the blips are excluded, so the failsafe still
+    flattens, a few seconds later than without the blips."""
+    runner, _, fill = holding(stack, bars, tmp_path)
+    _manage_breaks(stack)
+    max_unmanaged = stack.profiles.execution.runner.max_unmanaged_seconds
+    outage = Outage(stack.broker)
+    flattened_at = None
+    for second in range(1, 20 * max_unmanaged):
+        t = fill + second * SEC
+        stack.quote(150, D("151.5"), t)
+        if second % 20 == 0:
+            outage.start()
+            runner.step(t)
+            outage.end()
+        else:
+            runner.step(t)
+        if runner.position is None:
+            flattened_at = second
+            break
+    assert flattened_at is not None, "the failsafe never fired"
+    assert flattened_at <= max_unmanaged + 5  # only the 1 s blip was excluded
+
+
+def test_only_the_outage_is_excluded_from_unmanaged_time(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Management fails from the fill; IBKR is lost for 100 s from second 10. The
+    failsafe fires when 30 s of NON-outage time have passed: around second 130."""
+    runner, _, fill = holding(stack, bars, tmp_path)
+    _manage_breaks(stack)
+    max_unmanaged = stack.profiles.execution.runner.max_unmanaged_seconds
+    outage = Outage(stack.broker)
+    flattened_at = None
+    for second in range(1, 400):
+        t = fill + second * SEC
+        stack.quote(150, D("151.5"), t)
+        if second == 10:
+            outage.start()
+        if second == 110:
+            outage.end()
+        runner.step(t)
+        if runner.position is None:
+            flattened_at = second
+            break
+    assert flattened_at is not None
+    assert 100 + max_unmanaged <= flattened_at <= 100 + max_unmanaged + 5
+
+
+def test_a_doubt_raised_during_a_reconcile_is_not_lost(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """IBKR's thread doubts (something unexpected) while the runner is inside a
+    reconcile that then agrees: the runner must reconcile again before deciding."""
+    runner, journal, _ = runner_for(stack, bars, tmp_path)
+    real = stack.manager.reconcile
+    raised = [False]
+
+    def reconcile(position: Any, now: datetime) -> bool:
+        agreed = real(position, now)
+        if not raised[0]:
+            raised[0] = True
+            runner.doubt()  # mid-reconcile, from the IBKR thread
+        return agreed
+
+    stack.manager.reconcile = reconcile  # type: ignore[method-assign]
+    runner.step(DECISION_TIME)
+    assert runner.reconciling  # the agreement did not count
+    runner.step(DECISION_TIME + SEC)  # reconciles again, now agreed
+    assert not runner.reconciling
+    assert journal.decisions() == []

@@ -41,8 +41,10 @@ If a channel fails (Twilio rejects a call, Telegram is down, a request hangs pas
 `channel_timeout_seconds`), "ALARM CHANNEL DOWN: <channel>" goes at once to the record
 and to every **other** channel (a dead call line is reported by Telegram and SMS; a
 dead Telegram by SMS and a call), and "alarm channel back" when it works again. A
-failed or hung call is not retried and never holds back the next alarm. `status` shows
-each channel's state.
+failed call is not retried. A hung call holds the call line for at most
+`channel_timeout_seconds` (8 s) and never holds back Telegram or SMS; while it is still
+out, the next call fails at once (one stuck request per channel at most) and is
+reported, and calls are tried again once it ends. `status` shows each channel's state.
 
 All six keys go in `.env` only (never in chat, never committed):
 
@@ -128,9 +130,13 @@ IB Gateway restarts itself every night. On a lost connection (D35, as decided):
 - Trading resumes only after IBKR is back, resynced, **and** a reconcile agrees with
   what IBKR holds. If the stop filled during the outage, the reconcile finds it and
   books the close. A reconcile that never agrees never lets trading resume.
-- The time spent disconnected does not count against the 30-second "unmanaged"
-  failsafe: nothing could be sent anyway, and the position is not flattened on
-  reconnect just because of the outage.
+- The outage itself does not count against the 30-second "unmanaged" failsafe
+  (D37, to confirm): its clock moves on by exactly the outage's length, so time
+  unmanaged before or after still counts, and a protected position is not flattened
+  on reconnect just because of the outage.
+- **Known gap (H-2, awaiting your choice):** an entry order still working at IBKR when
+  the connection drops can fill during the outage without its stop. The stop is
+  placed once the fill is seen, after the reconnect.
 - It is not a halt. "IBKR connection lost" rings the phone (critical).
 
 After 5 failed reconnects in a row it alarms once that a person is needed and retries
@@ -160,7 +166,11 @@ Christmas Eve still trade until their early close.
 **Fail closed:** past `calendar_through` every day is treated as closed: no trades at
 all. A month before, it alarms once a day; once expired, "EXCHANGE CALENDAR EXPIRED"
 rings the phone daily. To resume, extend the lists and `calendar_through` from CME's
-calendar (checklist 23) and restart (the file is checked at start).
+calendar (checklist 23), add the next year's Easter Sunday to `easter_sundays`, and
+restart. The file is checked at start: every standard closure in `holiday_rules` (New
+Year, MLK, Presidents, Good Friday, Memorial, Juneteenth, July 4, Labor, Thanksgiving,
+Christmas) up to `calendar_through` must be listed, or the program refuses to start;
+moving `calendar_through` alone is refused.
 
 ## Alarms you should expect at first
 

@@ -230,12 +230,18 @@ def test_the_critical_alarms_are_the_ones_that_need_hands() -> None:
         "p1: unprotected, flattening",
         "market data step failed (TimeoutError()): no new data until fixed",
         "IBKR connection lost: nothing is sent until it is back and resynced",
+        "MARKET DATA: bars failed (timeout); retrying in 30s. Until then that data is missing",
+        "MARKET DATA: could not read the held contracts (KeyError('x'))",
+        "MARKET DATA: cannot stream the held 501: not a known contract",
+        "MARKET DATA: no future to trade (none listed past the roll)",
     ):
         assert is_critical(message), message
     for message in (
         "STARTED: reconciling; no entries until Andre clears to trade",
         "cleared to trade by Andre",
         "market data is stepping again",
+        "MARKET DATA: no option on the 20261218 future expires in 1-3 days of 2026-12-14",
+        "MARKET DATA: 80 strikes in the window; streaming the nearest 40 (max_quote_lines)",
     ):
         assert not is_critical(message), message
 

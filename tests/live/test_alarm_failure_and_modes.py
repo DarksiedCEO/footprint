@@ -104,6 +104,10 @@ def test_an_unexpected_error_becomes_a_channel_error_naming_only_its_type() -> N
 
 
 def test_a_hanging_call_never_blocks_the_next_critical_alarm(profiles: Profiles) -> None:
+    """Twilio hangs: the first call is cut at its deadline; the next critical alarm is
+    not held behind it (Telegram carries it at once) and its call fails at once while
+    the hung request is still out (one abandoned send per channel at most). Once the
+    hung request ends, calls are tried again."""
     net = Net()
     net.hang.add(CALLS)
     recorded: list[Alarm] = []
@@ -111,10 +115,14 @@ def test_a_hanging_call_never_blocks_the_next_critical_alarm(profiles: Profiles)
     try:
         hub.submit(alarm("HALT: step failed: X"))
         hub.submit(alarm("KILL SWITCH LATCHED at drawdown"))
-        assert wait_for(lambda: len(net.texts(CALLS)) >= 2, 5)  # the second was tried
-        calls = net.texts(CALLS)
-        assert "HALT" in calls[0]
-        assert "KILL SWITCH" in calls[1]
+        assert wait_for(lambda: any("KILL SWITCH" in t for t in net.texts(TELEGRAM)), 3)
+        assert wait_for(lambda: any("CHANNEL DOWN: phone call" in t for t in net.texts(SMS)))
+        assert len(net.texts(CALLS)) == 1  # no second thread piled onto a hung Twilio
+        net.release.set()
+        net.hang.clear()
+        assert wait_for(lambda: any("channel back" not in t for t in net.texts(CALLS)), 3)
+        hub.submit(alarm("CANCEL STUCK since 10:00"))
+        assert wait_for(lambda: any("CANCEL STUCK" in t for t in net.texts(CALLS)), 5)
     finally:
         net.release.set()
         hub.close(timedelta(seconds=1))
@@ -419,3 +427,50 @@ def test_the_fallback_check_sends_nothing_to_telegram_and_needs_sms_and_a_call(
         )
         == 1
     )
+
+
+# --- AEGIS re-audit L-a and L-b ----------------------------------------------------------------
+
+
+def test_a_hanging_telegram_send_is_cut_at_its_deadline() -> None:
+    from footprint.execution.channels import TelegramSink
+
+    release = threading.Event()
+
+    def hangs(url: str, data: Mapping[str, str], auth: Any, timeout: float) -> int:
+        release.wait(10)
+        return 200
+
+    sink = TelegramSink(TOKEN, "4242", 0.2, hangs)
+    started = time.monotonic()
+    with pytest.raises(ChannelError, match="Telegram: no answer within") as failed:
+        sink(alarm("x"))
+    assert time.monotonic() - started < 1
+    no_secret(str(failed.value))
+    release.set()
+
+
+def test_a_dead_channel_never_holds_more_than_one_abandoned_send() -> None:
+    from footprint.execution.channels import TwilioCallSink
+
+    release = threading.Event()
+    started: list[float] = []
+
+    def hangs(url: str, data: Mapping[str, str], auth: Any, timeout: float) -> int:
+        started.append(time.monotonic())
+        release.wait(10)
+        return 201
+
+    from tests.live.test_channels import AUTH, FROM, PHONE, SID
+
+    sink = TwilioCallSink(SID, AUTH, FROM, PHONE, 0.1, hangs)
+    before = threading.active_count()
+    for _ in range(20):
+        with pytest.raises(ChannelError):
+            sink(alarm("HALT: x"))
+    assert len(started) == 1  # one send started; the other 19 failed at once
+    assert threading.active_count() - before <= 1
+    release.set()
+    assert wait_for(lambda: threading.active_count() <= before, 3)
+    sink(alarm("HALT: y"))  # the channel works again once the hung send ends
+    assert len(started) == 2

@@ -102,7 +102,8 @@ class Runner:
         self._managed_at: datetime | None = None
         self._failsafe_alarmed = False
         self._reconcile_flattening = False  # the last reconcile disagreed: it is acting
-        self._broker_was_away = False  # an outage since the last agreed reconcile
+        self._away_since: datetime | None = None  # the broker is away since then
+        self._doubts = 0  # counts every doubt: one raised mid-reconcile is never lost
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -180,7 +181,10 @@ class Runner:
         return None
 
     def doubt(self) -> None:
-        """Something does not add up: reconcile before doing anything else."""
+        """Something does not add up: reconcile before doing anything else. Safe from
+        any thread (it only counts and sets a flag): a doubt raised while a reconcile
+        is running makes that reconcile's agreement not count."""
+        self._doubts += 1
         self._reconciling = True
 
     def step(self, now: datetime) -> None:
@@ -193,9 +197,10 @@ class Runner:
         try:
             self._book.mark_time(now)
             if self._executor.broker_ready:
+                self._broker_back(now)
                 self._step(now)
             else:
-                self._broker_away()
+                self._broker_away(now)
             self._watch_latch(now)
         except BrokerDown as exc:
             # The broker is unreachable (a disconnect, or IB Gateway's nightly restart):
@@ -215,14 +220,25 @@ class Runner:
         self._failsafe(now)
         self._retry_alarms()
 
-    def _broker_away(self) -> None:
+    def _broker_away(self, now: datetime) -> None:
         """The broker is disconnected or resyncing (D35): nothing is decided, sent,
         cancelled or flattened; resting orders at the broker (the stop) stay as they
         are. Trading resumes only after it is back AND a reconcile agrees."""
         self.doubt()
-        if not self._broker_was_away:
-            self._broker_was_away = True
+        if self._away_since is None:
+            self._away_since = now
             log.warning("broker away: no entries, no orders until it is back and reconciled")
+
+    def _broker_back(self, now: datetime) -> None:
+        """The outage itself is not "unmanaged" time (nothing could be sent during it):
+        the failsafe's clock is moved on by exactly its length, so time unmanaged
+        before or after it still counts (a flapping connection cannot hold the
+        failsafe off)."""
+        if self._away_since is None:
+            return
+        if self._managed_at is not None:
+            self._managed_at += now - self._away_since
+        self._away_since = None
 
     def _step(self, now: datetime) -> None:
         if self._reconciling:
@@ -252,20 +268,14 @@ class Runner:
         # Pessimistic: until reconcile says it agrees, assume it may have a sell out
         # (it can raise after its order reached the broker).
         self._reconcile_flattening = True
+        doubts = self._doubts
         agreed = self._manager.reconcile(self._position, now)
         self._reconcile_flattening = not agreed
         for closed in self._manager.take_reconcile_closes():
             if self._position is not None and closed.position_id == self._position.position_id:
                 self._trade_done(self._position, closed, now)
-        if agreed:
-            self._reconciling = False
-            if self._broker_was_away:
-                # Back and agreed: the position (with its resting stop) is accounted
-                # for, and normal management resumes from now; the outage itself is
-                # not "unmanaged" (nothing could be sent during it).
-                self._broker_was_away = False
-                if self._position is not None:
-                    self._managed_at = now
+        if agreed and self._doubts == doubts:
+            self._reconciling = False  # (a doubt raised meanwhile: reconcile again)
         elif self._position is not None and self._ledger.open_position_id is None:
             self._position, self._managed_at = None, None
 
@@ -365,8 +375,10 @@ class Runner:
         to reconcile, where it agrees, never disarms the failsafe."""
         if self._position is None or self._managed_at is None or self._reconcile_flattening:
             return
+        if self._away_since is not None:
+            return  # the broker is away: nothing can be sent; the resting stop protects it
         if not self._executor.broker_ready:
-            return  # nothing can be sent; the resting stop at the broker protects it
+            return  # (ready read again: it can change between steps)
         if now - self._managed_at <= self._max_unmanaged:
             return
         position = self._position
