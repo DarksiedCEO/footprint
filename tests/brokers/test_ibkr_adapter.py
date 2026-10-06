@@ -1024,6 +1024,20 @@ def test_a_stop_pending_its_inactive_cancel_is_still_held_back(ib: Ib) -> None:
     assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
 
 
+def test_an_order_taken_as_finished_that_reappears_pending_raises_a_doubt(ib: Ib) -> None:
+    """AEGIS I-4: any live status, not only PreSubmitted/Submitted, brings back an
+    order that was taken as finished unseen."""
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    copy = ib.adapter._copies[entry.perm_id]
+    copy.settled_unseen = True  # (as after an open-orders listing that left it out)
+    copy.status = "Cancelled"
+    doubts = len(ib.resyncs)
+    ib.adapter.on_order_status(entry.ib_id, entry.perm_id, "PendingCancel", 0, 1, D(0))
+    assert len(ib.resyncs) > doubts
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING
+
+
 def test_a_cancelled_inactive_stop_that_revives_raises_a_doubt(ib: Ib) -> None:
     """F2/F4: an Inactive stop we cancelled, then IBKR reactivates it: it acts again
     (not held back), and the runner must reconcile (a new stop or a flatten may sit

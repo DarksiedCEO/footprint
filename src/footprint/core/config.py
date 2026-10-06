@@ -404,6 +404,10 @@ def load_instrument(path: Path) -> InstrumentProfile:
     # Complete through calendar_through: every standard US exchange holiday from the
     # first listed year on must be listed (closed, early close or no-trade day), so
     # moving calendar_through forward alone is refused (fail closed, D34).
+    names = [r.name for r in profile.holiday_rules]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:  # AEGIS I-3: a second rule of the same name could mask the first
+        raise ConfigError(f"{where}: holiday_rules has more than one rule named {repeated}")
     kinds = {r.name: r.kind for r in profile.holiday_rules}
     absent = [n for n in REQUIRED_RULES if n not in kinds]
     if absent:

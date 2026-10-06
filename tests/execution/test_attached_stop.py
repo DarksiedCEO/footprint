@@ -516,3 +516,4 @@ def test_an_exit_never_waits_forever_on_another_order(stack: Stack) -> None:
             break
     assert raised_at is not None, "the exit waited forever"
     assert len([a for a in stack.alarms if "exit waits" in a.message]) == 1
+    assert stack.halt.tripped  # (AEGIS I-N7: the escalation stands entries down)

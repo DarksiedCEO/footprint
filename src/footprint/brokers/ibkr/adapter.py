@@ -910,14 +910,12 @@ class IbkrBroker:
         """An order IBKR reports live (able to act) again after it was taken as finished
         unseen, or after it was Inactive and cancelled by us (AEGIS F2/F4: whatever was
         decided meanwhile, a new stop or a flatten, may now sit beside it): reconcile."""
-        if copy.status not in _ACTING:
-            return []
-        if copy.settled_unseen:
+        if copy.settled_unseen and copy.status in _LIVE:  # any live status (AEGIS I-4)
             copy.settled_unseen = copy.cancel_confirmed = False
             return [
                 f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"
             ]
-        if copy.cancel_sent:
+        if copy.cancel_sent and copy.status in _ACTING:
             copy.cancel_sent = copy.cancel_confirmed = False  # (it acts again: not held back)
             return [f"{copy.order_id} is LIVE again at IBKR after it was Inactive; reconcile"]
         return []

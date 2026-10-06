@@ -316,8 +316,10 @@ class Manager:
                         seconds=self._p.execution.reconcile.cancel_escalate_seconds
                     )
                     if now - since >= escalate:
-                        # The exit cannot go out beside it: reconcile takes over (it
-                        # re-prices a stuck stop to the market, and escalates to Andre).
+                        # The exit cannot go out beside it: reconcile takes over. If the
+                        # stop is held back, reconcile disagrees, halts and chases the
+                        # cancel (CANCEL STUCK to Andre); a working stop it agrees with
+                        # is managed again.
                         del self._stop_stuck_since[pid]
                         message = f"{pid}: resting stop will not cancel; reconcile"
                         self._stand_down(now, f"{pid}: stop will not cancel")
@@ -604,6 +606,10 @@ class Manager:
             return False
         working = self._working_orders(position)
         working_ids = set(working)
+        # A held-back stop (Inactive at the broker, or stuck being cancelled) is not the
+        # position's protection: never "agreed" with (AEGIS I-1). The disagreement path
+        # then halts, chases its cancel (CANCEL STUCK to Andre) and flattens around it.
+        expected_orders -= {oid for oid, status in working.items() if status.held_back}
         if actual == expected and ledger_ok and working_ids == expected_orders:
             self._reset_reconcile()
             return True

@@ -375,6 +375,7 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         ({"holiday_rules": "drop Good Friday"}, "no rule for Good Friday"),  # G9/G10: one
         ({"holiday_rules": "drop Christmas Eve"}, "no rule for Christmas Eve"),
         ({"holiday_rules": "early Christmas Day"}, "Christmas Day must be closed"),  # F3
+        ({"holiday_rules": "twice Christmas Day"}, "more than one rule named"),  # I-3
         ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "kind": "half"}]}, "kind"),
     ],
 )
@@ -388,6 +389,9 @@ def test_bad_holiday_rules_are_refused(
         if verb == "drop":
             changes = {"holiday_rules": [r for r in current if r["name"] != name]}
             assert len(changes["holiday_rules"]) == len(current) - 1
+        elif verb == "twice":
+            twin = {"name": name, "month": 1, "day": 1}
+            changes = {"holiday_rules": [*current, twin]}
         else:
             changes = {
                 "holiday_rules": [

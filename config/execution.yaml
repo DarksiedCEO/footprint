@@ -34,6 +34,8 @@ reconcile:
                               #   long escalates to Andre and halts (it is never acted on
                               #   unsettled: any sell on an untrusted report could go short)
   cancel_escalate_seconds: 10 # DEFAULT: a cancel unconfirmed this long escalates to Andre
+                              #   (also bounds an exit waiting on a cancel; a slower
+                              #   cancel latches the kill switch: decision I-5, Andre)
                               #   ("flatten by hand"); reconcile still sells what the stuck
                               #   orders cannot cover
 alarms:
