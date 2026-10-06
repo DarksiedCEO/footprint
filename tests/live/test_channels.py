@@ -691,6 +691,18 @@ def test_the_suite_cannot_reach_twilio_or_telegram(no_network: list[str]) -> Non
     assert any("api.telegram.org" in a for a in no_network)
 
 
+def test_no_udp_leaves_the_machine_in_tests(no_network: list[str]) -> None:
+    import socket
+
+    from tests import conftest
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendto(b"x", ("192.0.2.1", 53))
+        sock.sendto(b"x", ("127.0.0.1", 9))  # loopback is fine
+    assert "connect 192.0.2.1:53" in no_network
+
+
 def test_a_proxy_on_loopback_cannot_carry_a_request_out(
     no_network: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

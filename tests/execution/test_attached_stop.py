@@ -16,6 +16,7 @@ from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
     Order,
     OrderState,
+    OrderStatus,
     OrderType,
     Quote,
     Side,
@@ -244,3 +245,117 @@ def test_preview_refuses_a_price_too_small_to_carry_the_stop(stack: Stack) -> No
         stack.stops.preview(D(151), stack.profiles.risk.max_contracts + 1)
     with pytest.raises(ValueError, match="tick"):
         stack.stops.preview(D("151.1"), 1)
+
+
+# --- AEGIS final audit: HIGH-1 and the surviving bracket mutants -----------------------------
+
+
+def test_an_entry_whose_attached_stop_is_refused_is_cancelled_at_once(stack: Stack) -> None:
+    """HIGH-1: the entry must never work without its stop at the broker."""
+    original = stack.broker.place_attached
+
+    def stop_refused(parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        first, _ = original(parent, child)
+        stack.broker.cancel(child.order_id)  # refused at the broker
+        return first, stack.broker.status(child.order_id)
+
+    stack.broker.place_attached = stop_refused  # type: ignore[method-assign]
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    assert ticket.outcome is EntryOutcome.UNFILLED
+    assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
+    assert stack.broker.open_orders() == []
+
+
+def test_an_entry_whose_attached_stop_dies_while_it_works_is_cancelled(stack: Stack) -> None:
+    """HIGH-1: checked every step: a stop cancelled at the broker (by IBKR, or by hand)
+    takes the entry down before the entry can fill unprotected."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.broker.cancel(f"{ticket.position_id}-stop")
+    ticket = stack.executor.on_time(ticket, SEND + SEC)
+    assert ticket.outcome is EntryOutcome.UNFILLED
+    assert stack.broker.status(ticket.order_id).state is OrderState.CANCELLED
+    stack.quote(150, D(151), SEND + 2 * SEC)  # the market comes to it: nothing fills
+    assert stack.broker.positions() == {}
+
+
+def test_a_stop_that_outlives_its_unfilled_entry_is_cancelled(stack: Stack) -> None:
+    """A4: a broker that did not take the stop down with the entry."""
+    stack.broker._release_children = lambda parent_id, parent: None  # type: ignore[method-assign]
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    timeout = stack.profiles.execution.entry.timeout_seconds
+    ticket = stack.executor.on_time(ticket, SEND + timeout * SEC)
+    assert ticket.outcome is EntryOutcome.UNFILLED
+    assert stack.broker.status(f"{ticket.position_id}-stop").state is OrderState.CANCELLED
+
+
+def test_an_attached_stop_for_another_size_is_cancelled_not_kept_beside(stack: Stack) -> None:
+    """A5: a size mismatch means a new stop: the old one must not stay beside it."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    spec = stack.stops.preview(D(151), 1)
+    order, protected = stack.executor._adopt_attached(stop_id, spec, filled=2)
+    assert (order, protected) == (None, False)
+    assert stack.broker.status(stop_id).state is OrderState.CANCELLED
+
+
+def test_an_attached_stop_the_move_kills_is_not_counted_as_protection(stack: Stack) -> None:
+    """A7: if moving the stop to the real fill leaves it not working, a new stop."""
+    original = stack.broker.modify
+
+    def kills_stops(order_id: str, limit_price: Decimal, stop_price: Decimal | None) -> OrderStatus:
+        if order_id.endswith("-stop") and stop_price == D("113.75"):  # the move to the fill
+            return stack.broker.cancel(order_id)  # ...ends it
+        return original(order_id, limit_price, stop_price)
+
+    stack.broker.modify = kills_stops  # type: ignore[method-assign]
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D("151.25"), SEND + SEC)
+    ticket = stack.executor.on_time(ticket, SEND + 10 * SEC)  # fills at 151.25 < limit
+    assert ticket.position is not None
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop-2"
+    assert ticket.outcome is EntryOutcome.PROTECTED
+
+
+def test_an_attached_stop_that_already_filled_is_not_doubled(stack: Stack) -> None:
+    """A8: entry and stop both filled before the fill is seen: no second stop."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stack.quote(150, D(151), SEND + SEC)  # the entry fills at 151
+    stack.quote(113, 115, SEND + 2 * SEC)  # and the attached stop sells at 113
+    assert stack.broker.positions() == {}
+    ticket = stack.executor.on_time(ticket, SEND + 3 * SEC)
+    assert ticket.position is not None
+    assert ticket.position.stop_order_id == f"{ticket.position_id}-stop"
+    with pytest.raises(Exception, match="stop-2"):
+        stack.broker.status(f"{ticket.position_id}-stop-2")  # never placed
+    assert stack.broker.positions() == {}
+
+
+def test_a_bracket_that_never_left_is_not_kept_in_the_record() -> None:
+    """A9: NotSent means neither order reached the broker: the record drops both."""
+    from footprint.execution.orders import NotSent
+
+    class Refuses(SimulatedBroker):
+        def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+            raise NotSent("not connected")
+
+    broker, book = sim()
+    tracked = TrackedBroker(Refuses(book, 5))
+    entry, stop = bracket()
+    with pytest.raises(NotSent):
+        tracked.place_attached(entry, stop)
+    assert tracked.unfinished == {}
+    assert broker is not None
+
+
+def test_a_cancelled_held_stop_never_comes_back_when_the_entry_fills() -> None:
+    """A10: a held stop cancelled on its own stays cancelled: no activation, no fill."""
+    broker, book = sim()
+    entry, stop = bracket()
+    broker.place_attached(entry, stop)
+    broker.cancel("p1-stop")
+    book.publish(Quote(C, D(150), D(151), SEND + SEC))  # the entry fills
+    book.publish(Quote(C, D(113), D(115), SEND + 2 * SEC))
+    assert broker.status("p1-stop").state is OrderState.CANCELLED
+    assert broker.status("p1-stop").filled == 0
+    assert not any(line.startswith("activated p1-stop") for line in broker.log)
+    assert broker.positions() == {C: 1}

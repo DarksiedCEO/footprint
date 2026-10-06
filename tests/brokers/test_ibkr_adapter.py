@@ -928,14 +928,15 @@ def test_cancelling_the_entry_takes_the_attached_stop(ib: Ib) -> None:
     assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
 
 
-def test_a_held_child_reported_inactive_is_not_cancelled_while_its_parent_works(ib: Ib) -> None:
+def test_a_held_stop_reported_inactive_is_cancelled_not_trusted(ib: Ib) -> None:
+    """Inactive is not protection (AEGIS MEDIUM-1): the held stop is cancelled at once,
+    and an executor checking it each step then cancels the entry."""
     ib.adapter.place_attached(buy(price=140), attached_stop())
     child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
     ib.fake.inactivate(child.perm_id)
-    assert ib.fake.cancels == []  # held for its parent: not cancelled
-    ib.quote(139, 140)  # the parent fills; the child still Inactive: now it is cancelled
-    ib.fake.inactivate(child.perm_id)
     assert ib.fake.cancels == [child.ib_id]
+    assert any("p1-stop is Inactive" in a for a in ib.alarms)
+    assert ib.adapter.status("p1-stop").state is not OrderState.FILLED
 
 
 def test_a_refused_bracket_is_refused_whole(ib: Ib) -> None:
@@ -950,4 +951,34 @@ def test_a_bracket_is_tracked_whole(ib: Ib) -> None:
     assert set(ib.tracked.unfinished) == {"p1-entry", "p1-stop"}
     ib.tracked.cancel("p1-entry")
     ib.tracked.status("p1-stop")
+    assert ib.tracked.unfinished == {}
+
+
+def test_a_bracket_waits_for_the_childs_answer_too(ib: Ib) -> None:
+    """AEGIS A11: returning on the parent's answer alone would report a stop IBKR has
+    not confirmed."""
+    ib.fake.late_children = True
+    with pytest.raises(TimeoutError, match="attached"):
+        ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.fake.release()
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+
+
+def test_a_refused_order_stays_refused_when_asked_again(ib: Ib) -> None:
+    """Asked each step (the attached stop check): a refusal is answered, never a
+    KeyError that would halt the runner (AEGIS LOW-2)."""
+    ib.fake.reject_next = 201
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert ib.adapter.status("p1-stop").state is OrderState.REJECTED
+    assert ib.adapter.status("p1-entry").state is OrderState.REJECTED
+
+
+def test_through_ibkr_a_refused_stop_means_no_entry() -> None:
+    """End to end over the fake IBKR: the bracket is refused, nothing works or fills."""
+    ib = make()
+    ib.fake.reject_next = 201
+    first, second = ib.tracked.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.REJECTED, OrderState.REJECTED)
+    ib.quote(139, 140)
+    assert ib.adapter.positions() == {}
     assert ib.tracked.unfinished == {}

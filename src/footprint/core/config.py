@@ -14,6 +14,7 @@ import yaml
 
 from footprint.core.holiday_rules import (
     OBSERVED,
+    REQUIRED_RULES,
     HolidayRule,
     MissingEaster,
     missing_days,
@@ -385,6 +386,9 @@ def load_instrument(path: Path) -> InstrumentProfile:
     # Complete through calendar_through: every standard US exchange holiday from the
     # first listed year on must be listed (closed, early close or no-trade day), so
     # moving calendar_through forward alone is refused (fail closed, D34).
+    absent = [n for n in REQUIRED_RULES if n not in {r.name for r in profile.holiday_rules}]
+    if absent:
+        raise ConfigError(f"{where}: holiday_rules has no rule for {', '.join(absent)}")
     for easter in profile.easter_sundays:
         if easter.weekday() != _WEEKDAYS.index("SUN"):
             raise ConfigError(f"{where}: easter_sundays {easter} is not a Sunday")

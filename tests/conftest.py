@@ -81,8 +81,15 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return real_connect_ex(self, address)
 
     monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    real_sendto = socket.socket.sendto
+
+    def sendto(self: socket.socket, data: Any, *args: Any) -> int:
+        _check(args[-1])  # (data, address) or (data, flags, address): no UDP out either
+        return real_sendto(self, data, *args)
+
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    monkeypatch.setattr(socket.socket, "sendto", sendto)
     return attempts
 
 

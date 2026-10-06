@@ -465,14 +465,18 @@ def test_a_dead_channel_never_holds_more_than_one_abandoned_send() -> None:
 
     from tests.live.test_channels import AUTH, FROM, PHONE, SID
 
-    sink = TwilioCallSink(SID, AUTH, FROM, PHONE, 0.1, hangs)
-    before = threading.active_count()
+    def sends() -> int:
+        return sum(1 for t in threading.enumerate() if t.name == "alarm-send")
+
+    sink = TwilioCallSink(SID, AUTH, FROM, PHONE, 0.3, hangs)
+    before = sends()
     for _ in range(20):
         with pytest.raises(ChannelError):
             sink(alarm("HALT: x"))
+    assert wait_for(lambda: len(started) >= 1, 3)  # (slow machines: the thread starts late)
     assert len(started) == 1  # one send started; the other 19 failed at once
-    assert threading.active_count() - before <= 1
+    assert sends() - before <= 1
     release.set()
-    assert wait_for(lambda: threading.active_count() <= before, 3)
+    assert wait_for(lambda: sends() <= before, 3)
     sink(alarm("HALT: y"))  # the channel works again once the hung send ends
     assert len(started) == 2

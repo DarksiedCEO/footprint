@@ -262,7 +262,7 @@ class IbkrBroker:
         self._ids: dict[str, int] = {}
         self._order_of_ib: dict[int, str] = {}
         self._sent: dict[str, Order] = {}
-        self._parent_of: dict[str, str] = {}  # an attached child's id -> its parent's id
+        self._refused: dict[str, Order] = {}  # refused by IBKR on arrival (no copy there)
         self._copies: dict[int, _Copy] = {}
         self._updates: dict[int, int] = {}
         self._errors: dict[int, list[int]] = {}
@@ -316,7 +316,6 @@ class IbkrBroker:
                 self._errors[ib_id] = []
                 ids.append(ib_id)
             seen = [self._updates.get(ib_id, 0) for ib_id in ids]
-            self._parent_of[child.order_id] = parent.order_id
         parent_id, child_id = ids
         self._gw.place_order(
             replace(self._request(parent_id, parent, contracts[0]), transmit=False)
@@ -337,6 +336,7 @@ class IbkrBroker:
         if _EXISTS & set(codes):
             raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
         if _REJECTED & set(codes) and not self._copies_of(order.order_id):
+            self._refused[order.order_id] = order  # asked again later: still refused
             return OrderStatus(order, OrderState.REJECTED, 0, None)
         # Rejected with a copy at IBKR (Inactive): it reports working until its
         # cancel is confirmed.
@@ -855,6 +855,8 @@ class IbkrBroker:
             order = replace(copy.order, order_id=order_id)
             return OrderStatus(order, copy.state, copy.filled, copy.avg_price)
         copies = sorted(self._copies_of(order_id), key=lambda c: c.perm_id)
+        if not copies and order_id in self._refused:
+            return OrderStatus(self._refused[order_id], OrderState.REJECTED, 0, None)
         if not copies:
             raise KeyError(order_id)  # IBKR has not acknowledged it (yet)
         live = [c for c in copies if c.live]
@@ -895,9 +897,9 @@ class IbkrBroker:
             return None
         if copy.ib_id <= 0 or self._ids.get(copy.order_id) != copy.ib_id:
             return None  # not ours to cancel by id
-        parent = self._parent_of.get(copy.order_id)
-        if parent is not None and self._is_live(parent):
-            return None  # an attached child held until its parent fills: not cancelled
+        # (An attached stop reported Inactive is cancelled too, even while its entry is
+        # live: Inactive is not protection, and Diego then cancels the entry. Fail
+        # closed until paper shows how IBKR reports a held stop: checklist 27.)
         copy.cancel_sent = True
         alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
         return copy.ib_id

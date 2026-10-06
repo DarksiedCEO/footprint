@@ -37,7 +37,14 @@ from footprint.decision.stop import StopKeeper, StopOrderSpec
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
-from footprint.execution.orders import Order, OrderState, OrderType, Side, TrackedBroker
+from footprint.execution.orders import (
+    Order,
+    OrderState,
+    OrderStatus,
+    OrderType,
+    Side,
+    TrackedBroker,
+)
 
 log = logging.getLogger("footprint.execution")
 
@@ -180,9 +187,25 @@ class Executor:
             plan.limit_floor,
             stop_order_id=stop.order_id,
         )
-        status, _ = self._broker.place_attached(order, stop)
+        status, stop_status = self._broker.place_attached(order, stop)
         log.info("entry %s placed at %s, stop attached", order.order_id, plan.limit_floor)
+        if status.state is OrderState.WORKING and stop_status.state is not OrderState.WORKING:
+            status = self._unprotected_entry(ticket, stop_status.state)
         return self._after(ticket, status.state, status.filled, status.avg_price, now)
+
+    def _unprotected_entry(self, ticket: EntryTicket, stop_state: OrderState) -> OrderStatus:
+        """The entry is working but its attached stop is not (refused, cancelled): an
+        entry must never be able to fill without its stop at the broker (H-2), so the
+        entry is cancelled. The broker's word on the entry after the cancel is
+        returned (it may have filled meanwhile: the fill path then places a stop)."""
+        log.critical(
+            "attached stop %s is %s while entry %s works: cancelling the entry",
+            ticket.stop_order_id,
+            stop_state.value,
+            ticket.order_id,
+        )
+        self._broker.cancel(ticket.order_id)
+        return self._broker.status(ticket.order_id)
 
     def abandon(self, ticket: EntryTicket) -> None:
         """Cancel a working entry (reconcile takes over whatever it may have filled)."""
@@ -199,6 +222,12 @@ class Executor:
         status = self._broker.status(ticket.order_id)
         if status.state is not OrderState.WORKING:
             return self._after(ticket, status.state, status.filled, status.avg_price, now)
+        if ticket.stop_order_id is not None:
+            # Every step: the attached stop must still be working (H-2).
+            stop_state = self._broker.status(ticket.stop_order_id).state
+            if stop_state is not OrderState.WORKING:
+                status = self._unprotected_entry(ticket, stop_state)
+                return self._after(ticket, status.state, status.filled, status.avg_price, now)
         e = self._p.execution.entry
         elapsed = now - ticket.started
         if elapsed >= timedelta(seconds=e.timeout_seconds):

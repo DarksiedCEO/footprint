@@ -42,7 +42,8 @@ If a channel fails (Twilio rejects a call, Telegram is down, a request hangs pas
 and to every **other** channel (a dead call line is reported by Telegram and SMS; a
 dead Telegram by SMS and a call), and "alarm channel back" when it works again. A
 failed call is not retried. A hung call holds the call line for at most
-`channel_timeout_seconds` (8 s) and never holds back Telegram or SMS; while it is still
+`channel_timeout_seconds` (8 s; the request itself, a slow name lookup included, is
+abandoned on its own thread at that deadline, never waited for) and never holds back Telegram or SMS; while it is still
 out, the next call fails at once (one stuck request per channel at most) and is
 reported, and calls are tried again once it ends. `status` shows each channel's state.
 
@@ -134,9 +135,11 @@ IB Gateway restarts itself every night. On a lost connection (D35, as decided):
   (D37, confirmed): its clock moves on by exactly the outage's length, so time
   unmanaged before or after still counts, and a protected position is not flattened
   on reconnect just because of the outage.
-- An entry still working at IBKR when the connection drops is protected: its stop
-  is attached to it (D38), and IBKR activates the stop the moment the entry fills,
-  connected or not. After the reconnect the reconcile finds the fill and flattens it.
+- An entry still working at IBKR when the connection drops carries its stop attached
+  (D38): IBKR should activate the stop the moment the entry fills, connected or not
+  (IBKR's side is UNVERIFIED until checklist 27 in paper). The entry never works
+  without its stop: if the stop is refused or dies, the entry is cancelled. After the
+  reconnect the reconcile finds any fill and flattens it.
 - It is not a halt. "IBKR connection lost" rings the phone (critical).
 
 After 5 failed reconnects in a row it alarms once that a person is needed and retries

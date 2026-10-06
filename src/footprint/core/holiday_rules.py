@@ -22,6 +22,21 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 _SATURDAY, _SUNDAY = calendar.SATURDAY, calendar.SUNDAY
+
+# The US exchange closures a calendar must carry a rule for (AEGIS LOW-4: the rules are
+# config, so deleting one would otherwise switch its check off).
+REQUIRED_RULES = (
+    "New Year's Day",
+    "Martin Luther King Jr. Day",
+    "Presidents Day",
+    "Good Friday",
+    "Memorial Day",
+    "Juneteenth",
+    "Independence Day",
+    "Labor Day",
+    "Thanksgiving",
+    "Christmas Day",
+)
 OBSERVED = ("weekend", "not_saturday", "none")
 
 

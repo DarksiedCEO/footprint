@@ -313,6 +313,10 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "observed": "x"}]}, "observed"),
         ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "extra": 1}]}, "only"),
         ({"holiday_rules": []}, "non-empty"),
+        (  # AEGIS LOW-4: deleting a rule (and its day) does not switch its check off
+            {"holiday_rules": [{"name": "Christmas Day", "month": 12, "day": 25}]},
+            "no rule for New Year",
+        ),
     ],
 )
 def test_bad_holiday_rules_are_refused(

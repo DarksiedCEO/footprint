@@ -102,6 +102,7 @@ class FakeIbkr:
     told_positions: dict[int, int] = field(default_factory=dict)
     sends: list[IbOrderRequest] = field(default_factory=list)
     untransmitted: dict[int, IbOrderRequest] = field(default_factory=dict)  # transmit off
+    late_children: bool = False  # a bracket's child is answered only on release()
     cancels: list[int] = field(default_factory=list)
     global_cancels: int = 0
     _perm: int = 1000
@@ -324,10 +325,18 @@ class FakeIbkr:
         first = self._sim_order(parent)
         second = self._sim_order(child)
         self.sim.place_attached(self._order(first), self._order(second, first.sim_id))
-        for copy in (first, second):
-            self._open_order(copy, self.sim.status(copy.sim_id))
+        if self.late_children:  # not told with the parent's report either
+            held = self.sim.status(second.sim_id)
+            second.sent = (held.state, held.filled)
+        self._open_order(first, self.sim.status(first.sim_id))
         self._report(force=parent.ib_id)
-        self._report(force=child.ib_id)
+        if self.late_children:
+            self._hold_now = True
+        try:
+            self._open_order(second, self.sim.status(second.sim_id))
+            self._report(force=child.ib_id)
+        finally:
+            self._hold_now = False
 
     def _new_copy(self, request: IbOrderRequest) -> None:
         copy = self._sim_order(request)
