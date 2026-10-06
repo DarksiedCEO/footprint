@@ -72,8 +72,7 @@ class AlarmFile:
     def __call__(self, alarm: Alarm) -> None:
         record = {"ts": alarm.ts.isoformat(), "message": alarm.message}
         with self._path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
-            handle.flush()
+            handle.write(json.dumps(record) + "\n")  # closed (flushed) on the way out
         print(f"ALARM {alarm.ts.isoformat()} {alarm.message}", file=self._out, flush=True)
 
 

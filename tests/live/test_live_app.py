@@ -225,9 +225,12 @@ def test_the_driver_runs_the_connection_steps_and_shuts_down_cleanly(
         threading.Event().wait(0.02)
         if len(ticks) == 30:
             commands.put("quit")
+        if len(ticks) > 300:  # a broken quit must fail the test, not hang it
+            stop.set()
 
     Driver(live, out=io.StringIO(), sleep=sleep).run(stop, commands)
     assert stop.is_set()
+    assert len(ticks) <= 31  # it stopped on quit
     assert clients, "never connected"
     calls = [name for c in clients for name, _ in c.calls]
     assert "reqMarketDataType" in calls  # real-time data asked for at the session open
@@ -246,11 +249,17 @@ def test_a_refused_account_stops_the_driver(profiles: Profiles, tmp_path: Path) 
     out = io.StringIO()
     stop = threading.Event()
 
+    naps: list[float] = []
+
     def nap(seconds: float) -> None:
+        naps.append(seconds)
         threading.Event().wait(0.01)
+        if len(naps) > 500:  # a refusal that does not stop must fail, not hang
+            stop.set()
 
     Driver(live, out=out, sleep=nap).run(stop)
     assert "IBKR refused the connection" in out.getvalue()
+    assert len(naps) < 500
 
 
 # --- the alarm file and the news file -------------------------------------------------

@@ -1268,3 +1268,50 @@ def test_a_history_day_never_stores_a_bar_that_had_not_closed(world: World) -> N
     world.md.on_bar(req, ib_bar(DEC.con_id, later))
     world.md.on_bars_end(req)
     assert later not in world.md._raw[DEC.con_id]
+
+
+def test_a_held_conid_that_resolves_to_the_wrong_size_is_never_registered(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    mini = IbContract(8888, "NQ", "FOP", "CME", "USD", "20261007", D(20000), "C", "2", "Q2C")
+    w = World(execution, instrument, options=(*CHAIN, mini))
+    w.connect()
+    w.held.add("conid:8888")
+    w.run(3)
+    with pytest.raises(KeyError):
+        w.contracts.ib("conid:8888")
+    assert any("does not know conid:8888" in a for a in w.alarms)
+
+
+def test_a_conid_answered_twice_is_not_trusted(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    twin = CHAIN[3]
+    w = World(execution, instrument, options=(twin, replace(twin, strike=D(1))))
+    w.connect()
+    w.held.add(f"conid:{twin.con_id}")
+    w.run(3)
+    with pytest.raises(KeyError):
+        w.contracts.ib(f"conid:{twin.con_id}")
+
+
+def test_one_lookup_at_a_time_for_a_held_conid(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = World(execution, instrument, options=CHAIN)
+    w.connect()
+    w.run(2)
+    w.no_answer.add("details")
+    w.held.add("conid:4321")
+    w.run(5)
+    assert len([q for _r, q in w.gw.named("details") if q.con_id == 4321]) == 1
+
+
+def test_only_the_adapters_conid_names_are_looked_up_by_number(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    w.held.add(f"other:{CHAIN[0].con_id}")
+    w.run(3)
+    assert not [q for _r, q in w.gw.named("details") if q.con_id == CHAIN[0].con_id]
+    assert any(f"cannot stream the held other:{CHAIN[0].con_id}" in a for a in w.alarms)
