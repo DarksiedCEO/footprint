@@ -22,6 +22,7 @@ from pathlib import Path
 from footprint.brokers.ibkr.binding import IbConnectionSettings, read_env_file
 from footprint.core.config import load_profiles
 from footprint.data.news import blackouts_from
+from footprint.execution.channels import ChannelSettings
 from footprint.live.app import AlarmFile, Driver, build
 
 
@@ -47,17 +48,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--new-ledger", action="store_true", help="first run only: create the ledger file"
     )
+    parser.add_argument(
+        "--alarms-local-only",
+        action="store_true",
+        help="no phone alarms: the terminal and state/alarms.log only (D20 needs the "
+        "Telegram and Twilio keys in .env otherwise)",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     profiles = load_profiles(args.config, args.instrument)
-    settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), profiles.execution.ibkr)
+    env = read_env_file(str(args.env))
+    settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
+    channels = None
+    if args.alarms_local_only:
+        print("ALARMS LOCAL ONLY: nothing reaches your phone", file=sys.stderr)
+    else:
+        try:
+            channels = ChannelSettings.from_env(env)
+        except ValueError as exc:
+            print(
+                f"phone alarms are not set up ({exc}). Fill them in (runbook), or start "
+                "with --alarms-local-only",
+                file=sys.stderr,
+            )
+            return 2
     live = build(
         profiles,
         settings,
         args.state,
         AlarmFile(args.state / "alarms.log"),
         blackouts_from(args.blackouts),
+        channels=channels,
         new_ledger=args.new_ledger,
     )
     stop = threading.Event()

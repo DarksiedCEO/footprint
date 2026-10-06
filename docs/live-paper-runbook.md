@@ -18,6 +18,35 @@ to start against a live account or with `ibkr.require_paper: false`.
 5. A news calendar CSV (`name,start,end`, ISO times **with offsets**, e.g.
    `CPI,2026-10-14T08:28:00-04:00,2026-10-14T08:32:00-04:00`), or decide to run
    without one (`--no-blackouts`).
+6. Phone alarms (D20), or start with `--alarms-local-only` (terminal and
+   `state/alarms.log` only; the program refuses to start without the keys otherwise).
+   See "Phone alarms" below.
+
+## Phone alarms (D20)
+
+Every alarm goes to Telegram; if Telegram fails it goes by SMS instead; the critical
+ones (a halt, the kill switch, a position without its stop or needing hands, IBKR
+refusing or failing for good, an expired exchange calendar) also ring your phone, at
+most once every `call_cooldown_seconds` (10 minutes). Every alarm is also in the
+terminal and `state/alarms.log`.
+
+All six keys go in `.env` only (never in chat, never committed):
+
+1. Telegram: in Telegram, message **@BotFather**, `/newbot`, and put the token it
+   gives you in `TELEGRAM_BOT_TOKEN`. Send your new bot any message, then run
+   `uv run python -m footprint.live.alarm_setup chat-id` and copy the
+   `TELEGRAM_CHAT_ID=...` line it prints into `.env`.
+2. Twilio (SMS and calls): from the Twilio console, `TWILIO_ACCOUNT_SID` and
+   `TWILIO_AUTH_TOKEN`; a Twilio number that can send SMS and call in
+   `TWILIO_FROM_NUMBER`; your mobile in `ALARM_PHONE_NUMBER`. Both numbers in
+   +1XXXXXXXXXX form. A trial Twilio account only reaches verified numbers and prefixes
+   messages and calls with a trial notice.
+3. Check: `uv run python -m footprint.live.alarm_setup test` sends one test alarm per
+   channel (Telegram, SMS, a call) and prints OK or FAILED for each. Expect your phone
+   to ring once.
+
+Nothing prints a token, a password or a phone number, and an error never shows a URL
+(Telegram's carries the token).
 
 ## Start
 
@@ -61,9 +90,8 @@ clears with a restart, after you have looked at why.
 - `ledger.json`: equity, drawdown peak, breakers, kill switch. Never delete it to
   "reset"; a missing ledger is refused unless `--new-ledger`.
 - `journal/`: every decision and trade.
-- `alarms.log`: every alarm, one JSON line each (also printed in the terminal). Until
-  an alarm channel is chosen (D20), this terminal and file are the only places alarms
-  reach you.
+- `alarms.log`: every alarm, one JSON line each (also printed in the terminal), whether
+  or not it reached your phone.
 
 ## Holidays and early closes
 
