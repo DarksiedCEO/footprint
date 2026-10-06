@@ -1,0 +1,898 @@
+"""Live market data from IBKR: the minute bars and the option chain the runner decides on.
+
+The runner asks for `bars(now)` and `chain(now)`; this service answers from what IBKR
+has sent, and never from a guess:
+
+Bars
+- The traded future is the instrument's nearest quarterly future that is more than
+  `roll_days_before_expiry` calendar days from expiry (the exchange's usual roll).
+- History (`history_days`, by whole UTC days before today, Saturdays skipped) is loaded
+  one day per request. Across a roll it is spliced: each older contract's bars are
+  shifted by the price difference between the two contracts at the latest minute both
+  traded on its last day (back-adjusted), so levels and averages do not jump at the
+  splice, and volume comes from whichever contract was the one traded.
+- Today's bars come from polls: `bar_poll_delay_seconds` after each minute closes, the
+  recent bars are asked for again (at least `min_poll_seconds`, more after a gap, so a
+  reconnect heals itself). Only bars that had closed when the poll was sent are kept.
+  No streamed, still-forming bar is ever used.
+- Until the whole history has loaded and a first poll has answered, `bars` is empty and
+  nothing is decided.
+
+The chain
+- Options on the traded future only, at the nearest expiry inside dte_min..dte_max
+  (the only expiry the contract picker trades), strikes within `strike_window_points`
+  of the future, nearest first, never more than `max_quote_lines` lines in all. The
+  window moves once the future has moved `recenter_points`.
+- Every tick is stamped when it arrives. The chain holds only quotes no older than
+  quotes.max_age_seconds, and is stamped with its oldest quote, so it is never fresher
+  than its stalest price. No quote, no chain.
+- Quotes reach the shared quote book on the driver's thread (in `step`), never on
+  IBKR's, so the book has one writer.
+
+Failing closed: every error from IBKR (no subscription, delayed only, pacing, an
+unreadable value) leaves that piece of data missing and is alarmed once per session;
+it is retried after `retry_seconds` under a new request id.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
+from enum import Enum
+from functools import partial
+from itertools import pairwise
+
+from footprint.brokers.ibkr.adapter import ContractBook
+from footprint.brokers.ibkr.gateway import (
+    MARKET_REQUEST_BASE,
+    Connection,
+    ContractQuery,
+    IbBar,
+    IbContract,
+    IbMarketGateway,
+    QuoteField,
+)
+from footprint.core.calendar import trading_day_at
+from footprint.core.config import ExecutionProfile, InstrumentProfile
+from footprint.core.models import Bar, require_utc
+from footprint.core.options import OptionChain, OptionQuote, Right
+from footprint.execution.orders import Quote
+
+log = logging.getLogger("footprint.ibkr.market")
+
+_MINUTE = timedelta(minutes=1)
+_DAY = timedelta(days=1)
+_SATURDAY = 5  # date.weekday(): the one UTC day the futures never trade
+_NO_DATA = "no data"  # IBKR's error 162 text when a period simply had no trades
+_HMDS_ERROR = 162
+_RIGHTS = {"C": Right.CALL, "P": Right.PUT}
+_FUTURE = "FUT"  # IBKR's security type for a future
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _expiry_date(text: str) -> date | None:
+    """IBKR's YYYYMMDD expiry; None for anything else (a month alone, garbage)."""
+    if len(text) != len("YYYYMMDD") or not text.isdigit():
+        return None
+    try:
+        return date(int(text[:4]), int(text[4:6]), int(text[6:]))
+    except ValueError:
+        return None
+
+
+def _as_decimal(text: str) -> Decimal | None:
+    try:
+        value = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+    return value if value.is_finite() else None
+
+
+def _ibkr_end(moment: datetime) -> str:
+    """IBKR's endDateTime in UTC: 'yyyymmdd-HH:MM:SS'."""
+    return moment.astimezone(UTC).strftime("%Y%m%d-%H:%M:%S")
+
+
+def option_contract_id(contract: IbContract) -> str:
+    """Ours for an option: readable, and unique by IBKR's conId."""
+    strike = f"{contract.strike.normalize():f}"
+    return f"{contract.symbol} {contract.expiry} {contract.right}{strike} [{contract.con_id}]"
+
+
+class _Kind(Enum):
+    FUTURES = "futures"
+    HISTORY = "history"
+    POLL = "poll"
+    PARAMS = "option params"
+    EXPIRY = "option contracts"
+    UNDERLYING = "future quote"
+    OPTION = "option quote"
+
+
+@dataclass
+class _Request:
+    kind: _Kind
+    sent_at: datetime
+    con_id: int = 0
+    day: date | None = None
+    key: tuple[str, str] | None = None  # the (expiry, trading class) looked up
+    contracts: list[IbContract] = field(default_factory=list)
+    bars: list[IbBar] = field(default_factory=list)
+    params: list[tuple[str, str, frozenset[str], frozenset[Decimal]]] = field(default_factory=list)
+
+
+@dataclass
+class _Line:
+    """One streamed quote: a future or an option."""
+
+    contract: IbContract
+    contract_id: str
+    bid: Decimal | None = None
+    ask: Decimal | None = None
+    bid_ts: datetime | None = None
+    ask_ts: datetime | None = None
+    open_interest: int | None = None
+
+    @property
+    def ts(self) -> datetime | None:
+        if self.bid_ts is None or self.ask_ts is None:
+            return None
+        return min(self.bid_ts, self.ask_ts)  # never fresher than its stalest side
+
+    def quote(self) -> Quote | None:
+        ts = self.ts
+        if ts is None or self.ask is None or self.ask <= 0:
+            return None
+        bid = self.bid if self.bid is not None else Decimal(0)  # no bid: 0
+        if bid > self.ask:
+            return None  # crossed between the two ticks: wait for the next one
+        return Quote(self.contract_id, bid, self.ask, ts)
+
+
+class HistoryUnavailable(RuntimeError):
+    """The history cannot be assembled (a contract missing, a splice with no overlap)."""
+
+
+class MarketData:
+    """IbMarketEvents for the binding; `bars` and `chain` for the runner; `step` for the
+    driver (call it every second, on the same thread as the runner)."""
+
+    def __init__(
+        self,
+        gateway: IbMarketGateway,
+        contracts: ContractBook,
+        book: Callable[[Quote], object],
+        instrument: InstrumentProfile,
+        execution: ExecutionProfile,
+        alarm: Callable[[str], None],
+        clock: Callable[[], datetime] = _utc_now,
+    ) -> None:
+        self._gw = gateway
+        self._contracts = contracts
+        self._publish = book
+        self._instrument = instrument
+        self._s = execution.market_data
+        self._option_type = execution.ibkr.option_security_type
+        self._max_quote_age = timedelta(seconds=execution.quotes.max_age_seconds)
+        self._alarm_line = alarm
+        self._clock = clock
+        # Re-entrant: ibapi answers some requests on the caller's own thread (an error
+        # when not connected), straight back into this object while it holds the lock.
+        self._lock = threading.RLock()
+        self._next_req = MARKET_REQUEST_BASE
+        # Kept across sessions (facts about the market, not about a connection):
+        self._futures: tuple[IbContract, ...] | None = None
+        self._raw: dict[int, dict[datetime, Bar]] = {}
+        self._loaded: set[tuple[int, date]] = set()  # history days fetched in full
+        self._front: IbContract | None = None
+        self._series: tuple[Bar, ...] = ()
+        self._dirty = True
+        self._history_ready = False
+        self._complete_until: datetime | None = None
+        self._revisions = 0
+        self._params: dict[int, list[tuple[str, str, frozenset[str], frozenset[Decimal]]]] = {}
+        self._expiry_contracts: dict[tuple[str, str], tuple[IbContract, ...]] = {}
+        self._broken_history: str | None = None
+        self._new_session(connected=False)
+
+    # --- session state ------------------------------------------------------------------
+
+    def _new_session(self, *, connected: bool) -> None:
+        """IBKR forgets every request at a disconnect: so does this."""
+        self._connected = connected
+        self._pending: dict[int, _Request] = {}
+        self._lines: dict[int, _Line] = {}  # req id -> streamed quote
+        self._underlying: int | None = None  # req id of the future's quote
+        self._center: Decimal | None = None
+        self._chosen: tuple[str, str] | None = None  # (expiry, trading class)
+        self._retry_at: dict[str, datetime] = {}
+        self._alarmed: set[str] = set()
+        self._last_history_at: datetime | None = None
+        self._polled_for: datetime | None = None
+        self._outbox: list[Quote] = []
+
+    # --- what the runner reads -------------------------------------------------------------
+
+    def bars(self, now: datetime) -> Sequence[Bar]:
+        """Every complete minute bar, oldest first; empty until history and a first poll
+        have both arrived."""
+        require_utc(now, "now")
+        with self._lock:
+            if not self._history_ready or self._complete_until is None:
+                return ()
+            if self._dirty:
+                try:
+                    self._series = self._assemble(now.date())
+                except HistoryUnavailable as exc:
+                    self._broken_history = str(exc)
+                    self._history_ready = False
+                    self._series = ()
+                self._dirty = False
+            until = self._complete_until
+            return tuple(b for b in self._series if b.ts + _MINUTE <= until)
+
+    def chain(self, now: datetime) -> OptionChain | None:
+        """Fresh option quotes on the traded future, or None."""
+        require_utc(now, "now")
+        with self._lock:
+            if not self._connected or self._underlying is None:
+                return None
+            future = self._lines.get(self._underlying)
+            if future is None:
+                return None
+            under = self._fresh(future, now)
+            if under is None or under.bid <= 0:
+                return None
+            stamps = [under.ts]
+            quotes: list[OptionQuote] = []
+            for req, line in self._lines.items():
+                if req == self._underlying:
+                    continue
+                quote = self._fresh(line, now)
+                expiry = _expiry_date(line.contract.expiry)
+                right = _RIGHTS.get(line.contract.right)
+                if quote is None or expiry is None or right is None:
+                    continue
+                quotes.append(
+                    OptionQuote(
+                        contract_id=line.contract_id,
+                        expiry=expiry,
+                        strike=line.contract.strike,
+                        right=right,
+                        bid=quote.bid,
+                        ask=quote.ask,
+                        open_interest=line.open_interest or 0,  # unknown: fails the OI check
+                    )
+                )
+                stamps.append(quote.ts)
+            if not quotes:
+                return None
+            return OptionChain(
+                underlying=self._instrument.symbol,
+                ts=min(stamps),
+                underlying_price=(under.bid + under.ask) / 2,
+                quotes=tuple(sorted(quotes, key=lambda q: q.contract_id)),
+            )
+
+    def _fresh(self, line: _Line, now: datetime) -> Quote | None:
+        quote = line.quote()
+        if quote is None or quote.ts > now or now - quote.ts > self._max_quote_age:
+            return None
+        return quote
+
+    @property
+    def front(self) -> IbContract | None:
+        with self._lock:
+            return self._front
+
+    @property
+    def revisions(self) -> int:
+        """Bars IBKR changed after a poll had already counted them complete."""
+        with self._lock:
+            return self._revisions
+
+    # --- IbMarketEvents (IBKR's message thread) ------------------------------------------
+
+    def on_market_connection(self, state: Connection) -> None:
+        with self._lock:
+            self._new_session(connected=state is Connection.CONNECTED)
+        log.info("market data: %s", state.value)
+
+    def on_market_notice(self, code: int, message: str) -> None:
+        log.warning("IBKR notice %s: %s", code, message)
+
+    def on_contract_details(self, req_id: int, contract: IbContract) -> None:
+        with self._lock:
+            request = self._pending.get(req_id)
+            if request is not None:
+                request.contracts.append(contract)
+
+    def on_contract_details_end(self, req_id: int) -> None:
+        with self._lock:
+            request = self._pending.pop(req_id, None)
+            if request is None:
+                return
+            if request.kind is _Kind.FUTURES:
+                self._take_futures(request.contracts)
+            elif request.kind is _Kind.EXPIRY and request.key is not None:
+                self._take_expiry(request.key, request.contracts)
+
+    def on_option_params(
+        self,
+        req_id: int,
+        exchange: str,
+        trading_class: str,
+        multiplier: str,
+        expirations: frozenset[str],
+        strikes: frozenset[Decimal],
+    ) -> None:
+        with self._lock:
+            request = self._pending.get(req_id)
+            if request is not None and exchange == self._instrument.exchange:
+                request.params.append((trading_class, multiplier, expirations, strikes))
+
+    def on_option_params_end(self, req_id: int) -> None:
+        with self._lock:
+            request = self._pending.pop(req_id, None)
+            if request is not None:
+                self._params[request.con_id] = request.params
+
+    def on_quote(self, req_id: int, field: QuoteField, value: Decimal | None) -> None:
+        stamp = self._clock()
+        with self._lock:
+            line = self._lines.get(req_id)
+            if line is None:
+                return  # a cancelled or older stream's late tick
+            if field is QuoteField.BID:
+                line.bid, line.bid_ts = value, stamp
+            elif field is QuoteField.ASK:
+                line.ask, line.ask_ts = value, stamp
+            else:
+                line.open_interest = int(value) if value is not None else None
+            if req_id != self._underlying:
+                quote = line.quote()
+                if quote is not None:
+                    self._outbox.append(quote)
+
+    def on_bar(self, req_id: int, bar: IbBar) -> None:
+        with self._lock:
+            request = self._pending.get(req_id)
+            if request is not None:
+                request.bars.append(bar)
+
+    def on_bars_end(self, req_id: int) -> None:
+        with self._lock:
+            request = self._pending.pop(req_id, None)
+            if request is not None:
+                self._take_bars(request)
+
+    def on_bar_update(self, req_id: int, bar: IbBar) -> None:
+        """Never asked for (no bar is streamed); ignored."""
+
+    def on_market_error(self, req_id: int, code: int, message: str) -> None:
+        with self._lock:
+            request = self._pending.pop(req_id, None)
+            if request is not None:
+                if (
+                    request.kind in (_Kind.HISTORY, _Kind.POLL)
+                    and code == _HMDS_ERROR
+                    and _NO_DATA in message.lower()
+                ):
+                    self._take_bars(request)  # a period with no trades: an empty answer
+                    return
+                self._failed(request.kind.value, f"IBKR {code}: {message}")
+                return
+            line = self._lines.pop(req_id, None)
+            if line is None:
+                return  # an old request's late error
+            kind = _Kind.UNDERLYING if req_id == self._underlying else _Kind.OPTION
+            if kind is _Kind.UNDERLYING:
+                self._underlying = None
+            else:
+                self._center = None  # resubscribe the window on the next step
+            self._failed(kind.value, f"IBKR {code}: {message} ({line.contract_id})")
+
+    # --- answers ----------------------------------------------------------------------
+
+    def _take_futures(self, contracts: list[IbContract]) -> None:
+        mine = []
+        for c in contracts:
+            if (
+                c.sec_type == _FUTURE
+                and c.symbol == self._instrument.symbol
+                and _expiry_date(c.expiry) is not None
+                and _as_decimal(c.multiplier) == self._instrument.point_value
+            ):
+                mine.append(c)
+        self._futures = tuple(sorted(mine, key=lambda c: c.expiry))
+        if not self._futures:
+            self._failed(_Kind.FUTURES.value, "IBKR listed no usable futures")
+            self._futures = None
+
+    def _take_expiry(self, chosen: tuple[str, str], contracts: list[IbContract]) -> None:
+        usable = tuple(
+            c
+            for c in contracts
+            if c.expiry == chosen[0]
+            and c.trading_class == chosen[1]
+            and c.right in _RIGHTS
+            and c.strike > 0
+            and _as_decimal(c.multiplier) == self._instrument.point_value
+        )
+        self._expiry_contracts[chosen] = usable
+        if not usable:
+            self._failed(_Kind.EXPIRY.value, f"no usable options for {chosen[1]} {chosen[0]}")
+
+    def _take_bars(self, request: _Request) -> None:
+        if request.kind is _Kind.HISTORY:
+            store = self._raw.setdefault(request.con_id, {})
+            for b in request.bars:
+                store[b.ts] = self._bar(b)
+            assert request.day is not None
+            self._loaded.add((request.con_id, request.day))
+            self._dirty = True
+            return
+        # a poll: keep only bars that had closed when it was sent
+        store = self._raw.setdefault(request.con_id, {})
+        for b in request.bars:
+            if b.ts + _MINUTE > request.sent_at:
+                continue
+            bar = self._bar(b)
+            old = store.get(b.ts)
+            done = self._complete_until
+            if old is not None and old != bar and done is not None and b.ts + _MINUTE <= done:
+                self._revisions += 1
+                log.warning("IBKR revised the %s bar after it was counted complete", b.ts)
+            store[b.ts] = bar
+        if self._complete_until is None or request.sent_at > self._complete_until:
+            self._complete_until = request.sent_at
+        self._dirty = True
+
+    def _bar(self, b: IbBar) -> Bar:
+        return Bar(self._instrument.symbol, b.ts, b.open, b.high, b.low, b.close, b.volume)
+
+    def _failed(self, what: str, why: str) -> None:
+        self._retry_at[what] = self._clock() + timedelta(seconds=self._s.retry_seconds)
+        self._alarm_once(
+            what,
+            f"MARKET DATA: {what} failed ({why}); retrying in "
+            f"{self._s.retry_seconds}s. Until then that data is missing",
+        )
+
+    def _alarm_once(self, key: str, message: str) -> None:
+        if key in self._alarmed:
+            log.warning(message)
+            return
+        self._alarmed.add(key)
+        try:
+            self._alarm_line(message)
+        except Exception:
+            log.exception("could not deliver a market data alarm")
+
+    # --- the driver -------------------------------------------------------------------
+
+    def step(self, now: datetime) -> None:
+        """Publish the quotes that arrived, then ask IBKR for whatever is missing."""
+        require_utc(now, "now")
+        with self._lock:
+            outbox, self._outbox = self._outbox, []
+        for quote in outbox:
+            try:
+                self._publish(quote)
+            except Exception:
+                log.exception("the quote book refused a quote")
+        with self._lock:
+            if not self._connected:
+                return
+            self._expire(now)
+            if self._futures is None:
+                self._ask_futures(now)
+                if self._futures is None:
+                    return
+            self._follow_front(now)
+            if self._front is None:
+                return
+            self._ensure_underlying(now)
+            self._ensure_options(now)
+            self._ensure_bars(now)
+
+    def _expire(self, now: datetime) -> None:
+        timeout = timedelta(seconds=self._s.request_timeout_seconds)
+        for req, request in list(self._pending.items()):
+            if now - request.sent_at > timeout:
+                del self._pending[req]
+                if request.kind in (_Kind.HISTORY, _Kind.POLL):
+                    self._call(partial(self._gw.cancel_bars, req))
+                self._failed(request.kind.value, f"no answer in {timeout}")
+
+    def _ready(self, what: str, now: datetime) -> bool:
+        at = self._retry_at.get(what)
+        return at is None or now >= at
+
+    def _busy(self, *kinds: _Kind) -> bool:
+        return any(r.kind in kinds for r in self._pending.values())
+
+    def _claim(self) -> int:
+        req = self._next_req
+        self._next_req += 1
+        return req
+
+    def _call(self, action: Callable[[], None]) -> bool:
+        try:
+            action()
+        except (ConnectionError, ValueError) as exc:
+            log.warning("market data request not sent: %s", exc)
+            return False
+        return True
+
+    def _send(self, request: _Request, action: Callable[[int], None]) -> None:
+        req = self._claim()
+        self._pending[req] = request  # before the call: an answer can come during it
+        if not self._call(lambda: action(req)):
+            self._pending.pop(req, None)
+            self._failed(request.kind.value, "could not be sent")
+
+    def _query(self, contract: IbContract) -> ContractQuery:
+        return ContractQuery(
+            contract.symbol,
+            contract.sec_type,
+            contract.exchange,
+            contract.currency,
+            contract.expiry,
+            con_id=contract.con_id,
+            include_expired=True,
+        )
+
+    # futures and the roll
+
+    def _ask_futures(self, now: datetime) -> None:
+        if self._busy(_Kind.FUTURES) or not self._ready(_Kind.FUTURES.value, now):
+            return
+        query = ContractQuery(
+            self._instrument.symbol,
+            _FUTURE,
+            self._instrument.exchange,
+            self._instrument.currency,
+            include_expired=True,
+        )
+        self._send(
+            _Request(_Kind.FUTURES, now), lambda r: self._gw.request_contract_details(r, query)
+        )
+
+    def front_for(self, day: date) -> IbContract | None:
+        """The future traded on `day`: the nearest one more than the roll from expiry."""
+        roll = timedelta(days=self._s.roll_days_before_expiry)
+        for c in self._futures or ():
+            expiry = _expiry_date(c.expiry)
+            if expiry is not None and day < expiry - roll:
+                return c
+        return None
+
+    def _follow_front(self, now: datetime) -> None:
+        front = self.front_for(now.date())
+        if front is None:
+            self._alarm_once("front", "MARKET DATA: no future to trade (none listed past the roll)")
+            return
+        if self._front is not None and front.con_id == self._front.con_id:
+            return
+        if self._front is not None:
+            log.warning("rolling from %s to %s", self._front.expiry, front.expiry)
+        self._cancel_all_lines()
+        self._front = front
+        self._history_ready = False
+        self._complete_until = None
+        self._broken_history = None
+        self._dirty = True
+
+    def _cancel_all_lines(self) -> None:
+        for req in list(self._lines):
+            self._call(partial(self._gw.cancel_quotes, req))
+        self._lines.clear()
+        self._underlying = None
+        self._center = None
+        self._chosen = None
+
+    # the future's quote
+
+    def _ensure_underlying(self, now: datetime) -> None:
+        if self._underlying is not None or not self._ready(_Kind.UNDERLYING.value, now):
+            return
+        assert self._front is not None
+        front = self._front
+        req = self._claim()
+        self._lines[req] = _Line(front, f"{front.symbol} {front.expiry} future")
+        self._underlying = req  # before the call: an answer can come during it
+        if not self._call(lambda: self._gw.request_quotes(req, front)):
+            self._lines.pop(req, None)
+            if self._underlying == req:
+                self._underlying = None
+            self._failed(_Kind.UNDERLYING.value, "could not be sent")
+
+    # options
+
+    def _ensure_options(self, now: datetime) -> None:
+        assert self._front is not None
+        front = self._front
+        params = self._params.get(front.con_id)
+        if params is None:
+            if not self._busy(_Kind.PARAMS) and self._ready(_Kind.PARAMS.value, now):
+                self._send(
+                    _Request(_Kind.PARAMS, now, con_id=front.con_id),
+                    lambda r: self._gw.request_option_params(
+                        r, front.symbol, self._instrument.exchange, _FUTURE, front.con_id
+                    ),
+                )
+            return
+        today = trading_day_at(now, self._instrument)
+        if today is None:
+            return  # market closed: keep whatever is streaming
+        chosen = self._choose_expiry(params, today)
+        if chosen is None:
+            self._alarm_once(
+                f"expiry {today}",
+                f"MARKET DATA: no option on the {front.expiry} future expires in "
+                f"{self._instrument.dte_min}-{self._instrument.dte_max} days of {today}",
+            )
+            return
+        if chosen != self._chosen:
+            self._drop_option_lines()
+            self._chosen = chosen
+        contracts = self._expiry_contracts.get(chosen)
+        if contracts is None:
+            if not self._busy(_Kind.EXPIRY) and self._ready(_Kind.EXPIRY.value, now):
+                query = ContractQuery(
+                    front.symbol,
+                    self._option_type,
+                    self._instrument.exchange,
+                    self._instrument.currency,
+                    expiry=chosen[0],
+                    trading_class=chosen[1],
+                )
+                self._send(
+                    _Request(_Kind.EXPIRY, now, key=chosen),
+                    lambda r: self._gw.request_contract_details(r, query),
+                )
+            return
+        self._ensure_window(contracts, now)
+
+    def _choose_expiry(
+        self, params: list[tuple[str, str, frozenset[str], frozenset[Decimal]]], today: date
+    ) -> tuple[str, str] | None:
+        """The nearest expiry in the DTE range; if several trading classes list it, the
+        one with the most strikes (then by name), so the choice is always the same."""
+        lo, hi = self._instrument.dte_min, self._instrument.dte_max
+        best: tuple[date, int, str, str] | None = None
+        for trading_class, multiplier, expirations, strikes in params:
+            if _as_decimal(multiplier) != self._instrument.point_value:
+                continue
+            for text in expirations:
+                expiry = _expiry_date(text)
+                if expiry is None or not lo <= (expiry - today).days <= hi:
+                    continue
+                key = (expiry, -len(strikes), trading_class, text)
+                if best is None or key < best:
+                    best = key
+        return None if best is None else (best[3], best[2])
+
+    def _drop_option_lines(self) -> None:
+        for req in [r for r in self._lines if r != self._underlying]:
+            self._call(partial(self._gw.cancel_quotes, req))
+            self._lines.pop(req, None)
+        self._center = None
+
+    def _ensure_window(self, contracts: tuple[IbContract, ...], now: datetime) -> None:
+        if self._underlying is None:
+            return
+        under = self._fresh(self._lines[self._underlying], now)
+        if under is None or under.bid <= 0:
+            return
+        mid = (under.bid + under.ask) / 2
+        if self._center is not None and abs(mid - self._center) <= self._s.recenter_points:
+            return
+        if not self._ready(_Kind.OPTION.value, now):
+            return
+        room = self._s.max_quote_lines - 1  # the future holds one line
+        inside = [c for c in contracts if abs(c.strike - mid) <= self._s.strike_window_points]
+        inside.sort(key=lambda c: (abs(c.strike - mid), c.strike, c.right))
+        wanted = {c.con_id: c for c in inside[:room]}
+        if len(inside) > room:
+            self._alarm_once(
+                "lines",
+                f"MARKET DATA: {len(inside)} strikes in the window; streaming the "
+                f"nearest {room} (max_quote_lines)",
+            )
+        current = {
+            line.contract.con_id: req
+            for req, line in self._lines.items()
+            if req != self._underlying
+        }
+        for con_id, req in current.items():
+            if con_id not in wanted:
+                self._call(partial(self._gw.cancel_quotes, req))
+                self._lines.pop(req, None)
+        for con_id, contract in wanted.items():
+            if con_id in current:
+                continue
+            contract_id = option_contract_id(contract)
+            self._contracts.register(contract_id, contract)
+            req = self._claim()
+            self._lines[req] = _Line(contract, contract_id)
+            if not self._call(partial(self._gw.request_quotes, req, contract)):
+                self._lines.pop(req, None)
+                self._failed(_Kind.OPTION.value, "could not be sent")
+                return
+        streaming = {line.contract.con_id for line in self._lines.values()}
+        if all(con_id in streaming for con_id in wanted):  # none refused during the calls
+            self._center = mid
+
+    # bars
+
+    def _ensure_bars(self, now: datetime) -> None:
+        if self._busy(_Kind.HISTORY, _Kind.POLL):
+            return
+        gap = timedelta(seconds=self._s.history_request_gap_seconds)
+        if self._last_history_at is not None and now - self._last_history_at < gap:
+            return
+        if not self._history_ready:
+            if self._broken_history is not None:
+                self._failed("history", self._broken_history)
+                self._broken_history = None
+                self._forget_empty_days()  # a day that came back empty is asked for again
+                return
+            if self._ready(_Kind.HISTORY.value, now):
+                self._next_history(now)
+            return
+        boundary = now.replace(second=0, microsecond=0)
+        if now - boundary < timedelta(seconds=self._s.bar_poll_delay_seconds):
+            return
+        if self._polled_for is not None and self._polled_for >= boundary:
+            return
+        if not self._ready(_Kind.POLL.value, now):
+            return
+        self._poll(now, boundary)
+
+    def _history_days(self, today: date) -> list[date]:
+        first = today - timedelta(days=self._s.history_days)
+        days = []
+        day = first
+        while day < today:
+            if day.weekday() != _SATURDAY:
+                days.append(day)
+            day += _DAY
+        return days
+
+    def _segments(self, today: date) -> list[tuple[IbContract, list[date]]]:
+        """The history days grouped by the future traded on them, oldest first; the last
+        segment is always today's future (its days may be none: a roll today)."""
+        assert self._front is not None
+        segments: list[tuple[IbContract, list[date]]] = []
+        for day in self._history_days(today):
+            owner = self.front_for(day)
+            if owner is None:
+                raise HistoryUnavailable(f"no future was listed as traded on {day}")
+            if segments and segments[-1][0].con_id == owner.con_id:
+                segments[-1][1].append(day)
+            else:
+                segments.append((owner, [day]))
+        if not segments or segments[-1][0].con_id != self._front.con_id:
+            segments.append((self._front, []))
+        return segments
+
+    def _plan(self, today: date) -> list[tuple[IbContract, date]]:
+        """Every (contract, UTC day) the history needs, oldest first: each day from the
+        future traded on it, then each splice day's bars from the newer future."""
+        segments = self._segments(today)
+        need = [(contract, day) for contract, days in segments for day in days]
+        for (old, days), (newer, _) in pairwise(segments):
+            need.append((newer, self._splice_day(old, days)))
+        return need
+
+    def _splice_day(self, old: IbContract, days: list[date]) -> date:
+        """The old future's last day with bars (a holiday has none)."""
+        store = self._raw.get(old.con_id, {})
+        traded = {ts.date() for ts in store}
+        for day in reversed(days):
+            if day in traded:
+                return day
+        return days[-1]
+
+    def _next_history(self, now: datetime) -> None:
+        try:
+            plan = self._plan(now.date())
+        except HistoryUnavailable as exc:
+            self._broken_history = str(exc)
+            return
+        for contract, day in plan:
+            if (contract.con_id, day) in self._loaded:
+                continue
+            end = datetime.combine(day + _DAY, time(0), tzinfo=UTC)
+            self._send_bars(_Kind.HISTORY, contract, day, end, _DAY, now)
+            return
+        self._history_ready = True
+        self._dirty = True
+        log.info("market data: history loaded (%s days)", self._s.history_days)
+
+    def _forget_empty_days(self) -> None:
+        for con_id, day in list(self._loaded):
+            store = self._raw.get(con_id, {})
+            if not any(ts.date() == day for ts in store):
+                self._loaded.discard((con_id, day))
+
+    def _poll(self, now: datetime, boundary: datetime) -> None:
+        assert self._front is not None
+        store = self._raw.get(self._front.con_id, {})
+        newest = max(store) if store else None
+        start = datetime.combine(now.date(), time(0), tzinfo=UTC)
+        if newest is not None and newest > start:
+            start = newest
+        span = max(now - start + _MINUTE, timedelta(seconds=self._s.min_poll_seconds))
+        span = min(span, _DAY)
+        self._polled_for = boundary
+        self._send_bars(_Kind.POLL, self._front, None, None, span, now)
+
+    def _send_bars(
+        self,
+        kind: _Kind,
+        contract: IbContract,
+        day: date | None,
+        end: datetime | None,
+        span: timedelta,
+        now: datetime,
+    ) -> None:
+        self._last_history_at = now
+        query = self._query(contract)
+        end_text = "" if end is None else _ibkr_end(end)
+        duration = f"{int(span.total_seconds())} S"
+        self._send(
+            _Request(kind, now, con_id=contract.con_id, day=day),
+            lambda r: self._gw.request_bars(r, query, end_text, duration, False),
+        )
+
+    def _assemble(self, today: date) -> tuple[Bar, ...]:
+        """Today's contract's bars, with each older contract's history spliced on before
+        them, back-adjusted at the latest minute both contracts traded."""
+        assert self._front is not None
+        segments = self._segments(today)
+        days = self._history_days(today)
+        newer = self._raw.get(segments[-1][0].con_id, {})
+        series: dict[datetime, Bar] = dict(newer)
+        offset = Decimal(0)
+        for old_contract, old_days in reversed(segments[:-1]):
+            old = self._raw.get(old_contract.con_id, {})
+            splice_days = set(old_days)
+            common = sorted(ts for ts in old if ts in newer and ts.date() in splice_days)
+            if not common:
+                raise HistoryUnavailable(
+                    f"cannot splice the {old_contract.expiry} future onto the next: "
+                    "no minute both traded on its last days"
+                )
+            cut = common[-1]
+            offset += newer[cut].close - old[cut].close
+            series = {ts: b for ts, b in series.items() if ts > cut}
+            for ts, b in old.items():
+                if ts <= cut:
+                    series[ts] = self._shift(b, offset)
+            newer = old
+        start = datetime.combine(days[0] if days else today, time(0), tzinfo=UTC)
+        return tuple(series[ts] for ts in sorted(series) if ts >= start)
+
+    def _shift(self, b: Bar, offset: Decimal) -> Bar:
+        try:
+            return Bar(
+                b.symbol,
+                b.ts,
+                b.open + offset,
+                b.high + offset,
+                b.low + offset,
+                b.close + offset,
+                b.volume,
+            )
+        except ValueError as exc:
+            raise HistoryUnavailable(f"a back-adjusted bar is not a bar ({exc})") from exc

@@ -159,6 +159,7 @@ def to_quantity(value: Decimal | float | int) -> int:
 def build_query(query: ContractQuery) -> Contract:
     contract = Contract()
     contract.conId = query.con_id
+    contract.includeExpired = query.include_expired
     contract.symbol = query.symbol
     contract.secType = query.sec_type
     contract.exchange = query.exchange
