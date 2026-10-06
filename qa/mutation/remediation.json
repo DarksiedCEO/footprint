@@ -102,7 +102,7 @@
    "src/footprint/brokers/ibkr/binding.py",
    "            check_paper(s.account, s.port)\n            check_paper_login",
    "            check_paper_login",
-   "account check at login off (redundant with login check)"
+   "account check at login off: EQUIVALENT (the account must be in IBKR's list, and every account in the list must be paper; the port was checked before connecting)"
   ],
   [
    "paper",
@@ -401,9 +401,9 @@
   [
    "guard",
    "tests/conftest.py",
-   "    for name in _PROXY_VARS:\n        monkeypatch.delenv(name, raising=False)\n",
+   "        monkeypatch.delenv(name, raising=False)\n",
    "",
-   "proxy left in place"
+   "proxy left in the environment"
   ]
  ]
 }

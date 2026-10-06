@@ -164,7 +164,11 @@ def test_the_binding_never_connects_with_forced_live_settings(account: str, port
 
     binding = IbBinding(_bypassed(account, port), ("NQ", "FOP"), alarms.append, factory)
     stop = threading.Event()
-    binding.run(stop)  # returns at once: refused before any connection
+    worker = threading.Thread(target=binding.run, args=(stop,), daemon=True)
+    worker.start()
+    worker.join(timeout=2)  # refused before any connection: returns at once
+    stop.set()
+    assert not worker.is_alive()
     assert clients == []
     assert binding.refused is not None
     assert any("IBKR CONNECTION REFUSED" in a for a in alarms)
