@@ -372,3 +372,20 @@ def test_an_alarm_queued_while_a_flapping_pager_looks_healthy_still_reaches_the_
     assert eventually(lambda: "alarm 3" in backup)
     line.close(timedelta(milliseconds=100))
     assert fallback.close(WAIT)
+
+
+def test_an_alarm_raised_while_closing_with_a_failing_pager_still_reaches_the_fallback() -> None:
+    """Delta review F-8: the closing line will not deliver it; the fallback must."""
+
+    def down(a: Alarm) -> None:
+        raise ConnectionError("pager down")
+
+    backup: list[str] = []
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(down, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(1))
+    assert eventually(lambda: "alarm 1" in backup)  # the pager failed: handed over
+    line.close(timedelta(milliseconds=100))
+    line.submit(alarm(2))  # raised during shutdown
+    assert eventually(lambda: "alarm 2" in backup)
+    assert fallback.close(WAIT)

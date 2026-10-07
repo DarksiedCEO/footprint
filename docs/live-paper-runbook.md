@@ -177,8 +177,9 @@ market is closed, so Footprint treats them as closed (no entry, and they never c
 as the prior day) until they are reviewed and approved. The day after Thanksgiving and
 Christmas Eve still trade until their early close.
 
-**Fail closed:** past `calendar_through` every day is treated as closed: no trades at
-all. A month before, it alarms once a day; once expired, "EXCHANGE CALENDAR EXPIRED"
+**Fail closed:** before `calendar_from` and past `calendar_through` every day is
+treated as closed: no trades at all (a backtest over older data needs that year's
+calendar added first). A month before, it alarms once a day; once expired, "EXCHANGE CALENDAR EXPIRED"
 rings the phone daily. To resume, extend the lists and `calendar_through` from CME's
 calendar (checklist 23), add the next year's Easter Sunday to `easter_sundays`, and
 restart. The file is checked at start: every standard closure in `holiday_rules` (New

@@ -22,12 +22,13 @@ def is_trading_day(day: date, instrument: InstrumentProfile) -> bool:
 
 def is_tradable_day(day: date, instrument: InstrumentProfile) -> bool:
     """Footprint may trade `day`: the exchange trades it, it is not a no-trade day,
-    and it is inside the maintained calendar. Fail closed: past `calendar_through`
-    no holiday or early close is known, so no day there trades (remediation item 7)."""
+    and it is inside the maintained calendar. Fail closed at both ends: before
+    `calendar_from` and past `calendar_through` no holiday or early close is known, so
+    no day there trades (remediation item 7; delta review F-6)."""
     return (
         is_trading_day(day, instrument)
         and day not in instrument.no_trade_days
-        and day <= instrument.calendar_through
+        and instrument.calendar_from <= day <= instrument.calendar_through
     )
 
 

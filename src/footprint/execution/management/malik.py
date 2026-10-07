@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
+from uuid import uuid4
 
 from footprint.core.calendar import SessionKind, entry_cutoff, session_at
 from footprint.core.config import Profiles
@@ -134,6 +135,9 @@ class Manager:
         self._stop_stuck_alarmed: set[str] = set()
         self._quote_alarmed: dict[str, StopCheck] = {}  # stale/no-bid, once per episode
         self._reconcile_round = 0
+        # Names this process's reconcile orders (and their one-cancels-all groups): the
+        # rounds restart at 0 after a restart, the names never do (delta review F-7).
+        self._run_token = uuid4().hex[:8]
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
         # restart): only a position's own orders can confirm its exit price.
@@ -833,7 +837,7 @@ class Manager:
             self._reprice_stuck(reducing, stuck_before, abs(qty), price)
             if needed <= 0:
                 continue  # orders that would not cancel already cover it
-            order_id = f"reconcile-{self._reconcile_round}-{contract_id}"
+            order_id = f"reconcile-{self._reconcile_round}-{self._run_token}-{contract_id}"
             order = Order(
                 order_id=order_id,
                 contract_id=contract_id,
@@ -844,7 +848,7 @@ class Manager:
                 # Its own one-cancels-all group: a second live copy IBKR makes of it (a
                 # modify under degraded connectivity) carries the same group, so the two
                 # can never both fill and go short (independent audit A-7). One group per
-                # order, never reused: a group that has filled is not used again.
+                # order, never reused, also across restarts (the run token).
                 oca_group=order_id,
             )
             owner = position.position_id if position is not None else None

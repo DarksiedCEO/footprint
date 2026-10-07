@@ -247,3 +247,25 @@ def test_the_last_day_of_the_calendar_still_trades(nq: InstrumentProfile) -> Non
     assert through not in nq.no_trade_days
     assert is_tradable_day(through, nq)
     assert session_at(pt(through, 7), nq) is SessionKind.PRIME
+
+
+def test_a_date_before_the_calendar_start_is_refused(tmp_path: Path) -> None:
+    """Delta review F-6 (A8b): a listed date before `calendar_from` is a config error."""
+    config = _nq_with(tmp_path, ("  - 2026-01-01   # New Year's Day", "  - 2025-12-25   # moved"))
+    with pytest.raises(ConfigError, match="before calendar_from"):
+        load_profiles(config, "nq.yaml")
+
+
+def test_every_day_before_the_calendar_is_closed(nq: InstrumentProfile) -> None:
+    """Delta review F-6: fail closed on both ends. Before `calendar_from` no holiday or
+    early close is known, so no day trades (a backtest over older data needs that
+    year's calendar first)."""
+    day = nq.calendar_from - timedelta(days=1)
+    for _ in range(60):
+        assert not is_tradable_day(day, nq)
+        assert session_at(pt(day, 7), nq) is SessionKind.CLOSED
+        day -= timedelta(days=1)
+    first = nq.calendar_from
+    while first.weekday() >= 5 or first in nq.holidays or first in nq.no_trade_days:
+        first += timedelta(days=1)
+    assert is_tradable_day(first, nq)  # the first ordinary day inside it trades

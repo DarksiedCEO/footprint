@@ -172,6 +172,8 @@ class _Copy:
     status: str
     filled: int = 0
     avg_price: Decimal | None = None
+    told_avg: Decimal | None = None  # IBKR's own average, when real (> 0)...
+    told_filled: int = 0  # ...and the size it is the average of
     cancel_sent: bool = False  # an Inactive copy the adapter asked IBKR to cancel
     cancel_confirmed: bool = False  # ...and IBKR answered that cancel
     settled_unseen: bool = False  # taken as finished because IBKR stopped listing it
@@ -661,11 +663,9 @@ class IbkrBroker:
             back = self._came_back(copy)
             alarms += back
             copy.filled = max(filled, self._exec_filled(perm_id))
-            # IBKR's average is used only when it is a real price; 0 (unset) is never
-            # booked: the executions' price, or none yet (independent audit A-2).
-            copy.avg_price = (
-                avg_fill_price if filled and avg_fill_price > 0 else self._exec_price(perm_id)
-            )
+            if filled and avg_fill_price > 0:
+                copy.told_avg, copy.told_filled = avg_fill_price, filled
+            self._reprice(copy)
             duplicated = self._check_duplicates(copy.order_id)
             alarms += duplicated
             cancel = self._inactive(copy, alarms)
@@ -711,6 +711,7 @@ class IbkrBroker:
             copy = self._copies.get(perm_id)
             if copy is not None:
                 copy.filled = max(copy.filled, self._exec_filled(perm_id))
+                self._reprice(copy)  # every execution prices the fill again (F-1, F-4)
             self._cv.notify_all()
 
     def on_executions_end(self) -> None:
@@ -925,10 +926,24 @@ class IbkrBroker:
     def _exec_filled(self, perm_id: int) -> int:
         return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)
 
+    def _reprice(self, copy: _Copy) -> None:
+        """Under the lock: a copy's fill price, never guessed (independent audit A-2 and
+        its delta review F-1, F-4, F-5). From the executions when they cover everything
+        filled; else IBKR's own average when it is real and for exactly that size; else
+        none yet. Never from part of the fill, never 0."""
+        if copy.filled <= 0:
+            copy.avg_price = None
+        elif self._exec_filled(copy.perm_id) >= copy.filled:
+            copy.avg_price = self._exec_price(copy.perm_id)
+        elif copy.told_avg is not None and copy.told_filled == copy.filled:
+            copy.avg_price = copy.told_avg
+        else:
+            copy.avg_price = None
+
     def _exec_price(self, perm_id: int) -> Decimal | None:
         fills = [f for f in self._fills.values() if f.perm_id == perm_id and f.signed]
-        if not fills:
-            return None
+        if not fills or any(f.price <= 0 for f in fills):
+            return None  # an execution at 0 (or below) is no price
         return sum((f.price * abs(f.signed) for f in fills), Decimal(0)) / sum(
             abs(f.signed) for f in fills
         )
@@ -988,7 +1003,18 @@ class IbkrBroker:
         for message in alarms:
             self._alarm(message)
         for ib_id in [*([] if cancel is None else [cancel]), *(more or [])]:
-            self._gw.cancel_order(ib_id)
+            try:
+                self._gw.cancel_order(ib_id)
+            except Exception as exc:
+                # Lost as IBKR drops (delta review F-3): not forgotten. The copy is still
+                # held back (no protection), its cancel is sent again once IBKR is ready,
+                # and the runner reconciles. The other cancels still go.
+                log.warning("IBKR: cancel of %s not sent (%r); again once ready", ib_id, exc)
+                with self._cv:
+                    for copy in self._copies.values():
+                        if copy.ib_id == ib_id and copy.status == _INACTIVE:
+                            copy.cancel_sent = False
+                doubt = True
         if doubt:
             self._on_resync()
 
@@ -1000,7 +1026,7 @@ class IbkrBroker:
             if copy is None or not copy.live:
                 continue  # its status arrived meanwhile
             copy.filled = max(copy.filled, self._exec_filled(perm))
-            copy.avg_price = self._exec_price(perm) or copy.avg_price
+            self._reprice(copy)
             copy.status = _FILLED if copy.filled >= copy.order.quantity else _CANCELLED_STATUS
             copy.cancel_confirmed = copy.settled_unseen = True
             if copy.status == _FILLED:
