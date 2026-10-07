@@ -128,6 +128,7 @@ class Manager:
         self._cancelling_since: dict[str, datetime] = {}  # first seen PendingCancel
         self._exit_started: dict[str, ExitReason] = {}  # why an exit began, before it is out
         self._refusals_seen: dict[str, int] = {}  # cancels of a stop the broker refused
+        self._refusal_alarmed: set[str] = set()
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -171,13 +172,23 @@ class Manager:
                 self._cancelling_since.pop(stop_id, None)  # (AEGIS L2-3)
             if stop_status.cancel_refusals > self._refusals_seen.get(stop_id, 0):
                 # The broker refused a cancel of the stop (PendingCancel, then acting
-                # again): whatever exit sent it is over, with its records and clocks,
-                # quote or no quote. A later cancel by anyone else is theirs, and a new
-                # exit gets a full escalation window (AEGIS M3-1).
+                # again). Any PendingCancel from now on is a new cancel.
                 self._refusals_seen[stop_id] = stop_status.cancel_refusals
-                self._alarm(now, f"{pid}: the broker refused a cancel of the resting stop")
-                self._abandon_exit(position)
                 self._cancelling_since.pop(stop_id, None)
+                if stop_status.protects:
+                    # Acting again, quote or no quote: no cancel of ours is pending, so
+                    # a later cancel by anyone else is theirs (AEGIS M3-1). The exit's
+                    # reason and its escalation clock are kept: an exit that keeps
+                    # wanting out through refused cancels still escalates after
+                    # cancel_escalate_seconds from its first cancel (AEGIS N4-1); they
+                    # are cleared only when the exit is dropped (its reason passed).
+                    # (Still cancelling: a stale message, or a new cancel; ours stays
+                    # ours, AEGIS N4-2.)
+                    self._exit_cancels.discard(stop_id)
+                    self._reconcile_cancels.discard(stop_id)
+                    if pid not in self._refusal_alarmed:
+                        self._refusal_alarmed.add(pid)
+                        self._alarm(now, f"{pid}: the broker refused a cancel of the resting stop")
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
             if stop_status.held_back:
@@ -189,6 +200,7 @@ class Manager:
                     self._alarm(
                         now, f"{pid}: resting stop held back at the broker; unprotected, flattening"
                     )
+                self._now_unprotected(pid)
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
             if stop_status.cancelling:
                 # Its cancel is pending at the broker: no protection, but still live (it
@@ -207,6 +219,7 @@ class Manager:
                         f"{pid}: resting stop being cancelled at the broker, not by this "
                         "system; unprotected, flattening",
                     )
+                self._now_unprotected(pid)
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
             if stop_status.state is OrderState.CANCELLED and stop_id in self._exit_cancels:
                 # Our own exit's cancel landed: the exit carries on, no false alarm.
@@ -222,6 +235,7 @@ class Manager:
                     "unprotected, flattening",
                 )
                 position.stop_order_id = None
+                self._now_unprotected(pid)
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
@@ -251,6 +265,13 @@ class Manager:
         self._stops.on_tick(pid, tick, now)
         self._sync_stop(position, now)
         return None
+
+    def _now_unprotected(self, pid: str) -> None:
+        """The stop failed under an exit already under way (held back, cancelled by
+        someone else): the exit carries on, but as UNPROTECTED, the reason that now
+        holds (its escalation clock is kept)."""
+        if pid in self._exit_started:
+            self._exit_started[pid] = ExitReason.UNPROTECTED
 
     def _abandon_exit(self, position: Position) -> None:
         pid = position.position_id

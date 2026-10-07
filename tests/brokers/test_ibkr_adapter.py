@@ -1074,6 +1074,40 @@ def test_a_cancel_refused_after_pending_cancel_is_counted(ib: Ib) -> None:
     assert ib.adapter.status("p1-stop").cancel_refusals == 1
 
 
+def test_a_refusal_reported_by_open_order_is_counted(ib: Ib) -> None:
+    """The openOrder path too: PendingCancel, then an openOrder saying Submitted."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingCancel", 0, 1, D(0))
+    ib.fake._open_order(child, ib.fake.sim.status(child.sim_id))  # says Submitted
+    assert ib.adapter.status("p1-stop").cancel_refusals == 1
+
+
+def test_refusals_are_summed_over_copies_and_shown_on_extra_ids(ib: Ib) -> None:
+    from footprint.brokers.ibkr.adapter import _EXTRA
+
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    first = next(c for c in ib.adapter._copies.values() if c.order_id == "p1-stop")
+    _second_copy(ib, "p1-stop", "Submitted")
+    second = next(
+        c for c in ib.adapter._copies.values() if c.order_id == "p1-stop" and c is not first
+    )
+    first.refusals, second.refusals = 1, 2
+    assert ib.adapter.status("p1-stop").cancel_refusals == 3
+    assert ib.adapter.status(f"p1-stop{_EXTRA}{second.perm_id}").cancel_refusals == 2
+
+
+@pytest.mark.parametrize("after", ["Cancelled", "Filled", "Inactive"])
+def test_a_pending_cancel_that_ends_is_no_refusal(ib: Ib, after: str) -> None:
+    """Only PendingCancel -> acting (PreSubmitted/Submitted) is a refusal."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingCancel", 0, 1, D(0))
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, after, 0, 1, D(0))
+    assert ib.adapter.status("p1-stop").cancel_refusals == 0
+
+
 def _second_copy(ib: Ib, order_id: str, status: str) -> None:
     """IBKR holding a second live copy of the same order (as after a resend)."""
     from dataclasses import replace as clone
