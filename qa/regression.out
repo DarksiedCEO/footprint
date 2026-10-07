@@ -1,42 +1,44 @@
-source: bf8db6f5d14f0b91e682d7d6e47cdcdf43e6ede9 tree-dirty: 0 files
+source: fc13169c916afc060f48e2c650c1f540a38e2afa tree-dirty: 0 files
 === live-account rejection
-11 passed, 24 deselected in 0.23s
+11 passed, 24 deselected in 0.24s
 === port 4001 rejection
-5 passed, 30 deselected in 0.66s
+5 passed, 30 deselected in 0.64s
 === configuration-bypass attempts
-18 passed, 18 deselected in 0.79s
+18 passed, 18 deselected in 0.73s
 === IBKR disconnect
-6 passed, 4 deselected in 3.06s
+6 passed, 4 deselected in 2.82s
 === failed reconciliation
 2 passed, 7 deselected in 1.44s
 === expired calendar
-4 passed, 27 deselected in 1.74s
+4 passed, 27 deselected in 1.63s
 === holiday blocking
-27 passed, 4 deselected in 1.97s
+27 passed, 4 deselected in 1.75s
 === Twilio timeout
-3 passed, 23 deselected in 1.67s
+3 passed, 24 deselected in 1.61s
 === Twilio rejection
-4 passed, 22 deselected in 0.65s
+4 passed, 23 deselected in 0.62s
 === Telegram fallback (Telegram down)
-3 passed, 76 deselected in 3.27s
+3 passed, 77 deselected in 3.23s
 === SMS fallback
-5 passed, 74 deselected in 2.76s
+5 passed, 75 deselected in 2.76s
 === Telegram-only degraded mode
-13 passed, 13 deselected in 0.56s
+14 passed, 13 deselected in 0.59s
 === no network in tests
-2 passed, 51 deselected in 0.13s
+2 passed, 51 deselected in 0.14s
 === H-2 entry protected during an outage (attached stop)
-50 passed, 139 deselected in 9.07s
+50 passed, 139 deselected in 9.55s
 === D37 outage excluded from the failsafe, flapping cannot hold it off
-3 passed, 6 deselected in 2.24s
+3 passed, 6 deselected in 2.26s
 === K-1/K-2/K-3 a stop being cancelled: never protection, never doubled, no false latch
-29 passed, 147 deselected in 10.22s
+29 passed, 150 deselected in 10.23s
 === L2 audit: a doubt as our cancel lands, refused cancels, stale clocks, exit reasons
-16 passed, 54 deselected in 20.40s
+16 passed, 57 deselected in 20.16s
 === M3 audit: refused cancels end the exit, honest exit reasons
-7 passed, 135 deselected in 5.46s
+7 passed, 138 deselected in 5.58s
 === N4 audit: refusals never restart escalation, stale messages, dropped exits, bookings
-15 passed, 127 deselected in 12.32s
+15 passed, 130 deselected in 11.80s
 === O5 audit: CANCEL STUCK when reconcile agrees but the stop will not cancel; stale-quote alarm once
-5 passed, 31 deselected in 12.04s
+5 passed, 34 deselected in 11.94s
+=== P6 final pass: CANCEL STUCK timing, silent feed critical, degraded banner
+4 passed, 62 deselected in 12.36s
 EXIT 0

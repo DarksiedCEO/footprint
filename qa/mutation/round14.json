@@ -1,0 +1,49 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ],
+  "live": [
+   "tests/live",
+   "tests/execution/test_held_back_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:",
+   "                        if self._escalations[pid] > 2 and pid not in self._stop_stuck_alarmed:",
+   "P-38: CANCEL STUCK on the third hand-over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        del self._stop_stuck_since[pid]\n",
+   "",
+   "P-42: the stuck clock not cleared at hand-over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._escalations.pop(pid, None)  # a later exit starts its own count\n",
+   "",
+   "an abandoned exit keeps its hand-over count"
+  ],
+  [
+   "live",
+   "src/footprint/live/app.py",
+   "        if live.alarms.mode.degraded:\n            self._say(",
+   "        if False:\n            self._say(",
+   "P-32: no DEGRADED_ALERTING start-up banner"
+  ],
+  [
+   "live",
+   "src/footprint/execution/channels.py",
+   "    \"QUOTE FEED SILENT\",\n",
+   "",
+   "P6-3: a silent feed is not critical"
+  ]
+ ]
+}
