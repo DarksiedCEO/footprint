@@ -87,3 +87,34 @@ def test_a_cancel_lost_as_ibkr_drops_is_sent_again_once_ready(ib: Ib) -> None:
     ib.fake.restore(data_lost=True)  # the resync replays it Inactive
     assert ib.adapter.ready
     assert ib.fake.cancels.count(stop.ib_id) == 1  # sent again, once
+
+
+def test_ibkrs_average_for_a_smaller_size_is_not_used_for_the_whole_fill(ib: Ib) -> None:
+    ib_id, perm = _resting(ib, quantity=2)
+    ib.adapter.on_order_status(ib_id, perm, "Submitted", 1, 1, D(150))  # 1 of 2, at 150
+    ib.adapter.on_order_status(ib_id, perm, "Filled", 2, 0, D(0))  # all of it, price unset
+    assert ib.adapter.status("p1-entry").avg_price is None  # 150 is for 1 lot, not 2
+
+
+def _extra_copy(ib: Ib) -> tuple[str, int, int]:
+    """A second live copy of an exit (a modify under degraded connectivity), as listed."""
+    ib.adapter.place(Order("p1-exit-1", C, Side.SELL, 1, OrderType.LIMIT, D(300), oca_group="p1"))
+    ib.fake.degraded = True
+    ib.adapter.modify("p1-exit-1", D(299), None)
+    second = max(ib.fake.copies.values(), key=lambda c: c.perm_id)
+    return f"p1-exit-1#{second.perm_id}", second.ib_id, second.perm_id
+
+
+def test_a_zero_priced_execution_is_no_price_for_one_listed_copy(ib: Ib) -> None:
+    listed, ib_id, perm = _extra_copy(ib)
+    ib.adapter.on_execution(
+        "0000f0009.65a1b2c3.01.01", ib_id, perm, 501, "NQ", "FOP", "SLD", 1, D(0)
+    )
+    ib.adapter.on_order_status(ib_id, perm, "Filled", 1, 0, D(0))
+    assert ib.adapter.status(listed).avg_price is None
+
+
+def test_a_zero_average_from_ibkr_is_no_price_for_one_listed_copy(ib: Ib) -> None:
+    listed, ib_id, perm = _extra_copy(ib)
+    ib.adapter.on_order_status(ib_id, perm, "Filled", 1, 0, D(0))
+    assert ib.adapter.status(listed).avg_price is None
