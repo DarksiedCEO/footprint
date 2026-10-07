@@ -966,3 +966,130 @@ def test_a_resting_failsafe_exit_after_our_cancel_landed_is_booked_failsafe(
             break
     assert closed is not None
     assert closed.reason is ExitReason.FAILSAFE
+
+
+# --- AEGIS O5 (audit of bdbe01e) -------------------------------------------------------
+
+
+def test_an_exit_refused_after_reconcile_agreed_tells_andre_to_act(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS O5-1: IBKR refuses every cancel; reconcile agrees (the stop protects), and
+    the exit escalates again: CANCEL STUCK tells Andre to act, once. Never short."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.CLOSE, 100 * escalate)
+    before = len(alarms)
+    for _ in range(8 * escalate):
+        t = _steps(stack, runner, t, 1)
+        if child.perm_id in fake.pending_cancels:  # refused
+            fake.pending_cancels.remove(child.perm_id)
+            fake._report(force=child.ib_id)
+    said = [a.message for a in alarms[before:]]
+    assert sum("CANCEL STUCK" in m and "Flatten by hand" in m for m in said) == 1, said
+    first_halt = next(i for i, m in enumerate(said) if m.startswith("HALT:"))
+    stuck = next(i for i, m in enumerate(said) if "Flatten by hand" in m)
+    assert stuck > first_halt  # not on the first hand-over: only once reconcile agreed
+    assert all(qty >= 0 for qty in fake.sim.positions().values())
+
+
+def test_a_stale_quote_is_alarmed_once_per_episode(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS O5-9: a quote stale for a minute is one alarm, not one a second; a fresh
+    quote ends the episode, and the next stale spell alarms again."""
+    _, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    before = len(alarms)
+    t += 10 * SEC
+    t = _quiet_steps(stack, runner, t, 60)
+    assert sum("no fresh quote" in a.message for a in alarms[before:]) == 1
+    t = _steps(stack, runner, t, 1)
+    t += 10 * SEC
+    t = _quiet_steps(stack, runner, t, 5)
+    assert sum("no fresh quote" in a.message for a in alarms[before:]) == 2
+
+
+def test_a_stale_submitted_then_our_cancel_landing_between_steps_is_ours(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """PendingCancel, a stale Submitted, then Cancelled, all before the next step: the
+    stop never protected when management looked; no false alarm, booked NEWS."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 1)
+    before = len(alarms)
+    adapter.on_order_status(child.ib_id, child.perm_id, "Submitted", 0, 1, D(0))  # stale
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert not any("CANCELLED at the broker" in m for m in said), said
+    assert [c.reason for c in runner.closed] == [ExitReason.NEWS], runner.closed
+
+
+def test_a_refused_reconcile_cancel_seen_on_a_stale_look_then_a_hand_cancel_alarms(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    child = _stop_copy(fake, stop_id)
+    manager = stack.manager
+    fake.slow_cancels = True
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    assert not manager.reconcile(None, t)
+    assert not manager.reconcile(None, t + settle)  # acts: cancels the stop
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused
+    t += settle + SEC
+    assert manager.reconcile(position, t)
+    stack.ledger.clear_kill_switch("Andre")
+    t += 6 * SEC  # stale
+    manager.manage(position, (), t)  # a stale look sees the refusal
+    before = len(alarms)
+    adapter.cancel(stop_id)  # by hand
+    manager.manage(position, (), t + SEC)
+    said = [a.message for a in alarms[before:]]
+    assert any("not by this system" in m for m in said), said
+
+
+def test_an_old_refusal_then_a_later_exits_unanswered_cancel_landing_is_ours(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """A refusal already handled must not be applied again: a later exit's unanswered
+    cancel that finally lands is ours (no false alarm)."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 1)
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused
+    fake.slow_cancels = False
+    t = _steps(stack, runner, t, 3)  # dropped: reason passed, stop protects
+    fake.mute_cancels = True
+    _force_reason(stack, ExitReason.CLOSE, 3)
+    t = _steps(stack, runner, t, 2)  # CLOSE: cancel sent, unanswered
+    before = len(alarms)
+    t += 6 * SEC
+    runner.step(t)  # stale look: still protecting
+    t += SEC
+    fake.mute_cancels = False
+    fake.sim.cancel(child.sim_id)  # IBKR finally carries out our cancel
+    fake._report()
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert not any("CANCELLED at the broker" in m for m in said), said
+    assert all(qty >= 0 for qty in fake.sim.positions().values())

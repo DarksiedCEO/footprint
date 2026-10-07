@@ -129,6 +129,9 @@ class Manager:
         self._exit_started: dict[str, ExitReason] = {}  # why an exit began, before it is out
         self._refusals_seen: dict[str, int] = {}  # cancels of a stop the broker refused
         self._refusal_alarmed: set[str] = set()
+        self._escalations: dict[str, int] = {}  # times an exit handed its stop to reconcile
+        self._stop_stuck_alarmed: set[str] = set()
+        self._quote_alarmed: dict[str, StopCheck] = {}  # stale/no-bid, once per episode
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -235,7 +238,6 @@ class Manager:
                     "unprotected, flattening",
                 )
                 position.stop_order_id = None
-                self._now_unprotected(pid)
                 return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
@@ -250,10 +252,13 @@ class Manager:
                 # Never carry a position past the close for want of a quote (G8, NB-07).
                 self._alarm(now, f"{pid}: {check.value} quote at the close; flattening anyway")
                 return self._start_exit(position, quote, now, ExitReason.CLOSE)
-            what = "no fresh quote" if check is StopCheck.STALE else "the bid has vanished"
-            self._alarm(now, f"{pid}: {what}; relying on the resting stop")
+            if self._quote_alarmed.get(pid) is not check:  # once per episode (AEGIS O5-9)
+                self._quote_alarmed[pid] = check
+                what = "no fresh quote" if check is StopCheck.STALE else "the bid has vanished"
+                self._alarm(now, f"{pid}: {what}; relying on the resting stop")
             return None
 
+        self._quote_alarmed.pop(pid, None)
         reason = self._must_exit(position, quote, check, blackouts, now)
         if reason is not None:
             return self._start_exit(position, quote, now, reason)
@@ -407,6 +412,18 @@ class Manager:
                         # cancel (CANCEL STUCK to Andre); a working stop it agrees with
                         # is managed again.
                         del self._stop_stuck_since[pid]
+                        self._escalations[pid] = self._escalations.get(pid, 0) + 1
+                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:
+                            # Reconcile agreed (the stop still protects) and the exit is
+                            # still refused: nothing more the system can do safely; Andre
+                            # must act (AEGIS O5-1). The exit keeps asking meanwhile.
+                            self._stop_stuck_alarmed.add(pid)
+                            self._alarm(
+                                now,
+                                f"{pid}: CANCEL STUCK: the broker will not cancel the resting "
+                                "stop (it still protects); the exit cannot go out. Flatten by "
+                                "hand or cancel the stop at IBKR",
+                            )
                         message = f"{pid}: resting stop will not cancel; reconcile"
                         self._stand_down(now, f"{pid}: stop will not cancel")
                         raise NeedsReconcile(message)
