@@ -7,11 +7,17 @@ cd "$(dirname "$0")/.."
 export FOOTPRINT_REQUIRE_IBAPI=1
 fail=0
 echo "source: $(git rev-parse HEAD) tree-dirty: $(git status --porcelain -- src tests | wc -l) files"
+# One run per group: the printed counts and the verdict come from the same run. Tests
+# run as `python -m pytest` so a copied tree tests its own source (independent audit
+# A-17). A group that selects no tests exits 5 and is FAILED.
 run() {
   local name=$1; shift
+  local out code
   echo "=== $name"
-  if uv run pytest -q -p no:cacheprovider "$@" 2>&1 | grep -E "passed|failed|error" | tail -1; then :; fi
-  uv run pytest -q -p no:cacheprovider "$@" >/dev/null 2>&1 || { echo "    FAILED"; fail=1; }
+  out=$(uv run python -m pytest -q -p no:cacheprovider "$@" 2>&1)
+  code=$?
+  printf '%s\n' "$out" | grep -E "passed|failed|error|deselected" | tail -1
+  if [ "$code" -ne 0 ]; then echo "    FAILED (exit $code)"; fail=1; fi
 }
 B=tests/brokers/test_paper_boundary.py
 D=tests/execution/test_disconnect_policy.py
