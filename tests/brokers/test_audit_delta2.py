@@ -112,3 +112,19 @@ def test_a_failed_cancel_re_arms_only_the_inactive_copy(ib: Ib) -> None:
     ib.adapter.on_order_status(ib_id, first, "Submitted", 0, 1, D(0))  # acting again
     assert any("LIVE again at IBKR after it was Inactive" in a for a in ib.alarms), ib.alarms
     assert listed.endswith(f"#{second}")
+
+
+def test_not_connected_after_a_confirmed_cancel_does_not_send_it_again(ib: Ib) -> None:
+    """A cancel IBKR already answered (cancelled / not found) is settled: a later 504
+    on the same id (another request that could not be sent) does not re-arm it."""
+    ib_id, perm = _stop(ib)
+    ib.fake.inactive.add(perm)
+    ib.fake.mute_cancels = True  # the cancel is sent, its answer comes below
+    ib.adapter.on_order_status(ib_id, perm, "Inactive", 0, 1, D(0))
+    ib.adapter.on_error(ib_id, 202, "Order Canceled")  # IBKR answered the cancel
+    ib.resyncs.clear()
+    ib.adapter.on_error(ib_id, 504, "Not connected")
+    assert not ib.resyncs
+    sent = ib.fake.cancels.count(ib_id)
+    ib.adapter.on_order_status(ib_id, perm, "Inactive", 0, 1, D(0))
+    assert ib.fake.cancels.count(ib_id) == sent  # not sent again

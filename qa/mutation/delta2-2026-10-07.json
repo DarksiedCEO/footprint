@@ -1,0 +1,213 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_runner.py",
+   "tests/execution/test_audit_delta_exit.py"
+  ],
+  "broker": [
+   "tests/brokers/test_audit_delta2.py",
+   "tests/brokers/test_audit_delta.py",
+   "tests/brokers/test_audit_2026_10_07.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_runner.py"
+  ],
+  "backtest": [
+   "tests/backtest/test_calendar_range.py",
+   "tests/backtest/test_engine.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if price is None:  # filled, its price not reported yet: never \"unfilled\" (N-1)\n            return self._price_pending(ticket, filled, now)\n",
+   "",
+   "N-1 Diego: no price taken as unfilled"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if now - ticket.price_pending_since >= wait:",
+   "        if False:",
+   "N-1 Diego: waits for the price forever"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if now - ticket.price_pending_since >= wait:",
+   "        if now - ticket.price_pending_since > wait:",
+   "N-1 Diego: wait bound off by one"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if pid in self._pending:\n            return self._await_price(position, now)\n\n",
+   "\n",
+   "N-1 Malik: manage ignores a pending fill"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if position.position_id in self._pending:\n            return self._await_price(position, now)\n        if position.exit_order_id is not None:\n            return self._work_exit(position, quote, now)\n        return self._start_exit(position, quote, now, reason)",
+   "        if position.exit_order_id is not None:\n            return self._work_exit(position, quote, now)\n        return self._start_exit(position, quote, now, reason)",
+   "N-1 Malik: flatten ignores a pending fill"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                return self._fill_pending(position, stop_id, ExitReason.STOP, now)\n            if stop_status.held_back:",
+   "                pass\n            if stop_status.held_back:",
+   "N-1 Malik: stop filled unpriced falls through"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    return self._fill_pending(position, stop_id, ExitReason.STOP, now)\n                if cancelled.state is not OrderState.CANCELLED:",
+   "                    pass\n                if cancelled.state is not OrderState.CANCELLED:",
+   "N-1 Malik: stop filled during the cancel falls through"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        return self._fill_pending(position, f\"{pid}-stop\", ExitReason.STOP, now)",
+   "                        pass",
+   "N-1 Malik: orphan stop filled unpriced falls through"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        return self._fill_pending(position, order_id, ExitReason.STOP, now)",
+   "                        raise NeedsReconcile(\"sweep fill unpriced\")",
+   "N-1 Malik: sweep fill unpriced reconciles at once"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if unpriced is not None:",
+   "        if False:",
+   "N-1 Malik: _place_exit sells beside an unpriced fill"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            return self._fill_pending(position, order.order_id, reason, now)",
+   "            pass",
+   "N-1 Malik: placed exit filled unpriced retried"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            return self._fill_pending(position, position.exit_order_id, reason, now)\n        if status.state is not OrderState.WORKING:",
+   "            pass\n        if status.state is not OrderState.WORKING:",
+   "N-1 Malik: working exit filled unpriced retried"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                return self._fill_pending(position, position.exit_order_id, reason, now)\n        return None",
+   "                pass\n        return None",
+   "N-1 Malik: modified exit filled unpriced falls through"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if now - known[1] >= wait:",
+   "        if False:",
+   "N-1 Malik: waits for the price forever"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if self._sold_unpriced(position, contract_id, now):\n                continue",
+   "            if False:\n                continue",
+   "N-1 reconcile: flattens what an unpriced fill sold"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if now - since < wait:",
+   "        if True:",
+   "N-1 reconcile: never stops holding off"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        \"\"\"The price of the order that really closed THIS position (its stop, its\n        exits, or reconcile orders sent for it), and whether one was found.\"\"\"\n        pending = self._pending.get(position.position_id)\n        candidates = [pending[0] if pending else None, position.stop_order_id]",
+   "        \"\"\"The price of the order that really closed THIS position (its stop, its\n        exits, or reconcile orders sent for it), and whether one was found.\"\"\"\n        pending = self._pending.get(position.position_id)\n        candidates = [None, position.stop_order_id]",
+   "N-1 reconcile: pending fill not a booking candidate"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if status.state is OrderState.FILLED and status.avg_price is not None:\n            return self._close(position, status.avg_price, now, reason)\n        return self._fill_pending(position, order_id, reason, now)",
+   "        return self._fill_pending(position, order_id, reason, now)",
+   "N-1 Malik: pending fill never booked"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if code == _NOT_CONNECTED:",
+   "            if False:",
+   "N-3: 504 ignored"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                        and not copy.cancel_confirmed\n",
+   "",
+   "N-3: 504 re-arms a confirmed cancel"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            self._on_resync()  # what IBKR holds is in doubt: the runner reconciles",
+   "            pass",
+   "N-3: no doubt on 504"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if copy.ib_id == ib_id and copy.status == _INACTIVE:\n                            copy.cancel_sent = False",
+   "if copy.ib_id == ib_id:\n                            copy.cancel_sent = False",
+   "R3: re-arm any status"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "except Exception as exc:\n                # Lost as IBKR drops",
+   "except ConnectionError as exc:\n                # Lost as IBKR drops",
+   "R5: re-arm only ConnectionError"
+  ],
+  [
+   "broker",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if not fills or any(f.price <= 0 for f in fills):",
+   "if not fills or all(f.price <= 0 for f in fills):",
+   "R9: zero execution only if all zero"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if start < instrument.calendar_from:",
+   "        if False:",
+   "N-2: before calendar_from accepted"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if end > instrument.calendar_through:",
+   "        if False:",
+   "N-2: past calendar_through accepted"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        self._inside_calendar(self._bars[self._first].ts, self._bars[-1].ts)",
+   "        self._inside_calendar(self._bars[0].ts, self._bars[-1].ts)",
+   "N-2: look-back bars checked too"
+  ]
+ ]
+}

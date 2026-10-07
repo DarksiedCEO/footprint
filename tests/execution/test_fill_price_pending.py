@@ -39,6 +39,7 @@ class Lag:
         self.hidden: set[str] = set()
         self.held: dict[str, int] | None = None
         self.placed: list[str] = []
+        self.cancelled: list[str] = []
         status, place, cancel = broker.status, broker.place, broker.cancel
         modify, positions, attached = broker.modify, broker.positions, broker.place_attached
 
@@ -59,7 +60,12 @@ class Lag:
         monkeypatch.setattr(broker, "status", lambda order_id: strip(status(order_id)))
         monkeypatch.setattr(broker, "place", placing)
         monkeypatch.setattr(broker, "place_attached", placing_attached)
-        monkeypatch.setattr(broker, "cancel", lambda order_id: strip(cancel(order_id)))
+
+        def cancelling(order_id: str) -> OrderStatus:
+            self.cancelled.append(order_id)
+            return strip(cancel(order_id))
+
+        monkeypatch.setattr(broker, "cancel", cancelling)
         monkeypatch.setattr(
             broker, "modify", lambda order_id, lim, stop: strip(modify(order_id, lim, stop))
         )
@@ -280,10 +286,11 @@ def test_a_stop_filled_during_the_exits_cancel_before_its_price_is_known_waits(
     assert (closed.reason, closed.exit_price) == (ExitReason.STOP, D(140))
 
 
-def test_another_sell_filled_in_the_sweep_before_its_price_is_known_waits(
+def _sweep_filled_unpriced(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The sweep cancels another sell on the contract; it had filled the whole size."""
+) -> tuple[Position, Lag, datetime]:
+    """The exit's sweep cancels another sell on the contract; it had filled the whole
+    size a moment before (at 141), its price and the new holding withheld."""
     position = filled_position(stack)
     stray = Order("stray-1", position.contract_id, Side.SELL, 1, OrderType.LIMIT, D(300))
     stack.manager._broker.place(stray)
@@ -303,12 +310,54 @@ def test_another_sell_filled_in_the_sweep_before_its_price_is_known_waits(
     t = SEND + 60 * SEC
     stack.quote(160, 161, t)
     assert stack.manager.flatten(position, t) is None  # not a reconcile, not a sell
+    return position, lag, t
+
+
+def _flattening(stack: Stack) -> list[str]:
+    return [a.message for a in stack.alarms if "flattening" in a.message]
+
+
+def test_another_sell_filled_in_the_sweep_before_its_price_is_known_waits(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position, lag, t = _sweep_filled_unpriced(stack, monkeypatch)
     assert lag.sells() == []
     assert not stack.halt.tripped
     lag.reveal()
     closed = stack.manager.flatten(position, t + SEC)
     assert closed is not None
-    assert closed.exit_price == D(141)
+    assert (closed.reason, closed.exit_price) == (ExitReason.STOP, D(141))
+
+
+def test_while_a_price_is_pending_management_only_waits(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The position is sold: neither the management step nor the failsafe's flatten
+    starts another exit (no "flattening" alarm, nothing sent) while its price is due."""
+    position, lag, t = _sweep_filled_unpriced(stack, monkeypatch)
+    before = _flattening(stack)
+    assert stack.step(position, stack.quote(150, 151, t + SEC), (), t + SEC) is None
+    assert stack.manager.flatten(position, t + 2 * SEC) is None
+    assert _flattening(stack) == before
+    assert lag.sells() == []
+
+
+def test_reconcile_books_a_sweep_fill_once_its_price_arrives(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fill that sold the position was not one of its own exits: reconcile still
+    books it, at its real price, never by hand."""
+    position, lag, t = _sweep_filled_unpriced(stack, monkeypatch)
+    lag.reveal()
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    closes = []
+    for k in range(1, 5):
+        now = t + k * (settle + SEC)
+        stack.quote(150, 151, now)
+        stack.manager.reconcile(position, now)
+        closes += stack.manager.take_reconcile_closes()
+    assert [c.exit_price for c in closes] == [D(141)]
+    assert not [a for a in stack.alarms if "book it with Ledger.book_by_hand" in a.message]
 
 
 def test_reconcile_never_flattens_what_a_fill_without_a_price_already_sold(
@@ -331,3 +380,127 @@ def test_reconcile_never_flattens_what_a_fill_without_a_price_already_sold(
         closes += stack.manager.take_reconcile_closes()
     assert [c.exit_price for c in closes] == [D(160)]
     assert not [o for o in lag.placed if o.startswith("reconcile-")]
+
+
+def test_past_the_wait_reconcile_acts_on_what_is_held_and_says_so(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The holding has had `fill_price_wait_seconds` to catch up and has not: reconcile
+    stops holding off (alarmed once) and acts on the broker's report as for any other
+    disagreement."""
+    lag = Lag(stack.broker, monkeypatch)
+    position, t = _exit_filled_unpriced(stack, lag)
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    late = t + _wait(stack)
+    for k in range(4):
+        now = late + k * (settle + SEC)
+        stack.quote(150, 151, now)
+        stack.manager.reconcile(position, now)
+    assert [o for o in lag.placed if o.startswith("reconcile-")]
+    overdue = [a.message for a in stack.alarms if "price never came" in a.message]
+    assert len(overdue) == 1
+
+
+def test_a_stop_whose_price_never_comes_hands_over_to_reconcile(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    position = filled_position(stack)
+    assert position.stop_order_id is not None
+    lag = Lag(stack.broker, monkeypatch)
+    lag.hide(position.stop_order_id)
+    lag.hold(stack.broker.positions())
+    t = SEND + 30 * SEC
+    assert stack.step(position, stack.quote(112, 113, t), (), t) is None  # filled at 112
+    late = t + _wait(stack)
+    with pytest.raises(NeedsReconcile):
+        stack.step(position, stack.quote(112, 113, late), (), late)
+    assert lag.sells() == []
+    assert lag.cancelled == []  # a filled stop is not asked to cancel: it is the sale
+
+
+def test_a_stop_filled_during_the_exits_cancel_is_not_a_stuck_cancel(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Filled is not "will not cancel": no stuck-cancel alarm, no early hand-over."""
+    position = filled_position(stack)
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    lag = Lag(stack.broker, monkeypatch)
+    real_cancel = stack.broker.cancel
+
+    def filled_first(order_id: str) -> OrderStatus:
+        if order_id == stop_id:
+            sim = stack.broker
+            held = SimulatedBroker.status(sim, stop_id)
+            sim._orders[stop_id] = OrderStatus(held.order, OrderState.FILLED, 1, D(140), True)
+            sim._positions.pop(position.contract_id, None)
+        return real_cancel(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", filled_first)
+    lag.hide(stop_id)
+    lag.hold({position.contract_id: position.contracts})
+    t = SEND + 60 * SEC
+    stack.quote(160, 161, t)
+    assert stack.manager.flatten(position, t) is None
+    escalate = timedelta(seconds=stack.profiles.execution.reconcile.cancel_escalate_seconds)
+    assert escalate < _wait(stack)
+    assert stack.manager.flatten(position, t + escalate) is None  # still waiting, no hand-over
+    assert not [a for a in stack.alarms if "not cancelled" in a.message]
+
+
+def test_an_orphan_stop_filled_before_its_price_is_known_is_booked_as_the_stop(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The position lost track of its stop (unprotected path), which had filled."""
+    position = filled_position(stack)
+    stop_id = position.stop_order_id
+    assert stop_id == f"{position.position_id}-stop"
+    lag = Lag(stack.broker, monkeypatch)
+    lag.hide(stop_id)
+    lag.hold(stack.broker.positions())
+    t = SEND + 30 * SEC
+    stack.quote(112, 113, t)  # the stop fills at 112
+    position.stop_order_id = None
+    assert stack.manager.flatten(position, t + SEC) is None
+    assert lag.sells() == []
+    lag.reveal()
+    closed = stack.manager.flatten(position, t + 2 * SEC)
+    assert closed is not None
+    assert (closed.reason, closed.exit_price) == (ExitReason.STOP, D(112))
+
+
+def test_no_exit_is_ever_placed_beside_one_of_its_own_unpriced_fills(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever path reaches the placing of an exit, an exit of the position already
+    filled with its price pending stops it (the last line, independent of the others)."""
+    lag = Lag(stack.broker, monkeypatch)
+    position, t = _exit_filled_unpriced(stack, lag)
+    position.exit_order_id = None  # (as if it were lost track of)
+    stack.manager._pending.clear()
+    assert stack.manager.flatten(position, t + SEC) is None
+    assert lag.sells() == [f"{position.position_id}-exit-1"]
+
+
+def test_an_exit_that_fills_on_its_reprice_before_its_price_is_known_waits_from_then(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The resting exit is re-priced to the bid and fills there at once: the wait for
+    its price is counted from that fill."""
+    position = filled_position(stack)
+    exit_rests_on_arrival(stack, monkeypatch)
+    lag = Lag(stack.broker, monkeypatch)
+    t = SEND + 60 * SEC
+    stack.quote(160, 161, t)
+    assert stack.manager.flatten(position, t) is None  # rests at 160
+    exit_id = position.exit_order_id
+    assert exit_id is not None
+    lag.hide(exit_id)
+    lag.hold(stack.broker.positions())
+    filled_at = t + SEC
+    stack.quote(150, 151, filled_at)  # (the quote alone does not reach a 160 limit)
+    assert stack.manager.flatten(position, filled_at) is None  # re-priced to 150: fills
+    assert SimulatedBroker.status(stack.broker, exit_id).state is OrderState.FILLED
+    with pytest.raises(NeedsReconcile):
+        stack.manager.flatten(position, filled_at + _wait(stack))
+    assert lag.sells() == [exit_id]
