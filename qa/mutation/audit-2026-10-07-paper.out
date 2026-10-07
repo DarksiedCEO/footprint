@@ -1,0 +1,10 @@
+source: ee47609ae8717114d6957090cfd3a6033fc3a817 tree-dirty: 5 files
+baseline [paper]: passed
+  1 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: A-13: DU prefix weakened to D
+  2 SURVIVED [paper] src/footprint/brokers/ibkr/paper.py: A-13: unicode digits admitted
+  3 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: A-13: TWS live port admitted
+  4 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: A-13: prefix match only
+  5 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: A-13: live login admitted
+  6 KILLED   [paper] src/footprint/brokers/ibkr/settings.py: A-13: settings built with live account
+  7 KILLED   [paper] src/footprint/brokers/ibkr/settings.py: A-13: .env port ignored
+7 mutants, 1 survived or errored

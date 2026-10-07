@@ -25,7 +25,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from footprint.brokers.ibkr.binding import read_env_file
+from footprint.brokers.ibkr.settings import read_env_file
 from footprint.core.config import AlarmSettings, load_profiles
 from footprint.execution.channels import (
     DEGRADED_BANNER,

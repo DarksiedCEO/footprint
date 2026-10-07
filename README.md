@@ -24,7 +24,7 @@ src/footprint/
   execution/             executor, management, reconcile, journal, ledger, runner,
                          alarm line and phone channels (Telegram, Twilio)
   brokers/ibkr/          IBKR binding (ibapi), adapter, market data, paper boundary,
-                         read-only check
+                         connection settings (no ibapi), read-only check
   backtest/              backtest engine and option model
   live/                  the live paper program and the alarm setup tool
 tests/                   unit, integration (against fake IBKR / simulated broker);

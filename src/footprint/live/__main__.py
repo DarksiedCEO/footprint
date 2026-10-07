@@ -19,8 +19,8 @@ import sys
 import threading
 from pathlib import Path
 
-from footprint.brokers.ibkr.binding import IbConnectionSettings, read_env_file
 from footprint.brokers.ibkr.paper import LiveAccountRefused
+from footprint.brokers.ibkr.settings import IbConnectionSettings, read_env_file
 from footprint.core.config import load_profiles
 from footprint.data.news import blackouts_from
 from footprint.execution.channels import ChannelSettings, TelegramOnlySettings

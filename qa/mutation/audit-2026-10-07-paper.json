@@ -1,0 +1,58 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_rules.py"
+  ]
+ },
+ "mutants": [
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "r\"DU[A-Z0-9]+\"",
+   "r\"D[A-Z0-9]+\"",
+   "A-13: DU prefix weakened to D"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "r\"DU[A-Z0-9]+\", re.ASCII",
+   "r\"DU[A-Z0-9]+\"",
+   "A-13: unicode digits admitted"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "frozenset({4001, 7496})",
+   "frozenset({4001})",
+   "A-13: TWS live port admitted"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "PAPER_ACCOUNT.fullmatch(account)",
+   "PAPER_ACCOUNT.match(account)",
+   "A-13: prefix match only"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "live = sorted(a for a in accounts if not is_paper_account(a))",
+   "live: list[str] = []",
+   "A-13: live login admitted"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/settings.py",
+   "        check_paper(self.account, self.port)  # LiveAccountRefused: never built",
+   "        pass",
+   "A-13: settings built with live account"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/settings.py",
+   "port, client_id = int(env[\"BROKER_PORT\"]), int(env[\"BROKER_CLIENT_ID\"])",
+   "port, client_id = 4002, int(env[\"BROKER_CLIENT_ID\"])",
+   "A-13: .env port ignored"
+  ]
+ ]
+}
