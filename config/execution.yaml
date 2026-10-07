@@ -38,6 +38,10 @@ reconcile:
                               #   cancel latches the kill switch: decision I-5, Andre)
                               #   ("flatten by hand"); reconcile still sells what the stuck
                               #   orders cannot cover
+  fill_price_wait_seconds: 15 # DEFAULT: an order the broker reports filled before its
+                              #   price is known (IBKR's status can run ahead of its
+                              #   execution report) is waited on this long, sending
+                              #   nothing; then the runner halts and reconciles
 alarms:
   retry_seconds: 5            # DEFAULT: wait between tries while the alarm line is down
   max_pending: 500            # DEFAULT: alarms kept while the line is down; beyond this

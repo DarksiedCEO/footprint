@@ -38,6 +38,7 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    FillUnpriced,
     Order,
     OrderState,
     OrderStatus,
@@ -54,6 +55,7 @@ class EntryOutcome(Enum):
     PROTECTED = "PROTECTED"  # filled, and the resting stop is at the broker
     UNPROTECTED = "UNPROTECTED"  # filled, but the broker refused the resting stop
     UNFILLED = "UNFILLED"  # cancelled or rejected with nothing filled
+    # (A fill whose price is not reported yet stays WORKING: see Executor._price_pending.)
 
 
 @dataclass(slots=True)
@@ -80,6 +82,8 @@ class EntryTicket:
     outcome: EntryOutcome = EntryOutcome.WORKING
     position: Position | None = None
     stop_order_id: str | None = None  # the stop attached to the entry
+    # When the broker first reported a fill of this entry with no price (N-1).
+    price_pending_since: datetime | None = None
 
 
 class EntryRefused(RuntimeError):
@@ -313,6 +317,28 @@ class Executor:
         except Exception as exc:
             log.critical("cannot confirm attached stop %s ended: %r", ticket.stop_order_id, exc)
 
+    def _price_pending(self, ticket: EntryTicket, filled: int, now: datetime) -> EntryTicket:
+        """Filled at the broker, its price not reported yet (IBKR's status can run ahead
+        of its execution report; delta review 2, N-1). It is a fill, never "unfilled":
+        its attached stop is the position's protection and stays as it is, and nothing
+        is booked until the real price arrives (the ticket stays WORKING and is asked
+        again every step). Past `fill_price_wait_seconds`: FillUnpriced, so the runner
+        halts and reconciles what the broker holds."""
+        if ticket.price_pending_since is None:
+            ticket.price_pending_since = now
+            log.warning(
+                "entry %s filled %s at the broker; its price is not reported yet",
+                ticket.order_id,
+                filled,
+            )
+        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
+        if now - ticket.price_pending_since >= wait:
+            raise FillUnpriced(
+                f"entry {ticket.order_id} filled {filled} at the broker but its price has "
+                f"not been reported since {ticket.price_pending_since.isoformat()}"
+            )
+        return ticket
+
     def _after(
         self,
         ticket: EntryTicket,
@@ -323,11 +349,13 @@ class Executor:
     ) -> EntryTicket:
         if state is OrderState.WORKING:
             return ticket
-        if filled < 1 or price is None:
+        if filled < 1:
             ticket.outcome = EntryOutcome.UNFILLED
             log.info("entry %s ended unfilled (%s)", ticket.order_id, state.value)
             self._end_attached(ticket)
             return ticket
+        if price is None:  # filled, its price not reported yet: never "unfilled" (N-1)
+            return self._price_pending(ticket, filled, now)
         plan = ticket.approved.plan
         session = session_at(now, self._p.instrument)
         protected = False

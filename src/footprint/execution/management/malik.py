@@ -134,6 +134,11 @@ class Manager:
         self._escalations: dict[str, int] = {}  # times an exit handed its stop to reconcile
         self._stop_stuck_alarmed: set[str] = set()
         self._quote_alarmed: dict[str, StopCheck] = {}  # stale/no-bid, once per episode
+        # A sell of the position the broker reports filled before its price (delta
+        # review 2, N-1): position id -> (order id, first seen, why it sold). Nothing is
+        # sent for that position until the price arrives or the wait runs out.
+        self._pending: dict[str, tuple[str, datetime, ExitReason]] = {}
+        self._pending_overdue: set[str] = set()  # alarmed: reconcile stops waiting on it
         self._reconcile_round = 0
         # Names this process's reconcile orders (and their one-cancels-all groups): the
         # rounds restart at 0 after a restart, the names never do (delta review F-7).
@@ -172,6 +177,8 @@ class Manager:
         pid = position.position_id
         if pid in self._closed:
             raise RuntimeError(f"position {pid!r} is already closed")
+        if pid in self._pending:
+            return self._await_price(position, now)
 
         if position.stop_order_id is not None:
             stop_id = position.stop_order_id
@@ -197,8 +204,10 @@ class Manager:
                     if pid not in self._refusal_alarmed:
                         self._refusal_alarmed.add(pid)
                         self._alarm(now, f"{pid}: the broker refused a cancel of the resting stop")
-            if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
-                return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
+            if stop_status.state is OrderState.FILLED:
+                if stop_status.avg_price is not None:
+                    return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
+                return self._fill_pending(position, stop_id, ExitReason.STOP, now)
             if stop_status.held_back:
                 # Held back (Inactive at the broker, or being cancelled): no protection
                 # (AEGIS N1). Get out through the stop's own cancel, so a cancel that
@@ -307,6 +316,8 @@ class Manager:
         if position.position_id in self._closed:
             raise RuntimeError(f"position {position.position_id!r} is already closed")
         quote = self._book.latest_or_empty(position.contract_id)
+        if position.position_id in self._pending:
+            return self._await_price(position, now)
         if position.exit_order_id is not None:
             return self._work_exit(position, quote, now)
         return self._start_exit(position, quote, now, reason)
@@ -402,8 +413,10 @@ class Manager:
                     self._exit_cancels.add(stop_id)
                     self._broker.cancel(stop_id)
                 cancelled = self._broker.status(stop_id)
-                if cancelled.state is OrderState.FILLED and cancelled.avg_price is not None:
-                    return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
+                if cancelled.state is OrderState.FILLED:
+                    if cancelled.avg_price is not None:
+                        return self._close(position, cancelled.avg_price, now, ExitReason.STOP)
+                    return self._fill_pending(position, stop_id, ExitReason.STOP, now)
                 if cancelled.state is not OrderState.CANCELLED:
                     if cancelled.cancelling:
                         # Acknowledged (PendingCancel): a normal step of an exit, not an
@@ -451,8 +464,10 @@ class Manager:
                 # already filled, the trade is over.
                 with contextlib.suppress(KeyError):
                     orphan = self._broker.status(f"{pid}-stop")
-                    if orphan.state is OrderState.FILLED and orphan.avg_price is not None:
-                        return self._close(position, orphan.avg_price, now, ExitReason.STOP)
+                    if orphan.state is OrderState.FILLED:
+                        if orphan.avg_price is not None:
+                            return self._close(position, orphan.avg_price, now, ExitReason.STOP)
+                        return self._fill_pending(position, f"{pid}-stop", ExitReason.STOP, now)
             # Whatever else is open on this contract (an unacknowledged stop, another
             # path's sell) is cancelled and confirmed first, so the exit can never sit
             # beside a second seller.
@@ -478,11 +493,12 @@ class Manager:
                 if gone.filled > 0:
                     if (
                         gone.state is OrderState.FILLED
-                        and gone.avg_price is not None
                         and gone.order.side is Side.SELL
                         and gone.filled == position.contracts
                     ):  # it sold exactly this position: the trade is over
-                        return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                        if gone.avg_price is not None:
+                            return self._close(position, gone.avg_price, now, ExitReason.STOP)
+                        return self._fill_pending(position, order_id, ExitReason.STOP, now)
                     # Anything else (a buy, a partial, another size) changes what is
                     # held in a way this position cannot book: stop and reconcile.
                     message = (
@@ -531,6 +547,11 @@ class Manager:
     ) -> Closed | None:
         """`held`: what the broker held before the stop came down (see _start_exit)."""
         pid = position.position_id
+        unpriced = self._unpriced_sell(position)
+        if unpriced is not None:
+            # One of this position's sells already filled, price not reported yet: the
+            # position is sold. Never a second sell beside it (N-1).
+            return self._fill_pending(position, unpriced, reason, now)
         if 0 < held != position.contracts:
             # More (or fewer) held than this position: selling its size would leave
             # contracts nobody manages, or sell short. Stop and reconcile.
@@ -583,8 +604,10 @@ class Manager:
             self._alarm(now, message)
             self._stand_down(now, f"{pid}: exit outcome unknown")
             raise NeedsReconcile(message) from exc
-        if status.state is OrderState.FILLED and status.avg_price is not None:
-            return self._close(position, status.avg_price, now, reason)
+        if status.state is OrderState.FILLED:
+            if status.avg_price is not None:
+                return self._close(position, status.avg_price, now, reason)
+            return self._fill_pending(position, order.order_id, reason, now)
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{pid}: exit {status.state.value}; retrying and halting entries")
             position.exit_order_id = None
@@ -613,8 +636,10 @@ class Manager:
             self._alarm(now, f"{position.position_id}: exit never reached the broker; retrying")
             position.exit_order_id = None
             return self._start_exit(position, quote, now, reason)
-        if status.state is OrderState.FILLED and status.avg_price is not None:
-            return self._close(position, status.avg_price, now, reason)
+        if status.state is OrderState.FILLED:
+            if status.avg_price is not None:
+                return self._close(position, status.avg_price, now, reason)
+            return self._fill_pending(position, position.exit_order_id, reason, now)
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{position.position_id}: exit {status.state.value}; retrying")
             self._stand_down(now, f"{position.position_id}: exit {status.state.value}")
@@ -629,8 +654,10 @@ class Manager:
         if target < status.order.limit_price:
             self._broker.modify(position.exit_order_id, target, None)
             status = self._broker.status(position.exit_order_id)
-            if status.state is OrderState.FILLED and status.avg_price is not None:
-                return self._close(position, status.avg_price, now, reason)
+            if status.state is OrderState.FILLED:
+                if status.avg_price is not None:
+                    return self._close(position, status.avg_price, now, reason)
+                return self._fill_pending(position, position.exit_order_id, reason, now)
         return None
 
     def _stale(self, quote: Quote, now: datetime) -> bool:
@@ -661,6 +688,8 @@ class Manager:
         with contextlib.suppress(KeyError):  # Booker never held a stop (unprotected case)
             self._stops.close(position.position_id)
         self._closed.add(position.position_id)
+        self._pending.pop(position.position_id, None)
+        self._pending_overdue.discard(position.position_id)
         position.events.append(f"{now.isoformat()} closed {reason.value} at {price}, net {net}")
         log.info("closed %s at %s (%s), net %s", position.position_id, price, reason.value, net)
         return Closed(position.position_id, price, now, reason, net)
@@ -797,6 +826,8 @@ class Manager:
         stuck_before = self._stuck_ids
         self._stuck_ids = {status.order.order_id for status in pending}
         for contract_id, qty in remaining.items():
+            if self._sold_unpriced(position, contract_id, now):
+                continue  # already sold: what is held has not caught up yet (N-1)
             side = Side.SELL if qty > 0 else Side.BUY
             if ledger_open is None and contract_id not in self._unrecorded_alarmed:
                 # Held at the broker with no open position in the ledger (the process
@@ -876,6 +907,99 @@ class Manager:
                 "book it with Ledger.book_by_hand",
             )
         self._stand_down(now, "unclear recovery: broker, ledger and records disagree")
+        return False
+
+    def _fill_pending(
+        self, position: Position, order_id: str, reason: ExitReason, now: datetime
+    ) -> Closed | None:
+        """`order_id`, a sell of this position, is filled at the broker but its price is
+        not reported yet (IBKR's status can run ahead of its execution report; delta
+        review 2, N-1). The position is sold: nothing more is sent for it, and nothing
+        is booked until the real price arrives. Past `fill_price_wait_seconds`: alarm,
+        halt and reconcile (reconcile itself still holds off selling it until then)."""
+        pid = position.position_id
+        known = self._pending.get(pid)
+        if known is None or known[0] != order_id:
+            known = self._pending[pid] = (order_id, now, reason)
+            log.warning(
+                "%s: %s filled at the broker; its price is not reported yet: nothing is "
+                "sent until it is",
+                pid,
+                order_id,
+            )
+        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
+        if now - known[1] >= wait:
+            message = (
+                f"{pid}: {order_id} filled at the broker but its price has not been reported "
+                f"since {known[1].isoformat()}; reconcile"
+            )
+            self._alarm(now, message)
+            self._stand_down(now, f"{pid}: fill price not reported")
+            raise NeedsReconcile(message)
+        return None  # waiting: the position is sold, its close is booked on the price
+
+    def _await_price(self, position: Position, now: datetime) -> Closed | None:
+        """A sell of this position filled with its price pending: book it once the
+        price arrives (never a guess), and send nothing meanwhile."""
+        order_id, _, reason = self._pending[position.position_id]
+        status = self._broker.status(order_id)
+        if status.state is OrderState.FILLED and status.avg_price is not None:
+            return self._close(position, status.avg_price, now, reason)
+        return self._fill_pending(position, order_id, reason, now)
+
+    def _unpriced_sell(self, position: Position) -> str | None:
+        """The id of a sell of this position (its stop, an exit, a reconcile order sent
+        for it) the broker reports filled with no price yet; None if there is none."""
+        pending = self._pending.get(position.position_id)
+        candidates = [pending[0] if pending else None, position.stop_order_id]
+        candidates.append(f"{position.position_id}-stop")
+        candidates += [
+            f"{position.position_id}-exit-{n}"
+            for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)
+        ]
+        candidates += list(reversed(self._reconcile_orders.get(position.position_id, [])))
+        for order_id in candidates:
+            if order_id is None:
+                continue
+            try:
+                status = self._broker.status(order_id)
+            except KeyError:
+                continue
+            if (
+                status.state is OrderState.FILLED
+                and status.avg_price is None
+                and status.order.side is Side.SELL
+                and status.order.contract_id == position.contract_id
+            ):
+                return order_id
+        return None
+
+    def _sold_unpriced(self, position: Position | None, contract_id: str, now: datetime) -> bool:
+        """Reconcile: this position's holding on `contract_id` is already sold by a fill
+        whose price is pending (what is held lags it), inside the wait. Past the wait,
+        reconcile acts on what is held again (alarmed once): the broker's own position
+        report has had that long to catch up."""
+        if position is None or contract_id != position.contract_id:
+            return False
+        pid = position.position_id
+        if pid not in self._pending:
+            unpriced = self._unpriced_sell(position)
+            if unpriced is None:
+                return False
+            reason = self._exit_reason.get(pid, ExitReason.RECONCILE)
+            self._pending[pid] = (unpriced, now, reason)
+        order_id, since, _ = self._pending[pid]
+        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
+        if now - since < wait:
+            log.warning("reconcile: %s already sold by %s (price pending)", contract_id, order_id)
+            return True
+        if pid not in self._pending_overdue:
+            self._pending_overdue.add(pid)
+            self._alarm(
+                now,
+                f"{pid}: {order_id} filled but its price never came; reconcile now acts on "
+                "what the broker holds. Check the fill in the broker's own platform",
+            )
         return False
 
     def _settled(self, key: str, snapshot: object, now: datetime) -> bool:
@@ -1014,7 +1138,9 @@ class Manager:
     def _actual_exit(self, position: Position) -> tuple[Decimal, bool]:
         """The price of the order that really closed THIS position (its stop, its
         exits, or reconcile orders sent for it), and whether one was found."""
-        candidates = [position.stop_order_id, f"{position.position_id}-stop"]
+        pending = self._pending.get(position.position_id)
+        candidates = [pending[0] if pending else None, position.stop_order_id]
+        candidates.append(f"{position.position_id}-stop")
         candidates += [
             f"{position.position_id}-exit-{n}"
             for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)

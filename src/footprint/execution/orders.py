@@ -150,6 +150,12 @@ class PositionsUncertain(ConnectionError):
     report disagree). Nothing may be sold or booked on it: wait and ask again."""
 
 
+class FillUnpriced(RuntimeError):
+    """An order filled at the broker and its price has not been reported within
+    `fill_price_wait_seconds` (delta review 2, N-1). Nothing is booked at a guessed
+    price and nothing is sent beside the fill: the runner halts and reconciles."""
+
+
 @runtime_checkable
 class OrderBroker(Protocol):
     """What execution needs from a broker. The broker is the source of truth for

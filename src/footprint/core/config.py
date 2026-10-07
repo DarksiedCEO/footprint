@@ -717,6 +717,7 @@ class ReconcileSettings:
     settle_seconds: int
     max_settle_seconds: int
     cancel_escalate_seconds: int
+    fill_price_wait_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -825,6 +826,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         settle_seconds=_integer(rc, "settle_seconds", rc_where, minimum=0),
         max_settle_seconds=_integer(rc, "max_settle_seconds", rc_where, minimum=1),
         cancel_escalate_seconds=_integer(rc, "cancel_escalate_seconds", rc_where, minimum=1),
+        fill_price_wait_seconds=_integer(rc, "fill_price_wait_seconds", rc_where, minimum=1),
     )
     if reconcile.max_settle_seconds <= reconcile.settle_seconds:
         raise ConfigError(f"{rc_where}: max_settle_seconds must exceed settle_seconds")
