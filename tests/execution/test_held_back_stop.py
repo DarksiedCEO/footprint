@@ -204,3 +204,333 @@ def test_reconcile_agrees_with_a_pending_cancel_only_until_the_escalation(
     assert manager.reconcile(position, t)
     assert manager.reconcile(position, t + escalate - SEC)
     assert not manager.reconcile(position, t + escalate)
+
+
+# --- AEGIS L2 (audit of 9ca890a) -------------------------------------------------------
+
+
+def _steps(stack: Stack, runner, t, n: int):  # type: ignore[no-untyped-def]
+    for _ in range(n):
+        stack.quote(150, D(151), t)
+        runner.step(t)
+        t += SEC
+    return t
+
+
+def _force_reason(stack: Stack, reason, steps: int) -> None:  # type: ignore[no-untyped-def]
+    """Management's exit check answers `reason` for the next `steps` calls."""
+    original = stack.manager._must_exit
+    left = {"n": steps}
+
+    def forced(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if left["n"] > 0:
+            left["n"] -= 1
+            return reason
+        return original(*args, **kwargs)
+
+    stack.manager._must_exit = forced  # type: ignore[method-assign]
+
+
+def _stop_copy(fake: FakeIbkr, order_id: str):  # type: ignore[no-untyped-def]
+    return next(c for c in fake.copies.values() if c.request.order_ref == order_id)
+
+
+def test_a_doubt_as_our_exit_cancel_lands_never_latches_the_day(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS L2-1: a NEWS exit (which does not latch by itself); the stop's cancel is
+    PendingCancel, then lands in the same step a doubt is raised (as on a reconnect).
+    Reconcile must take the stop as expected gone: no mismatch, no latch, NEWS."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    stop_id = runner.position.stop_order_id
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    before = len(alarms)
+    t = _steps(stack, runner, t, 3)
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    runner.doubt()
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert not any("reconcile mismatch" in m for m in said), said
+    assert not any("not cancelled" in m for m in said), said  # AEGIS L2-4: no false alarm
+    assert not stack.ledger.account(t).kill_switch_latched
+    assert not stack.halt.tripped
+    assert [c.reason for c in runner.closed] == [ExitReason.NEWS]
+    assert fake.sim.positions() == {}
+    # The acknowledged cancel was sent once, never again each step (nor after it landed).
+    assert fake.cancels.count(_stop_copy(fake, stop_id).ib_id) == 1
+
+
+def test_a_doubt_while_positions_settle_and_the_cancel_lands_never_latches(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS L2-1 (K1c): reconcile cannot agree at first (positions settling); our
+    exit's cancel lands meanwhile: still no mismatch."""
+    from footprint.execution.orders import PositionsUncertain
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    fake.slow_cancels = True
+    stack.ledger.latch_kill_switch("test: force an exit")
+    before = len(alarms)
+    t = _steps(stack, runner, t, 2)
+    original = stack.manager._broker.positions
+    calls = {"n": 0}
+
+    def settling() -> dict[str, int]:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise PositionsUncertain("positions settling")
+        return original()
+
+    stack.manager._broker.positions = settling  # type: ignore[method-assign]
+    runner.doubt()
+    t = _steps(stack, runner, t, 1)
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert not any("reconcile mismatch" in m for m in said), said
+    assert fake.sim.positions() == {}
+
+
+def test_a_refused_exit_cancel_then_a_hand_cancel_still_alarms(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS L2-2: an exit's stop cancel goes PendingCancel and is refused (Submitted
+    again); the exit reason passes, management resumes. A later cancel by hand is not
+    ours: it alarms as such and is booked UNPROTECTED, never as the old exit."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    stop_id = runner.position.stop_order_id
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.STOP, 1)
+    t = _steps(stack, runner, t, 2)
+    fake.pending_cancels.clear()
+    fake.slow_cancels = False
+    fake._report(force=child.ib_id)  # IBKR refused the cancel: Submitted again
+    t = _steps(stack, runner, t, 3)
+    assert adapter.status(stop_id).protects
+    assert runner.position is not None
+    before = len(alarms)
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)  # by hand
+    t = _steps(stack, runner, t, 3)
+    said = [a.message for a in alarms[before:]]
+    assert sum("not by this system" in m for m in said) == 1, said
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    t = _steps(stack, runner, t, 20)
+    assert [c.reason for c in runner.closed] == [ExitReason.UNPROTECTED], runner.closed
+    assert all(qty >= 0 for qty in fake.sim.positions().values())
+
+
+def test_a_refused_cancel_leaves_no_stale_clock_for_a_later_one(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS L2-3: management saw a PendingCancel that IBKR then refused; a minute later
+    a fresh, brief PendingCancel gets the full cancel_escalate_seconds in reconcile."""
+    fake, adapter, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)
+    stack.manager.manage(position, (), t)  # management sees the PendingCancel
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused: Submitted again
+    t += SEC
+    stack.quote(150, D(151), t)
+    stack.manager.manage(position, (), t)  # management sees it acting again
+    t += 60 * SEC
+    adapter.cancel(stop_id)  # a fresh, brief PendingCancel
+    assert stack.manager.reconcile(position, t)
+
+
+def test_reconcile_clears_its_pending_cancel_clock_when_the_cancel_is_refused(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Reconcile's own clock: refused (Submitted again) between two reconciles, a later
+    PendingCancel starts a new window."""
+    fake, adapter, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)
+    assert stack.manager.reconcile(position, t)
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused
+    assert stack.manager.reconcile(position, t + SEC)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    later = t + (escalate + 5) * SEC
+    adapter.cancel(stop_id)
+    assert stack.manager.reconcile(position, later)
+
+
+def test_a_hand_cancel_seen_by_management_counts_from_then_in_reconcile(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """The PendingCancel clock starts when management first sees it: reconcile run
+    later disagrees once cancel_escalate_seconds have passed since then."""
+    fake, adapter, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)  # by hand
+    stack.manager.manage(position, (), t)
+    escalate = timedelta(seconds=stack.profiles.execution.reconcile.cancel_escalate_seconds)
+    assert not stack.manager.reconcile(position, t + escalate)
+
+
+def test_an_exit_keeps_the_reason_it_began_with(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """A NEWS exit whose stop cancel is pending; the failsafe flatten runs meanwhile;
+    when the cancel lands the exit goes out, booked as the reason it began with."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    fake.slow_cancels = True
+    manager = stack.manager
+    _force_reason(stack, ExitReason.NEWS, 1)
+    assert manager.manage(position, (), t) is None  # NEWS exit: cancel pending
+    t += SEC
+    assert manager.flatten(position, t, ExitReason.FAILSAFE) is None  # still pending
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    closed = None
+    for _ in range(20):
+        t += SEC
+        stack.quote(150, D(151), t)
+        closed = manager.manage(position, (), t)
+        if closed is not None:
+            break
+    assert closed is not None
+    assert closed.reason is ExitReason.NEWS
+
+
+def test_a_stop_cancelled_by_reconcile_is_not_reported_as_someone_elses(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Reconcile cancelled the stop (a disagreement), then agreed while its cancel was
+    pending: management gets out without calling it a cancel by someone else."""
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    fake.slow_cancels = True
+    manager = stack.manager
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    assert not manager.reconcile(None, t)  # disagrees (a position is held)...
+    assert not manager.reconcile(None, t + settle)  # ...and acts: cancels the stop
+    t += settle + SEC
+    assert manager.reconcile(position, t)  # agrees: the stop's cancel is pending
+    before = len(alarms)
+    manager.manage(position, (), t + SEC)
+    said = [a.message for a in alarms[before:]]
+    assert not any("not by this system" in m for m in said), said
+
+
+def test_a_hand_cancel_alarms_once_even_while_the_exit_cannot_start(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """The exit waits (positions uncertain, no cancel sent yet): the hand-cancel alarm
+    is still raised once, not every step."""
+    from footprint.execution.orders import PositionsUncertain
+
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)
+
+    def uncertain() -> dict[str, int]:
+        raise PositionsUncertain("settling")
+
+    stack.manager._broker.positions = uncertain  # type: ignore[method-assign]
+    before = len(alarms)
+    for _ in range(4):
+        stack.manager.manage(position, (), t)
+        t += SEC
+    said = [a.message for a in alarms[before:]]
+    assert sum("not by this system" in m for m in said) == 1, said
+
+
+def test_a_refused_reconcile_cancel_then_a_hand_cancel_still_alarms(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Reconcile cancelled the stop, IBKR refused (Submitted again), reconcile agreed,
+    Andre cleared the kill switch and management resumed: a later cancel by hand is
+    someone else's, and alarms as such."""
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    manager = stack.manager
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    assert not manager.reconcile(None, t)
+    assert not manager.reconcile(None, t + settle)  # acts: cancels the stop
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused: Submitted again
+    t += settle + SEC
+    assert manager.reconcile(position, t)
+    stack.ledger.clear_kill_switch("Andre")  # (reconcile latched it; Andre clears it)
+    t += SEC
+    stack.quote(150, D(151), t)
+    assert manager.manage(position, (), t) is None  # managed normally
+    before = len(alarms)
+    adapter.cancel(stop_id)  # by hand
+    manager.manage(position, (), t + SEC)
+    said = [a.message for a in alarms[before:]]
+    assert any("not by this system" in m for m in said), said
+
+
+def test_an_abandoned_exit_leaves_no_stuck_clock_for_a_later_exit(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """An exit's stop cancel is pending, then refused; the exit is abandoned. A minute
+    later a new exit's cancel gets the full cancel_escalate_seconds, not none."""
+    from footprint.execution.management.malik import ExitReason, NeedsReconcile
+
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    child = _stop_copy(fake, stop_id)
+    manager = stack.manager
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    for _ in range(3):  # the exit waits on the pending cancel
+        stack.quote(150, D(151), t)
+        assert manager.manage(position, (), t) is None
+        t += SEC
+    fake.pending_cancels.clear()
+    fake._report(force=child.ib_id)  # refused: Submitted again
+    stack.quote(150, D(151), t)
+    assert manager.manage(position, (), t) is None  # managed normally: abandoned
+    t += 60 * SEC
+    _force_reason(stack, ExitReason.NEWS, 1)
+    stack.quote(150, D(151), t)
+    try:
+        manager.manage(position, (), t)
+    except NeedsReconcile as exc:  # a stale clock would escalate at once
+        raise AssertionError(f"escalated at once: {exc}") from exc
+    assert not stack.halt.tripped

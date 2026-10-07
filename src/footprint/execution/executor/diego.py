@@ -280,6 +280,11 @@ class Executor:
                 filled,
             )
             self._broker.cancel(stop_id)
+            after = self._broker.status(stop_id)
+            if after.state is not OrderState.CANCELLED:
+                # Not confirmed gone: still able to sell, so nothing beside it (L2-6).
+                log.critical("attached stop %s did not cancel (%s)", stop_id, after.state.value)
+                return after.order, False
             return None, False
         if (held.order.stop_price, held.order.limit_price) != (spec.trigger, spec.limit):
             held = self._broker.modify(stop_id, spec.limit, spec.trigger)

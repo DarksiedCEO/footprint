@@ -610,3 +610,18 @@ def test_the_uncertain_stop_path_never_counts_a_held_back_stop_as_protection(
     assert ticket.outcome is EntryOutcome.UNPROTECTED
     assert ticket.position.stop_order_id == stop_id
     assert f"{stop_id}-2" not in stack.broker._orders
+
+
+def test_an_attached_stop_for_another_size_that_will_not_cancel_is_kept_not_doubled(
+    stack: Stack,
+) -> None:
+    """AEGIS L2-6: the wrong-size stop's cancel is not confirmed: it can still sell, so
+    no new stop goes beside it."""
+    ticket = stack.executor.submit(stack.approved, (), SEND)
+    stop_id = f"{ticket.position_id}-stop"
+    stack.broker.cancel = stack.broker.status  # type: ignore[method-assign]  # never lands
+    spec = stack.stops.preview(D(151), 1)
+    order, protected = stack.executor._adopt_attached(stop_id, spec, filled=2)
+    assert order is not None
+    assert order.order_id == stop_id
+    assert not protected
