@@ -100,6 +100,9 @@ _EXISTS = frozenset({103, _CANNOT_MODIFY_FILLED, 105})  # the order is already a
 _REJECTED = frozenset({110, 201})
 _CANCEL_SETTLED = frozenset({135, 161, 202})  # not found / not cancellable / cancelled
 _LOST, _RESTORED_DATA_LOST, _RESTORED = 1100, 1101, 1102
+# ibapi's own answer to a request it could not send (the socket is gone): it does not
+# raise, it reports this code through error() (delta review 2, N-3).
+_NOT_CONNECTED = 504
 # Warnings and notices, not answers: farm status (2100-2199), order message warning,
 # delayed data, TIF set from a preset (the order stays live).
 _WARNINGS = frozenset({165, 399, 10167, 10349})
@@ -774,14 +777,30 @@ class IbkrBroker:
         if req_id <= 0 or code in _WARNINGS or code in _NOTICES:
             log.info("IBKR notice %s on %s: %s", code, req_id, message)
             return
+        unsent = False
         with self._cv:
             self._errors.setdefault(req_id, []).append(code)
             if code in _CANCEL_SETTLED:
                 for copy in self._copies.values():
                     if copy.ib_id == req_id and copy.status == _INACTIVE and copy.cancel_sent:
                         copy.cancel_confirmed = True  # IBKR answered the cancel
+            if code == _NOT_CONNECTED:
+                # A cancel of an Inactive order that never left (N-3): not forgotten. It
+                # is sent again once IBKR is ready (as for a send that raised, F-3).
+                for copy in self._copies.values():
+                    if (
+                        copy.ib_id == req_id
+                        and copy.status == _INACTIVE
+                        and copy.cancel_sent
+                        and not copy.cancel_confirmed
+                    ):
+                        copy.cancel_sent = False
+                        unsent = True
             self._bump(req_id)
         log.warning("IBKR error %s on %s: %s", code, req_id, message)
+        if unsent:
+            log.warning("IBKR: cancel of %s not sent; again once ready", req_id)
+            self._on_resync()  # what IBKR holds is in doubt: the runner reconciles
 
     # --- internals (callers hold the lock unless noted) --------------------------------
 
