@@ -144,7 +144,14 @@ IB Gateway restarts itself every night. On a lost connection (D35, as decided):
 
 After 5 failed reconnects in a row it alarms once that a person is needed and retries
 less often (D32). A halt (a real disagreement: something held that should not be, an
-order that will not cancel) only clears with a restart, after you have looked at why.
+order that will not cancel) also latches the kill switch. The halt itself clears with a
+restart, but the kill switch does NOT: it is written to `state/ledger.json` and survives
+restarts, so the system makes no new entries until it is cleared. There is no operator
+command for that yet: clearing it is `Ledger.clear_kill_switch("<your name>")` from
+Python, after you have looked at why, and it also resets the drawdown peak to current
+equity (so the drawdown breaker starts again from today's equity). Never edit
+`ledger.json` by hand. (An operator command, and whether an operational latch should
+reset the peak, are open decisions for Andre: see docs/decisions-pending.md, P6-1.)
 
 ## Where things go (all in `state/`, git-ignored)
 

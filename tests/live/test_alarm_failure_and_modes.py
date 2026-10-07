@@ -480,3 +480,22 @@ def test_a_dead_channel_never_holds_more_than_one_abandoned_send() -> None:
     assert wait_for(lambda: not sink._busy.is_set(), 3)  # its own hung send has ended
     sink(alarm("HALT: y"))  # the channel works again once the hung send ends
     assert len(started) == 2
+
+
+def test_a_degraded_run_says_so_at_start_up(profiles: Profiles, tmp_path: Path) -> None:
+    """AEGIS P6-4: the start-up banner says DEGRADED_ALERTING and that it is not full
+    alarm coverage."""
+    live, _, _, _ = degraded_live(profiles, tmp_path, "local")
+    from footprint.live.app import Driver
+
+    out = io.StringIO()
+    stop = threading.Event()
+
+    def nap(seconds: float) -> None:
+        stop.set()
+
+    Driver(live, out=out, sleep=nap).run(stop)
+    live.alarms.close(timedelta(seconds=2))
+    said = out.getvalue()
+    assert "DEGRADED_ALERTING" in said
+    assert "NOT full alarm coverage" in said

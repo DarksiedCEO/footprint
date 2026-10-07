@@ -1093,3 +1093,90 @@ def test_an_old_refusal_then_a_later_exits_unanswered_cancel_landing_is_ours(
     said = [a.message for a in alarms[before:]]
     assert not any("CANCELLED at the broker" in m for m in said), said
     assert all(qty >= 0 for qty in fake.sim.positions().values())
+
+
+# --- AEGIS P6 (final pass on 81e6cb4) --------------------------------------------------
+
+
+def test_cancel_stuck_comes_on_the_second_hand_over_a_full_window_apart(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS P6-2: hand-overs to reconcile are at least cancel_escalate_seconds apart,
+    and CANCEL STUCK comes with the second one, not the first or the third."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    pid = runner.position.position_id
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.CLOSE, 100 * escalate)
+    hand_overs: list[int] = []
+    stuck_at: int | None = None
+    for k in range(8 * escalate):
+        t = _steps(stack, runner, t, 1)
+        count = stack.manager._escalations.get(pid, 0)
+        if count > len(hand_overs):
+            hand_overs.append(k)
+        if stuck_at is None and any("Flatten by hand" in a.message for a in alarms):
+            stuck_at = len(hand_overs)
+        if child.perm_id in fake.pending_cancels:  # refused
+            fake.pending_cancels.remove(child.perm_id)
+            fake._report(force=child.ib_id)
+    assert len(hand_overs) >= 2, hand_overs
+    assert hand_overs[1] - hand_overs[0] >= escalate, hand_overs
+    assert stuck_at == 2, (stuck_at, hand_overs)
+
+
+def test_a_silent_quote_feed_on_a_held_position_is_critical(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS P6-3 (item 9): a silent feed on a held position rings the phone (once)."""
+    from footprint.execution.channels import is_critical
+
+    _, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    before = len(alarms)
+    t += 10 * SEC
+    t = _quiet_steps(stack, runner, t, 3)
+    silent = [a.message for a in alarms[before:] if "no fresh quote" in a.message]
+    assert len(silent) == 1
+    assert is_critical(silent[0])
+
+
+def test_a_new_exit_after_a_dropped_one_counts_its_own_hand_overs(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """An exit handed to reconcile once is dropped (Andre clears the latch, its reason
+    passes); a later exit's first hand-over is not taken for a second one."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    pid = runner.position.position_id
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+
+    def refuse() -> None:
+        if child.perm_id in fake.pending_cancels:
+            fake.pending_cancels.remove(child.perm_id)
+            fake._report(force=child.ib_id)
+
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.CLOSE, escalate + 3)
+    for _ in range(3 * escalate):  # one hand-over
+        t = _steps(stack, runner, t, 1)
+        refuse()
+        if stack.manager._escalations.get(pid, 0) == 1 and not runner.reconciling:
+            break
+    assert stack.manager._escalations.get(pid, 0) == 1
+    stack.ledger.clear_kill_switch("Andre")
+    for _ in range(3):  # the reason has passed: the exit is dropped
+        t = _steps(stack, runner, t, 1)
+        refuse()
+    assert pid not in stack.manager._escalations
+    before = len(alarms)
+    _force_reason(stack, ExitReason.CLOSE, 100 * escalate)
+    for _ in range(escalate + 2):  # the new exit's first hand-over
+        t = _steps(stack, runner, t, 1)
+        refuse()
+    said = [a.message for a in alarms[before:]]
+    assert not any("Flatten by hand" in m for m in said), said

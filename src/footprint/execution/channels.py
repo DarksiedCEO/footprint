@@ -70,6 +70,7 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "IBKR connection lost",
     "ALARM CHANNEL DOWN",
     "UNATTENDED",
+    "QUOTE FEED SILENT",
 )
 
 _TELEGRAM = "https://api.telegram.org"

@@ -254,7 +254,11 @@ class Manager:
                 return self._start_exit(position, quote, now, ExitReason.CLOSE)
             if self._quote_alarmed.get(pid) is not check:  # once per episode (AEGIS O5-9)
                 self._quote_alarmed[pid] = check
-                what = "no fresh quote" if check is StopCheck.STALE else "the bid has vanished"
+                what = (
+                    "QUOTE FEED SILENT: no fresh quote"  # critical (item 9, AEGIS P6-3)
+                    if check is StopCheck.STALE
+                    else "the bid has vanished"
+                )
                 self._alarm(now, f"{pid}: {what}; relying on the resting stop")
             return None
 
@@ -280,6 +284,8 @@ class Manager:
 
     def _abandon_exit(self, position: Position) -> None:
         pid = position.position_id
+        self._escalations.pop(pid, None)  # a later exit starts its own count
+        self._stop_stuck_alarmed.discard(pid)
         self._exit_started.pop(pid, None)
         self._stop_stuck_since.pop(pid, None)
         if position.stop_order_id is not None:

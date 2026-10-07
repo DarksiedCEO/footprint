@@ -5,7 +5,10 @@
   breaker keeps the swarm dark through the overnight session until the next prime
   open); weekly counters reset with the first day of a new ISO week.
 - The kill switch latches when equity falls the configured percentage from its
-  peak, and only `clear_kill_switch` (Andre, by hand) unlatches it.
+  peak, and on every operational halt in management and reconcile (an order that will
+  not cancel, a disagreement with the broker). It survives restarts; only
+  `clear_kill_switch` (Andre, by hand) unlatches it, and that also resets the drawdown
+  peak to current equity.
 - Every change is written to disk before the call returns (atomic replace + fsync),
   so a crash never forgets a breaker, a latch or an open position.
 """
