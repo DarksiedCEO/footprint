@@ -1,0 +1,17 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+   Building footprint @ file:///home/claude/footprint
+      Built footprint @ file:///home/claude/footprint
+Uninstalled 1 package in 2ms
+Installed 1 package in 0.80ms
+  1 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: M3-1: a refused cancel is never counted
+  2 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: M3-1: every acting status counts as a refusal
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3-1: a refusal does not end the exit
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M3-1: one refusal handled every step
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M3-1: a refusal is not alarmed
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M3-2: the exit's reason never recorded (continuations lose it)
+  7 SURVIVED [exec] src/footprint/execution/management/malik.py: M3-2: reason recorded before anything is sent
+  8 SURVIVED [exec] src/footprint/execution/management/malik.py: L-M8: cancelling-ours branch loses the exit reason
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: L-M9: landed branch loses the exit reason
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: M-1: a hand-cancelling stop gets no cancel of ours (second alarm when it lands)
+10 mutants, 2 survived
+EXIT 1

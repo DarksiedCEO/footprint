@@ -1,0 +1,5 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M3-2: reason recorded before anything is sent
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: L-M8: cancelling-ours branch loses the exit reason
+2 mutants, 0 survived
+EXIT 0
