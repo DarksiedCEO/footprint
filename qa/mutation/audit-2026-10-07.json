@@ -1,0 +1,174 @@
+{
+ "groups": {
+  "adapter": [
+   "tests/brokers/test_audit_2026_10_07.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_runner.py"
+  ],
+  "alarms": [
+   "tests/execution/test_audit_2026_10_07_alarms.py",
+   "tests/execution/test_alarms.py"
+  ],
+  "markers": [
+   "tests/execution/test_audit_2026_10_07_alarms.py"
+  ],
+  "exit": [
+   "tests/brokers/test_audit_2026_10_07.py",
+   "tests/execution/test_held_back_stop.py",
+   "tests/execution/test_disconnect_policy.py"
+  ],
+  "reconcile": [
+   "tests/execution/test_audit_2026_10_07_alarms.py",
+   "tests/execution/test_reconcile_hardening.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_config.py"
+  ],
+  "net": [
+   "tests/live/test_channels.py::test_every_name_lookup_is_blocked_in_tests"
+  ]
+ },
+ "mutants": [
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "doubt=bool(back or duplicated or waiting))\n\n    def on_open_orders_end",
+   "doubt=bool(back or waiting))\n\n    def on_open_orders_end",
+   "A-1: a duplicate (open order) raises no doubt"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        self._after_event(alarms, cancel, doubt=bool(back or duplicated or waiting))\n\n    def on_execution",
+   "        self._after_event(alarms, cancel, doubt=bool(back or waiting))\n\n    def on_execution",
+   "A-1: a duplicate (status) raises no doubt"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "avg_fill_price if filled and avg_fill_price > 0 else",
+   "avg_fill_price if filled else",
+   "A-2: price 0 trusted"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if priced and len(priced) == len(with_fills)",
+   "if priced",
+   "A-2: partly priced average"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if not (self._connected and self._ready):\n            # D35",
+   "        if False:\n            # D35",
+   "A-3: cancel sent while away"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if cancel is not None:\n                cancels.append(cancel)",
+   "            pass",
+   "A-3: deferred cancel never sent once ready"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "waiting = cancel is None and self._inactive_waiting(copy)\n            self._bump(ib_id)\n        # A second",
+   "waiting = False\n            self._bump(ib_id)\n        # A second",
+   "A-3: no doubt while a cancel waits (open order)"
+  ],
+  [
+   "markers",
+   "src/footprint/execution/channels.py",
+   "    \"filled without a resting stop\",\n",
+   "",
+   "A-4: fill without stop not critical"
+  ],
+  [
+   "markers",
+   "src/footprint/execution/channels.py",
+   "    \"no resting stop\",\n",
+   "",
+   "A-4: unprotected flatten not critical"
+  ],
+  [
+   "markers",
+   "src/footprint/execution/channels.py",
+   "    \"unmanaged since\",\n",
+   "",
+   "A-4: failsafe not critical"
+  ],
+  [
+   "markers",
+   "src/footprint/execution/channels.py",
+   "    \"BROKER REPORT NOT SETTLING\",\n",
+   "",
+   "A-11: settle escalation not critical"
+  ],
+  [
+   "markers",
+   "src/footprint/execution/channels.py",
+   "    \"could not save the kill-switch latch\",\n",
+   "",
+   "A-11: latch save failure not critical"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/alarms.py",
+   "if id(waiting) not in self._handed]",
+   "]",
+   "A-5: whole backlog re-handed each time (dup sends)"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/alarms.py",
+   "        self._handed |= {id(waiting) for waiting in backlog}\n        return backlog",
+   "        return backlog if not self._handed else []",
+   "A-5: hand over only once per spell (old bug)"
+  ],
+  [
+   "exit",
+   "src/footprint/execution/management/malik.py",
+   "        except (NeedsReconcile, BrokerDown):\n            raise  # BrokerDown: an outage is not a halt (D35; independent audit A-6)\n        except Exception as exc:  # the broker failed mid-exit",
+   "        except NeedsReconcile:\n            raise\n        except Exception as exc:  # the broker failed mid-exit",
+   "A-6: drop mid start-exit latches"
+  ],
+  [
+   "reconcile",
+   "src/footprint/execution/management/malik.py",
+   "                oca_group=order_id,",
+   "                oca_group=None,",
+   "A-7: reconcile sell without OCA"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            profile.calendar_from,\n            profile.calendar_through,",
+   "            date(min((*profile.holidays, *profile.early_closes, *profile.no_trade_days), default=profile.calendar_through).year, 1, 1),\n            profile.calendar_through,",
+   "A-8: check starts at the earliest listed date"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    if profile.calendar_from > profile.calendar_through:",
+   "    if False:",
+   "A-8: start after end accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "day <= instrument.calendar_through",
+   "day < instrument.calendar_through",
+   "A-15: last calendar day closed"
+  ],
+  [
+   "net",
+   "tests/conftest.py",
+   "    for name in (\"gethostbyname\", \"gethostbyname_ex\", \"gethostbyaddr\"):",
+   "    for name in ():",
+   "A-12: resolver calls unguarded"
+  ]
+ ]
+}

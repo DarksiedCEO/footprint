@@ -345,3 +345,30 @@ def test_a_slow_but_working_pager_hands_the_backlog_over_at_most_once() -> None:
     assert len(backup) == len(set(backup))  # never the same alarm handed over twice
     assert line.close(WAIT)
     assert fallback.close(WAIT)
+
+
+def test_an_alarm_queued_while_a_flapping_pager_looks_healthy_still_reaches_the_fallback() -> None:
+    """Audit 2026-10-07 A-5: down, up for one delivery, down again. An alarm queued in
+    the moment it looked healthy must still be handed to the fallback."""
+    calls = [0]
+    queued = threading.Event()
+
+    def flapping(a: Alarm) -> None:
+        calls[0] += 1
+        if calls[0] == 2:  # only the second delivery attempt gets through
+            return
+        if calls[0] == 3:  # the next one fails only once alarm 3 is queued
+            queued.wait(WAIT.total_seconds())
+        raise ConnectionError("pager down")
+
+    backup: list[str] = []
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(flapping, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(1))
+    line.submit(alarm(2))
+    assert eventually(lambda: line.delivered == 1)  # alarm 1, on its retry
+    line.submit(alarm(3))  # the pager looks healthy right now
+    queued.set()
+    assert eventually(lambda: "alarm 3" in backup)
+    line.close(timedelta(milliseconds=100))
+    assert fallback.close(WAIT)

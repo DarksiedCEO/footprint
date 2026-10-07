@@ -183,9 +183,13 @@ rings the phone daily. To resume, extend the lists and `calendar_through` from C
 calendar (checklist 23), add the next year's Easter Sunday to `easter_sundays`, and
 restart. The file is checked at start: every standard closure in `holiday_rules` (New
 Year, MLK, Presidents, Good Friday, Memorial, Juneteenth, July 4, Labor, Thanksgiving,
-Christmas) up to `calendar_through` must be listed as a closure, and the day after
-Thanksgiving and Christmas Eve as early closes, or the program refuses to start;
-moving `calendar_through` alone is refused.
+Christmas) from `calendar_from` up to `calendar_through` must be listed as a closure,
+and the day after Thanksgiving and Christmas Eve as early closes, or the program
+refuses to start. Moving `calendar_through` forward alone is refused only when a
+standard closure falls in the added days (a window with none, e.g. April to mid-May,
+loads), and the rules do not cover a one-off closure CME may add: extend from CME's
+own calendar, never by moving the date. `calendar_from` is fixed, so deleting a year's
+dates is refused too.
 
 ## Alarms you should expect at first
 

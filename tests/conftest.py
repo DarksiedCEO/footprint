@@ -81,6 +81,26 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return real_connect_ex(self, address)
 
     monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    # Every other resolver call too (independent audit A-12): by name or by address.
+    for name in ("gethostbyname", "gethostbyname_ex", "gethostbyaddr"):
+        real = getattr(socket, name)
+
+        def by_host(host: Any, *args: Any, _real: Any = real, _name: str = name) -> Any:
+            if not _loopback(host):
+                attempts.append(f"lookup {host}")
+                raise NetworkBlocked(f"network blocked in tests: {_name}({host!r})")
+            return _real(host, *args)
+
+        monkeypatch.setattr(socket, name, by_host)
+    real_getnameinfo = socket.getnameinfo
+
+    def getnameinfo(address: Any, flags: int) -> Any:
+        if not _loopback(address[0]):
+            attempts.append(f"lookup {address[0]}")
+            raise NetworkBlocked(f"network blocked in tests: getnameinfo({address[0]!r})")
+        return real_getnameinfo(address, flags)
+
+    monkeypatch.setattr(socket, "getnameinfo", getnameinfo)
     real_sendto = socket.socket.sendto
 
     def sendto(self: socket.socket, data: Any, *args: Any) -> int:

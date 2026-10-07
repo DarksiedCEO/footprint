@@ -602,14 +602,18 @@ class IbkrBroker:
                 copy.set_status(status)
             back = self._came_back(copy)
             alarms += back
-            alarms += self._check_duplicates(order_id)
+            duplicated = self._check_duplicates(order_id)
+            alarms += duplicated
             cancel = self._inactive(copy, alarms)
+            waiting = cancel is None and self._inactive_waiting(copy)
             self._bump(ib_id)
-        self._after_event(alarms, cancel, doubt=bool(back))
+        # A second live copy is not what we believe IBKR holds: reconcile (audit A-1).
+        self._after_event(alarms, cancel, doubt=bool(back or duplicated or waiting))
 
     def on_open_orders_end(self) -> None:
         resynced = False
         alarms: list[str] = []
+        cancels: list[int] = []
         with self._cv:
             listing = self._listing
             if not self._last_end("orders") or listing is None:
@@ -620,11 +624,11 @@ class IbkrBroker:
             if listing.resync:
                 self._unlisted_at_resync = unlisted
                 self._awaiting.discard("orders")
-                resynced = self._maybe_ready(alarms)
+                resynced = self._maybe_ready(alarms, cancels)
             else:
                 alarms += self._settle_unlisted(unlisted)
             self._cv.notify_all()
-        self._after_event(alarms, None)
+        self._after_event(alarms, None, more=cancels)
         if resynced:
             self._resynced()
 
@@ -657,11 +661,17 @@ class IbkrBroker:
             back = self._came_back(copy)
             alarms += back
             copy.filled = max(filled, self._exec_filled(perm_id))
-            copy.avg_price = avg_fill_price if filled else self._exec_price(perm_id)
-            alarms += self._check_duplicates(copy.order_id)
+            # IBKR's average is used only when it is a real price; 0 (unset) is never
+            # booked: the executions' price, or none yet (independent audit A-2).
+            copy.avg_price = (
+                avg_fill_price if filled and avg_fill_price > 0 else self._exec_price(perm_id)
+            )
+            duplicated = self._check_duplicates(copy.order_id)
+            alarms += duplicated
             cancel = self._inactive(copy, alarms)
+            waiting = cancel is None and self._inactive_waiting(copy)
             self._bump(ib_id)
-        self._after_event(alarms, cancel, doubt=bool(back))
+        self._after_event(alarms, cancel, doubt=bool(back or duplicated or waiting))
 
     def on_execution(
         self,
@@ -727,6 +737,7 @@ class IbkrBroker:
     def on_positions_end(self) -> None:
         resynced, again = False, False
         alarms: list[str] = []
+        cancels: list[int] = []
         with self._cv:
             if not self._last_end("positions") or not self._positions_round:
                 return
@@ -741,11 +752,11 @@ class IbkrBroker:
                 self._delta = {}
                 self._disagree_since, self._disagree_alarmed = None, False
                 self._awaiting.discard("positions")
-                resynced = self._maybe_ready(alarms)
+                resynced = self._maybe_ready(alarms, cancels)
         if again:
             log.warning("IBKR: a fill arrived during the position snapshot; taking it again")
             self._gw.request_positions()
-        self._after_event(alarms, None)
+        self._after_event(alarms, None, more=cancels)
         if resynced:
             self._resynced()
 
@@ -873,11 +884,14 @@ class IbkrBroker:
         live = [c for c in copies if c.live]
         order = (live or copies)[0].order  # as IBKR holds it, never as asked
         filled = sum(c.filled for c in copies)
-        priced = [c for c in copies if c.filled and c.avg_price is not None]
+        # A price only when every filled copy has a real one: a copy filled at an
+        # unknown price makes the whole average unknown, never partly guessed (A-2).
+        with_fills = [c for c in copies if c.filled]
+        priced = [c for c in with_fills if c.avg_price is not None and c.avg_price > 0]
         avg = (
             sum((c.avg_price * c.filled for c in priced if c.avg_price is not None), Decimal(0))
             / sum(c.filled for c in priced)
-            if priced
+            if priced and len(priced) == len(with_fills)
             else None
         )
         # A copy that can still act: live, not Inactive, not being cancelled. With none,
@@ -926,12 +940,26 @@ class IbkrBroker:
             return None
         if copy.ib_id <= 0 or self._ids.get(copy.order_id) != copy.ib_id:
             return None  # not ours to cancel by id
+        if not (self._connected and self._ready):
+            # D35: nothing is sent while IBKR is away or resyncing (audit A-3). It counts
+            # as held back meanwhile (not protection), and is cancelled once ready.
+            return None
         # (An attached stop reported Inactive is cancelled too, even while its entry is
         # live: Inactive is not protection, and Diego then cancels the entry. Fail
         # closed until paper shows how IBKR reports a held stop: checklist 27.)
         copy.cancel_sent = True
         alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
         return copy.ib_id
+
+    def _inactive_waiting(self, copy: _Copy) -> bool:
+        """Under the lock: an Inactive order of ours whose cancel waits for IBKR to be
+        ready (A-3). Not protection: the runner reconciles."""
+        return (
+            copy.status == _INACTIVE
+            and not copy.cancel_sent
+            and copy.ib_id > 0
+            and not (self._connected and self._ready)
+        )
 
     def _came_back(self, copy: _Copy) -> list[str]:
         """An order IBKR reports live (able to act) again after it was taken as finished
@@ -947,13 +975,20 @@ class IbkrBroker:
             return [f"{copy.order_id} is LIVE again at IBKR after it was Inactive; reconcile"]
         return []
 
-    def _after_event(self, alarms: list[str], cancel: int | None, *, doubt: bool = False) -> None:
-        """Outside the lock: the alarms an event raised, a cancel it needs, and the
+    def _after_event(
+        self,
+        alarms: list[str],
+        cancel: int | None,
+        *,
+        doubt: bool = False,
+        more: list[int] | None = None,
+    ) -> None:
+        """Outside the lock: the alarms an event raised, the cancels it needs, and the
         runner sent to reconcile when what IBKR holds is not what we believed."""
         for message in alarms:
             self._alarm(message)
-        if cancel is not None:
-            self._gw.cancel_order(cancel)
+        for ib_id in [*([] if cancel is None else [cancel]), *(more or [])]:
+            self._gw.cancel_order(ib_id)
         if doubt:
             self._on_resync()
 
@@ -1085,13 +1120,19 @@ class IbkrBroker:
         self._gw.request_open_orders()
         self._gw.request_executions()
 
-    def _maybe_ready(self, alarms: list[str]) -> bool:
+    def _maybe_ready(self, alarms: list[str], cancels: list[int]) -> bool:
         if self._awaiting or not self._connected or self._ready:
             return False
         alarms += self._settle_unlisted(self._unlisted_at_resync)
         self._unlisted_at_resync = set()
         self._on_resync()  # the runner reconciles before it can see "ready" (D35)
         self._ready = True
+        # Inactive orders of ours seen while IBKR was away: cancelled now, never while
+        # it was away (D35; independent audit A-3). Sent by the caller outside the lock.
+        for copy in self._copies.values():
+            cancel = self._inactive(copy, alarms)
+            if cancel is not None:
+                cancels.append(cancel)
         self._resync_since = None
         self._cv.notify_all()
         return True

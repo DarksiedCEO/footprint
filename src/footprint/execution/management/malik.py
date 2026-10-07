@@ -47,6 +47,7 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    BrokerDown,
     NeverPlaced,
     NotSent,
     Order,
@@ -460,6 +461,8 @@ class Manager:
                 try:
                     self._broker.cancel(order_id)
                     gone = self._broker.status(order_id)
+                except BrokerDown:
+                    raise  # an outage, not a fault (D35): reconcile once IBKR is back
                 except Exception as exc:
                     # Its fate cannot be confirmed (sent, answer lost, broker silent):
                     # it may still sell. Nothing is sent beside it; reconcile takes
@@ -500,8 +503,8 @@ class Manager:
                         raise NeedsReconcile(message)
                     return None
                 self._exit_wait_since.pop(order_id, None)
-        except NeedsReconcile:
-            raise
+        except (NeedsReconcile, BrokerDown):
+            raise  # BrokerDown: an outage is not a halt (D35; independent audit A-6)
         except Exception as exc:  # the broker failed mid-exit: halt, retry next call
             self._alarm(now, f"{pid}: broker error while exiting: {exc!r}; retrying")
             self._stand_down(now, f"{pid}: broker error while exiting")
@@ -513,7 +516,10 @@ class Manager:
             ExitReason.KILL_SWITCH,
             ExitReason.FAILSAFE,
         ):
-            self._alarm(now, f"{pid}: flattening ({reason.value})")
+            # Without its stop the position is unprotected until this exit fills: that
+            # rings the phone (independent audit A-4; "no resting stop" is critical).
+            unprotected = "; no resting stop" if reason is ExitReason.UNPROTECTED else ""
+            self._alarm(now, f"{pid}: flattening ({reason.value}){unprotected}")
         return self._place_exit(position, quote, now, reason, held)
 
     def _place_exit(
@@ -586,8 +592,8 @@ class Manager:
         reason = self._exit_reason.get(position.position_id, ExitReason.STOP)
         try:
             return self._work_exit_once(position, quote, now, reason)
-        except NeedsReconcile:
-            raise
+        except (NeedsReconcile, BrokerDown):
+            raise  # BrokerDown: an outage is not a halt (D35; independent audit A-6)
         except Exception as exc:  # broker error: halt, keep the exit recorded, retry
             self._alarm(now, f"{position.position_id}: broker error working the exit: {exc!r}")
             self._stand_down(now, f"{position.position_id}: broker error working the exit")
@@ -827,13 +833,19 @@ class Manager:
             self._reprice_stuck(reducing, stuck_before, abs(qty), price)
             if needed <= 0:
                 continue  # orders that would not cancel already cover it
+            order_id = f"reconcile-{self._reconcile_round}-{contract_id}"
             order = Order(
-                order_id=f"reconcile-{self._reconcile_round}-{contract_id}",
+                order_id=order_id,
                 contract_id=contract_id,
                 side=side,
                 quantity=needed,
                 order_type=OrderType.LIMIT,
                 limit_price=price,
+                # Its own one-cancels-all group: a second live copy IBKR makes of it (a
+                # modify under degraded connectivity) carries the same group, so the two
+                # can never both fill and go short (independent audit A-7). One group per
+                # order, never reused: a group that has filled is not used again.
+                oca_group=order_id,
             )
             owner = position.position_id if position is not None else None
             self._reconcile_orders.setdefault(owner, []).append(order.order_id)

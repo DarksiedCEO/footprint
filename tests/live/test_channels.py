@@ -708,6 +708,24 @@ def test_no_udp_leaves_the_machine_in_tests(no_network: list[str]) -> None:
     assert "connect 192.0.2.1:53" in no_network
 
 
+def test_every_name_lookup_is_blocked_in_tests(no_network: list[str]) -> None:
+    """Independent audit A-12: not only getaddrinfo; every resolver call in `socket`."""
+    import socket
+
+    from tests import conftest
+
+    for lookup in (
+        lambda: socket.gethostbyname("example.com"),
+        lambda: socket.gethostbyname_ex("example.com"),
+        lambda: socket.gethostbyaddr("8.8.8.8"),
+        lambda: socket.getnameinfo(("8.8.8.8", 53), 0),
+    ):
+        with pytest.raises(conftest.NetworkBlocked):
+            lookup()
+    assert socket.gethostbyname("localhost")  # loopback still resolves
+    assert sum(a.startswith("lookup ") for a in no_network) == 4
+
+
 def test_a_proxy_on_loopback_cannot_carry_a_request_out(
     no_network: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

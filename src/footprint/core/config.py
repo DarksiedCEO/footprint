@@ -76,6 +76,10 @@ class InstrumentProfile:
     # refused (core/holiday_rules.py).
     holiday_rules: tuple[HolidayRule, ...]
     easter_sundays: frozenset[date]
+    # Holidays and early closes are complete from calendar_from to calendar_through.
+    # The start is fixed in config, never taken from the dates listed, so deleting a
+    # whole year cannot switch its check off (independent audit A-8).
+    calendar_from: date
     calendar_through: date  # holidays and early closes are complete up to this date
     calendar_warn_days: int  # say so this many days before the calendar runs out
 
@@ -359,6 +363,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
         no_trade_days=_holidays(raw, "no_trade_days", where),
         holiday_rules=_holiday_rules(raw, "holiday_rules", where),
         easter_sundays=_holidays(raw, "easter_sundays", where),
+        calendar_from=_date(raw, "calendar_from", where),
         calendar_through=_date(raw, "calendar_through", where),
         calendar_warn_days=_integer(raw, "calendar_warn_days", where, minimum=1),
     )
@@ -398,12 +403,17 @@ def load_instrument(path: Path) -> InstrumentProfile:
         if day in profile.holidays:
             raise ConfigError(f"{where}: {day} is both a holiday and a no-trade day")
     dated = (*profile.holidays, *profile.early_closes, *profile.no_trade_days)
+    if profile.calendar_from > profile.calendar_through:
+        raise ConfigError(f"{where}: calendar_from is after calendar_through")
     late = [d for d in dated if d > profile.calendar_through]
     if late:
         raise ConfigError(f"{where}: {sorted(late)[0]} is after calendar_through")
-    # Complete through calendar_through: every standard US exchange holiday from the
-    # first listed year on must be listed (closed, early close or no-trade day), so
-    # moving calendar_through forward alone is refused (fail closed, D34).
+    early = [d for d in dated if d < profile.calendar_from]
+    if early:
+        raise ConfigError(f"{where}: {sorted(early)[0]} is before calendar_from")
+    # Complete from calendar_from through calendar_through: every standard US exchange
+    # holiday in that window must be listed (closed, early close or no-trade day), so
+    # moving calendar_through forward over a standard closure alone is refused (D34).
     names = [r.name for r in profile.holiday_rules]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:  # AEGIS I-3: a second rule of the same name could mask the first
@@ -418,14 +428,13 @@ def load_instrument(path: Path) -> InstrumentProfile:
     for easter in profile.easter_sundays:
         if easter.weekday() != _WEEKDAYS.index("SUN"):
             raise ConfigError(f"{where}: easter_sundays {easter} is not a Sunday")
-    first = min(dated, default=profile.calendar_through)
     try:
         missing = missing_days(
             profile.holiday_rules,
             profile.easter_sundays,
             {*profile.holidays, *profile.no_trade_days},
             set(profile.early_closes),
-            date(first.year, 1, 1),
+            profile.calendar_from,
             profile.calendar_through,
         )
     except MissingEaster as exc:

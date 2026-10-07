@@ -58,6 +58,11 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "CANCEL STUCK",
     "BROKER REPORT NOT SETTLING",
     "unprotected",
+    # A position without its resting stop, and the failsafe flattening one nothing
+    # manages (independent audit A-4; markers are case-sensitive).
+    "filled without a resting stop",
+    "no resting stop",
+    "unmanaged since",
     "IBKR CONNECTION REFUSED",
     "IBKR SESSION KEEPS FAILING",
     "resync is not completing",

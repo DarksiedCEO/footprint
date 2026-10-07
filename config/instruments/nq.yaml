@@ -92,6 +92,8 @@ holiday_rules:
 # Easter Sunday of every year the calendar covers (for Good Friday); listed, not
 # computed. Add the next year's when extending calendar_through.
 easter_sundays: [2026-04-05, 2027-03-28]
+calendar_from: 2026-01-01     # the lists above are complete from here (fixed: the check
+                              #   never starts later because a year's dates were deleted)
 calendar_through: 2027-03-31  # the lists above are complete up to here. FAIL CLOSED:
                               #   every later day is treated as closed until extended
 calendar_warn_days: 30        # alarm this many days before calendar_through

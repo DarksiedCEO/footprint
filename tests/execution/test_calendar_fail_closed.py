@@ -209,3 +209,41 @@ def test_the_no_trade_list_cannot_be_left_out(tmp_path: Path) -> None:
     config = _nq_with(tmp_path, ("no_trade_days:", "no_trade_days_off:"))
     with pytest.raises(ConfigError):
         load_profiles(config, "nq.yaml")
+
+
+def test_dropping_the_first_years_dates_is_refused(tmp_path: Path) -> None:
+    """Audit 2026-10-07 A-8: the completeness check starts at a fixed `calendar_from`,
+    not at the earliest date listed, so deleting a whole year cannot switch it off."""
+    config = _nq_with(tmp_path, ("calendar_through:", "calendar_through:"))
+    nq_path = config / "instruments" / "nq.yaml"
+    kept = [
+        line
+        for line in nq_path.read_text().splitlines()
+        if not line.lstrip().startswith(("- 2026-", "2026-"))
+    ]
+    nq_path.write_text("\n".join(kept) + "\n")
+    with pytest.raises(ConfigError, match="2026-"):
+        load_profiles(config, "nq.yaml")
+
+
+def test_the_calendar_start_cannot_be_left_out(tmp_path: Path) -> None:
+    config = _nq_with(tmp_path, ("calendar_from:", "calendar_from_off:"))
+    with pytest.raises(ConfigError):
+        load_profiles(config, "nq.yaml")
+
+
+def test_the_calendar_start_cannot_be_after_its_end(tmp_path: Path) -> None:
+    config = _nq_with(tmp_path, ("calendar_from: 2026-01-01", "calendar_from: 2027-04-01"))
+    with pytest.raises(ConfigError, match="calendar_from is after calendar_through"):
+        load_profiles(config, "nq.yaml")
+
+
+def test_the_last_day_of_the_calendar_still_trades(nq: InstrumentProfile) -> None:
+    """Independent audit A-15: `calendar_through` is inside the calendar (an ordinary
+    weekday there trades); the day after is not."""
+    through = nq.calendar_through
+    assert through.weekday() < 5  # 2027-03-31 is a Wednesday, no listed closure
+    assert through not in nq.holidays
+    assert through not in nq.no_trade_days
+    assert is_tradable_day(through, nq)
+    assert session_at(pt(through, 7), nq) is SessionKind.PRIME
