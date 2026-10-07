@@ -127,6 +127,7 @@ class Manager:
         self._reconcile_cancels: set[str] = set()
         self._cancelling_since: dict[str, datetime] = {}  # first seen PendingCancel
         self._exit_started: dict[str, ExitReason] = {}  # why an exit began, before it is out
+        self._refusals_seen: dict[str, int] = {}  # cancels of a stop the broker refused
         self._reconcile_round = 0
         self._closed: set[str] = set()
         # Reconcile's flatten orders, by the position they were sent for (None after a
@@ -168,6 +169,15 @@ class Manager:
             stop_status = self._broker.status(stop_id)
             if not stop_status.cancelling:
                 self._cancelling_since.pop(stop_id, None)  # (AEGIS L2-3)
+            if stop_status.cancel_refusals > self._refusals_seen.get(stop_id, 0):
+                # The broker refused a cancel of the stop (PendingCancel, then acting
+                # again): whatever exit sent it is over, with its records and clocks,
+                # quote or no quote. A later cancel by anyone else is theirs, and a new
+                # exit gets a full escalation window (AEGIS M3-1).
+                self._refusals_seen[stop_id] = stop_status.cancel_refusals
+                self._alarm(now, f"{pid}: the broker refused a cancel of the resting stop")
+                self._abandon_exit(position)
+                self._cancelling_since.pop(stop_id, None)
             if stop_status.state is OrderState.FILLED and stop_status.avg_price is not None:
                 return self._close(position, stop_status.avg_price, now, ExitReason.STOP)
             if stop_status.held_back:
@@ -187,8 +197,9 @@ class Manager:
                 # unprotected, get out (AEGIS K-1, K-3).
                 self._cancelling_since.setdefault(stop_id, now)
                 if stop_id in self._exit_cancels or stop_id in self._reconcile_cancels:
-                    # An exit under way keeps the reason it began with (_start_exit).
-                    return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
+                    # Our exit carries on with the reason it began with.
+                    started = self._exit_started.get(pid, ExitReason.UNPROTECTED)
+                    return self._start_exit(position, quote, now, started)
                 if pid not in self._held_back_alarmed:
                     self._held_back_alarmed.add(pid)
                     self._alarm(
@@ -200,7 +211,8 @@ class Manager:
             if stop_status.state is OrderState.CANCELLED and stop_id in self._exit_cancels:
                 # Our own exit's cancel landed: the exit carries on, no false alarm.
                 position.stop_order_id = None
-                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)
+                started = self._exit_started.get(pid, ExitReason.UNPROTECTED)
+                return self._start_exit(position, quote, now, started)
             if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
                 # Gone at the broker without this system cancelling it (by hand, or
                 # by the broker): the position is unprotected. Get out.
@@ -331,7 +343,6 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         pid = position.position_id
-        reason = self._exit_started.setdefault(pid, reason)  # an exit keeps its first reason
         try:
             # What is held is read once, BEFORE the stop comes down: a broker in doubt
             # about its positions keeps the stop, and the exit waits. The exit is sized
@@ -348,7 +359,9 @@ class Manager:
                 stop_id = position.stop_order_id
                 current = self._broker.status(stop_id)
                 if not (current.cancelling and stop_id in self._exit_cancels):
-                    # (A cancel IBKR already acknowledged is not sent again.)
+                    # (A cancel IBKR already acknowledged is not sent again.) The exit's
+                    # reason is recorded once it sends something (AEGIS M3-2).
+                    self._exit_started.setdefault(pid, reason)
                     self._exit_cancels.add(stop_id)
                     self._broker.cancel(stop_id)
                 cancelled = self._broker.status(stop_id)

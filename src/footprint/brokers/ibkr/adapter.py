@@ -175,6 +175,12 @@ class _Copy:
     cancel_sent: bool = False  # an Inactive copy the adapter asked IBKR to cancel
     cancel_confirmed: bool = False  # ...and IBKR answered that cancel
     settled_unseen: bool = False  # taken as finished because IBKR stopped listing it
+    refusals: int = 0  # times IBKR put it back to acting from PendingCancel (cancel refused)
+
+    def set_status(self, status: str) -> None:
+        if self.status == _PENDING_CANCEL and status in _ACTING:
+            self.refusals += 1  # a cancel IBKR acknowledged, then refused (AEGIS M3-1)
+        self.status = status
 
     @property
     def live(self) -> bool:
@@ -592,7 +598,8 @@ class IbkrBroker:
             if copy is None:
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             else:
-                copy.order, copy.status = order, status
+                copy.order = order
+                copy.set_status(status)
             back = self._came_back(copy)
             alarms += back
             alarms += self._check_duplicates(order_id)
@@ -646,7 +653,7 @@ class IbkrBroker:
                     self._bump(ib_id)
                     return  # an order we know nothing of yet: its openOrder will follow
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
-            copy.status = status
+            copy.set_status(status)
             back = self._came_back(copy)
             alarms += back
             copy.filled = max(filled, self._exec_filled(perm_id))
@@ -855,7 +862,9 @@ class IbkrBroker:
         if _EXTRA in order_id:
             copy = self._copies[int(order_id.rsplit(_EXTRA, 1)[1])]
             order = replace(copy.order, order_id=order_id)
-            return OrderStatus(order, copy.state, copy.filled, copy.avg_price)
+            return OrderStatus(
+                order, copy.state, copy.filled, copy.avg_price, cancel_refusals=copy.refusals
+            )
         copies = sorted(self._copies_of(order_id), key=lambda c: c.perm_id)
         if not copies and order_id in self._refused:
             return OrderStatus(self._refused[order_id], OrderState.REJECTED, 0, None)
@@ -889,7 +898,15 @@ class IbkrBroker:
             state = OrderState.CANCELLED
         else:
             state = OrderState.REJECTED
-        return OrderStatus(order, state, filled, avg, held_back=held_back, cancelling=cancelling)
+        return OrderStatus(
+            order,
+            state,
+            filled,
+            avg,
+            held_back=held_back,
+            cancelling=cancelling,
+            cancel_refusals=sum(c.refusals for c in copies),
+        )
 
     def _exec_filled(self, perm_id: int) -> int:
         return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)

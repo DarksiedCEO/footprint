@@ -534,3 +534,188 @@ def test_an_abandoned_exit_leaves_no_stuck_clock_for_a_later_exit(
     except NeedsReconcile as exc:  # a stale clock would escalate at once
         raise AssertionError(f"escalated at once: {exc}") from exc
     assert not stack.halt.tripped
+
+
+# --- AEGIS M3 (audit of c2a8935) -------------------------------------------------------
+
+
+def _quiet_steps(stack: Stack, runner, t, n: int):  # type: ignore[no-untyped-def]
+    """Steps with no new quote (the last one goes stale)."""
+    for _ in range(n):
+        runner.step(t)
+        t += SEC
+    return t
+
+
+def _first_positions_uncertain(stack: Stack) -> None:
+    from footprint.execution.orders import PositionsUncertain
+
+    original = stack.manager._broker.positions
+    calls = {"n": 0}
+
+    def uncertain() -> dict[str, int]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PositionsUncertain("settling")
+        return original()
+
+    stack.manager._broker.positions = uncertain  # type: ignore[method-assign]
+
+
+def test_a_refused_cancel_then_a_stale_quote_then_a_hand_cancel_still_alarms(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS M3-1: the refusal itself ends the exit (quote or no quote): a later hand
+    cancel during a stale quote is reported as someone else's."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    stop_id = runner.position.stop_order_id
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.STOP, 1)
+    t = _steps(stack, runner, t, 2)
+    fake.pending_cancels.clear()
+    fake.slow_cancels = False
+    fake._report(force=child.ib_id)  # refused: Submitted again
+    t += 10 * SEC  # the last quote is now stale
+    t = _quiet_steps(stack, runner, t, 2)
+    assert any("refused a cancel" in a.message for a in alarms)
+    before = len(alarms)
+    fake.slow_cancels = True
+    adapter.cancel(stop_id)  # by hand
+    t = _quiet_steps(stack, runner, t, 2)
+    said = [a.message for a in alarms[before:]]
+    assert sum("not by this system" in m for m in said) == 1, said
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert not any("CANCELLED at the broker" in m for m in said), said  # alarmed once only
+    assert [c.reason for c in runner.closed] == [ExitReason.UNPROTECTED], runner.closed
+    assert all(qty >= 0 for qty in fake.sim.positions().values())
+
+
+def test_a_refused_cancel_then_a_stale_gap_leaves_no_stuck_clock(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS M3-1 (MG): after a refusal and a stale gap, a fresh exit's acknowledged
+    cancel gets a full cancel_escalate_seconds, never escalating at once."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    stop_id = runner.position.stop_order_id
+    child = _stop_copy(fake, stop_id)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 2)
+    fake.pending_cancels.clear()
+    fake.slow_cancels = False
+    fake._report(force=child.ib_id)  # refused
+    t += 20 * SEC
+    t = _quiet_steps(stack, runner, t, 2)
+    before = len(alarms)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 5)
+    t = _steps(stack, runner, t, 1)
+    said = [a.message for a in alarms[before:]]
+    assert not any("will not cancel" in m for m in said), said
+    assert not stack.halt.tripped
+
+
+def test_a_hand_cancel_after_an_exit_that_sent_nothing_is_booked_unprotected(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS M3-2: an exit that could not send anything (positions uncertain) records
+    no reason; the hand-cancelled stop is booked UNPROTECTED, and alarmed."""
+    from footprint.execution.management.malik import ExitReason
+
+    _, adapter, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    stop_id = runner.position.stop_order_id
+    _first_positions_uncertain(stack)
+    _force_reason(stack, ExitReason.NEWS, 1)
+    before = len(alarms)
+    t = _steps(stack, runner, t, 1)
+    adapter.cancel(stop_id)  # by hand, lands at once
+    t = _steps(stack, runner, t, 30)
+    said = [a.message for a in alarms[before:]]
+    assert any("CANCELLED at the broker" in m for m in said), said
+    assert [c.reason for c in runner.closed] == [ExitReason.UNPROTECTED], runner.closed
+
+
+def test_a_failsafe_flatten_after_an_exit_that_sent_nothing_is_booked_failsafe(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS M3-2 (MF2): management breaks after an exit that sent nothing; the
+    runner's failsafe flattens and the trade is booked FAILSAFE."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    _first_positions_uncertain(stack)
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 1)
+
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("management broken")
+
+    stack.manager.manage = broken  # type: ignore[method-assign]
+    t = _steps(stack, runner, t, 80)
+    assert fake.sim.positions() == {}
+    assert [c.reason for c in runner.closed] == [ExitReason.FAILSAFE], runner.closed
+
+
+def test_an_exit_is_booked_as_the_reason_that_sent_its_cancel(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """AEGIS M3-2: a first exit (NEWS) sends nothing (positions uncertain); the next
+    step's exit (CLOSE) sends the stop's cancel; it is booked CLOSE, not NEWS."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    _first_positions_uncertain(stack)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 1)  # NEWS: nothing sent
+    _force_reason(stack, ExitReason.CLOSE, 1)
+    t = _steps(stack, runner, t, 2)  # CLOSE: the cancel goes out, pending
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    t = _steps(stack, runner, t, 20)
+    assert [c.reason for c in runner.closed] == [ExitReason.CLOSE], runner.closed
+
+
+def test_a_cancel_landing_mid_step_keeps_the_exit_reason(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """The stop is read PendingCancel, then the cancel lands before the exit's own
+    read in the same step (the real adapter is threaded): the exit that goes out is
+    booked with the reason it began with."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.NEWS, 1)
+    t = _steps(stack, runner, t, 2)  # NEWS exit; cancel pending
+    broker = stack.manager._broker
+    plain = broker.status
+    reads = {"n": 0}
+
+    def lands_on_second_read(order_id: str):  # type: ignore[no-untyped-def]
+        reads["n"] += 1
+        if reads["n"] == 2:
+            fake.slow_cancels = False
+            fake.finish_cancels()
+        return plain(order_id)
+
+    broker.status = lands_on_second_read  # type: ignore[method-assign]
+    stack.quote(150, D(151), t)
+    closed = stack.manager.manage(runner.position, (), t)
+    broker.status = plain  # type: ignore[method-assign]
+    for _ in range(20):
+        if closed is not None:
+            break
+        t += SEC
+        stack.quote(150, D(151), t)
+        closed = stack.manager.manage(runner.position, (), t)
+    assert closed is not None
+    assert closed.reason is ExitReason.NEWS

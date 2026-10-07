@@ -110,6 +110,9 @@ class OrderStatus:
     # but still live (it can still fill), so nothing may be placed beside it
     # (AEGIS J-1, K-1, K-2).
     cancelling: bool = False
+    # How many times the broker acknowledged a cancel (PendingCancel) and then put the
+    # order back to acting: the cancel was refused (AEGIS M3-1).
+    cancel_refusals: int = 0
 
     @property
     def protects(self) -> bool:

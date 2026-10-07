@@ -1057,6 +1057,23 @@ def test_a_stop_whose_ordinary_cancel_is_pending_is_cancelling_not_held_back(ib:
     assert not status.protects
 
 
+def test_a_cancel_refused_after_pending_cancel_is_counted(ib: Ib) -> None:
+    """AEGIS M3-1: PendingCancel, then acting again: one refusal, protecting again;
+    a plain resend of an acting status counts nothing."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    assert ib.adapter.status("p1-stop").cancel_refusals == 0
+    ib.fake.slow_cancels = True
+    ib.adapter.cancel("p1-stop")
+    assert ib.adapter.status("p1-stop").cancelling
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PreSubmitted", 0, 1, D(0))
+    status = ib.adapter.status("p1-stop")
+    assert status.cancel_refusals == 1
+    assert status.protects
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PreSubmitted", 0, 1, D(0))
+    assert ib.adapter.status("p1-stop").cancel_refusals == 1
+
+
 def _second_copy(ib: Ib, order_id: str, status: str) -> None:
     """IBKR holding a second live copy of the same order (as after a resend)."""
     from dataclasses import replace as clone
