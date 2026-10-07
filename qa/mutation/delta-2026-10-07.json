@@ -1,0 +1,113 @@
+{
+ "groups": {
+  "adapter": [
+   "tests/brokers/test_audit_delta.py",
+   "tests/brokers/test_audit_2026_10_07.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_runner.py"
+  ],
+  "exit": [
+   "tests/execution/test_audit_delta_exit.py",
+   "tests/brokers/test_audit_2026_10_07.py"
+  ],
+  "alarms": [
+   "tests/execution/test_alarms.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py"
+  ]
+ },
+ "mutants": [
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "elif self._exec_filled(copy.perm_id) >= copy.filled:",
+   "elif self._exec_filled(copy.perm_id) > 0:",
+   "F-1: price from part of the executions"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "elif copy.told_avg is not None and copy.told_filled == copy.filled:",
+   "elif copy.told_avg is not None:",
+   "F-1: IBKR's average for another size"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                self._reprice(copy)  # every execution prices the fill again (F-1, F-4)\n",
+   "",
+   "F-4: execution does not reprice"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if not fills or any(f.price <= 0 for f in fills):",
+   "if not fills:",
+   "F-5: execution at 0 is a price"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if filled and avg_fill_price > 0:\n                copy.told_avg",
+   "if filled:\n                copy.told_avg",
+   "A-2: IBKR average of 0 trusted"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                            copy.cancel_sent = False\n",
+   "                            pass\n",
+   "F-3: failed cancel not re-armed"
+  ],
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                doubt = True\n        if doubt:",
+   "        if doubt:",
+   "F-3: no doubt on a failed cancel"
+  ],
+  [
+   "exit",
+   "src/footprint/execution/management/malik.py",
+   "                except BrokerDown:\n                    raise  # an outage, not a fault",
+   "                except NeedsReconcile:\n                    raise  # an outage, not a fault",
+   "A-6a: sweep outage halts"
+  ],
+  [
+   "exit",
+   "src/footprint/execution/management/malik.py",
+   "        except (NeedsReconcile, BrokerDown):\n            raise  # BrokerDown: an outage is not a halt (D35; independent audit A-6)\n        except Exception as exc:  # broker error: halt, keep",
+   "        except NeedsReconcile:\n            raise\n        except Exception as exc:  # broker error: halt, keep",
+   "A-6c: work-exit outage halts"
+  ],
+  [
+   "exit",
+   "src/footprint/execution/management/malik.py",
+   "order_id = f\"reconcile-{self._reconcile_round}-{self._run_token}-{contract_id}\"",
+   "order_id = f\"reconcile-{self._reconcile_round}-{contract_id}\"",
+   "F-7: reconcile ids repeat after restart"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/alarms.py",
+   "                    if not queued:\n                        forward.append(alarm)",
+   "                    pass",
+   "F-8: closing alarm not forwarded"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "and instrument.calendar_from <= day <= instrument.calendar_through",
+   "and day <= instrument.calendar_through",
+   "F-6: pre-calendar days trade"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    if early:\n        raise ConfigError",
+   "    if False:\n        raise ConfigError",
+   "F-6/A8b: date before calendar_from accepted"
+  ]
+ ]
+}
