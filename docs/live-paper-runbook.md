@@ -147,8 +147,12 @@ less often (D32). A halt (a real disagreement: something held that should not be
 order that will not cancel) also latches the kill switch. The halt itself clears with a
 restart, but the kill switch does NOT: it is written to `state/ledger.json` and survives
 restarts, so the system makes no new entries until it is cleared. There is no operator
-command for that yet: clearing it is `Ledger.clear_kill_switch("<your name>")` from
-Python, after you have looked at why, and it also resets the drawdown peak to current
+command for that yet. To clear it, after you have looked at why: STOP the system first
+(a running system keeps its latch in memory and writes it back on its next save, undoing
+a clear made from another process), then from Python build the ledger over the same
+state file the system uses, as `footprint.live` does (`Ledger(profiles.risk,
+profiles.instrument, StateStore(<state>/ledger.json))`), and call
+`.clear_kill_switch("<your name>")`. It also resets the drawdown peak to current
 equity (so the drawdown breaker starts again from today's equity). Never edit
 `ledger.json` by hand. (An operator command, and whether an operational latch should
 reset the peak, are open decisions for Andre: see docs/decisions-pending.md, P6-1.)

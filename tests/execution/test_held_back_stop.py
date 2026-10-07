@@ -1180,3 +1180,43 @@ def test_a_new_exit_after_a_dropped_one_counts_its_own_hand_overs(
         refuse()
     said = [a.message for a in alarms[before:]]
     assert not any("Flatten by hand" in m for m in said), said
+
+
+def test_each_exit_episode_gets_its_own_cancel_stuck(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """CANCEL STUCK is once per exit episode: after Andre clears the latch and the exit
+    is dropped, a new exit that is refused through two hand-overs says it again."""
+    from footprint.execution.management.malik import ExitReason
+
+    fake, _, runner, alarms, t = _held_position(stack, bars, tmp_path)
+    child = _stop_copy(fake, runner.position.stop_order_id)
+    escalate = stack.profiles.execution.reconcile.cancel_escalate_seconds
+
+    def run(steps: int, t):  # type: ignore[no-untyped-def]
+        for _ in range(steps):
+            t = _steps(stack, runner, t, 1)
+            if child.perm_id in fake.pending_cancels:  # refused
+                fake.pending_cancels.remove(child.perm_id)
+                fake._report(force=child.ib_id)
+        return t
+
+    def stuck() -> int:
+        return sum("Flatten by hand" in a.message for a in alarms)
+
+    fake.slow_cancels = True
+    _force_reason(stack, ExitReason.CLOSE, 100 * escalate)
+    for _ in range(8 * escalate):
+        t = run(1, t)
+        if stuck():
+            break
+    assert stuck() == 1
+    stack.manager._must_exit = type(stack.manager)._must_exit.__get__(stack.manager)  # type: ignore[method-assign]
+    stack.ledger.clear_kill_switch("Andre")
+    t = run(3, t)  # the reason has passed: the exit is dropped
+    _force_reason(stack, ExitReason.CLOSE, 100 * escalate)
+    for _ in range(8 * escalate):
+        t = run(1, t)
+        if stuck() == 2:
+            break
+    assert stuck() == 2
