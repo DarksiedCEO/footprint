@@ -6,6 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 export FOOTPRINT_REQUIRE_IBAPI=1
 fail=0
+echo "source: $(git rev-parse HEAD) tree-dirty: $(git status --porcelain -- src tests | wc -l) files"
 run() {
   local name=$1; shift
   echo "=== $name"
@@ -35,4 +36,5 @@ run "D37 outage excluded from the failsafe, flapping cannot hold it off" $D -k "
 run "K-1/K-2/K-3 a stop being cancelled: never protection, never doubled, no false latch" tests/execution/test_held_back_stop.py tests/execution/test_attached_stop.py tests/brokers/test_ibkr_adapter.py -k "cancelling or pending_cancel or kept_never_doubled or never_doubles or uncertain_stop or copies or someone_else or stale_pending_submit or pending_its_inactive"
 run "L2 audit: a doubt as our cancel lands, refused cancels, stale clocks, exit reasons" tests/execution/test_held_back_stop.py tests/execution/test_attached_stop.py -k "doubt_as_our_exit or positions_settle or refused or stale_clock or no_stuck_clock or keeps_the_reason or by_reconcile or alarms_once or counts_from_then or will_not_cancel_is_kept"
 run "M3 audit: refused cancels end the exit, honest exit reasons" tests/execution/test_held_back_stop.py tests/brokers/test_ibkr_adapter.py -k "stale_quote_then or stale_gap or sent_nothing or refused_after_pending or sent_its_cancel or mid_step"
+run "N4 audit: refusals never restart escalation, stale messages, dropped exits, bookings" tests/execution/test_held_back_stop.py tests/brokers/test_ibkr_adapter.py -k "repeated_cancel_refusals or wanting_out or stale_submitted_between or new_pending_cancel or resent_cancel or failsafe_exit or failsafe_flatten_after_our or dropped_exit or unanswered_reconcile or ends_is_no_refusal or open_order_is_counted or summed_over_copies"
 exit $fail

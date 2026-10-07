@@ -1,0 +1,52 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if self.status == _PENDING_CANCEL and status in _ACTING:",
+   "        if self.status == _PENDING_CANCEL and status != _PENDING_CANCEL:",
+   "N-5 any exit from PendingCancel (Cancelled, Filled, Inactive) counts as a refusal"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        pid = position.position_id\n        self._exit_started.pop(pid, None)",
+   "        pid = position.position_id",
+   "N-10 abandon keeps the exit reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._exit_cancels.discard(position.stop_order_id)\n            self._reconcile_cancels.discard(position.stop_order_id)",
+   "            self._reconcile_cancels.discard(position.stop_order_id)",
+   "N-12 abandon keeps our exit-cancel record"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._exit_cancels.discard(position.stop_order_id)\n            self._reconcile_cancels.discard(position.stop_order_id)",
+   "            self._exit_cancels.discard(position.stop_order_id)",
+   "N-13 abandon keeps reconcile's cancel record"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._exit_reason[pid] = reason\n",
+   "        self._exit_reason[pid] = self._exit_started.get(pid, reason)\n",
+   "N-14 the booked reason is the recorded one, not the one passed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                self._refusals_seen[stop_id] = stop_status.cancel_refusals\n                self._cancelling_since.pop(stop_id, None)\n",
+   "                self._refusals_seen[stop_id] = stop_status.cancel_refusals\n",
+   "N-8 refusal keeps the cancelling clock"
+  ]
+ ]
+}
