@@ -9,6 +9,11 @@
   not cancel, a disagreement with the broker). It survives restarts; only
   `clear_kill_switch` (Andre, by hand) unlatches it, and that also resets the drawdown
   peak to current equity.
+- A sell of the open position that the broker reports FILLED with its price pending
+  is held durably (`hold_sold`, grind review G2-1, D40): reconcile never sells that
+  contract again, also after a restart. The hold is released only when the sale is
+  booked at its real price (`on_trade_closed`) or Andre books the position by hand;
+  clearing the kill switch does not release it.
 - Every change is written to disk before the call returns (atomic replace + fsync),
   so a crash never forgets a breaker, a latch or an open position.
 """
@@ -33,6 +38,16 @@ log = logging.getLogger("footprint.ledger")
 
 
 @dataclass(frozen=True, slots=True)
+class SoldHold:
+    """A sell of `position_id` on `contract_id` the broker reported FILLED with its
+    price pending (D39, D40): that contract is already sold and is never sold again."""
+
+    position_id: str
+    contract_id: str
+    order_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class LedgerState:
     equity: Decimal
     peak_equity: Decimal
@@ -48,6 +63,8 @@ class LedgerState:
     booked_by_hand: tuple[str, ...] = ()
     # The newest completed bar a decision was made on: a restart never decides it again.
     last_decided: datetime | None = None
+    # Filled sells whose price is pending (D40): kept until the sale is booked.
+    sold_unpriced: tuple[SoldHold, ...] = ()
 
 
 class StateStore:
@@ -79,6 +96,14 @@ class StateStore:
             booked_by_hand=tuple(raw.get("booked_by_hand", ())),
             last_decided=(
                 datetime.fromisoformat(raw["last_decided"]) if raw.get("last_decided") else None
+            ),
+            sold_unpriced=tuple(
+                SoldHold(
+                    position_id=str(hold["position_id"]),
+                    contract_id=str(hold["contract_id"]),
+                    order_id=str(hold["order_id"]),
+                )
+                for hold in raw.get("sold_unpriced", ())
             ),
         )
 
@@ -153,6 +178,30 @@ class Ledger:
             return
         self._save(replace(self._state, last_decided=bar_ts))
 
+    @property
+    def sold_unpriced(self) -> tuple[SoldHold, ...]:
+        """Filled sells with their price pending (D40); survives restarts."""
+        return self._state.sold_unpriced
+
+    def hold_sold(self, hold: SoldHold) -> None:
+        """Record, durably, a sell the broker reports FILLED with its price pending.
+        Raises if it cannot be saved: the caller must stand down then."""
+        if hold in self._state.sold_unpriced:
+            return
+        log.critical(
+            "holding %s: %s sold %s, price pending",
+            hold.contract_id,
+            hold.order_id,
+            hold.position_id,
+        )
+        self._save(replace(self._state, sold_unpriced=(*self._state.sold_unpriced, hold)))
+
+    def release_sold(self, position_id: str) -> None:
+        """The sale of `position_id` is booked at its real price: drop its holds."""
+        kept = tuple(h for h in self._state.sold_unpriced if h.position_id != position_id)
+        if kept != self._state.sold_unpriced:
+            self._save(replace(self._state, sold_unpriced=kept))
+
     def account(self, now: datetime) -> AccountState:
         self._roll(now)
         s = self._state
@@ -193,7 +242,15 @@ class Ledger:
             self.on_trade_closed(now, position_id, net_pnl)
         else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
             self._book(now, net_pnl, close_position=False)
-        self._save(replace(self._state, booked_by_hand=(*self._state.booked_by_hand, position_id)))
+        self._save(
+            replace(
+                self._state,
+                booked_by_hand=(*self._state.booked_by_hand, position_id),
+                sold_unpriced=tuple(
+                    h for h in self._state.sold_unpriced if h.position_id != position_id
+                ),
+            )
+        )
 
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
         self._roll(now)
@@ -220,6 +277,8 @@ class Ledger:
         self._book(now, net_pnl, close_position=True)
 
     def _book(self, now: datetime, net_pnl: Decimal, *, close_position: bool) -> None:
+        """Book a close. Closing the open position also releases its D40 holds in the
+        same save (the sale is booked, at its real price)."""
         self._roll(now)
         s = self._state
         equity = s.equity + net_pnl
@@ -231,6 +290,11 @@ class Ledger:
             realized_week=s.realized_week + net_pnl,
             stopouts_today=s.stopouts_today + (net_pnl < 0),
             open_position_id=None if close_position else s.open_position_id,
+            sold_unpriced=(
+                tuple(h for h in s.sold_unpriced if h.position_id != s.open_position_id)
+                if close_position
+                else s.sold_unpriced
+            ),
         )
         self._save(state)
         if drawdown_breached(self._risk, self.account(now)):

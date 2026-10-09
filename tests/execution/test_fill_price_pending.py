@@ -33,7 +33,13 @@ class Lag:
     """The broker as IBKR can report it: an order's fill is known (orderStatus Filled)
     before its price and the new holding are (execDetails, the position report).
     `hide(order_id)` strips the price from every answer about that order; `hold(...)`
-    freezes the position report; `reveal()` lets both arrive."""
+    freezes the position report; `reveal()` lets both arrive.
+
+    Weaker than the real adapter (grind review G2-4): a frozen report never disagrees
+    with anything here, while `IbkrBroker.positions()` raises PositionsInDoubt once its
+    counted executions and IBKR's report disagree. A test that passes on `Lag` does not
+    prove reconcile would never re-sell after its own priced fill while the report
+    lags; that property rests on the adapter's two-source check."""
 
     def __init__(self, broker: SimulatedBroker, monkeypatch: pytest.MonkeyPatch) -> None:
         self.hidden: set[str] = set()

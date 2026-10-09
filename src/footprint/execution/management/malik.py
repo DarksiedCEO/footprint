@@ -45,7 +45,7 @@ from footprint.decision.session import NewsBlackout, in_news_blackout
 from footprint.decision.stop import BidTick, StopCheck, StopKeeper
 from footprint.execution.executor.diego import Position
 from footprint.execution.halt import Halt
-from footprint.execution.ledger import Ledger
+from footprint.execution.ledger import Ledger, SoldHold
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
     BrokerDown,
@@ -139,6 +139,9 @@ class Manager:
         # sent for that position until the price arrives or the wait runs out.
         self._pending: dict[str, tuple[str, datetime, ExitReason]] = {}
         self._pending_overdue: set[str] = set()  # CHECK THE FILL alarmed (D40)
+        # Contracts held under a durable D40 hold from before this process (G2-1),
+        # alarmed CHECK THE FILL once each.
+        self._durable_alarmed: set[str] = set()
         self._reconcile_round = 0
         # Names this process's reconcile orders (and their one-cancels-all groups): the
         # rounds restart at 0 after a restart, the names never do (delta review F-7).
@@ -682,9 +685,13 @@ class Manager:
     ) -> Closed:
         net = self._net_pnl(position, price)
         if self._ledger.open_position_id == position.position_id:
-            self._ledger.on_trade_closed(now, position.position_id, net)
+            self._ledger.on_trade_closed(now, position.position_id, net)  # releases holds
         else:
             self._alarm(now, f"{position.position_id}: closed but the ledger never recorded it")
+            try:  # the sale is confirmed at its real price: its D40 hold goes with it
+                self._ledger.release_sold(position.position_id)
+            except Exception as exc:  # a hold left in place only ever blocks a sell
+                self._alarm(now, f"{position.position_id}: could not release its hold: {exc!r}")
         with contextlib.suppress(KeyError):  # Booker never held a stop (unprotected case)
             self._stops.close(position.position_id)
         self._closed.add(position.position_id)
@@ -921,6 +928,7 @@ class Manager:
         known = self._pending.get(pid)
         if known is None or known[0] != order_id:
             known = self._pending[pid] = (order_id, now, reason)
+            self._hold_durably(position, order_id, now)
             log.warning(
                 "%s: %s filled at the broker; its price is not reported yet: nothing is "
                 "sent until it is",
@@ -981,16 +989,18 @@ class Manager:
         can go short (N3-2, D40). Past the wait the kill switch is latched and Andre gets
         one critical CHECK THE FILL alarm; the sale is booked if its price and the new
         holding ever arrive, otherwise he flattens by hand. Fails closed, like CANCEL
-        STUCK."""
+        STUCK. The hold is also kept in the ledger, so a restart (`reconcile(None)`)
+        never sells beside the filled sell either (G2-1; see `_held_from_before`)."""
         if position is None or contract_id != position.contract_id:
-            return False
+            return self._held_from_before(contract_id, now)
         pid = position.position_id
         if pid not in self._pending:
             unpriced = self._unpriced_sell(position)
             if unpriced is None:
-                return False
+                return self._held_from_before(contract_id, now)
             reason = self._exit_reason.get(pid, ExitReason.RECONCILE)
             self._pending[pid] = (unpriced, now, reason)
+            self._hold_durably(position, unpriced, now)
         order_id, since, _ = self._pending[pid]
         wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
         if now - since < wait:
@@ -1007,6 +1017,45 @@ class Manager:
                 "and flatten by hand only what is really held",
             )
         self._stand_down(now, f"{pid}: {order_id} filled, price and holding not reported")
+        return True
+
+    def _hold_durably(self, position: Position, order_id: str, now: datetime) -> None:
+        """Save the D40 hold in the ledger. If it cannot be saved, the in-memory hold
+        still stops every sell in this process, but a restart would not know it: halt,
+        latch and tell Andre not to restart (fail closed)."""
+        hold = SoldHold(position.position_id, position.contract_id, order_id)
+        try:
+            self._ledger.hold_sold(hold)
+        except Exception as exc:
+            self._alarm(
+                now,
+                f"{position.position_id}: could not save the hold on {position.contract_id} "
+                f"({order_id} FILLED, price pending): {exc!r}. Nothing more is sold in this "
+                "process; do not restart the bot until the fill is checked by hand",
+            )
+            self._stand_down(now, f"{position.position_id}: hold on {order_id} not saved")
+
+    def _held_from_before(self, contract_id: str, now: datetime) -> bool:
+        """Reconcile: `contract_id` is under a durable D40 hold this process did not
+        see happen (it was restarted, or lost its record): a sell the broker reported
+        FILLED with its price pending already sold it. Never sold again. Latch, halt and
+        tell Andre once; the hold stays until the sale is booked (its real price, or
+        Andre's `Ledger.book_by_hand`)."""
+        holds = [h for h in self._ledger.sold_unpriced if h.contract_id == contract_id]
+        if not holds:
+            return False
+        orders = ", ".join(h.order_id for h in holds)
+        if contract_id not in self._durable_alarmed:
+            self._durable_alarmed.add(contract_id)
+            self._alarm(
+                now,
+                f"CHECK THE FILL: {orders} sold {contract_id} at the broker (FILLED, price "
+                f"pending) before this restart, and the broker still reports {contract_id} "
+                "held. Nothing more is sold (a second sell could go short); the kill switch "
+                "is latched. Check the fill in the broker's own platform, flatten by hand "
+                "only what is really held, then book the position with Ledger.book_by_hand",
+            )
+        self._stand_down(now, f"{contract_id}: {orders} filled before a restart, price pending")
         return True
 
     def _settled(self, key: str, snapshot: object, now: datetime) -> bool:
