@@ -195,12 +195,15 @@ def test_an_entry_that_fills_during_an_outage_is_protected_at_the_broker(
     assert not runner.reconciling
 
 
-def test_a_fill_during_an_outage_is_flattened_after_the_reconnect(
+def test_a_fill_during_an_outage_is_adopted_with_its_stop_after_the_reconnect(
     stack: Stack, bars: list[Bar], tmp_path: Path
 ) -> None:
     """The entry fills during the outage and the stop is not reached: protected at the
-    broker throughout; after the reconnect the reconcile flattens it, stop and all."""
-    runner, _, _ = runner_for(stack, bars, tmp_path)
+    broker throughout. After the reconnect the runner settles the entry before it
+    reconciles: the fill is the position (booked at its real price, its attached stop
+    kept), never forgotten and flattened as unrecorded (delta-3 review, N3-1; before
+    that, this test pinned the flatten)."""
+    runner, _, alarms = runner_for(stack, bars, tmp_path)
     runner.step(DECISION_TIME)
     t = DECISION_TIME + SEC
     runner.step(t)  # the entry is sent (working)
@@ -217,9 +220,14 @@ def test_a_fill_during_an_outage_is_flattened_after_the_reconnect(
     for k in range(20, 60):
         stack.quote(150, D(151), t + k * SEC)
         runner.step(t + k * SEC)
-    assert stack.broker.positions() == {}  # flattened by the reconcile
-    assert stack.broker.open_orders() == []  # the stop went with it
-    assert not runner.reconciling
+    position = runner.position
+    assert position is not None
+    assert position.entry_price == D(151)
+    assert stack.ledger.open_position_id == position.position_id
+    assert stack.broker.positions() == {stack.contract: 1}  # kept, not sold
+    assert [o.order_id for o in stack.broker.open_orders()] == [position.stop_order_id]
+    assert not runner.reconciling  # reconcile agrees with the adopted position
+    assert not any("never recorded" in a.message for a in alarms)
 
 
 def test_a_fill_below_the_limit_moves_the_stop_down_to_the_real_fill(stack: Stack) -> None:

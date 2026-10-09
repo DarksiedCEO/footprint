@@ -53,7 +53,7 @@ from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger
 from footprint.execution.management.malik import Alarm, Closed, ExitReason, Manager
 from footprint.execution.market import QuoteBook
-from footprint.execution.orders import BrokerDown
+from footprint.execution.orders import BrokerDown, FillUnpriced
 
 log = logging.getLogger("footprint.runner")
 
@@ -104,6 +104,7 @@ class Runner:
         self._reconcile_flattening = False  # the last reconcile disagreed: it is acting
         self._away_since: datetime | None = None  # the broker is away since then
         self._doubts = 0  # counts every doubt: one raised mid-reconcile is never lost
+        self._check_fill_alarmed: set[str] = set()  # entries alarmed CHECK THE FILL
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -260,11 +261,8 @@ class Runner:
             self._decide(now, blackouts)
 
     def _reconcile(self, now: datetime) -> None:
-        if self._ticket is not None:
-            # A working entry must not outlive the doubt: cancel it; reconcile handles
-            # whatever it may have filled.
-            self._executor.abandon(self._ticket)
-            self._ticket = None
+        if self._ticket is not None and not self._settle_entry(now):
+            return  # a filled entry waits for its price: nothing is reconciled over it
         # Pessimistic: until reconcile says it agrees, assume it may have a sell out
         # (it can raise after its order reached the broker).
         self._reconcile_flattening = True
@@ -278,6 +276,37 @@ class Runner:
             self._reconciling = False  # (a doubt raised meanwhile: reconcile again)
         elif self._position is not None and self._ledger.open_position_id is None:
             self._position, self._managed_at = None, None
+
+    def _settle_entry(self, now: datetime) -> bool:
+        """A working entry must not outlive the doubt: it is cancelled if still working,
+        and the broker's word on it decides (delta-3 review, N3-1). True when reconcile
+        may run: the entry ended unfilled, became the position, or is unknown and left
+        to reconcile. False while the broker reports it FILLED with its price pending:
+        the entry is kept, its attached stop is never cancelled, and reconcile never
+        agrees "flat" over it; nothing is sent. Past `fill_price_wait_seconds`: halt
+        and CHECK THE FILL to Andre (once), and keep holding until the price comes."""
+        ticket = self._ticket
+        assert ticket is not None
+        try:
+            ticket = self._executor.settle(ticket, now)
+        except FillUnpriced as exc:
+            self._halt.trip(f"{ticket.position_id}: entry fill price not reported")
+            if ticket.position_id not in self._check_fill_alarmed:
+                self._check_fill_alarmed.add(ticket.position_id)
+                self._alarm(
+                    now,
+                    f"CHECK THE FILL: {exc}. Its attached stop stays at the broker; nothing "
+                    "is sent and reconcile waits for the price; flatten by hand if it never "
+                    "comes",
+                )
+            return False
+        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since is not None:
+            log.warning("reconcile waits: entry %s filled, price pending", ticket.order_id)
+            return False
+        self._ticket = None
+        if ticket.outcome is not EntryOutcome.WORKING:
+            self._entry_done(ticket, now)
+        return True
 
     def _entry_done(self, ticket: EntryTicket, now: datetime) -> None:
         """The one path for every finished entry, however it finished."""

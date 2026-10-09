@@ -218,6 +218,33 @@ class Executor:
         except Exception as exc:  # reconcile will see and cancel it from the broker's list
             log.critical("could not cancel entry %s: %r", ticket.order_id, exc)
 
+    def settle(self, ticket: EntryTicket, now: datetime) -> EntryTicket:
+        """Reconcile is about to run while this entry is working: cancel it if the
+        broker still has it working, then take the broker's word on it (delta-3 review,
+        N3-1). An entry the broker reports FILLED is never forgotten:
+        - filled with its price: it is the position, protected like any fill;
+        - filled, its price pending: still WORKING with `price_pending_since` set (past
+          `fill_price_wait_seconds`, FillUnpriced). Reconcile must not run over it: its
+          attached stop is the position's protection;
+        - nothing filled: UNFILLED, its attached stop ended.
+        Still WORKING with no fill known (the cancel is not confirmed): the caller drops
+        it and reconcile finds and cancels it from the broker's list, as before."""
+        require_utc(now, "now")
+        if ticket.outcome is not EntryOutcome.WORKING:
+            return ticket
+        try:
+            status = self._broker.status(ticket.order_id)
+            if status.state is OrderState.WORKING:
+                self.abandon(ticket)
+                status = self._broker.status(ticket.order_id)
+        except Exception as exc:
+            if ticket.price_pending_since is not None:
+                raise  # known to be filled: never dropped; asked again next step
+            log.critical("cannot settle entry %s: %r", ticket.order_id, exc)
+            self.abandon(ticket)
+            return ticket
+        return self._after(ticket, status.state, status.filled, status.avg_price, now)
+
     def on_time(self, ticket: EntryTicket, now: datetime) -> EntryTicket:
         """Advance a working entry: fill check, price steps, timeout."""
         require_utc(now, "now")
