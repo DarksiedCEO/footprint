@@ -1,0 +1,18 @@
+source: dbc511ae9982f96df5c2c16aef10f57369fe1ce7 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: G1: restart/stray contracts ignore unpriced reconcile fills (the G4-1 bug)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: G2: the position's own contract ignores reconcile fills recorded under another owner
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: G3: a working (unfilled) reconcile order counts as a filled sale
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: G4: a priced fill also holds the contract
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: G5: an unpriced fill of another contract holds this one
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: G6: an order that was never placed stops the search
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: G7: only each owner's newest reconcile order is checked
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: G10: the hold is never saved under the open position
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: G11: with no open position the hold is saved under the contract, not the order
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: G12: the unowned hold is not saved (lost on a restart)
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: G13: never past the wait (no CHECK THE FILL, no latch)
+ 12 KILLED   [exec] src/footprint/execution/management/malik.py: G14: alarmed at once, no wait
+ 13 KILLED   [exec] src/footprint/execution/management/malik.py: G15: CHECK THE FILL every round
+ 14 KILLED   [exec] src/footprint/execution/management/malik.py: G16: past the wait, no stand-down naming the order
+ 15 KILLED   [exec] src/footprint/execution/management/malik.py: G20: the hold is found afresh every round (its wait never runs out)
+15 mutants, 0 survived or errored
