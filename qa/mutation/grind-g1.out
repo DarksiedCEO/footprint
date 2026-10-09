@@ -1,0 +1,9 @@
+source: d3b2a8f12ba54890bbe5021a217c74ec18bf4820 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: G-1: the old branch (an unseen fill dropped and cancelled on a lost answer)
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: G-1: a cancel is sent on a lost answer (ticket kept)
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: G-1: a lost answer is swallowed (the runner drops the entry)
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: G-3 V2: no fresh status after the cancel (stale WORKING used)
+  5 KILLED   [exec] src/footprint/execution/runner.py: G-3 V1: any working ticket holds reconcile
+  6 KILLED   [exec] src/footprint/execution/runner.py: G-2: the alarm no longer says to cancel the stop first
+6 mutants, 0 survived or errored
