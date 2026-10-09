@@ -1,0 +1,75 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_unpriced_sell_guards.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_reconcile_hardening.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "backtest": [
+   "tests/backtest/test_calendar_range.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                and status.avg_price is None\n                and status.order.side is Side.SELL\n",
+   "                and status.avg_price is None\n",
+   "V2: a FILLED-unpriced BUY of the position counts as its sale"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                and status.avg_price is None\n                and status.order.side is Side.SELL\n                and status.order.contract_id == position.contract_id\n",
+   "                and status.avg_price is None\n                and status.order.side is Side.SELL\n",
+   "V3: a FILLED-unpriced sell of another contract counts as the position's sale"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if position is None or contract_id != position.contract_id:\n            return self._held_from_before(contract_id, now)\n",
+   "        if position is None:\n            return self._held_from_before(contract_id, now)\n",
+   "V4: a hold on the position's contract also holds off every other contract"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "_integer(rc, \"fill_price_wait_seconds\", rc_where, minimum=1)",
+   "_integer(rc, \"fill_price_wait_seconds\", rc_where, minimum=0)",
+   "V16: a zero price wait is accepted"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if start < instrument.calendar_from:\n",
+   "        if start <= instrument.calendar_from:\n",
+   "V14: the exact first calendar day is refused"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if end > instrument.calendar_through:\n",
+   "        if end >= instrument.calendar_through:\n",
+   "V15: the exact last calendar day is refused"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if start < instrument.calendar_from:\n",
+   "        if start + timedelta(days=1) < instrument.calendar_from:\n",
+   "V14b: one day before calendar_from is accepted"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/engine.py",
+   "        if end > instrument.calendar_through:\n",
+   "        if end - timedelta(days=1) > instrument.calendar_through:\n",
+   "V15b: one day past calendar_through is accepted"
+  ]
+ ]
+}

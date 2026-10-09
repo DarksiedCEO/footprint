@@ -561,6 +561,8 @@ def test_execution_profile_loads(execution_path: Path) -> None:
         ("stop_order", {"limit_offset_ticks": 0}),
         ("stop_order", {"extra": 1}),
         ("ibkr", {"reconnect_seconds": 0}),
+        # Delta review 3, V16: no wait at all would act at once on a lagging report.
+        ("reconcile", {"fill_price_wait_seconds": 0}),
         ("ibkr", {"option_security_type": ""}),
         # Paper only is hard-coded: no key can set it (unknown keys are refused).
         ("ibkr", {"require_paper": False}),
