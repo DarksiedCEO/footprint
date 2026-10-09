@@ -1,0 +1,24 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+source: 226ad70712ee941bb2857d9a2ed471b7321cbd3f tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: management's pending sell is not saved durably
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: a filled sell reconcile finds itself is not saved durably
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: a restart (reconcile(None)) ignores the durable hold (the reviewer's probe)
+  4 SURVIVED [exec] src/footprint/execution/management/malik.py: G2-1: a matching position with no in-memory record ignores the durable hold
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: the durable hold never blocks
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: the restart CHECK THE FILL alarm repeats every round
+  7 SURVIVED [exec] src/footprint/execution/management/malik.py: G2-1: a restarted hold neither halts nor latches
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: the restart alarm does not say to book by hand
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: a hold blocks every contract (strays never flattened)
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: an unsaved hold does not stand down
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: G2-1: the unsaved-hold alarm does not warn against a restart
+ 12 KILLED   [exec] src/footprint/execution/ledger.py: G2-1: hold_sold not idempotent (duplicates)
+ 13 KILLED   [exec] src/footprint/execution/ledger.py: G2-1: a booked close never releases its hold
+ 14 SURVIVED [exec] src/footprint/execution/ledger.py: G2-1: booking by hand never releases the hold
+ 15 KILLED   [exec] src/footprint/execution/ledger.py: G2-1: a booked close releases every hold, not only its own
+ 16 KILLED   [exec] src/footprint/execution/ledger.py: G2-1: holds are not read back from the state file
+ 17 KILLED   [exec] src/footprint/execution/ledger.py: G2-1: an older state file without holds fails to load
+ 18 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2 (re-run): no latch past the wait
+ 19 SURVIVED [exec] src/footprint/execution/management/malik.py: R-b (reviewer G2-2): latch and halt only on the first overdue round
+ 20 KILLED   [exec] src/footprint/execution/management/malik.py: R-c (reviewer G2-2): any contract beside the position counts as its sale
+20 mutants, 4 survived or errored

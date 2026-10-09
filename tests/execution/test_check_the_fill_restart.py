@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from footprint.core.calendar import SessionKind
 from footprint.decision.stop import StopKeeper
 from footprint.execution.executor.diego import Executor, Position
 from footprint.execution.halt import Halt
@@ -28,7 +29,7 @@ from footprint.execution.management.malik import Alarm, Manager
 from footprint.execution.orders import Quote, SimulatedBroker, TrackedBroker
 from footprint.execution.runner import Runner
 from tests.decision.scenario import DECISION_TIME
-from tests.execution.conftest import Stack
+from tests.execution.conftest import SEND, Stack
 from tests.execution.test_fill_price_pending import (
     Lag,
     _check_the_fill,
@@ -104,6 +105,7 @@ def test_a_restart_past_the_wait_never_sells_beside_the_filled_sell(
     assert SimulatedBroker.positions(stack.broker) == {}  # never short at the broker
     assert runner.reconciling
     assert halt.tripped
+    assert [r for r in halt.reasons if "filled before a restart" in r]  # names the hold
     assert ledger.account(late).kill_switch_latched
     restarted = [a.message for a in alarms if "CHECK THE FILL" in a.message]
     assert len(restarted) == 1  # once, not every round
@@ -201,6 +203,45 @@ def test_booking_the_position_by_hand_releases_its_hold(
     ledger.book_by_hand(t + SEC, position.position_id, D(-100), "Andre")
     assert ledger.sold_unpriced == (other,)
     assert ledger.open_position_id is None
+
+
+def test_a_position_whose_filled_sell_this_process_cannot_find_is_still_held(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The position is known, but this manager has no record of the sell that sold it
+    (the exit was sent by an earlier process, so it is not among its candidates): the
+    saved hold still stops every reconcile sell."""
+    lag = Lag(stack.broker, monkeypatch)
+    position, t = _exit_filled_unpriced(stack, lag)
+    fresh = Manager(
+        stack.profiles, stack.manager._broker, stack.stops, stack.ledger, stack.halt, stack.book
+    )
+    alarms: list[Alarm] = []
+    fresh.route_alarms(alarms.append)
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    for k in range(6):
+        now = t + k * (settle + SEC)
+        stack.quote(150, 151, now)
+        assert not fresh.reconcile(position, now)
+    assert _reconcile_sells(lag) == []
+    assert SimulatedBroker.positions(stack.broker) == {}
+    assert len([a for a in alarms if "CHECK THE FILL" in a.message]) == 1
+
+
+def test_booking_a_never_recorded_position_by_hand_releases_only_its_hold(
+    stack: Stack,
+) -> None:
+    """A hold whose position the ledger never recorded as open (its write failed at
+    the fill) goes when Andre books that position by hand; the open position's
+    holds stay."""
+    open_hold = SoldHold("open-position", "C-1", "open-exit-1")
+    lost_hold = SoldHold("lost-position", "C-2", "lost-exit-1")
+    stack.ledger.on_entry_filled(SEND, "open-position", SessionKind.PRIME)
+    stack.ledger.hold_sold(open_hold)
+    stack.ledger.hold_sold(lost_hold)
+    stack.ledger.book_by_hand(SEND + SEC, "lost-position", D(-50), "Andre")
+    assert stack.ledger.sold_unpriced == (open_hold,)
+    assert stack.ledger.open_position_id == "open-position"
 
 
 def test_clearing_the_kill_switch_does_not_release_a_hold(
