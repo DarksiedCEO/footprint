@@ -138,7 +138,7 @@ class Manager:
         # review 2, N-1): position id -> (order id, first seen, why it sold). Nothing is
         # sent for that position until the price arrives or the wait runs out.
         self._pending: dict[str, tuple[str, datetime, ExitReason]] = {}
-        self._pending_overdue: set[str] = set()  # alarmed: reconcile stops waiting on it
+        self._pending_overdue: set[str] = set()  # CHECK THE FILL alarmed (D40)
         self._reconcile_round = 0
         # Names this process's reconcile orders (and their one-cancels-all groups): the
         # rounds restart at 0 after a restart, the names never do (delta review F-7).
@@ -916,7 +916,7 @@ class Manager:
         not reported yet (IBKR's status can run ahead of its execution report; delta
         review 2, N-1). The position is sold: nothing more is sent for it, and nothing
         is booked until the real price arrives. Past `fill_price_wait_seconds`: alarm,
-        halt and reconcile (reconcile itself still holds off selling it until then)."""
+        halt and reconcile (reconcile never sells it again either; see `_sold_unpriced`)."""
         pid = position.position_id
         known = self._pending.get(pid)
         if known is None or known[0] != order_id:
@@ -976,9 +976,12 @@ class Manager:
 
     def _sold_unpriced(self, position: Position | None, contract_id: str, now: datetime) -> bool:
         """Reconcile: this position's holding on `contract_id` is already sold by a fill
-        whose price is pending (what is held lags it), inside the wait. Past the wait,
-        reconcile acts on what is held again (alarmed once): the broker's own position
-        report has had that long to catch up."""
+        the broker reported FILLED with its price pending (what is held lags it). Never
+        sold again, inside the wait or past it: a second sell beside a known filled sell
+        can go short (N3-2, D40). Past the wait the kill switch is latched and Andre gets
+        one critical CHECK THE FILL alarm; the sale is booked if its price and the new
+        holding ever arrive, otherwise he flattens by hand. Fails closed, like CANCEL
+        STUCK."""
         if position is None or contract_id != position.contract_id:
             return False
         pid = position.position_id
@@ -997,10 +1000,14 @@ class Manager:
             self._pending_overdue.add(pid)
             self._alarm(
                 now,
-                f"{pid}: {order_id} filled but its price never came; reconcile now acts on "
-                "what the broker holds. Check the fill in the broker's own platform",
+                f"{pid}: CHECK THE FILL: {order_id} sold this position at the broker "
+                f"(FILLED) but its price never came, and the broker still reports "
+                f"{contract_id} held. Nothing more is sold (a second sell could go short); "
+                "the kill switch is latched. Check the fill in the broker's own platform "
+                "and flatten by hand only what is really held",
             )
-        return False
+        self._stand_down(now, f"{pid}: {order_id} filled, price and holding not reported")
+        return True
 
     def _settled(self, key: str, snapshot: object, now: datetime) -> bool:
         """True once `snapshot` has been seen unchanged for settle_seconds."""

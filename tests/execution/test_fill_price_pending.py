@@ -382,23 +382,105 @@ def test_reconcile_never_flattens_what_a_fill_without_a_price_already_sold(
     assert not [o for o in lag.placed if o.startswith("reconcile-")]
 
 
-def test_past_the_wait_reconcile_acts_on_what_is_held_and_says_so(
+def _check_the_fill(stack: Stack) -> list[str]:
+    return [a.message for a in stack.alarms if "CHECK THE FILL" in a.message]
+
+
+def _reconcile_rounds(stack: Stack, position: Position, start: datetime, rounds: int) -> None:
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    for k in range(rounds):
+        now = start + k * (settle + SEC)
+        stack.quote(150, 151, now)
+        assert not stack.manager.reconcile(position, now)
+
+
+def test_past_the_wait_reconcile_never_sells_beside_a_filled_sell(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The holding has had `fill_price_wait_seconds` to catch up and has not: reconcile
-    stops holding off (alarmed once) and acts on the broker's report as for any other
-    disagreement."""
+    """N3-2 / D40: the holding has had `fill_price_wait_seconds` to catch up and has
+    not. The broker still reports the position's own sell FILLED, so a reconcile sell
+    could go short: nothing is sold, ever. The kill switch is latched and Andre gets one
+    critical CHECK THE FILL alarm telling him to flatten by hand."""
     lag = Lag(stack.broker, monkeypatch)
     position, t = _exit_filled_unpriced(stack, lag)
-    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    _reconcile_rounds(stack, position, t + _wait(stack), 8)
+    assert not [o for o in lag.placed if o.startswith("reconcile-")]
+    assert lag.sells() == [f"{position.position_id}-exit-1"]  # the one real sale only
+    assert stack.broker.positions() == {position.contract_id: position.contracts}  # lagging
+    assert SimulatedBroker.positions(stack.broker) == {}  # never short at the broker
+    alarms = _check_the_fill(stack)
+    assert len(alarms) == 1
+    assert "flatten by hand" in alarms[0]
+    assert f"{position.position_id}-exit-1" in alarms[0]
+    assert [r for r in stack.halt.reasons if f"{position.position_id}-exit-1 filled" in r]
+    assert stack.ledger.account(t + 2 * _wait(stack)).kill_switch_latched
+
+
+def test_past_the_wait_a_sell_whose_price_came_is_still_never_sold_again(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sell's price arrives after the wait but the holding still lags: the sale is
+    known all the more, so reconcile still sends nothing."""
+    lag = Lag(stack.broker, monkeypatch)
+    position, t = _exit_filled_unpriced(stack, lag)
     late = t + _wait(stack)
-    for k in range(4):
+    _reconcile_rounds(stack, position, late, 2)
+    lag.hidden.clear()  # the price is reported; the position report is still held
+    _reconcile_rounds(stack, position, late + 10 * SEC, 6)
+    assert not [o for o in lag.placed if o.startswith("reconcile-")]
+    assert SimulatedBroker.positions(stack.broker) == {}
+    assert len(_check_the_fill(stack)) == 1
+
+
+def test_past_the_wait_the_hold_books_the_real_price_once_the_report_catches_up(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fail-closed hold is not a dead end: once the price and the holding arrive,
+    reconcile books the sale at its real price (never by hand, never a guess), and
+    the latch stays for Andre."""
+    lag = Lag(stack.broker, monkeypatch)
+    position, t = _exit_filled_unpriced(stack, lag)
+    late = t + _wait(stack)
+    _reconcile_rounds(stack, position, late, 3)
+    lag.reveal()
+    settle = timedelta(seconds=stack.profiles.execution.reconcile.settle_seconds)
+    closes = []
+    for k in range(3, 8):
         now = late + k * (settle + SEC)
         stack.quote(150, 151, now)
         stack.manager.reconcile(position, now)
-    assert [o for o in lag.placed if o.startswith("reconcile-")]
-    overdue = [a.message for a in stack.alarms if "price never came" in a.message]
-    assert len(overdue) == 1
+        closes += stack.manager.take_reconcile_closes()
+    assert [c.exit_price for c in closes] == [D(160)]
+    assert not [o for o in lag.placed if o.startswith("reconcile-")]
+    assert not [a for a in stack.alarms if "book it with Ledger.book_by_hand" in a.message]
+    assert stack.ledger.account(late + 10 * settle).kill_switch_latched
+
+
+def test_past_the_wait_a_stop_fill_reconcile_found_itself_is_never_sold_again(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Management never saw it: the resting stop filled with its price withheld and
+    reconcile is the first to find the sale. Past the wait still nothing is sold, and
+    Andre gets one CHECK THE FILL alarm."""
+    position = filled_position(stack)
+    stop_id = position.stop_order_id
+    assert stop_id is not None
+    lag = Lag(stack.broker, monkeypatch)
+    sim = stack.broker
+    held = SimulatedBroker.status(sim, stop_id)
+    lag.hold(sim.positions())
+    sim._orders[stop_id] = OrderStatus(held.order, OrderState.FILLED, 1, D(112))
+    sim._positions.pop(position.contract_id, None)
+    lag.hide(stop_id)
+    t = SEND + 60 * SEC
+    _reconcile_rounds(stack, position, t, 3)  # found here: inside the wait
+    assert not _check_the_fill(stack)
+    _reconcile_rounds(stack, position, t + 3 * SEC + _wait(stack), 6)
+    assert not [o for o in lag.placed if o.startswith("reconcile-")]
+    assert SimulatedBroker.positions(sim) == {}
+    assert len(_check_the_fill(stack)) == 1
+    assert stop_id in _check_the_fill(stack)[0]
+    assert stack.ledger.account(t + 3 * _wait(stack)).kill_switch_latched
 
 
 def test_a_stop_whose_price_never_comes_hands_over_to_reconcile(
