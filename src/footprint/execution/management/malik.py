@@ -142,6 +142,12 @@ class Manager:
         # Contracts held under a durable D40 hold from before this process (G2-1),
         # alarmed CHECK THE FILL once each.
         self._durable_alarmed: set[str] = set()
+        # A reconcile order that is not a recorded position's own sell (sent after a
+        # restart, or for a stray contract) the broker reports FILLED with its price
+        # pending (grind review G4-1): contract id -> (order id, first seen, the id its
+        # hold is saved under). Nothing more is sent for that contract meanwhile.
+        self._unowned_pending: dict[str, tuple[str, datetime, str]] = {}
+        self._unowned_overdue: set[str] = set()  # CHECK THE FILL alarmed, by contract
         self._reconcile_round = 0
         # Names this process's reconcile orders (and their one-cancels-all groups): the
         # rounds restart at 0 after a restart, the names never do (delta review F-7).
@@ -928,7 +934,7 @@ class Manager:
         known = self._pending.get(pid)
         if known is None or known[0] != order_id:
             known = self._pending[pid] = (order_id, now, reason)
-            self._hold_durably(position, order_id, now)
+            self._hold_durably(SoldHold(pid, position.contract_id, order_id), now)
             log.warning(
                 "%s: %s filled at the broker; its price is not reported yet: nothing is "
                 "sent until it is",
@@ -992,15 +998,15 @@ class Manager:
         STUCK. The hold is also kept in the ledger, so a restart (`reconcile(None)`)
         never sells beside the filled sell either (G2-1; see `_held_from_before`)."""
         if position is None or contract_id != position.contract_id:
-            return self._held_from_before(contract_id, now)
+            return self._sold_unowned(contract_id, now)
         pid = position.position_id
         if pid not in self._pending:
             unpriced = self._unpriced_sell(position)
             if unpriced is None:
-                return self._held_from_before(contract_id, now)
+                return self._sold_unowned(contract_id, now)
             reason = self._exit_reason.get(pid, ExitReason.RECONCILE)
             self._pending[pid] = (unpriced, now, reason)
-            self._hold_durably(position, unpriced, now)
+            self._hold_durably(SoldHold(pid, position.contract_id, unpriced), now)
         order_id, since, _ = self._pending[pid]
         wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
         if now - since < wait:
@@ -1019,21 +1025,76 @@ class Manager:
         self._stand_down(now, f"{pid}: {order_id} filled, price and holding not reported")
         return True
 
-    def _hold_durably(self, position: Position, order_id: str, now: datetime) -> None:
+    def _hold_durably(self, hold: SoldHold, now: datetime) -> None:
         """Save the D40 hold in the ledger. If it cannot be saved, the in-memory hold
         still stops every sell in this process, but a restart would not know it: halt,
         latch and tell Andre not to restart (fail closed)."""
-        hold = SoldHold(position.position_id, position.contract_id, order_id)
         try:
             self._ledger.hold_sold(hold)
         except Exception as exc:
             self._alarm(
                 now,
-                f"{position.position_id}: could not save the hold on {position.contract_id} "
-                f"({order_id} FILLED, price pending): {exc!r}. Nothing more is sold in this "
-                "process; do not restart the bot until the fill is checked by hand",
+                f"{hold.position_id}: could not save the hold on {hold.contract_id} "
+                f"({hold.order_id} FILLED, price pending): {exc!r}. Nothing more is sold in "
+                "this process; do not restart the bot until the fill is checked by hand",
             )
-            self._stand_down(now, f"{position.position_id}: hold on {order_id} not saved")
+            self._stand_down(now, f"{hold.position_id}: hold on {hold.order_id} not saved")
+
+    def _unpriced_reconcile_order(self, contract_id: str) -> str | None:
+        """The newest reconcile order this process sent for `contract_id`, under any
+        owner and on either side, that the broker reports FILLED with no price yet."""
+        for order_ids in self._reconcile_orders.values():
+            for order_id in reversed(order_ids):
+                try:
+                    status = self._broker.status(order_id)
+                except KeyError:
+                    continue
+                if (
+                    status.state is OrderState.FILLED
+                    and status.avg_price is None
+                    and status.order.contract_id == contract_id
+                ):
+                    return order_id
+        return None
+
+    def _sold_unowned(self, contract_id: str, now: datetime) -> bool:
+        """Reconcile: what is held on `contract_id` was already sold (or bought back) by
+        a reconcile order that is not a recorded position's own sell (sent after a
+        restart, or for a stray contract), FILLED with its price pending (grind review
+        G4-1). Never sent again while the report lags: a second order could go short.
+        The hold is saved under the ledger's open position (booking it releases the
+        hold), or under the order's own id when none is open (Andre's
+        `Ledger.book_by_hand` releases it). It is kept even once the order's price
+        arrives: a report that still shows the contract held after a priced fill is
+        not acted on either (fail closed). Past `fill_price_wait_seconds`: latch, halt
+        and one CHECK THE FILL alarm, as for the position's own sell (D40)."""
+        known = self._unowned_pending.get(contract_id)
+        if known is None:
+            order_id = self._unpriced_reconcile_order(contract_id)
+            if order_id is None:
+                return self._held_from_before(contract_id, now)
+            hold_id = self._ledger.open_position_id or order_id
+            known = self._unowned_pending[contract_id] = (order_id, now, hold_id)
+            self._hold_durably(SoldHold(hold_id, contract_id, order_id), now)
+        order_id, since, hold_id = known
+        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
+        if now - since < wait:
+            log.warning("reconcile: %s already sold by %s (price pending)", contract_id, order_id)
+            return True
+        if contract_id not in self._unowned_overdue:
+            self._unowned_overdue.add(contract_id)
+            self._alarm(
+                now,
+                f"CHECK THE FILL: {order_id} (reconcile) filled {contract_id} at the broker "
+                f"(FILLED, price pending when seen), and the broker still reports "
+                f"{contract_id} held. Nothing more is sent for it (a second order could go "
+                "short); the kill switch is latched. Check the fill in the broker's own "
+                "platform and flatten by hand only what is really held. The hold is "
+                f"released when {hold_id} is booked; if the system cannot book it, book it "
+                f"with Ledger.book_by_hand as {hold_id}",
+            )
+        self._stand_down(now, f"{contract_id}: {order_id} filled, price and holding not reported")
+        return True
 
     def _held_from_before(self, contract_id: str, now: datetime) -> bool:
         """Reconcile: `contract_id` is under a durable D40 hold this process did not
