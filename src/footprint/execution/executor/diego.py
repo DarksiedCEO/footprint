@@ -228,21 +228,19 @@ class Executor:
           attached stop is the position's protection;
         - nothing filled: UNFILLED, its attached stop ended.
         Still WORKING with no fill known (the cancel is not confirmed): the caller drops
-        it and reconcile finds and cancels it from the broker's list, as before."""
+        it and reconcile finds and cancels it from the broker's list, as before.
+        A status question that fails is re-raised, whatever is known about the entry
+        (grind review G-1): with no answer the system cannot know it did not fill, so
+        it is never dropped and nothing is sent on a guess. The caller keeps the ticket
+        (BrokerDown: wait for the broker; anything else: a failed step) and settles it
+        again on the next step that gets an answer."""
         require_utc(now, "now")
         if ticket.outcome is not EntryOutcome.WORKING:
             return ticket
-        try:
-            status = self._broker.status(ticket.order_id)
-            if status.state is OrderState.WORKING:
-                self.abandon(ticket)
-                status = self._broker.status(ticket.order_id)
-        except Exception as exc:
-            if ticket.price_pending_since is not None:
-                raise  # known to be filled: never dropped; asked again next step
-            log.critical("cannot settle entry %s: %r", ticket.order_id, exc)
+        status = self._broker.status(ticket.order_id)
+        if status.state is OrderState.WORKING:
             self.abandon(ticket)
-            return ticket
+            status = self._broker.status(ticket.order_id)
         return self._after(ticket, status.state, status.filled, status.avg_price, now)
 
     def on_time(self, ticket: EntryTicket, now: datetime) -> EntryTicket:

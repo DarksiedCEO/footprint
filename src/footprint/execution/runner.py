@@ -280,11 +280,14 @@ class Runner:
     def _settle_entry(self, now: datetime) -> bool:
         """A working entry must not outlive the doubt: it is cancelled if still working,
         and the broker's word on it decides (delta-3 review, N3-1). True when reconcile
-        may run: the entry ended unfilled, became the position, or is unknown and left
-        to reconcile. False while the broker reports it FILLED with its price pending:
-        the entry is kept, its attached stop is never cancelled, and reconcile never
-        agrees "flat" over it; nothing is sent. Past `fill_price_wait_seconds`: halt
-        and CHECK THE FILL to Andre (once), and keep holding until the price comes."""
+        may run: the entry ended unfilled, became the position, or is still working
+        with nothing filled (its cancel not confirmed) and left to reconcile. A failed
+        status question raises out of here with the ticket kept (grind review G-1): it
+        is settled again on the next step that gets an answer. False while the broker
+        reports it FILLED with its price pending: the entry is kept, its attached stop
+        is never cancelled, and reconcile never agrees "flat" over it; nothing is sent.
+        Past `fill_price_wait_seconds`: halt and CHECK THE FILL to Andre (once), and
+        keep holding until the price comes."""
         ticket = self._ticket
         assert ticket is not None
         try:
@@ -296,8 +299,8 @@ class Runner:
                 self._alarm(
                     now,
                     f"CHECK THE FILL: {exc}. Its attached stop stays at the broker; nothing "
-                    "is sent and reconcile waits for the price; flatten by hand if it never "
-                    "comes",
+                    "is sent and reconcile waits for the price. If it never comes: cancel "
+                    "the entry's stop at IBKR first, then flatten by hand",
                 )
             return False
         if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since is not None:
