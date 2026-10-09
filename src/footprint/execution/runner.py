@@ -298,7 +298,8 @@ class Runner:
                 self._check_fill_alarmed.add(ticket.position_id)
                 self._alarm(
                     now,
-                    f"CHECK THE FILL: {exc}. Its attached stop stays at the broker; nothing "
+                    f"CHECK THE FILL: {exc}. Its stop stays at the broker (unless a halt said "
+                    "it is gone); nothing "
                     "is sent and reconcile waits for the price. If it never comes: cancel "
                     "the entry's stop at IBKR first, then flatten by hand",
                 )

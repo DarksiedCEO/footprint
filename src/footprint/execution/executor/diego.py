@@ -48,6 +48,9 @@ from footprint.execution.orders import (
 )
 
 log = logging.getLogger("footprint.execution")
+# The one stop placed while an entry waits for its price, if its attached stop is gone
+# (N3-5). Distinct from "-stop" (attached) and "-stop-2" (placed on the fill).
+_PENDING_STOP_SUFFIX = "-stop-wait"
 
 
 class EntryOutcome(Enum):
@@ -345,10 +348,11 @@ class Executor:
     def _price_pending(self, ticket: EntryTicket, filled: int, now: datetime) -> EntryTicket:
         """Filled at the broker, its price not reported yet (IBKR's status can run ahead
         of its execution report; delta review 2, N-1). It is a fill, never "unfilled":
-        its attached stop is the position's protection and stays as it is, and nothing
-        is booked until the real price arrives (the ticket stays WORKING and is asked
-        again every step). Past `fill_price_wait_seconds`: FillUnpriced, so the runner
-        halts and reconciles what the broker holds."""
+        its attached stop is the position's protection and stays as it is (checked
+        every step: _guard_pending_stop), and nothing is booked until the real price
+        arrives (the ticket stays WORKING and is asked again every step). Past
+        `fill_price_wait_seconds`: FillUnpriced, so the runner halts and reconciles
+        what the broker holds."""
         if ticket.price_pending_since is None:
             ticket.price_pending_since = now
             log.warning(
@@ -356,6 +360,7 @@ class Executor:
                 ticket.order_id,
                 filled,
             )
+        self._guard_pending_stop(ticket, filled)
         wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
         if now - ticket.price_pending_since >= wait:
             raise FillUnpriced(
@@ -363,6 +368,60 @@ class Executor:
                 f"not been reported since {ticket.price_pending_since.isoformat()}"
             )
         return ticket
+
+    def _guard_pending_stop(self, ticket: EntryTicket, filled: int) -> None:
+        """The contract is held while its price is pending, so its stop is checked
+        every step, as while the entry works (delta-3 review, N3-5):
+        - protecting, or filled (the position is already sold): nothing to do;
+        - live but not protecting (held back, cancel pending): it can still sell, so
+          nothing goes beside it (AEGIS K-2): halt, which alarms Andre;
+        - finished without filling: ONE new stop at the attached stop's price (from
+          the entry's limit: no fill price is needed, nothing is booked), recorded as
+          the ticket's stop before it is sent, so the fill adopts it and only it is
+          asked about from then on. If that one is gone too, nothing more is sent:
+          halt, protect by hand."""
+        stop_id = ticket.stop_order_id
+        if stop_id is None:
+            return
+        held = self._broker.status(stop_id)
+        if held.protects or held.state is OrderState.FILLED:
+            return
+        pid = ticket.position_id
+        if held.state is OrderState.WORKING:
+            self._halt.trip(
+                f"{pid}: stop {stop_id} is live but "
+                f"{'held back' if held.held_back else 'being cancelled'} while the entry's "
+                "fill price is pending: nothing is placed beside it"
+            )
+            return
+        replacement = f"{pid}{_PENDING_STOP_SUFFIX}"
+        if stop_id == replacement:
+            self._halt.trip(
+                f"{pid}: no resting stop at the broker while the entry's fill price is "
+                f"pending (stop {stop_id} is {held.state.value}): protect the position "
+                "by hand"
+            )
+            return
+        log.critical(
+            "attached stop %s is %s while entry %s waits for its price: placing a new one",
+            stop_id,
+            held.state.value,
+            ticket.order_id,
+        )
+        spec = self._stops.preview(ticket.limit, filled)
+        ticket.stop_order_id = replacement  # before the send: never a second beside it
+        self._broker.place(
+            Order(
+                order_id=replacement,
+                contract_id=held.order.contract_id,
+                side=Side.SELL,
+                quantity=filled,
+                order_type=OrderType.STOP_LIMIT,
+                limit_price=spec.limit,
+                stop_price=spec.trigger,
+                oca_group=pid,
+            )
+        )
 
     def _after(
         self,
