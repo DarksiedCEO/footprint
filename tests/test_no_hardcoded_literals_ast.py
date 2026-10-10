@@ -35,16 +35,13 @@ NEVER_SCANNED = frozenset({Decimal(0), Decimal(1), Decimal(-1)})
 MARKER = "allow-" + "literal"
 # In prose a number glued to ":" or "-" is part of a clock time or a date (checked as
 # words and dates), not a number of its own.
-# The number is atomic: "900.0-" is not read back as "900" (G21-3). A "$" glued to a
-# digit and a hyphen ("900-$1000") is a chain end, read by CHAIN_NUMBER below.
-PROSE_NUMBER = re.compile(
-    r"(?<![\w.:-])(?<!\d-\$)(?>\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-])"
-)
+# The number is atomic: "900.0-" is not read back as "900" (G21-3). A "$" end that a
+# hyphen chain reads ("900-$1000") is left to CHAIN_NUMBER below; one after a hyphen no
+# chain takes ("x6-$900", "10:30-$900") is read here (G22-1).
+PROSE_NUMBER = re.compile(r"(?<![\w.:-])(?>\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-])")
 # A number written with thousands separators ("$1,800", "25,000") is also read whole
 # (G18-2); PROSE_NUMBER alone would split it at the commas.
-GROUPED_NUMBER = re.compile(
-    r"(?<![\w.:,-])(?<!\d-\$)(?>\d{1,3}(?:,\d{3})+(?:\.\d+)?)(?![\w:-]|,\d)"
-)
+GROUPED_NUMBER = re.compile(r"(?<![\w.:,-])(?>\d{1,3}(?:,\d{3})+(?:\.\d+)?)(?![\w:-]|,\d)")
 # A minus that is not glued to a word, a digit or another minus is a sign ("-900",
 # "-1,800"); glued to a digit it is a date or a range ("2026-04-03", "2100-2199") (G19-1).
 SIGNED_NUMBER = re.compile(
@@ -84,6 +81,11 @@ def _show(number: Decimal) -> str:
     return format(number, "f")
 
 
+def _dollar_ends(chain: str) -> list[int]:
+    """Offsets of every "-$" in a chain; its "$" end starts two characters later."""
+    return [i for i in range(len(chain)) if chain.startswith("-$", i)]
+
+
 class Forbidden:
     def __init__(self, yaml_files: list[Path]) -> None:
         self.numbers: set[Decimal] = set()
@@ -108,17 +110,18 @@ class Forbidden:
     def in_text(self, text: str) -> list[str]:
         hits = [f"word {w}" for w in self._word.findall(text)]
         hits += [f"date {d.isoformat()}" for d in sorted(self.dates) if d.isoformat() in text]
-        for match in PROSE_NUMBER.finditer(text):
-            number = _number(match.group())
-            if number is not None and number in self.numbers:
-                hits.append(f"text {_show(number)}")
-        for match in GROUPED_NUMBER.finditer(text):
-            number = _number(match.group().replace(",", ""))
-            if number is not None and number in self.numbers:
-                hits.append(f"text {_show(number)}")
-        for match in CHAIN_NUMBER.finditer(text):
-            if ISO_DATE.fullmatch(match.group()):
-                continue
+        chains = [m for m in CHAIN_NUMBER.finditer(text) if not ISO_DATE.fullmatch(m.group())]
+        # A "$" end a chain reads is read there, once (G22-1): skip it here. Nothing else
+        # is skipped, so a "$" end no chain takes is still read here.
+        claimed = {m.start() + i + 2 for m in chains for i in _dollar_ends(m.group())}
+        for pattern in (PROSE_NUMBER, GROUPED_NUMBER):
+            for match in pattern.finditer(text):
+                if match.start() in claimed:
+                    continue
+                number = _number(match.group().replace(",", ""))
+                if number is not None and number in self.numbers:
+                    hits.append(f"text {_show(number)}")
+        for match in chains:
             for end in match.group().split("-"):
                 number = _number(end.replace("$", "").replace(",", ""))
                 if number is not None and number in self.numbers:
@@ -606,5 +609,28 @@ def test_scanner_reads_every_end_of_a_hyphen_chain_once(tmp_path: Path) -> None:
             "text 1200": 4,  # chain, "$1,200", "-1200" after 1,000.0, "-$1200" (read once)
             "text 0.25": 3,
             "text 0.5": 4,  # ".5" twice, "0.5" and the "0.5-$1,000" left end
+        }
+    )
+
+
+def test_scanner_reads_a_dollar_amount_after_a_hyphen_no_chain_takes(tmp_path: Path) -> None:
+    """G22-1: a "$" amount after a hyphen glued to a word or a clock time ("x6-$900",
+    "10:30-$900", "G6-$1,000") is read, as it was before G21: only a "$" end that a hyphen
+    chain actually reads is left to the chain, and it is read once ("7_-$1,200" was read
+    twice). A number a chain swallows without reading it ("2026-04-03,900") is still read."""
+    config = tmp_path / "c.yaml"
+    config.write_text("risk:\n  stop: 900\n  max_cost: 1000\n  big: 1200\n")
+    forbidden = Forbidden([config])
+    hits = scan_source(
+        "# x6-$900, 10:30-$900 and T1-$1200; dated 2026-04-03,900\n"
+        "# G6-$1,000; 9:30-$1,200\n"
+        "# chains read once: 900-$1000, 6-$1,200, 7_-$1,200\n",
+        forbidden,
+    )
+    assert hits == Counter(
+        {
+            "text 900": 4,  # "x6-$900", "10:30-$900", "2026-04-03,900", the chain's "900"
+            "text 1000": 2,  # "G6-$1,000", the chain's "$1000"
+            "text 1200": 4,  # "T1-$1200", "9:30-$1,200", the chains' "$1,200" (once each)
         }
     )
