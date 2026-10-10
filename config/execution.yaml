@@ -104,3 +104,10 @@ market_data:
                               #   (the history load runs alongside; quotes come first)
   probe_option_quotes: 8      # DEFAULT: ... then prints this many option quotes, the
                               #   strikes nearest the future first
+  export_wait_seconds: 1800   # DEFAULT: `history` waits this long for MarketData to load
+                              #   the whole history (one paced request per day) before it
+                              #   gives up and writes nothing
+  export_max_missing_minutes: 5  # DEFAULT: `history` refuses a history in which more than
+                              #   this many consecutive tradable minutes have no bar (a
+                              #   window's end minute is tradable after CME's halt; a quiet
+                              #   minute may have no trade)
