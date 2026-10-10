@@ -494,10 +494,16 @@ class Manager:
                             orphans.append(orphan)
                 if len(orphans) > 1:
                     # Sold twice: no one fill is its exit, and nothing more is sold.
+                    # Reconcile buys back the short it then sees (N6/F2), so the alarm
+                    # never asks Andre to flatten beside it: two buys go long with no
+                    # stop (grind review G16-1).
                     message = (
                         f"{pid}: its stops {[o.order.order_id for o in orphans]} both "
-                        "filled: sold twice. Nothing more is sold; check the account and "
-                        "flatten by hand, then book it with Ledger.book_by_hand"
+                        "filled: sold twice. Nothing more is sold. Reconcile buys back "
+                        "the short it sees by itself (a limit buy): do not trade this "
+                        "contract by hand until it reports flat, or until a CHECK THE "
+                        "FILL alarm for it says to; then book the position with "
+                        "Ledger.book_by_hand from the broker statement"
                     )
                     self._alarm(now, message)
                     self._stand_down(now, f"{pid}: sold twice")
