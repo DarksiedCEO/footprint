@@ -1,0 +1,38 @@
+{
+ "groups": {
+  "with": [
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_grind_g1_1.py"
+  ]
+ },
+ "mutants": [
+  [
+   "with",
+   "src/footprint/execution/executor/diego.py",
+   "            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "            self.abandon(ticket)\n            try:\n                status = self._broker.status(ticket.order_id)\n            except Exception:\n                return ticket\n        return self._after(",
+   "R1: a lost answer after settle's cancel drops the entry (the e56a2ab reviewer's mutant, G1-1)"
+  ],
+  [
+   "with",
+   "src/footprint/execution/executor/diego.py",
+   "            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "            self.abandon(ticket)\n            try:\n                status = self._broker.status(ticket.order_id)\n            except BrokerDown:\n                return ticket\n        return self._after(",
+   "R1b: only a BrokerDown after settle's cancel drops the entry"
+  ],
+  [
+   "with",
+   "src/footprint/execution/runner.py",
+   "        except FillUnpriced as exc:\n            self._halt.trip(f\"{ticket.position_id}: entry fill price not reported\")",
+   "        except (FillUnpriced, BrokerDown) as exc:\n            self._halt.trip(f\"{ticket.position_id}: entry fill price not reported\")",
+   "R3: BrokerDown in settle handled as CHECK THE FILL (the e56a2ab reviewer's mutant, G1-2)"
+  ],
+  [
+   "with",
+   "src/footprint/execution/runner.py",
+   "            self.doubt()\n            log.warning(\"broker unreachable: %s; reconciling once it is back\", exc)",
+   "            self._halt.trip(\"broker unreachable\")\n            self.doubt()\n            log.warning(\"broker unreachable: %s; reconciling once it is back\", exc)",
+   "R5: BrokerDown in a step trips the halt (D39 says it waits)"
+  ]
+ ]
+}
