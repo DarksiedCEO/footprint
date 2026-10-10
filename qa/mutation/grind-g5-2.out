@@ -1,0 +1,9 @@
+source: e4406b840158230e78c0cb872edac97e84d6e4bf tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: the no-ledger wording given under an open position (and the reverse)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: a stray beside the open position is told to book that position by hand
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: after a restart the position's own sale is never booked by hand (no instruction)
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: the stray's open position is never passed
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M5: the unrecorded alarm no longer says once
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M6: CHECK THE FILL no longer ties the hold to the 'never recorded' alarm
+6 mutants, 0 survived or errored
