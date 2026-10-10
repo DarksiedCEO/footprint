@@ -1,0 +1,25 @@
+source: f45abb91303e77a09fad4e4df62089e76184f92c tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/data/chain_record.py: Q3-1: a quote exactly the configured age refused
+  2 KILLED   [rec] src/footprint/data/chain_record.py: Q3-2: stale quotes written
+  3 KILLED   [rec] src/footprint/data/chain_record.py: Q3-3: a quote stamped at the snapshot refused
+  4 KILLED   [rec] src/footprint/data/chain_record.py: Q3-4: future-stamped quotes written
+  5 KILLED   [rec] src/footprint/data/chain_record.py: Q3-5: mixed snapshot written
+  6 KILLED   [rec] src/footprint/data/chain_record.py: Q3-6: empty snapshot accepted
+  7 KILLED   [rec] src/footprint/data/chain_record.py: Q3-7: unknown open interest written as 0
+  8 KILLED   [rec] src/footprint/data/chain_record.py: Q3-8: a foreign file appended to
+  9 KILLED   [rec] src/footprint/data/chain_record.py: Q3-9: an empty file gets no header
+ 10 KILLED   [rec] src/footprint/data/chain_record.py: Q3-10: a header per snapshot
+ 11 KILLED   [rec] src/footprint/data/chain_record.py: Q3-11: one file for every day
+ 12 KILLED   [rec] src/footprint/data/chain_record.py: Q3-12: age rounded to whole seconds
+ 13 KILLED   [rec] src/footprint/data/chain_record.py: Q3-13: crossed future accepted
+ 14 KILLED   [rec] src/footprint/data/chain_record.py: Q3-14: crossed option accepted
+ 15 KILLED   [rec] src/footprint/data/chain_record.py: Q3-15: a bool open interest accepted
+ 16 KILLED   [rec] src/footprint/data/chain_record.py: Q3-16: negative open interest accepted
+ 17 KILLED   [rec] src/footprint/data/chain_record.py: Q3-17: a zero future bid accepted
+ 18 KILLED   [rec] src/footprint/data/chain_record.py: Q3-18: a zero strike accepted
+ 19 KILLED   [rec] src/footprint/data/chain_record.py: Q3-19: a naive snapshot time accepted
+ 20 KILLED   [rec] src/footprint/data/chain_record.py: Q3-20: NaN prices accepted
+ 21 KILLED   [rec] src/footprint/data/chain_record.py: Q3-21: no fsync
+ 22 KILLED   [rec] src/footprint/data/chain_record.py: Q3-22: no flush before the fsync
+22 mutants, 0 survived or errored
