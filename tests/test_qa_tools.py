@@ -135,6 +135,8 @@ def test_every_test_run_gets_its_own_empty_bytecode_cache(
 ) -> None:
     mutate = _mutate()
     monkeypatch.setattr(mutate, "ROOT", Path("/"))
+    for inherited in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"):
+        monkeypatch.delenv(inherited, raising=False)  # set when this runs under the runner
     envs: list[dict[str, str]] = []
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
