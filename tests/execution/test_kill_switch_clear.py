@@ -231,3 +231,39 @@ def test_a_missing_ledger_is_never_created(tmp_path: Path) -> None:
     assert code == 2
     assert "no ledger" in term.text
     assert not (tmp_path / "ledger.json").exists()
+
+
+# --- grind review G24-1..G24-3 (2026-10-10): pin what reviewer probes left open ------
+
+
+@pytest.mark.parametrize("answer", ["don't CLEAR", "CLEAR it", "CLEARED", "yes CLEAR"])
+def test_only_the_exact_word_confirms(profiles: Profiles, tmp_path: Path, answer: str) -> None:
+    """G24-1: a near-miss that contains the word is not a confirmation."""
+    _latched_by_a_halt(profiles, tmp_path / "ledger.json")
+    code, term = _run(tmp_path, ["clear", "--by", "Andre", "--reason", "x"], [answer])
+    assert code == 2
+    assert "not cleared" in term.text
+    assert _reload(profiles, tmp_path).account(T0).kill_switch_latched
+
+
+def test_the_command_releases_the_ledger_when_it_returns(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    """G24-2: after the command returns, the live system (or the command again) can
+    take the ledger in the same process."""
+    _latched_by_a_halt(profiles, tmp_path / "ledger.json")
+    code, _ = _run(tmp_path, ["status"], [])
+    assert code == 0
+    again = Ledger(
+        profiles.risk, profiles.instrument, StateStore(tmp_path / "ledger.json"), exclusive=True
+    )
+    again.close()
+
+
+def test_a_missing_ledger_releases_its_lock(profiles: Profiles, tmp_path: Path) -> None:
+    """G24-3: refusing a missing ledger does not leave the lock taken."""
+    store = StateStore(tmp_path / "ledger.json")
+    with pytest.raises(FileNotFoundError):
+        Ledger(profiles.risk, profiles.instrument, store, exclusive=True)
+    first = Ledger(profiles.risk, profiles.instrument, store, create=True, exclusive=True)
+    first.close()
