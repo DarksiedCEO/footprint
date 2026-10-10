@@ -56,13 +56,28 @@ log = logging.getLogger("footprint.execution")
 _PENDING_STOP_SUFFIX = "-stop-wait"
 
 
+def _attached_stop_id(position_id: str) -> str:
+    """The stop that goes out attached to the entry."""
+    return f"{position_id}-stop"
+
+
+def _fill_stop_id(position_id: str) -> str:
+    """The stop placed on the fill when the attached one was not working."""
+    return f"{_attached_stop_id(position_id)}-2"
+
+
+def _wait_stop_id(position_id: str) -> str:
+    """The stop placed while the entry's fill price was pending (N3-5)."""
+    return f"{position_id}{_PENDING_STOP_SUFFIX}"
+
+
 def stop_order_ids(position_id: str) -> tuple[str, ...]:
     """Every id a position's stop can have: attached to the entry, placed on the fill
     (when the attached one was not working), and placed while the entry's price was
     pending. Whatever asks whether a stop already sold asks about all of them (grind
-    review G6-5)."""
-    attached = f"{position_id}-stop"
-    return (attached, f"{attached}-2", f"{position_id}{_PENDING_STOP_SUFFIX}")
+    review G6-5). The executor builds its stop ids from the same helpers, so the list
+    cannot drift from what is sent (grind review G16-3)."""
+    return (_attached_stop_id(position_id), _fill_stop_id(position_id), _wait_stop_id(position_id))
 
 
 def _partly_sold(stop_id: str, held: OrderStatus) -> str:
@@ -199,7 +214,7 @@ class Executor:
             limit_price=plan.limit_floor,
         )
         stop = Order(
-            order_id=f"{position_id}-stop",
+            order_id=_attached_stop_id(position_id),
             contract_id=order.contract_id,
             side=Side.SELL,
             quantity=plan.contracts,
@@ -430,7 +445,7 @@ class Executor:
         if stop_id is None:
             return
         pid = ticket.position_id
-        replacement = f"{pid}{_PENDING_STOP_SUFFIX}"
+        replacement = _wait_stop_id(pid)
         try:
             held = self._broker.status(stop_id)
         except NeverPlaced:
@@ -515,7 +530,7 @@ class Executor:
         protected = False
         stop: Order | None = None
         kept: Order | None = None  # the stop the position keeps: live or filled at the broker
-        stop_id = ticket.stop_order_id or f"{ticket.position_id}-stop"
+        stop_id = ticket.stop_order_id or _attached_stop_id(ticket.position_id)
         opened = False
         try:
             self._stops.open(ticket.position_id, price, filled)
@@ -526,7 +541,11 @@ class Executor:
                 kept = stop
             if not protected and stop is None:
                 # No attached stop working: a new one (its own id: ids are never reused).
-                stop_id = f"{ticket.position_id}-stop" + ("-2" if ticket.stop_order_id else "")
+                stop_id = (
+                    _fill_stop_id(ticket.position_id)
+                    if ticket.stop_order_id
+                    else _attached_stop_id(ticket.position_id)
+                )
                 stop = Order(
                     order_id=stop_id,
                     contract_id=plan.choice.quote.contract_id,
