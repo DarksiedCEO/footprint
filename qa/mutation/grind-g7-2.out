@@ -1,0 +1,7 @@
+source: 4ae2ca650b5472c489fdd35df1d1fe6034527344 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: R1 (the reviewer's): a live stop that sold part is adopted as protection
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: R2: a protecting stop that sold part is adopted as protection
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: R3: the halt never says the stop is still live
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: R4: a finished stop is called live
+4 mutants, 0 survived or errored
