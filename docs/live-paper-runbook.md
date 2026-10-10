@@ -163,6 +163,17 @@ you have looked at why:
    open or a CHECK THE FILL hold stands: check IBKR's own platform and book or flatten
    by hand first.
 
+To book a position by hand (G24-4, decided 2026-10-10), the live system still stopped:
+look in IBKR's own platform until the position shows closed, read its net P&L (fees
+included) from the statement, then:
+
+       uv run python -m footprint.live.kill_switch book --position POSITION_ID --pnl -412.50 --by Andre --reason "IBKR statement 2026-10-10"
+
+`status` prints the open position's id and any CHECK THE FILL hold. Type `BOOK` when
+asked. Any other id is refused unless you add `--unrecorded` (a trade the ledger never
+recorded). Never book a figure you did not read in the statement. Booking does not
+clear the kill switch: run `clear` afterwards.
+
 Clearing keeps the drawdown peak (P6-1, decided 2026-10-10). After a latch from the
 drawdown limit, the limit is still breached and entries stay blocked; add
 `--reset-peak` only if you mean to start the drawdown count again from today's equity.

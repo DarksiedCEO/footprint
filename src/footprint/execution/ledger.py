@@ -267,15 +267,25 @@ class Ledger:
         )
         self._save(replace(self._state, kill_switch_latched=False, peak_equity=peak))
 
-    def book_by_hand(self, now: datetime, position_id: str, net_pnl: Decimal, by: str) -> None:
+    def book_by_hand(
+        self, now: datetime, position_id: str, net_pnl: Decimal, by: str, *, reason: str = ""
+    ) -> None:
         """Andre only: book a position the system lost track of, at the net P&L he found
         in the broker's statement. Counts like any other close (stop-outs, limits, drawdown).
+        Never clears the kill switch. Operator command: `python -m footprint.live.kill_switch
+        book` (G24-4).
         """
         if not by.strip():
             raise ValueError("booking by hand needs the name of who booked it")
         if position_id in self._state.booked_by_hand:
             raise ValueError(f"{position_id!r} was already booked by hand")
-        log.critical("%s booked %s by hand at %s", by, position_id, net_pnl)
+        log.critical(
+            "%s booked %s by hand at %s (%s)",
+            by,
+            position_id,
+            net_pnl,
+            reason.strip() or "no reason given",
+        )
         if self._state.open_position_id == position_id:
             self.on_trade_closed(now, position_id, net_pnl)
         else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
