@@ -7,14 +7,22 @@ from __future__ import annotations
 
 import io
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from footprint.brokers.ibkr.history_export import export_history
-from footprint.core.config import ConfigError, InstrumentProfile, load_execution, load_instrument
+from footprint.brokers.ibkr.history_export import export_history, window_start, with_days
+from footprint.core.config import (
+    ConfigError,
+    InstrumentProfile,
+    Profiles,
+    load_execution,
+    load_instrument,
+    load_profiles,
+)
 from footprint.core.models import Bar
 from footprint.data.csv_export import partial_path
 from footprint.data.file_source import CsvBarSource
@@ -258,3 +266,66 @@ def test_an_export_number_below_its_minimum_is_refused(
     with pytest.raises(ConfigError, match=key):
         load_execution(with_value(bad))
     assert getattr(load_execution(with_value(ok)).market_data, key) == ok
+
+
+# --- the backtest reads the export unchanged ----------------------------------------------
+
+
+def test_the_backtest_runs_on_an_exported_file_unchanged(
+    nq: InstrumentProfile, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Proves the file format only: synthetic bars say nothing about any result.
+    from footprint.backtest.__main__ import main as backtest
+
+    bars = bars_between(START, START + 6 * 60 * MIN)
+    out = tmp_path / "nq_1m.csv"
+    assert run(nq, Source(bars), out, Clock())[0] == 0
+    run_dir = tmp_path / "run"
+    code = backtest(
+        ["--bars", str(out), "--out", str(run_dir), "--config", str(REPO_ROOT / "config")]
+    )
+    capsys.readouterr()
+    assert code in (0, 1)  # PASS / FAIL / NOT ENOUGH TRADES; 2 would be INVALID
+    assert (run_dir / "readout.json").exists()
+    assert str(out) in (run_dir / "readout.md").read_text(encoding="utf-8")
+
+
+# --- --days and the window start (ibapi-free parts of `history`) ----------------------
+
+
+@pytest.fixture(scope="module")
+def profiles() -> Profiles:
+    return load_profiles(REPO_ROOT / "config", "nq.yaml")
+
+
+def test_without_days_the_configured_history_is_exported(profiles: Profiles) -> None:
+    assert with_days(profiles, None) is profiles
+
+
+@pytest.mark.parametrize("days", [1, 7, 400])
+def test_days_replaces_only_the_history_length(profiles: Profiles, days: int) -> None:
+    changed = with_days(profiles, days)
+    assert changed.execution.market_data.history_days == days
+    assert (
+        replace(
+            changed.execution.market_data, history_days=profiles.execution.market_data.history_days
+        )
+        == profiles.execution.market_data
+    )
+    assert changed.instrument is profiles.instrument
+    assert changed.risk is profiles.risk
+    assert changed.strategy is profiles.strategy
+    assert changed.execution.ibkr is profiles.execution.ibkr
+
+
+@pytest.mark.parametrize("days", [0, -1])
+def test_days_below_one_is_refused(profiles: Profiles, days: int) -> None:
+    with pytest.raises(ValueError, match="--days"):
+        with_days(profiles, days)
+
+
+def test_the_window_starts_at_midnight_utc_that_many_days_before_today() -> None:
+    now = datetime(2026, 10, 14, 0, 0, 30, tzinfo=UTC)
+    assert window_start(now, 35) == datetime(2026, 9, 9, 0, 0, tzinfo=UTC)
+    late = datetime(2026, 10, 14, 23, 59, 59, tzinfo=UTC)
+    assert window_start(late, 1) == datetime(2026, 10, 13, 0, 0, tzinfo=UTC)

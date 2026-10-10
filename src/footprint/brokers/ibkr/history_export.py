@@ -20,14 +20,31 @@ a gap or a write failure, saying which. Every number comes from config via the c
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from dataclasses import replace
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from footprint.core.config import InstrumentProfile
+from footprint.core.config import InstrumentProfile, Profiles
 from footprint.core.models import Bar
 from footprint.data.csv_export import ExportRefused, partial_path, write_bars
 from footprint.data.gaps import first_gap
+
+
+def with_days(profiles: Profiles, days: int | None) -> Profiles:
+    """`--days N`: the same profiles with `market_data.history_days` set to N for this
+    export only (config is not changed); None keeps the configured length."""
+    if days is None:
+        return profiles
+    if days < 1:
+        raise ValueError(f"--days {days}: at least one day of history")
+    market_data = replace(profiles.execution.market_data, history_days=days)
+    return replace(profiles, execution=replace(profiles.execution, market_data=market_data))
+
+
+def window_start(now: datetime, history_days: int) -> datetime:
+    """Where MarketData's history begins: 00:00 UTC, `history_days` days before today."""
+    return datetime.combine(now.date() - timedelta(days=history_days), time(0), tzinfo=UTC)
 
 
 class HistorySource(Protocol):
