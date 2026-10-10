@@ -1,0 +1,4 @@
+source: 2143403fa0480f7fd593323c3f3f857bc7942d2f tree-dirty: 0 files
+baseline [g27]: passed
+  1 KILLED   [g27] src/footprint/data/csv_export.py: G27-3: no flush before the fsync
+1 mutants, 0 survived or errored
