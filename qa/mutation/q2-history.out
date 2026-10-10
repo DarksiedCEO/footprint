@@ -1,4 +1,4 @@
-source: eb311c913844af35aa4af8cd1575c1f5e5bc6b6a tree-dirty: 0 files
+source: 9ccf0a357aa36bfb5932cea6baeff0a9ee17d0c6 tree-dirty: 0 files
 baseline [drv]: passed
 baseline [gaps]: passed
   1 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-1: a start with seconds accepted
@@ -15,7 +15,7 @@ baseline [gaps]: passed
  12 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-12: short holes added together
  13 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-13: the scan starts at the first bar, not the window start
  14 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-14: the run's last minute named, not its first
- 15 SURVIVED [gaps] src/footprint/data/gaps.py: Q2H-15: last bar's minute not scanned (argued equivalent: it always has a bar; a run ending before it is caught after the loop)
+ 15 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-15: last bar's minute not scanned (argued equivalent: it always has a bar; a run ending before it is caught after the loop)
  16 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-16: existing file found only after loading
  17 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-17: left-over partial found only after loading
  18 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-18: ready history waits out the deadline
@@ -32,4 +32,4 @@ baseline [gaps]: passed
  29 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-29: --days ignored
  30 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-30: window one day short
  31 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-31: window not at midnight
-31 mutants, 1 survived or errored
+31 mutants, 0 survived or errored

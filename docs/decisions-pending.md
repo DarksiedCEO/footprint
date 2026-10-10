@@ -233,7 +233,7 @@ Mutation equivalences argued (not proven):
 | Mutant | Why no test can kill it |
 |---|---|
 | G28-1 (`_bid`: `quote.bid > 0` -> `quote.bid != 0`) | A negative bid never reaches a `Quote`: `binding.tickPrice` turns any price <= 0 into None and `_Line.quote()` turns None into 0, so the bid is always >= 0 and both tests agree on every reachable value |
-| Q2H-15 (`first_gap`: `while minute <= end` -> `< end`) | `end` is the last bar's minute, which always has a bar, so scanning it only ever ends a run; a run that reaches the minute before it is judged by the same `run > max_missing` test after the loop |
+| Q2H-15 (`first_gap`: `while minute <= end` -> `< end`) | `end` is the last bar's minute, which always has a bar, so scanning it only ever ends a run; a run that reaches the minute before it is judged by the same `run > max_missing` test after the loop . **Superseded by the G29-2 fix (9ccf0a3):** `end` can now be the last minute closed at the read time, which may have no bar, so this mutant is now killed (re-run on 9ccf0a3: 31/31) |
 | Q1-16 (`underlying_quote` without the `_connected` check) | `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so a disconnected service has no future line to return either way. The check is kept for symmetry with `chain()` |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
