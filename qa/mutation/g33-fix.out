@@ -1,0 +1,10 @@
+source: 97e12ea2a6bd2efc2d78129b6da753cad3845e32 tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-1: interval and run length swapped
+  2 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-2: the run length passed as the quote-age limit
+  3 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-3: a quote one second over the live limit written
+  4 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-4: --minutes ignored by the action
+  5 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-5: the poll from check ignored
+  6 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-6: the age limit not said
+  7 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: G33F-7: written into another directory
+7 mutants, 0 survived or errored

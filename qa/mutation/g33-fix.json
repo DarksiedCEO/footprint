@@ -1,0 +1,58 @@
+{
+ "groups": {
+  "rec": [
+   "tests/brokers/test_chain_recorder_loop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            interval_seconds=m.record_interval_seconds,\n            run_seconds=length,",
+   "            interval_seconds=length,\n            run_seconds=m.record_interval_seconds,",
+   "G33F-1: interval and run length swapped"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            max_age_seconds=max_age,\n            poll_seconds=poll_seconds,",
+   "            max_age_seconds=m.record_minutes,\n            poll_seconds=poll_seconds,",
+   "G33F-2: the run length passed as the quote-age limit"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    max_age = execution.quotes.max_age_seconds\n",
+   "    max_age = execution.quotes.max_age_seconds + 1\n",
+   "G33F-3: a quote one second over the live limit written"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    length = run_seconds(m.record_minutes, minutes)\n",
+   "    length = run_seconds(m.record_minutes, None)\n",
+   "G33F-4: --minutes ignored by the action"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            poll_seconds=poll_seconds,\n            say=say,",
+   "            poll_seconds=m.record_interval_seconds,\n            say=say,",
+   "G33F-5: the poll from check ignored"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            f\"into {directory} (quotes no older than {max_age} s)\"",
+   "            f\"into {directory}\"",
+   "G33F-6: the age limit not said"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            directory,\n            interval_seconds=",
+   "            directory.parent,\n            interval_seconds=",
+   "G33F-7: written into another directory"
+  ]
+ ]
+}
