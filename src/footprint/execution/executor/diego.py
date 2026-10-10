@@ -57,10 +57,12 @@ _PENDING_STOP_SUFFIX = "-stop-wait"
 
 
 def _partly_sold(stop_id: str, held: OrderStatus) -> str:
-    """The halt reason for a stop that sold part of the position and then ended."""
+    """The halt reason for a stop that sold part of the position: ended, or still live
+    (WORKING), and then not trusted as the position's protection (grind review G7-2)."""
+    live = " (still live: not trusted as protection)" if held.state is OrderState.WORKING else ""
     return (
         f"stop {stop_id} sold {held.filled} of {held.order.quantity} and is "
-        f"{held.state.value}: nothing is placed beside it; reconcile, and check and "
+        f"{held.state.value}{live}: nothing is placed beside it; reconcile, and check and "
         "flatten by hand"
     )
 
@@ -314,9 +316,13 @@ class Executor:
             )
             return held.order, False
         if held.filled > 0:
-            # It sold part of the position, then ended (cancelled by hand or by IBKR):
-            # a new stop for the whole fill would sell what is already sold, a short
-            # (grind review G6-1). Kept, so management hands it to reconcile.
+            # It sold part of the position: ended since (cancelled by hand or by IBKR),
+            # or still WORKING. A new stop for the whole fill would sell what is already
+            # sold, a short (grind review G6-1). A live one is not trusted either: moving
+            # it, or the size check below (cancel, then a new stop for the whole fill),
+            # would act on a stop that already sold (G7-2, decided fail-closed). Kept as
+            # the position's stop, untouched, so management gets out through its cancel
+            # and hands the sale to reconcile.
             self._halt.trip(_partly_sold(stop_id, held))
             return held.order, False
         if not held.protects:
