@@ -36,6 +36,9 @@ MARKER = "allow-" + "literal"
 # In prose a number glued to ":" or "-" is part of a clock time or a date (checked as
 # words and dates), not a number of its own.
 PROSE_NUMBER = re.compile(r"(?<![\w.:-])(?:\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-])")
+# A number written with thousands separators ("$1,800", "25,000") is also read whole
+# (G18-2); PROSE_NUMBER alone would split it at the commas.
+GROUPED_NUMBER = re.compile(r"(?<![\w.:,-])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w:-]|,\d)")
 DATE_CALLS = frozenset({"date", "datetime"})
 
 
@@ -79,15 +82,19 @@ class Forbidden:
                     self.dates.add(leaf)
                 elif isinstance(leaf, str):
                     self.words.add(leaf)
-        self._word = re.compile(
-            "|".join(rf"(?<!\w){re.escape(w)}(?!\w)" for w in sorted(self.words, key=len)[::-1])
-        )
+        words = [rf"(?<!\w){re.escape(w)}(?!\w)" for w in sorted(self.words, key=len)[::-1]]
+        # No string leaves: an empty pattern would match everywhere; match nothing.
+        self._word = re.compile("|".join(words) if words else r"(?!)")
 
     def in_text(self, text: str) -> list[str]:
         hits = [f"word {w}" for w in self._word.findall(text)]
         hits += [f"date {d.isoformat()}" for d in sorted(self.dates) if d.isoformat() in text]
         for match in PROSE_NUMBER.finditer(text):
             number = _number(match.group())
+            if number is not None and number in self.numbers:
+                hits.append(f"text {_show(number)}")
+        for match in GROUPED_NUMBER.finditer(text):
+            number = _number(match.group().replace(",", ""))
             if number is not None and number in self.numbers:
                 hits.append(f"text {_show(number)}")
         return hits
@@ -116,6 +123,18 @@ def scan_source(source: str, forbidden: Forbidden) -> Counter[str]:
     nodes = list(ast.walk(ast.parse(source)))
     date_parts: set[int] = set()  # a date's year, month and day count as the date
     for node in nodes:
+        # G18-1: -750 is UnaryOp(USub, 750). When the negative is itself forbidden it
+        # counts as that value; otherwise the constant is scanned as written below.
+        if (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and type(node.operand.value) in (int, float)
+        ):
+            negative = -Decimal(str(node.operand.value)).normalize()
+            if negative in forbidden.numbers:
+                found[f"code {_show(negative)}"] += 1
+                date_parts.add(id(node.operand))
         if isinstance(node, ast.Call):
             day = _date_call(node)
             if day is not None and day in forbidden.dates:
@@ -169,7 +188,10 @@ def yaml_files() -> list[Path]:
 #   price path reaches its vertices at a third and two thirds of the minute and closes
 #   5 seconds before its end (a path model, not a trading rule). _KEEP = 4: cache sizes.
 #   binding.py: 2**6, the cap on doubling a backoff.
-# - code 8: uuid4().hex[:8] in ids. code -2: the "-2" suffix of a stop id.
+# - code 8: uuid4().hex[:8] in ids. code -2: the "-2" suffix of a stop id; and,
+#   since G18-1 reads a minus over a constant as one negative value: scaleb(-2) (a
+#   percent as a fraction), bars[-2] (the next-to-last bar), IBKR's market data type
+#   -2 (frozen or delayed). Config's -2 is Good Friday's offset from Easter.
 # - code 100: _PERCENT_MAX, the upper bound of a percentage (was the one in-line marker).
 # - words: holiday names, weekday codes and rule names that are the schema keys the
 #   config is parsed with (core/config.py, core/holiday_rules.py, core/calendar.py);
@@ -184,18 +206,20 @@ REVIEWED: dict[str, dict[str, int]] = {
         "code 2": 1,
     },
     "footprint/agents/levels.py": {
-        "code 2": 2,
+        "code -2": 2,
         "code 3": 1,
     },
     "footprint/agents/momentum_reader.py": {
-        "code 2": 3,
+        "code -2": 1,
+        "code 2": 2,
         "text 2": 1,
     },
     "footprint/agents/range_reader.py": {
-        "code 2": 4,
+        "code -2": 4,
     },
     "footprint/agents/trend_reader.py": {
-        "code 2": 6,
+        "code -2": 4,
+        "code 2": 2,
     },
     "footprint/agents/zero_day.py": {
         "code 2": 1,
@@ -232,7 +256,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "code 2": 1,
     },
     "footprint/brokers/ibkr/gateway.py": {
-        "code 2": 1,
+        "code -2": 1,
         "word FOP": 1,
     },
     "footprint/brokers/ibkr/market.py": {
@@ -300,13 +324,14 @@ REVIEWED: dict[str, dict[str, int]] = {
         "text 4": 1,
     },
     "footprint/decision/risk/gate.py": {
-        "code 2": 1,
+        "code -2": 1,
     },
     "footprint/decision/sizing.py": {
-        "code 2": 1,
+        "code -2": 1,
     },
     "footprint/decision/stop.py": {
-        "code 2": 2,
+        "code -2": 1,
+        "code 2": 1,
     },
     "footprint/execution/channels.py": {
         "code 2": 1,
@@ -431,7 +456,27 @@ def test_scanner_sees_through_every_spelling(tmp_path: Path) -> None:
             "date 2026-04-03": 2,
             "word NQ": 1,
             "word 04:00": 1,
-            "text 25000": 1,  # the comment
+            "text 25000": 2,  # the comment: "25,000" read whole (G18-2) and "25000"
             "text 0.25": 1,  # the docstring
+        }
+    )
+
+
+def test_scanner_sees_negative_only_values_and_grouped_prose_numbers(tmp_path: Path) -> None:
+    """G18-1: a value that is in config only as a negative is caught when src writes it
+    with a minus (a unary minus over a constant). G18-2: a number written with thousands
+    separators in prose ("$1,800") is read whole, not as 1 and 800."""
+    config = tmp_path / "c.yaml"
+    config.write_text("risk:\n  daily_loss: -750\n  max_cost: 1800\n  weekly: [-3]\n")
+    forbidden = Forbidden([config])
+    hits = scan_source(
+        "X = -750\nY = -1800\nZ = -(3)\n# cap is $1,800; 750 or 1,800,000\n", forbidden
+    )
+    assert hits == Counter(
+        {
+            "code -750": 1,  # in config only as -750
+            "code 1800": 1,  # -1800: 1800 is forbidden, so the inner constant counts
+            "code -3": 1,
+            "text 1800": 1,  # "$1,800" whole; "1,800,000" is 1800000, not forbidden
         }
     )

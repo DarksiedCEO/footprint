@@ -1,0 +1,51 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "and isinstance(node.op, ast.USub)",
+   "and isinstance(node.op, ast.UAdd)",
+   "G18-1 M1: a minus over a constant is no longer folded"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                date_parts.add(id(node.operand))\n",
+   "                pass\n",
+   "G18-1 M2: the folded constant is counted twice (as -X and X)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "negative = -Decimal(str(node.operand.value)).normalize()",
+   "negative = Decimal(str(node.operand.value)).normalize()",
+   "G18-1 M3: the sign is dropped"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "for match in GROUPED_NUMBER.finditer(text):",
+   "for match in GROUPED_NUMBER.finditer(\"\"):",
+   "G18-2 M4: grouped prose numbers are not read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "number = _number(match.group().replace(\",\", \"\"))",
+   "number = _number(match.group())",
+   "G18-2 M5: the separators are not stripped (the grouped number never reads)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "if words else r\"(?!)\"",
+   "if words else r\"\"",
+   "harness M6: no string leaves gives an empty pattern that matches everywhere"
+  ]
+ ]
+}
