@@ -1,0 +1,93 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            if ISO_DATE.fullmatch(match.group()):",
+   "            if False:",
+   "G21 M1: the ISO date shape is read as numbers"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "ISO_DATE = re.compile(r\"\\d{4}-\\d{2}-\\d{2}\")",
+   "ISO_DATE = re.compile(r\"\\d+-\\d+-\\d+\")",
+   "G21 M2: every three-part chain is skipped as a date"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART}))(?![\\w:-]|[,.]\\d)\")",
+   "G21 M3: only two-part ranges are read (G21-1)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "_CHAIN_PART = r\"(?:(?:\\d{1,3}(?:,\\d{3})+|\\d[\\d_]*)(?:\\.\\d+)?|\\.\\d+)\"",
+   "_CHAIN_PART = r\"(?:(?:\\d{1,3}(?:,\\d{3})+|\\d[\\d_]*)(?:\\.\\d+)?)\"",
+   "G21 M4: a leading-dot end is not read (G21-2)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "    r\"(?<![\\w.:-])(?<!\\d-\\$)(?>\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\.\\d+)(?![\\w:-])\"",
+   "    r\"(?<![\\w.:-])(?<!\\d-\\$)(?:\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\.\\d+)(?![\\w:-])\"",
+   "G21 M5: PROSE_NUMBER backtracks into a decimal (G21-3)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "    r\"(?<![\\w.:,-])(?<!\\d-\\$)(?>\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?)(?![\\w:-]|,\\d)\"",
+   "    r\"(?<![\\w.:,-])(?<!\\d-\\$)(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?)(?![\\w:-]|,\\d)\"",
+   "G21 M6: GROUPED_NUMBER backtracks into a decimal (G21-3)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "    r\"(?<![\\w.:-])(?<!\\d-\\$)(?>\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\.\\d+)(?![\\w:-])\"",
+   "    r\"(?<![\\w.:-])(?>\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|\\.\\d+)(?![\\w:-])\"",
+   "G21 M7: PROSE_NUMBER also reads a $ chain end"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "    r\"(?<![\\w.:,-])(?<!\\d-\\$)(?>\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?)(?![\\w:-]|,\\d)\"",
+   "    r\"(?<![\\w.:,-])(?>\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?)(?![\\w:-]|,\\d)\"",
+   "G21 M8: GROUPED_NUMBER also reads a $ chain end"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                number = _number(end.replace(\"$\", \"\").replace(\",\", \"\"))",
+   "                number = _number(end.replace(\",\", \"\"))",
+   "G21 M9: a $ chain end is not stripped"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|,\\d)\")",
+   "G21 M10: a chain followed by .digit (a version) is read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "G21 M11: a chain glued to a word is read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?>{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "CHAIN_NUMBER = re.compile(rf\"(?<![\\w.:,-])(?:{_CHAIN_PART}(?:-\\$?{_CHAIN_PART})+)(?![\\w:-]|[,.]\\d)\")",
+   "G21 M12: the chain is not atomic (argued equivalent if it survives)"
+  ]
+ ]
+}

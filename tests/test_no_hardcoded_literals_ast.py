@@ -35,21 +35,29 @@ NEVER_SCANNED = frozenset({Decimal(0), Decimal(1), Decimal(-1)})
 MARKER = "allow-" + "literal"
 # In prose a number glued to ":" or "-" is part of a clock time or a date (checked as
 # words and dates), not a number of its own.
-PROSE_NUMBER = re.compile(r"(?<![\w.:-])(?:\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-])")
+# The number is atomic: "900.0-" is not read back as "900" (G21-3). A "$" glued to a
+# digit and a hyphen ("900-$1000") is a chain end, read by CHAIN_NUMBER below.
+PROSE_NUMBER = re.compile(
+    r"(?<![\w.:-])(?<!\d-\$)(?>\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-])"
+)
 # A number written with thousands separators ("$1,800", "25,000") is also read whole
 # (G18-2); PROSE_NUMBER alone would split it at the commas.
-GROUPED_NUMBER = re.compile(r"(?<![\w.:,-])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w:-]|,\d)")
+GROUPED_NUMBER = re.compile(
+    r"(?<![\w.:,-])(?<!\d-\$)(?>\d{1,3}(?:,\d{3})+(?:\.\d+)?)(?![\w:-]|,\d)"
+)
 # A minus that is not glued to a word, a digit or another minus is a sign ("-900",
 # "-1,800"); glued to a digit it is a date or a range ("2026-04-03", "2100-2199") (G19-1).
 SIGNED_NUMBER = re.compile(
     r"(?<![\w.:,-])-((?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-]|,\d)"
 )
-# A hyphen between two numbers is a range ("900-1000", "$900-$1,000"), not a sign: both
-# ends are read as plain values (G20-1). An ISO date has a third part, so the guards on
-# both sides leave it out; a "$" before the right end means PROSE_NUMBER or
-# GROUPED_NUMBER already reads that end, so it is not read twice.
-_RANGE_END = r"(?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?"
-RANGE_NUMBER = re.compile(rf"(?<![\w.:,-])({_RANGE_END})-(\$?)({_RANGE_END})(?![\w:-]|,\d)")
+# A hyphen between numbers is a range or a chain ("900-1000", "$900-$1,000",
+# "750-900-1000", ".25-.5"), not a sign: every end is read as a plain value (G20-1,
+# G21-1, G21-2), once, "$" ends included. The chain is atomic, so a chain glued to a word
+# or a colon reads nothing, and no end is read back shorter than written (G21-3). Only
+# the ISO date shape is left out: the date check reads dates.
+_CHAIN_PART = r"(?:(?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?|\.\d+)"
+CHAIN_NUMBER = re.compile(rf"(?<![\w.:,-])(?>{_CHAIN_PART}(?:-\$?{_CHAIN_PART})+)(?![\w:-]|[,.]\d)")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 DATE_CALLS = frozenset({"date", "datetime"})
 
 
@@ -108,10 +116,11 @@ class Forbidden:
             number = _number(match.group().replace(",", ""))
             if number is not None and number in self.numbers:
                 hits.append(f"text {_show(number)}")
-        for match in RANGE_NUMBER.finditer(text):
-            ends = [match.group(1)] + ([] if match.group(2) else [match.group(3)])
-            for end in ends:
-                number = _number(end.replace(",", ""))
+        for match in CHAIN_NUMBER.finditer(text):
+            if ISO_DATE.fullmatch(match.group()):
+                continue
+            for end in match.group().split("-"):
+                number = _number(end.replace("$", "").replace(",", ""))
                 if number is not None and number in self.numbers:
                     hits.append(f"text {_show(number)}")
         for match in SIGNED_NUMBER.finditer(text):
@@ -566,5 +575,36 @@ def test_scanner_reads_both_ends_of_a_hyphen_range(tmp_path: Path) -> None:
             "text 900": 3,  # string, prose, "$900-"
             "text 1000": 3,  # string, prose "1,000", "$1,000" (read once)
             "text 4": 1,  # "1.5-4"
+        }
+    )
+
+
+def test_scanner_reads_every_end_of_a_hyphen_chain_once(tmp_path: Path) -> None:
+    """G21-1: every number of a hyphen chain of three or more ("750-900-1000") is read;
+    only the ISO date shape ("2026-04-03") is left to the date check. G21-2: a range end
+    written with a leading dot (".25-.5") is read. G21-3: a decimal end ("900.0-1000",
+    "1,000.0-1200") is read once, at its written value, never also as the digits before
+    its dot. Every "$" end of a chain is read once."""
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "risk:\n  stop: 900\n  max_cost: 1000\n  big: 1200\n  frac: 0.25\n  half: 0.5\n  day: 3\n"
+    )
+    forbidden = Forbidden([config])
+    hits = scan_source(
+        'A = "750-900-1000"\n'
+        "# stop 900-1000-1200; $900-$1000-$1,200\n"
+        "# frac .25-.5 and .25-0.5 and 0.25-.5\n"
+        "# 900.0-1000 and 1,000.0-1200; 900.5-1000\n"
+        "# -$900 and 0.5-$1,000\n"
+        "# not numbers: 2026-04-03, 2026-04-03T09:00, G6-5-3, x900-1000-1200, 0.25-0.5.1\n",
+        forbidden,
+    )
+    assert hits == Counter(
+        {
+            "text 900": 5,  # string, prose chain, "$900-", "900.0-", "-$900"
+            "text 1000": 7,  # string, 2 chains, "900.0-", "1,000.0", "900.5-", "$1,000"
+            "text 1200": 3,  # chain, "$1,200", "-1200" after 1,000.0
+            "text 0.25": 3,
+            "text 0.5": 4,  # ".5" twice, "0.5" and the "0.5-$1,000" left end
         }
     )
