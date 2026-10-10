@@ -1,0 +1,12 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+source: f6beb8bce8ec3067e2984beae70ffbd66df8ff31 tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M1: signed prose numbers are not read
+  2 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M2: a minus glued to a word or digit (a date, a range) reads as a sign
+  3 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M3: separators are not stripped in a signed number
+  4 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M4: only the negative counts; the value itself is never checked
+  5 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M5: only the value counts; a negative-only config value is missed
+  6 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-1 M6: a signed number that is not forbidden is reported
+  7 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-2 M7: a string spelling of a negative is not checked as its value
+  8 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G19-2 M8: the sign is kept on the string spelling
+8 mutants, 0 survived or errored
