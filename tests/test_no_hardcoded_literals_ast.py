@@ -44,6 +44,12 @@ GROUPED_NUMBER = re.compile(r"(?<![\w.:,-])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w:-]
 SIGNED_NUMBER = re.compile(
     r"(?<![\w.:,-])-((?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-]|,\d)"
 )
+# A hyphen between two numbers is a range ("900-1000", "$900-$1,000"), not a sign: both
+# ends are read as plain values (G20-1). An ISO date has a third part, so the guards on
+# both sides leave it out; a "$" before the right end means PROSE_NUMBER or
+# GROUPED_NUMBER already reads that end, so it is not read twice.
+_RANGE_END = r"(?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?"
+RANGE_NUMBER = re.compile(rf"(?<![\w.:,-])({_RANGE_END})-(\$?)({_RANGE_END})(?![\w:-]|,\d)")
 DATE_CALLS = frozenset({"date", "datetime"})
 
 
@@ -102,6 +108,12 @@ class Forbidden:
             number = _number(match.group().replace(",", ""))
             if number is not None and number in self.numbers:
                 hits.append(f"text {_show(number)}")
+        for match in RANGE_NUMBER.finditer(text):
+            ends = [match.group(1)] + ([] if match.group(2) else [match.group(3)])
+            for end in ends:
+                number = _number(end.replace(",", ""))
+                if number is not None and number in self.numbers:
+                    hits.append(f"text {_show(number)}")
         for match in SIGNED_NUMBER.finditer(text):
             number = _number(match.group(1).replace(",", ""))
             if number is not None:
@@ -215,7 +227,9 @@ def yaml_files() -> list[Path]:
 # - words: holiday names, weekday codes and rule names that are the schema keys the
 #   config is parsed with (core/config.py, core/holiday_rules.py, core/calendar.py);
 #   "FOP" in a comment listing IBKR security types.
-# - text N: small counts and item numbers in docstrings, comments and messages.
+# - text N: small counts and item numbers in docstrings, comments and messages; since
+#   G20-1 reads both ends of a hyphen range: config.py's message "nth must be 1-5" (the
+#   nth-weekday range above) and channels.py's E.164 phone regex "[1-9]".
 REVIEWED: dict[str, dict[str, int]] = {
     "footprint/agents/_series.py": {
         "code 2": 1,
@@ -296,6 +310,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "code 4": 1,
         "code 5": 1,
         "text 2": 1,
+        "text 5": 1,
         "text 8": 1,
         "word FRI": 1,
         "word MON": 1,
@@ -357,6 +372,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "text 10": 1,
         "text 3": 1,
         "text 7": 1,
+        "text 9": 1,
     },
     "footprint/execution/executor/diego.py": {
         "code -2": 1,
@@ -516,7 +532,7 @@ def test_scanner_reads_a_leading_minus_in_prose_and_in_number_strings(tmp_path: 
         'B = Decimal("-750")\n'
         "# daily loss -750; stop at -900; loss -1,800; $-900\n"
         "# not signs: 2026-04-03, 2100-2199, x-900, --900\n"
-        '"""Ranges 1-4 and 750-900 are not signs either."""\n',
+        '"""Ranges 1-4 and 750-900 are not signs either (G20-1 reads their ends)."""\n',
         forbidden,
     )
     assert hits == Counter(
@@ -524,7 +540,31 @@ def test_scanner_reads_a_leading_minus_in_prose_and_in_number_strings(tmp_path: 
             "code 900": 1,  # Decimal("-900"): 900 is forbidden, -900 is not
             "code -750": 1,
             "text -750": 1,
-            "text 900": 2,  # "-900" and "$-900"
+            "text 900": 3,  # "-900", "$-900" and the range end "750-900" (G20-1)
+            "text 4": 1,  # the range end "1-4" (G20-1)
             "text 1800": 1,  # "-1,800" whole
+        }
+    )
+
+
+def test_scanner_reads_both_ends_of_a_hyphen_range(tmp_path: Path) -> None:
+    """G20-1: both ends of a hyphen range ("900-1000", "$900-$1,000") are read as plain
+    values, in prose and inside a string literal; the hyphen is not a sign. Each end is
+    read once. An ISO date ("2026-04-03"), a range glued to a word ("G6-5") and a
+    clock time stay unread as numbers."""
+    config = tmp_path / "c.yaml"
+    config.write_text("risk:\n  daily_loss: -750\n  stop: 900\n  max_cost: 1000\n  day: 4\n")
+    forbidden = Forbidden([config])
+    hits = scan_source(
+        'A = "900-1000"\n'
+        "# stop 900-1,000; $900-$1,000; 1.5-4 contracts\n"
+        "# not ranges: 2026-04-03, G6-5, x900-1000, 10:04-4:00\n",
+        forbidden,
+    )
+    assert hits == Counter(
+        {
+            "text 900": 3,  # string, prose, "$900-"
+            "text 1000": 3,  # string, prose "1,000", "$1,000" (read once)
+            "text 4": 1,  # "1.5-4"
         }
     )
