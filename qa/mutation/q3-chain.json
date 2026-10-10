@@ -57,8 +57,8 @@
   [
    "rec",
    "src/footprint/data/chain_record.py",
-   "        if first != header:",
-   "        if False:",
+   "        if found != header:",
+   "        if found != header and False:",
    "Q3-8: a foreign file appended to"
   ],
   [
@@ -85,8 +85,8 @@
   [
    "rec",
    "src/footprint/data/chain_record.py",
-   "        f\"{age.total_seconds():.3f}\",",
-   "        f\"{age.total_seconds():.0f}\",",
+   "    return f\"{age.total_seconds():.3f}\"",
+   "    return f\"{age.total_seconds():.0f}.000\"",
    "Q3-12: age rounded to whole seconds"
   ],
   [

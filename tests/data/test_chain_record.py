@@ -28,11 +28,13 @@ def row(
     age: timedelta = timedelta(seconds=1, milliseconds=250),
     oi: int | None = 120,
     ts: datetime = TS,
+    future_age: timedelta = timedelta(milliseconds=500),
 ) -> ChainRow:
     return ChainRow(
         ts=ts,
         future_bid=D("20010.25"),
         future_ask=D("20010.75"),
+        future_quote_ts=ts - future_age,
         contract_id=f"NQ-{strike}-{right.value}",
         expiry=date(2026, 10, 16),
         strike=D(strike),
@@ -58,6 +60,7 @@ def test_a_snapshot_is_written_with_a_header_one_line_per_quote(tmp_path: Path) 
             "2026-10-14T15:30:00+00:00",
             "20010.25",
             "20010.75",
+            "0.500",
             "NQ-20000-CALL",
             "2026-10-16",
             "20000",
@@ -71,6 +74,7 @@ def test_a_snapshot_is_written_with_a_header_one_line_per_quote(tmp_path: Path) 
             "2026-10-14T15:30:00+00:00",
             "20010.25",
             "20010.75",
+            "0.500",
             "NQ-20025-PUT",
             "2026-10-16",
             "20025",
@@ -108,7 +112,7 @@ def test_each_utc_day_has_its_own_file(tmp_path: Path) -> None:
 
 def test_a_quote_exactly_the_configured_age_is_written(tmp_path: Path) -> None:
     path = write_snapshot(tmp_path, [row(age=timedelta(seconds=MAX_AGE))], MAX_AGE)
-    assert read(path)[1][9] == "5.000"
+    assert read(path)[1][10] == "5.000"
 
 
 def test_a_stale_quote_refuses_the_whole_snapshot(tmp_path: Path) -> None:
@@ -126,7 +130,7 @@ def test_a_quote_newer_than_the_snapshot_is_refused(tmp_path: Path) -> None:
 
 def test_a_quote_stamped_at_the_snapshot_itself_is_written(tmp_path: Path) -> None:
     path = write_snapshot(tmp_path, [row(age=timedelta(0))], MAX_AGE)
-    assert read(path)[1][9] == "0.000"
+    assert read(path)[1][10] == "0.000"
 
 
 def test_an_empty_snapshot_is_refused(tmp_path: Path) -> None:
@@ -168,6 +172,11 @@ def test_an_empty_existing_file_gets_its_header(tmp_path: Path) -> None:
         ({"open_interest": -1}, "open_interest"),
         ({"open_interest": True}, "open_interest"),
         ({"ask": D("NaN")}, "ask"),
+        ({"ask": D("0"), "bid": D("0")}, "ask"),  # no offer: not a quote (G30-3)
+        ({"contract_id": " "}, "contract_id"),
+        ({"expiry": datetime(2026, 10, 16, tzinfo=UTC)}, "expiry"),
+        ({"quote_ts": datetime(2026, 10, 14, 15, 30)}, "quote_ts"),  # noqa: DTZ001
+        ({"future_quote_ts": datetime(2026, 10, 14, 15, 30)}, "future_quote_ts"),  # noqa: DTZ001
     ],
 )
 def test_a_row_that_is_not_a_quote_is_refused(change: dict[str, object], match: str) -> None:
@@ -189,3 +198,52 @@ def test_every_snapshot_is_on_disk_when_the_call_returns(
     write_snapshot(tmp_path, [row(), row("20025")], MAX_AGE)
     assert len(seen) == 1
     assert seen[0].count("NQ-20") == 2  # flushed before the fsync, every row there
+
+
+def test_a_future_quote_exactly_the_configured_age_is_written(tmp_path: Path) -> None:
+    path = write_snapshot(tmp_path, [row(future_age=timedelta(seconds=MAX_AGE))], MAX_AGE)
+    assert read(path)[1][3] == "5.000"
+
+
+def test_a_stale_future_quote_refuses_the_whole_snapshot(tmp_path: Path) -> None:
+    """G30-2: fresh option quotes are never paired with an old future price."""
+    stale = timedelta(seconds=MAX_AGE, microseconds=1)
+    with pytest.raises(ValueError, match="future's quote is older than"):
+        write_snapshot(tmp_path, [row(future_age=stale), row("20025", future_age=stale)], MAX_AGE)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_future_quote_newer_than_the_snapshot_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="future's quote is stamped after"):
+        write_snapshot(tmp_path, [row(future_age=timedelta(microseconds=-1))], MAX_AGE)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_future_quote_stamped_at_the_snapshot_itself_is_written(tmp_path: Path) -> None:
+    path = write_snapshot(tmp_path, [row(future_age=timedelta(0))], MAX_AGE)
+    assert read(path)[1][3] == "0.000"
+
+
+def test_rows_with_two_future_quotes_are_not_one_snapshot(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="one future quote"):
+        write_snapshot(tmp_path, [row(), row("20025", future_age=timedelta(seconds=1))], MAX_AGE)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_day_file_cut_off_mid_line_is_refused_and_kept(tmp_path: Path) -> None:
+    """G30-1: appending to a torn last line would merge the next snapshot into it."""
+    path = write_snapshot(tmp_path, [row(), row("20025")], MAX_AGE)
+    torn = path.read_bytes()[:-7]
+    path.write_bytes(torn)
+    later = TS + timedelta(minutes=1)
+    with pytest.raises(ValueError, match="cut off"):
+        write_snapshot(tmp_path, [row(ts=later)], MAX_AGE)
+    assert path.read_bytes() == torn
+
+
+def test_a_day_file_ending_in_a_newline_is_appended_to(tmp_path: Path) -> None:
+    path = write_snapshot(tmp_path, [row()], MAX_AGE)
+    assert path.read_bytes().endswith(b"\n")
+    later = TS + timedelta(minutes=1)
+    write_snapshot(tmp_path, [row(ts=later)], MAX_AGE)
+    assert [len(line) for line in read(path)] == [len(HEADER)] * 3

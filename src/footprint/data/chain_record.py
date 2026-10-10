@@ -8,9 +8,14 @@ raw material for calibrating D8 (minimum open interest) and D22 (the backtest's 
 model), so it never holds a guess:
 
 - A quote older than `max_age_seconds` (the configured quote age) at the snapshot, or
-  stamped after it, refuses the WHOLE snapshot: nothing of it is written.
+  stamped after it, refuses the WHOLE snapshot: nothing of it is written. The future's
+  quote is held to the same rule and its age is written too (G30-2), so fresh option
+  quotes are never paired with an old future price; every row of a snapshot carries the
+  one future quote.
 - Open interest IBKR did not send is a blank cell, never 0 (`None`); 0 is written as 0.
-- An existing day file is appended to only when its header is exactly this one.
+- An existing day file is appended to only when its header is exactly this one and it
+  ends in a complete line: a file cut off mid-line (a crash during a write) is refused,
+  never appended to, because the next snapshot would merge into the torn line (G30-1).
 - Each snapshot is flushed and fsynced before the call returns.
 
 The recorder command (a later slice) builds the rows from the read-only MarketData.
@@ -33,6 +38,7 @@ HEADER = (
     "ts",
     "future_bid",
     "future_ask",
+    "future_quote_age_seconds",
     "contract_id",
     "expiry",
     "strike",
@@ -58,6 +64,7 @@ class ChainRow:
     ts: datetime  # when the snapshot was taken
     future_bid: Decimal
     future_ask: Decimal
+    future_quote_ts: datetime  # when the future's quote last changed
     contract_id: str
     expiry: date
     strike: Decimal
@@ -70,6 +77,7 @@ class ChainRow:
     def __post_init__(self) -> None:
         require_utc(self.ts, "ts")
         require_utc(self.quote_ts, "quote_ts")
+        require_utc(self.future_quote_ts, "future_quote_ts")
         _price(self.future_bid, "future_bid", positive=True)
         _price(self.future_ask, "future_ask", positive=True)
         if self.future_ask < self.future_bid:
@@ -96,19 +104,23 @@ def day_file(directory: Path, ts: datetime) -> Path:
     return directory / f"chain-{ts.date().isoformat()}.csv"
 
 
+def _seconds(age: timedelta) -> str:
+    return f"{age.total_seconds():.3f}"
+
+
 def _line(row: ChainRow) -> list[str]:
-    age = row.ts - row.quote_ts
     return [
         row.ts.isoformat(),
         str(row.future_bid),
         str(row.future_ask),
+        _seconds(row.ts - row.future_quote_ts),
         row.contract_id,
         row.expiry.isoformat(),
         str(row.strike),
         row.right.value,
         str(row.bid),
         str(row.ask),
-        f"{age.total_seconds():.3f}",
+        _seconds(row.ts - row.quote_ts),
         "" if row.open_interest is None else str(row.open_interest),
     ]
 
@@ -116,15 +128,25 @@ def _line(row: ChainRow) -> list[str]:
 def write_snapshot(directory: Path, rows: Sequence[ChainRow], max_age_seconds: int) -> Path:
     """Append one snapshot to its day file (creating it with the header); every row is
     checked before anything is written. Raises ValueError (nothing written) on an empty
-    or mixed snapshot, a stale or future-stamped quote, or a day file with another
-    header; OSError from the file system as it comes."""
+    or mixed snapshot, a stale or future-stamped quote (option or future), or a day file
+    with another header or cut off mid-line; OSError from the file system as it comes."""
     if not rows:
         raise ValueError("a snapshot with no quotes is not written")
-    ts = rows[0].ts
+    first = rows[0]
+    ts = first.ts
+    future = (first.future_bid, first.future_ask, first.future_quote_ts)
     limit = timedelta(seconds=max_age_seconds)
+    if first.future_quote_ts > ts:
+        raise ValueError("the future's quote is stamped after the snapshot")
+    if ts - first.future_quote_ts > limit:
+        raise ValueError(
+            f"the future's quote is older than {max_age_seconds} s; the snapshot is not written"
+        )
     for row in rows:
         if row.ts != ts:
             raise ValueError("a snapshot's rows must all be taken at one moment")
+        if (row.future_bid, row.future_ask, row.future_quote_ts) != future:
+            raise ValueError("a snapshot's rows must all carry one future quote")
         if row.quote_ts > ts:
             raise ValueError(f"{row.contract_id}: its quote is stamped after the snapshot")
         if ts - row.quote_ts > limit:
@@ -137,9 +159,16 @@ def write_snapshot(directory: Path, rows: Sequence[ChainRow], max_age_seconds: i
     fresh = not path.exists() or path.stat().st_size == 0
     if not fresh:
         with path.open(newline="", encoding="utf-8") as handle:
-            first = next(csv.reader(handle), None)
-        if first != header:
+            found = next(csv.reader(handle), None)
+        if found != header:
             raise ValueError(f"{path} has another header: it is not appended to")
+        with path.open("rb") as raw:
+            raw.seek(-1, os.SEEK_END)
+            if raw.read(1) != b"\n":
+                raise ValueError(
+                    f"{path} ends mid-line (a write was cut off): it is not appended to; "
+                    "its last snapshot may be incomplete"
+                )
     with path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         if fresh:
