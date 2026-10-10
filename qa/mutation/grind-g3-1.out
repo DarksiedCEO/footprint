@@ -1,0 +1,5 @@
+source: cc3ec414b8f36368374193488f6b2364aeda0f18 tree-dirty: 0 files
+baseline [with]: passed
+  1 KILLED   [with] src/footprint/execution/management/malik.py: R5: holds count only for the ledger's open position (the 0b79482 reviewer's mutant, G3-1)
+  2 KILLED   [with] src/footprint/execution/management/malik.py: R1: closing a position the ledger never recorded keeps its hold (the 0b79482 reviewer's mutant, G3-2)
+2 mutants, 0 survived or errored
