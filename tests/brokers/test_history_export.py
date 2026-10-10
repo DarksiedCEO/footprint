@@ -6,7 +6,7 @@ finished name. Nothing here needs ibapi."""
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -14,7 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from footprint.brokers.ibkr.history_export import export_history, window_start, with_days
+from footprint.brokers.ibkr.history_export import (
+    HistorySource,
+    export_history,
+    window_start,
+    with_days,
+)
 from footprint.core.config import (
     ConfigError,
     InstrumentProfile,
@@ -32,6 +37,7 @@ MIN = timedelta(minutes=1)
 SEC = timedelta(seconds=1)
 NOW = datetime(2026, 10, 6, 16, 0, 7, tzinfo=UTC)  # a Tuesday, 09:00 PT
 START = datetime(2026, 10, 6, 15, 0, tzinfo=UTC)
+LAST = datetime(2026, 10, 6, 15, 59, tzinfo=UTC)  # the last minute closed at NOW
 D = Decimal
 
 
@@ -85,19 +91,20 @@ class Source:
 
 def run(
     nq: InstrumentProfile,
-    source: Source,
+    source: HistorySource,
     out: Path,
     clock: Clock,
     *,
     wait: float = 60,
     max_missing: int = 0,
     poll: float = 1,
+    window_from: Callable[[datetime], datetime] = lambda now: START,
 ) -> tuple[int, str]:
     text = io.StringIO()
     code = export_history(
         source,
         out,
-        START,
+        window_from,
         nq,
         wait,
         max_missing,
@@ -146,7 +153,7 @@ def test_the_history_is_looked_at_once_more_at_the_deadline(
 ) -> None:
     out = tmp_path / "nq_1m.csv"
     clock = Clock()
-    code, _ = run(nq, Source(bars_between(START, START + MIN), ready_at=2), out, clock, wait=2)
+    code, _ = run(nq, Source(bars_between(START, LAST), ready_at=2), out, clock, wait=2)
     assert code == 0
     assert clock.slept == [1, 1]
 
@@ -154,7 +161,7 @@ def test_the_history_is_looked_at_once_more_at_the_deadline(
 def test_a_wait_of_zero_still_looks_once(nq: InstrumentProfile, tmp_path: Path) -> None:
     out = tmp_path / "nq_1m.csv"
     clock = Clock()
-    src = Source(bars_between(START, START + MIN))
+    src = Source(bars_between(START, LAST))
     code, _ = run(nq, src, out, clock, wait=0)
     assert code == 0
     assert len(src.steps) == 1
@@ -166,9 +173,7 @@ def test_a_history_with_a_gap_is_refused_and_nothing_is_written(
 ) -> None:
     hole = frozenset(START + (10 + i) * MIN for i in range(3))
     out = tmp_path / "nq_1m.csv"
-    code, text = run(
-        nq, Source(bars_between(START, START + 30 * MIN, hole)), out, Clock(), max_missing=2
-    )
+    code, text = run(nq, Source(bars_between(START, LAST, hole)), out, Clock(), max_missing=2)
     assert code == 1
     last = text.splitlines()[-1]
     assert last.startswith("REFUSED: the history has a gap: 3 tradable minute(s) from ")
@@ -180,19 +185,68 @@ def test_a_history_with_a_gap_is_refused_and_nothing_is_written(
 def test_the_gap_allowance_is_the_configured_number(nq: InstrumentProfile, tmp_path: Path) -> None:
     hole = frozenset(START + (10 + i) * MIN for i in range(3))
     out = tmp_path / "nq_1m.csv"
-    code, _ = run(
-        nq, Source(bars_between(START, START + 30 * MIN, hole)), out, Clock(), max_missing=3
-    )
+    code, _ = run(nq, Source(bars_between(START, LAST, hole)), out, Clock(), max_missing=3)
     assert code == 0
-    assert len(list(CsvBarSource(out, "NQ").bars())) == 28
+    assert len(list(CsvBarSource(out, "NQ").bars())) == 57
 
 
 def test_a_missing_start_is_a_gap(nq: InstrumentProfile, tmp_path: Path) -> None:
     out = tmp_path / "nq_1m.csv"
-    code, text = run(nq, Source(bars_between(START + 5 * MIN, START + 30 * MIN)), out, Clock())
+    code, text = run(nq, Source(bars_between(START + 5 * MIN, LAST)), out, Clock())
     assert code == 1
     assert "5 tradable minute(s) from 2026-10-06T15:00:00+00:00" in text
     assert not out.exists()
+
+
+def test_a_missing_tail_is_a_gap(nq: InstrumentProfile, tmp_path: Path) -> None:
+    # G29-2: e.g. IBKR answered the first poll "no data": today's minutes never arrived
+    out = tmp_path / "nq_1m.csv"
+    code, text = run(nq, Source(bars_between(START, LAST - 3 * MIN)), out, Clock(), max_missing=2)
+    assert code == 1
+    assert "3 tradable minute(s) from 2026-10-06T15:57:00+00:00" in text
+    assert not out.exists()
+    assert not partial_path(out).exists()
+
+
+def test_the_tail_is_judged_by_the_same_allowance(nq: InstrumentProfile, tmp_path: Path) -> None:
+    out = tmp_path / "nq_1m.csv"
+    code, _ = run(nq, Source(bars_between(START, LAST - 3 * MIN)), out, Clock(), max_missing=3)
+    assert code == 0
+
+
+class MovingWindow:
+    """MarketData's series starts at 00:00 UTC `days` before the day it is read on
+    (market.py `_assemble`), and is empty until `ready`."""
+
+    def __init__(self, days: int, ready: datetime) -> None:
+        self.days, self.ready = days, ready
+
+    def step(self, now: datetime) -> None:
+        pass
+
+    def bars(self, now: datetime) -> Sequence[Bar]:
+        if now < self.ready:
+            return ()
+        last = now.replace(second=0, microsecond=0) - MIN
+        return bars_between(window_start(now, self.days), last)
+
+
+@pytest.mark.parametrize("days", [1, 2, 4])
+def test_an_export_that_crosses_midnight_utc_reads_the_window_it_was_given(
+    nq: InstrumentProfile, tmp_path: Path, days: int
+) -> None:
+    # G29-1: begun Tue 23:50 UTC (16:50 PT), loaded 00:10 UTC: the window moved a day
+    clock = Clock()
+    clock.now = datetime(2026, 10, 6, 23, 50, tzinfo=UTC)
+    source = MovingWindow(days, datetime(2026, 10, 7, 0, 10, tzinfo=UTC))
+    out = tmp_path / "nq_1m.csv"
+    code, text = run(
+        nq, source, out, clock, wait=1800, poll=60, window_from=lambda now: window_start(now, days)
+    )
+    assert code == 0, text
+    written = list(CsvBarSource(out, "NQ").bars())
+    assert written[0].ts == window_start(clock.now, days)
+    assert written[-1].ts == datetime(2026, 10, 7, 0, 9, tzinfo=UTC)
 
 
 def test_an_existing_file_is_refused_before_anything_is_loaded(
@@ -226,8 +280,8 @@ def test_a_write_failure_exits_one_and_never_leaves_a_finished_file(
     nq: InstrumentProfile, tmp_path: Path
 ) -> None:
     out = tmp_path / "nq_1m.csv"
-    bars = bars_between(START, START + 3 * MIN)
-    bad = [*bars[:2], Bar("ES", bars[2].ts, D(1), D(1), D(1), D(1), 1), bars[3]]
+    bars = bars_between(START, LAST)
+    bad = [*bars[:2], Bar("ES", bars[2].ts, D(1), D(1), D(1), D(1), 1), *bars[3:]]
     code, text = run(nq, Source(bad), out, Clock())
     assert code == 1
     assert "EXPORT FAILED:" in text.splitlines()[-1]

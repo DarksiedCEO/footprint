@@ -218,6 +218,16 @@ Grind review 161ae45..93b405f + d2d898f..2891045 (2026-10-10 19:20 UTC, CONDITIO
 | G28-2 | INFO | The probe exits 0 when the only fresh options are ask-only (`bid none`) | Accepted: an ask-only option is a quote under MarketData's rule. For the data-day runbook: a pass where every printed option shows `bid none` is not a healthy chain |
 | G28-3 | INFO | `check --market-data` ibapi tests run only in CI (logs unreadable here); no test pins that `check()` gives MarketData its own clock | Recorded (test tooling): in production both clocks are `_utc_now` |
 
+Grind review 2891045..529ff6a (Q2 slices 2+3, 2026-10-10 19:55 UTC, CONDITIONAL, 0 CRITICAL/HIGH/MEDIUM, 2 LOW src, 3 INFO; report on PR #21, project doc claude/grind-review-529ff6a.md) and its fixes:
+
+| ID | Severity | Finding | State |
+|---|---|---|---|
+| G29-1 | LOW (src) | `history` took the gap-scan start once, before the resync and the up-to-1800 s load; MarketData's window moves at 00:00 UTC (17:00 PT), so an export that finished loading after midnight UTC was refused with a false gap of a whole day | **Fixed** (test first): `export_history` takes `window_from` (a function of the read time) instead of a fixed start; `history.py` passes `window_start(now, history_days)`, evaluated at the same `now` the bars were read at. Test: an export begun Tue 23:50 UTC and loaded 00:10 UTC writes the moved window (`--days` 1, 2, 4). Mutation spec `qa/mutation/g29-fix.json` |
+| G29-2 | LOW (src) | The gap scan stopped at the last bar, so a history missing today's minutes (e.g. IBKR answering the first poll "no data", which MarketData takes as an empty answer) was written as complete | **Fixed** (test first): `first_gap(..., until=)` also scans from the last bar to the last minute closed at `until` (a minute has closed once its end is not after `until`); the export passes the read time. The tail is judged by the same `export_max_missing_minutes` allowance. Note for Andre (Q2-a): the newest bar of a poll answer is always held back, so the last one or two closed minutes have no bar yet; an allowance below 2 would refuse almost every export made on a trading day |
+| G29-3 | INFO | `--days` with an absurd value (e.g. 10**6) ends in an OverflowError traceback, before connecting, nothing written | Recorded, not chased |
+| G29-4 | INFO | The 5-minute allowance assumes IBKR omits only rare zero-trade minutes on NQ | UNVERIFIED until real data (2026-10-14); fails closed if wrong (Q2-a) |
+| G29-5 | INFO | 281d30f had no CI run of its own (pushed with later commits) | Recorded: CI green on the commits that contain it |
+
 Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |

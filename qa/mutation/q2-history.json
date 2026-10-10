@@ -165,15 +165,15 @@
   [
    "drv",
    "src/footprint/brokers/ibkr/history_export.py",
-   "first_gap(bars, start, instrument, max_missing)",
-   "first_gap(bars, bars[0].ts, instrument, max_missing)",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, bars[0].ts, instrument, max_missing, until=now)",
    "Q2H-23: the window start ignored"
   ],
   [
    "drv",
    "src/footprint/brokers/ibkr/history_export.py",
-   "first_gap(bars, start, instrument, max_missing)",
-   "first_gap(bars, start, instrument, 0)",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, window_from(now), instrument, 0, until=now)",
    "Q2H-24: configured allowance ignored"
   ],
   [

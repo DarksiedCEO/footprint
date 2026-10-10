@@ -1,7 +1,7 @@
 """Q2: the `history` export, without ibapi (the command in `history.py` wires it to IB
 Gateway through the read-only gateway).
 
-    export_history(market, out, start, instrument, wait_seconds, max_missing, ...)
+    export_history(market, out, window_from, instrument, wait_seconds, max_missing, ...)
 
 - Refuses at once, before any time is spent loading, if `out` or `<out>.partial`
   exists (never overwrites; a failed run's partial is looked at by a person first).
@@ -9,7 +9,10 @@ Gateway through the read-only gateway).
   back-adjusted, Saturdays skipped, requests paced from config) until its `bars` are
   ready, i.e. the whole history has loaded and a first poll has answered. It looks at
   least once, and once more at the deadline itself.
-- Refuses a history with a gap (`footprint.data.gaps.first_gap` from `start`).
+- Refuses a history with a gap (`footprint.data.gaps.first_gap`), from
+  `window_from(now)` to the last minute closed when the bars were read, both taken at
+  that same `now`: MarketData's window moves at 00:00 UTC, so a start taken before a
+  long load would be a day off (G29-1), and a missing tail is a gap too (G29-2).
 - Only then writes the CSV `CsvBarSource` reads (`write_bars`: `.partial` first, linked
   to the finished name only when every bar is on disk).
 
@@ -58,7 +61,7 @@ class HistorySource(Protocol):
 def export_history(
     market: HistorySource,
     out: Path,
-    start: datetime,
+    window_from: Callable[[datetime], datetime],
     instrument: InstrumentProfile,
     wait_seconds: float,
     max_missing: int,
@@ -89,7 +92,7 @@ def export_history(
             "(IBKR's reason, if it sent one, is in the ALARM lines above); nothing written"
         )
         return 1
-    gap = first_gap(bars, start, instrument, max_missing)
+    gap = first_gap(bars, window_from(now), instrument, max_missing, until=now)
     if gap is not None:
         say(f"REFUSED: the history has a gap: {gap}; nothing written")
         return 1

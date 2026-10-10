@@ -82,18 +82,21 @@ def main(
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)
     m = profiles.execution.market_data
-    start = window_start(clock(), m.history_days)
     out: Path = args.out
+
+    def window_from(now: datetime) -> datetime:
+        return window_start(now, m.history_days)
 
     def export(market: MarketData, say: Callable[[str], None], poll_seconds: float) -> int:
         say(
-            f"history: {m.history_days} days from {start.isoformat()}; waiting up to "
-            f"{m.export_wait_seconds} s for it to load"
+            f"history: {m.history_days} days from {window_from(clock()).isoformat()} "
+            f"(00:00 UTC on the day it finishes loading, less {m.history_days} days); "
+            f"waiting up to {m.export_wait_seconds} s for it to load"
         )
         return export_history(
             market,
             out,
-            start,
+            window_from,
             profiles.instrument,
             m.export_wait_seconds,
             m.export_max_missing_minutes,

@@ -160,3 +160,53 @@ def test_a_start_before_the_calendar_is_refused_even_when_the_bars_are_inside(
     gap = first_gap(minutes(inside, inside + MIN), inside - 2 * 24 * 60 * MIN, nq, 100_000)
     assert gap is not None
     assert "outside the maintained calendar" in gap
+
+
+# --- G29-2: the tail, from the last bar to when the bars were read --------------------
+
+
+def test_a_missing_tail_is_a_gap_when_the_read_time_is_given(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 30))
+    assert first_gap(bars, at(TUE, 15, 0), nq, 0) is None  # without `until`: as before
+    gap = first_gap(bars, at(TUE, 15, 0), nq, 2, until=at(TUE, 15, 35))
+    assert gap is not None
+    assert "4 tradable minute(s) from 2026-10-06T15:31:00+00:00" in gap  # 15:31..15:34
+
+
+def test_only_minutes_closed_by_the_read_time_are_looked_at(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 30))
+    read = at(TUE, 15, 34) + timedelta(seconds=59)  # 15:34 is still forming
+    assert first_gap(bars, at(TUE, 15, 0), nq, 3, until=read) is None  # 15:31..15:33
+    assert first_gap(bars, at(TUE, 15, 0), nq, 2, until=read) is not None
+    exact = at(TUE, 15, 34)  # 15:33 closed at 15:34:00 exactly; 15:34 has not
+    assert first_gap(bars, at(TUE, 15, 0), nq, 3, until=exact) is None
+    assert first_gap(bars, at(TUE, 15, 0), nq, 2, until=exact) is not None
+
+
+def test_a_tail_in_the_daily_halt_is_not_a_gap(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 20, 30), at(TUE, 21, 0))
+    assert first_gap(bars, at(TUE, 20, 30), nq, 0, until=at(TUE, 21, 50)) is None
+
+
+def test_a_read_time_before_the_last_bar_changes_nothing(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 30))
+    assert first_gap(bars, at(TUE, 15, 0), nq, 0, until=at(TUE, 15, 10)) is None
+    hole = frozenset(at(TUE, 15, 20) + i * MIN for i in range(3))
+    holed = minutes(at(TUE, 15, 0), at(TUE, 15, 30), hole)
+    gap = first_gap(holed, at(TUE, 15, 0), nq, 2, until=at(TUE, 15, 10))
+    assert gap is not None  # every bar is still looked at, up to the last
+    assert "3 tradable minute(s) from 2026-10-06T15:20:00+00:00" in gap
+
+
+def test_a_read_time_outside_the_calendar_is_refused(nq: InstrumentProfile) -> None:
+    last = datetime.combine(nq.calendar_through, datetime.min.time(), tzinfo=UTC)
+    bars = minutes(last, last + MIN)
+    gap = first_gap(bars, last, nq, 100_000, until=last + 2 * 24 * 60 * MIN)
+    assert gap is not None
+    assert "outside the maintained calendar" in gap
+
+
+def test_a_read_time_must_be_utc(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 1))
+    with pytest.raises(ValueError, match="until"):
+        first_gap(bars, at(TUE, 15, 0), nq, 0, until=datetime(2026, 10, 6, 16, 0))  # noqa: DTZ001 - naive on purpose
