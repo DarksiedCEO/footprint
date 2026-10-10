@@ -7,7 +7,14 @@ would see (the account, its positions and open orders in the system's instrument
 how many orders on anything else are open), then disconnects. It cannot send, change
 or cancel an order: the gateway it hands the adapter refuses all three.
 
-Exit code 0 when the resync completed, 1 when it did not (or the account was refused).
+    uv run python -m footprint.brokers.ibkr.check --market-data
+
+also resolves the traded future and its option chain through the same read-only
+gateway (the MarketData service the runner reads) and prints the future's bid/ask and
+the option quotes nearest it, with their ages, or IBKR's error and what is missing.
+
+Exit code 0 when the resync completed (and, with --market-data, quotes arrived), 1 when
+it did not (or the account was refused, or quotes are missing).
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
@@ -35,14 +43,24 @@ except ModuleNotFoundError as missing:  # pragma: no cover - only without ibapi
     if missing.name != "ibapi" and not (missing.name or "").startswith("ibapi."):
         raise
     sys.exit("ibapi is not installed: run  uv run python scripts/install_ibapi.py")
-from footprint.brokers.ibkr.gateway import IbGateway, IbOrderRequest
+from footprint.brokers.ibkr.market import MarketData
 from footprint.brokers.ibkr.paper import LiveAccountRefused
+from footprint.brokers.ibkr.readonly import ReadOnlyGateway, probe_market
 from footprint.core.config import Profiles, load_profiles
+from footprint.execution.orders import Quote
 
 _POLL_SECONDS = 0.1
 
 
-IBKR_LOGGERS = ("footprint.ibkr", "footprint.ibkr.binding")
+IBKR_LOGGERS = ("footprint.ibkr", "footprint.ibkr.binding", "footprint.ibkr.market")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _no_book(quote: Quote) -> None:
+    """The probe trades nothing: the quotes MarketData publishes go nowhere."""
 
 
 class PlannedHangUp(logging.Filter):
@@ -59,31 +77,6 @@ class PlannedHangUp(logging.Filter):
         return not self._closing.is_set()
 
 
-class ReadOnlyGateway:
-    """The binding, with every order-changing call refused."""
-
-    def __init__(self, inner: IbGateway) -> None:
-        self._inner = inner
-
-    def place_order(self, request: IbOrderRequest) -> None:
-        raise PermissionError("read-only check: no order is sent")
-
-    def cancel_order(self, ib_id: int) -> None:
-        raise PermissionError("read-only check: no order is cancelled")
-
-    def global_cancel(self) -> None:
-        raise PermissionError("read-only check: no order is cancelled")
-
-    def request_open_orders(self) -> None:
-        self._inner.request_open_orders()
-
-    def request_executions(self) -> None:
-        self._inner.request_executions()
-
-    def request_positions(self) -> None:
-        self._inner.request_positions()
-
-
 def check(
     profiles: Profiles,
     settings: IbConnectionSettings,
@@ -92,7 +85,14 @@ def check(
     binding_factory: Callable[
         [IbConnectionSettings, tuple[str, str], Callable[[str], None]], IbBinding
     ] = IbBinding,
+    market_data: bool = False,
+    clock: Callable[[], datetime] = _utc_now,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> int:
+    """With `market_data`, after the resync report it also runs the market-data probe
+    (readonly.probe_market) through the same read-only gateway, and its result is the
+    exit code."""
+
     def say(message: str) -> None:
         print(message, file=out, flush=True)
 
@@ -106,14 +106,22 @@ def check(
             say(f"ALARM: {message}")
 
     binding = binding_factory(settings, scope, alarm)
+    gateway = ReadOnlyGateway(binding)
+    contracts = ContractBook()
     adapter = IbkrBroker(
-        ReadOnlyGateway(binding),
-        ContractBook(),
+        gateway,
+        contracts,
         IbkrSettings.from_config(profiles.execution.ibkr),
         scope,
         on_alarm=alarm,
     )
     binding.attach(adapter)
+    market: MarketData | None = None
+    if market_data:  # attached before run(): market callbacks with nothing attached drop
+        market = MarketData(
+            gateway, contracts, _no_book, profiles.instrument, profiles.execution, alarm, clock
+        )
+        binding.attach_market(market)
     quiet = PlannedHangUp(closing)
     loggers = [logging.getLogger(name) for name in IBKR_LOGGERS]
     for logger in loggers:
@@ -146,7 +154,13 @@ def check(
                 f"{order.order_type.value} limit {order.limit_price} stop {order.stop_price}"
             )
         say(f"open orders on anything else (never touched): {adapter.outside_open_orders}")
-        return 0
+        if market is None:
+            return 0
+        m = profiles.execution.market_data
+        say(f"market data: waiting up to {m.probe_wait_seconds} s for quotes")
+        return probe_market(
+            market, m.probe_wait_seconds, m.probe_option_quotes, _POLL_SECONDS, say, clock, sleep
+        )
     except BrokerUnavailable as exc:
         say(f"lost IB Gateway during the check: {exc}")
         return 1
@@ -170,6 +184,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="seconds to wait for the resync (default: one reconnect plus the resync limit)",
     )
+    parser.add_argument(
+        "--market-data",
+        action="store_true",
+        help="after the resync, also wait for and print the future's and option quotes "
+        "(read-only; exits 1 when quotes are missing)",
+    )
     args = parser.parse_args(argv)
     profiles = load_profiles(args.config, args.instrument)
     ibkr = profiles.execution.ibkr
@@ -181,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     wait = args.wait
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)
-    return check(profiles, settings, wait, sys.stdout)
+    return check(profiles, settings, wait, sys.stdout, market_data=args.market_data)
 
 
 if __name__ == "__main__":

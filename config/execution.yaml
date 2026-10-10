@@ -99,3 +99,8 @@ market_data:
                               #   this far from where the window was centred
   max_quote_lines: 80         # DEFAULT: never hold more market data lines than this (IBKR
                               #   allows 100 by default; the future takes one)
+  probe_wait_seconds: 120     # DEFAULT: `check --market-data` waits this long after the
+                              #   resync for a fresh future quote and option quotes
+                              #   (the history load runs alongside; quotes come first)
+  probe_option_quotes: 8      # DEFAULT: ... then prints this many option quotes, the
+                              #   strikes nearest the future first

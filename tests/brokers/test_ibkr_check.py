@@ -19,7 +19,8 @@ from ibapi.order import Order
 from ibapi.order_state import OrderState
 
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
-from footprint.brokers.ibkr.check import IBKR_LOGGERS, PlannedHangUp, ReadOnlyGateway, check
+from footprint.brokers.ibkr.check import IBKR_LOGGERS, PlannedHangUp, check
+from footprint.brokers.ibkr.readonly import ReadOnlyGateway
 from footprint.core.config import Profiles, load_profiles
 from tests.brokers.test_ibkr_binding import ACCOUNT, request, settings
 

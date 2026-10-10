@@ -300,6 +300,26 @@ class MarketData:
                 quotes=tuple(sorted(quotes, key=lambda q: q.contract_id)),
             )
 
+    def underlying_quote(self, now: datetime) -> Quote | None:
+        """The traded future's quote while fresh (as the chain judges it), or None."""
+        require_utc(now, "now")
+        with self._lock:
+            if not self._connected or self._underlying is None:
+                return None
+            line = self._lines.get(self._underlying)
+            return None if line is None else self._fresh(line, now)
+
+    def option_quote(self, contract_id: str, now: datetime) -> Quote | None:
+        """One streamed option's quote while fresh, or None (never the future's)."""
+        require_utc(now, "now")
+        with self._lock:
+            if not self._connected:
+                return None
+            for req, line in self._lines.items():
+                if req != self._underlying and line.contract_id == contract_id:
+                    return self._fresh(line, now)
+            return None
+
     def _in_chain(self, contract: IbContract) -> bool:
         return self._chosen is not None and (contract.expiry, contract.trading_class) == (
             self._chosen
