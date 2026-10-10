@@ -1,0 +1,9 @@
+source: 673b2a7f2164d52f2856006288f90442061b3f3d tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: R1 (review G9-1): the except narrowed: NeverPlaced on the attached stop past the wait escapes every step and hides CHECK THE FILL
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: R2 (review G9-1): the BrokerDown pass-through widened to every ConnectionError: ConnectionResetError past the wait hides CHECK THE FILL
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: M3: the except narrowed to the TimeoutError/ConnectionError family and RuntimeError (NeverPlaced escapes)
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: M4: the except narrowed to KeyError and TimeoutError (ConnectionResetError and IBKR errors escape)
+  5 KILLED   [exec] src/footprint/execution/executor/diego.py: M5: NeverPlaced (KeyError) passed through unchanged like BrokerDown
+  6 KILLED   [exec] src/footprint/execution/executor/diego.py: M6: before the wait a failing check already becomes FillUnpriced (CHECK THE FILL too early)
+6 mutants, 0 survived or errored
