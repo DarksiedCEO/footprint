@@ -1,4 +1,4 @@
-source: 281d30f2f8f4cff7d647d615d3364dbb80655669 tree-dirty: 0 files
+source: eb311c913844af35aa4af8cd1575c1f5e5bc6b6a tree-dirty: 0 files
 baseline [drv]: passed
 baseline [gaps]: passed
   1 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-1: a start with seconds accepted
@@ -27,4 +27,9 @@ baseline [gaps]: passed
  24 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-24: configured allowance ignored
  25 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-25: a bad bar crashes instead of exiting 1
  26 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-26: a failed write exits 0
-26 mutants, 1 survived or errored
+ 27 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-27: no --days still rebuilds (identity lost)
+ 28 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-28: --days 0 accepted
+ 29 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-29: --days ignored
+ 30 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-30: window one day short
+ 31 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-31: window not at midnight
+31 mutants, 1 survived or errored
