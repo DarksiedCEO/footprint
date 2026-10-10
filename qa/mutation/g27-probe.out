@@ -1,0 +1,9 @@
+source: 8dbffc4d51f791f1ec432651dd5a0b9267ffedd5 tree-dirty: 0 files
+baseline [g27]: passed
+  1 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2a: a missing bid printed as 0
+  2 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2b: bid 0 counted as a price
+  3 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2c: a one-sided future blamed on the options
+  4 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2d: boundary bid 0 not caught
+  5 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2e: future line prints the raw bid
+  6 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2f: option line prints the raw bid
+6 mutants, 0 survived or errored
