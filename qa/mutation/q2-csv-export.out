@@ -1,0 +1,15 @@
+source: f44b9d322b962267f7957d91aaabffcf10700459 tree-dirty: 0 files
+baseline [q2]: passed
+  1 KILLED   [q2] src/footprint/data/csv_export.py: Q2-1: existing file not checked up front
+  2 KILLED   [q2] src/footprint/data/csv_export.py: Q2-2: a left-over partial is overwritten
+  3 KILLED   [q2] src/footprint/data/csv_export.py: Q2-3: two symbols accepted
+  4 KILLED   [q2] src/footprint/data/csv_export.py: Q2-4: a repeated minute accepted
+  5 KILLED   [q2] src/footprint/data/csv_export.py: Q2-5: order never tracked
+  6 KILLED   [q2] src/footprint/data/csv_export.py: Q2-6: an empty export succeeds
+  7 KILLED   [q2] src/footprint/data/csv_export.py: Q2-7: rename replaces a file that appeared meanwhile
+  8 KILLED   [q2] src/footprint/data/csv_export.py: Q2-8: the partial is left beside a finished file
+  9 KILLED   [q2] src/footprint/data/csv_export.py: Q2-9: columns swapped
+ 10 KILLED   [q2] src/footprint/data/csv_export.py: Q2-10: no header
+ 11 KILLED   [q2] src/footprint/data/csv_export.py: Q2-11: count wrong
+ 12 KILLED   [q2] src/footprint/data/csv_export.py: Q2-12: no fsync before linking (label corrected after the run: killed, so not equivalent)
+12 mutants, 0 survived or errored

@@ -87,7 +87,7 @@
    "src/footprint/data/csv_export.py",
    "        os.fsync(handle.fileno())\n",
    "",
-   "Q2-12: no fsync before linking (EQUIVALENT under test: durability only shows on a crash)"
+   "Q2-12: no fsync before linking"
   ]
  ]
 }

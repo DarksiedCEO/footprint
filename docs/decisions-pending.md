@@ -201,7 +201,6 @@ Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |
 |---|---|
-| Q2-12 (no `fsync` before the link) | Durability on power loss cannot be observed by a test without crashing the machine; the fsync is kept so a finished-looking file is on disk |
 | Q1-16 (`underlying_quote` without the `_connected` check) | `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so a disconnected service has no future line to return either way. The check is kept for symmetry with `chain()` |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
