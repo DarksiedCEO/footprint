@@ -76,6 +76,7 @@ def test_the_cancel_is_not_sent_again_before_ibkr_is_ready(ib: Ib) -> None:
     ib.fake.flush_executions()
     assert ib.adapter.ready
     assert ib.fake.cancels.count(ib_id) == 1
+    assert not ib.adapter.status("p1-stop").protects
 
 
 def test_an_order_back_acting_after_the_loss_is_still_said_live_again(ib: Ib) -> None:
@@ -138,3 +139,19 @@ def test_a_cancel_pending_at_ibkr_keeps_its_mark_across_the_loss(ib: Ib) -> None
     ib.alarms.clear()
     ib.adapter.on_order_status(ib_id, perm, "Submitted", 0, 1, D(0))  # cancel refused
     assert any("LIVE again at IBKR after it was Inactive" in a for a in ib.alarms), ib.alarms
+
+
+def test_an_order_first_seen_inactive_during_the_resync_waits_for_ready(ib: Ib) -> None:
+    """D35 (reviewer-style mutant N6): back but still resyncing is not ready. An order
+    the resync lists Inactive is not cancelled until the resync is done."""
+    ib_id, perm = _stop(ib)
+    ib.fake.lose()
+    ib.fake.inactive.add(perm)  # IBKR made it Inactive while we were away
+    ib.fake.defer_executions = True  # the resync cannot finish yet
+    ib.fake.restore(data_lost=True)
+    assert not ib.adapter.ready
+    assert ib.fake.cancels.count(ib_id) == 0  # nothing sent while resyncing
+    ib.fake.flush_executions()
+    assert ib.adapter.ready
+    assert ib.fake.cancels.count(ib_id) == 1
+    assert not ib.adapter.status("p1-stop").protects
