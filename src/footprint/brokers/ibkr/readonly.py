@@ -8,7 +8,8 @@ quote streams, history) pass through unchanged; none of them touches an order.
 The probe drives MarketData (its own `step`, the same service the runner reads) until
 the traded future and at least one option on it have fresh quotes, or the configured
 wait runs out. It prints the future's bid and ask and the option quotes nearest the
-future, each with its quote age, and returns 0; or it names what is missing and
+future, each with its quote age (a missing bid, which MarketData stores as 0, is printed as
+"none"), and returns 0; or it names what is missing and
 returns 1. Every price it prints is read from MarketData's fresh quote at that moment:
 a quote that went stale is said to be stale, never printed. IBKR's own reason for
 missing data (e.g. 354 no subscription, 10167 delayed only) reaches the operator
@@ -137,6 +138,11 @@ def _age(now: datetime, quote: Quote) -> str:
     return f"quote age {(now - quote.ts).total_seconds():.1f} s"
 
 
+def _bid(quote: Quote) -> str:
+    """MarketData stores a missing bid as 0: say there is none, never print it as a price."""
+    return str(quote.bid) if quote.bid > 0 else "none"
+
+
 def _nearest(chain: OptionChain) -> list[OptionQuote]:
     price: Decimal = chain.underlying_price
     return sorted(
@@ -171,9 +177,16 @@ def probe_market(
     if future is None:
         missing.append("no fresh future quote")
     else:
-        say(f"future {future.contract_id}: bid {future.bid} ask {future.ask}, {_age(now, future)}")
+        say(
+            f"future {future.contract_id}: bid {_bid(future)} ask {future.ask}, {_age(now, future)}"
+        )
     if chain is None:
-        missing.append("no fresh option quote")
+        if future is not None and future.bid <= 0:  # chain() needs a two-sided future
+            missing.append(
+                "the future quote has no bid (the option chain needs a two-sided future quote)"
+            )
+        else:
+            missing.append("no fresh option quote")
     else:
         shown = _nearest(chain)[:option_count]
         say(f"option quotes ({len(shown)} of {len(chain.quotes)} fresh, nearest the future first):")
@@ -183,7 +196,7 @@ def probe_market(
             if fresh is None:
                 say(f"{name}: no fresh quote now")
             else:
-                say(f"{name}: bid {fresh.bid} ask {fresh.ask}, {_age(now, fresh)}")
+                say(f"{name}: bid {_bid(fresh)} ask {fresh.ask}, {_age(now, fresh)}")
     if missing:
         say(
             f"NO MARKET DATA after {wait_seconds:g} s: {'; '.join(missing)} "
