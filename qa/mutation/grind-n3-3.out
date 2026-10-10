@@ -1,0 +1,9 @@
+source: 843193a0a1bcf0649a7c8b47b92d6c327644d31b tree-dirty: 0 files
+baseline [ib]: passed
+  1 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N1: no re-arm once ready (the N3-3 hole: a cancel whose 504 was dropped is never sent again)
+  2 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N2: re-arm any copy, not only an Inactive one (a PendingCancel copy loses its LIVE-again mark)
+  3 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N3: re-arm a cancel IBKR already answered (sent again after a reconnect)
+  4 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N4: clear the mark on the loss instead (an order back acting is no longer said LIVE again)
+  5 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N5: the re-armed cancel is decided but never sent
+  6 KILLED   [ib] src/footprint/brokers/ibkr/adapter.py: N6: a re-armed cancel is sent before the resync is done (D35)
+6 mutants, 0 survived or errored
