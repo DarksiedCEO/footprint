@@ -595,15 +595,15 @@ def test_scanner_reads_every_end_of_a_hyphen_chain_once(tmp_path: Path) -> None:
         "# stop 900-1000-1200; $900-$1000-$1,200\n"
         "# frac .25-.5 and .25-0.5 and 0.25-.5\n"
         "# 900.0-1000 and 1,000.0-1200; 900.5-1000\n"
-        "# -$900 and 0.5-$1,000\n"
+        "# -$900 and 0.5-$1,000; stop 900-$1200\n"
         "# not numbers: 2026-04-03, 2026-04-03T09:00, G6-5-3, x900-1000-1200, 0.25-0.5.1\n",
         forbidden,
     )
     assert hits == Counter(
         {
-            "text 900": 5,  # string, prose chain, "$900-", "900.0-", "-$900"
+            "text 900": 6,  # string, prose chain, "$900-", "900.0-", "-$900", "900-$1200"
             "text 1000": 7,  # string, 2 chains, "900.0-", "1,000.0", "900.5-", "$1,000"
-            "text 1200": 3,  # chain, "$1,200", "-1200" after 1,000.0
+            "text 1200": 4,  # chain, "$1,200", "-1200" after 1,000.0, "-$1200" (read once)
             "text 0.25": 3,
             "text 0.5": 4,  # ".5" twice, "0.5" and the "0.5-$1,000" left end
         }
