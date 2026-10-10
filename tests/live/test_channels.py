@@ -31,7 +31,7 @@ from footprint.execution.channels import (
     is_critical,
 )
 from footprint.execution.management.malik import Alarm
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, require_ibapi
 
 NOW = datetime(2026, 10, 6, 14, 0, tzinfo=UTC)
 TOKEN = "123456:SECRET-TOKEN"
@@ -506,6 +506,7 @@ def test_closing_hung_channels_costs_one_timeout_not_one_each(profiles: Profiles
 def test_the_live_program_sends_its_alarms_through_the_channels(
     profiles: Profiles, tmp_path: Path
 ) -> None:
+    require_ibapi()
     from footprint.live.app import build
     from tests.brokers.test_ibkr_binding import Recording, settings
 
@@ -531,6 +532,7 @@ def test_the_live_program_sends_its_alarms_through_the_channels(
 def test_the_program_refuses_to_start_without_alarm_keys(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    require_ibapi()
     from footprint.live.__main__ import main
 
     env = tmp_path / ".env"

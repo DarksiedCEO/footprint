@@ -25,7 +25,7 @@ from footprint.execution.channels import (
     within,
 )
 from footprint.execution.management.malik import Alarm
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, require_ibapi
 from tests.live.test_channels import NOW, SECRETS, TOKEN, alarm, channels, env_values, no_secret
 
 CALLS, SMS, TELEGRAM = "Calls.json", "Messages.json", "telegram"
@@ -264,6 +264,7 @@ def test_telegram_only_needs_just_the_two_telegram_keys() -> None:
 
 
 def degraded_live(profiles: Profiles, tmp_path: Path, mode: str) -> Any:
+    require_ibapi()
     from footprint.live.app import Driver
     from tests.live.test_live_app import make
 
@@ -340,6 +341,7 @@ def test_a_degraded_start_without_a_terminal_is_refused(
     monkeypatch: pytest.MonkeyPatch,
     flag: str,
 ) -> None:
+    require_ibapi()
     from footprint.live.__main__ import main
     from tests.brokers.test_ibkr_binding import ACCOUNT
 
@@ -360,6 +362,7 @@ def test_a_degraded_start_without_a_terminal_is_refused(
 
 
 def test_the_two_degraded_flags_cannot_be_combined(tmp_path: Path) -> None:
+    require_ibapi()
     from footprint.live.__main__ import main
 
     with pytest.raises(SystemExit):
