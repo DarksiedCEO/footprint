@@ -39,6 +39,7 @@ from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
     FillUnpriced,
+    NotSent,
     Order,
     OrderState,
     OrderStatus,
@@ -51,6 +52,15 @@ log = logging.getLogger("footprint.execution")
 # The one stop placed while an entry waits for its price, if its attached stop is gone
 # (N3-5). Distinct from "-stop" (attached) and "-stop-2" (placed on the fill).
 _PENDING_STOP_SUFFIX = "-stop-wait"
+
+
+def _partly_sold(stop_id: str, held: OrderStatus) -> str:
+    """The halt reason for a stop that sold part of the position and then ended."""
+    return (
+        f"stop {stop_id} sold {held.filled} of {held.order.quantity} and is "
+        f"{held.state.value}: nothing is placed beside it; reconcile, and check and "
+        "flatten by hand"
+    )
 
 
 class EntryOutcome(Enum):
@@ -301,6 +311,12 @@ class Executor:
                 "held back" if held.held_back else "being cancelled",
             )
             return held.order, False
+        if held.filled > 0:
+            # It sold part of the position, then ended (cancelled by hand or by IBKR):
+            # a new stop for the whole fill would sell what is already sold, a short
+            # (grind review G6-1). Kept, so management hands it to reconcile.
+            self._halt.trip(_partly_sold(stop_id, held))
+            return held.order, False
         if not held.protects:
             log.critical("attached stop %s is %s: placing a new one", stop_id, held.state.value)
             return None, False
@@ -394,6 +410,11 @@ class Executor:
                 "fill price is pending: nothing is placed beside it"
             )
             return
+        if held.filled > 0:  # it sold part, then ended: nothing beside it (G6-1)
+            self._halt.trip(
+                f"{pid}: {_partly_sold(stop_id, held)} (the entry's fill price is pending)"
+            )
+            return
         replacement = f"{pid}{_PENDING_STOP_SUFFIX}"
         if stop_id == replacement:
             self._halt.trip(
@@ -410,18 +431,25 @@ class Executor:
         )
         spec = self._stops.preview(ticket.limit, filled)
         ticket.stop_order_id = replacement  # before the send: never a second beside it
-        self._broker.place(
-            Order(
-                order_id=replacement,
-                contract_id=held.order.contract_id,
-                side=Side.SELL,
-                quantity=filled,
-                order_type=OrderType.STOP_LIMIT,
-                limit_price=spec.limit,
-                stop_price=spec.trigger,
-                oca_group=pid,
+        try:
+            self._broker.place(
+                Order(
+                    order_id=replacement,
+                    contract_id=held.order.contract_id,
+                    side=Side.SELL,
+                    quantity=filled,
+                    order_type=OrderType.STOP_LIMIT,
+                    limit_price=spec.limit,
+                    stop_price=spec.trigger,
+                    oca_group=pid,
+                )
             )
-        )
+        except NotSent:
+            # Refused before it reached the broker: it does not exist there. The old
+            # stop is asked about again, so the next step tries again (G6-2). Any other
+            # failure may have reached the broker: its id is kept.
+            ticket.stop_order_id = stop_id
+            raise
 
     def _after(
         self,

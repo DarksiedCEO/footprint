@@ -253,6 +253,19 @@ class Manager:
                 started = self._exit_started.get(pid, ExitReason.UNPROTECTED)
                 return self._start_exit(position, quote, now, started)
             if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):
+                if stop_status.filled > 0:
+                    # It sold part of the position before it ended: an exit sized from
+                    # a position read that may not show that sale yet could sell what
+                    # is not held, and the sale must be booked at its own price, never
+                    # at the exit's (grind review G6-1). Reconcile takes over.
+                    message = (
+                        f"{pid}: stop {stop_id} sold {stop_status.filled} of "
+                        f"{stop_status.order.quantity} and is {stop_status.state.value} "
+                        "at the broker; reconcile"
+                    )
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: stop partly filled")
+                    raise NeedsReconcile(message)
                 # Gone at the broker without this system cancelling it (by hand, or
                 # by the broker): the position is unprotected. Get out.
                 self._alarm(
