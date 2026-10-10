@@ -1,0 +1,16 @@
+source: a1d8960331506761c657f1e758117629e282ab8f tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: a sell counts only when FILLED (the G7-1 defect, in both the hold and the booking)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: _unpriced_sell back to FILLED only: a cancelled stop that sold part, price pending, is sold beside (P1)
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: _unpriced_reconcile_order back to FILLED only: a reconcile sell filled in part is sent again
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: _actual_exit books the first sell found even when another sold too (sold twice / in parts)
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M5: _actual_exit books one FILLED sell of part of the position as the whole
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M6: _actual_exit books a FILLED sell with no price (a guessed price)
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: M7: _actual_exit books a sell that is not FILLED (WORKING or REJECTED with fills)
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: M8: _sold_in_parts says nothing for one sell of part of the position
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: M9: _sold_in_parts names an empty sale list (flat with no sell at all is called 'sold in parts')
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: M10: candidates not de-duplicated: the stop asked twice reads as two sells, nothing is ever booked
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: M11: a BUY of the position counts as one of its sells
+ 12 KILLED   [exec] src/footprint/execution/management/malik.py: M12: a sell of another contract counts as one of this position's sells
+ 13 KILLED   [exec] src/footprint/execution/management/malik.py: M13: the alarm's two wordings swapped (Andre is not told the position was sold in parts)
+13 mutants, 0 survived or errored
