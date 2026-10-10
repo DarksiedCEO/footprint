@@ -1,0 +1,93 @@
+{
+ "groups": {
+  "q2": [
+   "tests/data/test_csv_export.py"
+  ]
+ },
+ "mutants": [
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "    if path.exists():\n        raise ExportRefused",
+   "    if False:\n        raise ExportRefused",
+   "Q2-1: existing file not checked up front"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "        handle = partial.open(\"x\", newline=\"\", encoding=\"utf-8\")",
+   "        handle = partial.open(\"w\", newline=\"\", encoding=\"utf-8\")",
+   "Q2-2: a left-over partial is overwritten"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "            elif bar.symbol != symbol:",
+   "            elif False:",
+   "Q2-3: two symbols accepted"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "            if previous is not None and bar.ts <= previous:",
+   "            if previous is not None and bar.ts < previous:",
+   "Q2-4: a repeated minute accepted"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "            previous = bar.ts\n",
+   "",
+   "Q2-5: order never tracked"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "        if count == 0:",
+   "        if False:",
+   "Q2-6: an empty export succeeds"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "    os.link(partial, path)  # FileExistsError if the name appeared meanwhile: never replaced",
+   "    os.replace(partial, path)",
+   "Q2-7: rename replaces a file that appeared meanwhile"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "    partial.unlink()\n",
+   "",
+   "Q2-8: the partial is left beside a finished file"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "                (bar.ts.isoformat(), bar.open, bar.high, bar.low, bar.close, bar.volume)",
+   "                (bar.ts.isoformat(), bar.open, bar.low, bar.high, bar.close, bar.volume)",
+   "Q2-9: columns swapped"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "        writer.writerow(COLUMNS)\n",
+   "",
+   "Q2-10: no header"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "    return count\n",
+   "    return count + 1\n",
+   "Q2-11: count wrong"
+  ],
+  [
+   "q2",
+   "src/footprint/data/csv_export.py",
+   "        os.fsync(handle.fileno())\n",
+   "",
+   "Q2-12: no fsync before linking (EQUIVALENT under test: durability only shows on a crash)"
+  ]
+ ]
+}

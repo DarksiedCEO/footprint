@@ -186,6 +186,7 @@ Read-only tools and the backtest rule library, built while the CME data subscrip
 | Piece | Branch | State |
 |---|---|---|
 | Q1 market-data probe: `uv run python -m footprint.brokers.ibkr.check --market-data` | market-probe-v1 (from remediation-v1) | Built 2026-10-10 (grind stage 18:08 UTC): after the resync the existing MarketData service runs through the same ReadOnlyGateway (place, cancel and global cancel refused; now in the ibapi-free `brokers/ibkr/readonly.py`, which also forwards market data requests) and the probe prints the future's bid/ask and the option quotes nearest the future with their ages, or names what is missing and exits 1. IBKR's error (354, 10167, ...) prints as MarketData's ALARM line. Awaiting independent review. |
+| Q2 history exporter: `uv run python -m footprint.brokers.ibkr.history --out data/nq_1m.csv [--days N]` | history-export-v1 (from market-probe-v1) | **First slice built** 2026-10-10 (grind stage 18:08 UTC): `src/footprint/data/csv_export.py` writes bars in exactly CsvBarSource's format (round trip proven by test), refuses an existing file or a left-over `.partial`, writes `<name>.partial` first and links it to the real name only after the last bar is flushed (a link never replaces a file that appeared meanwhile); any failure (source error, out of order, two symbols, no bars) leaves only the `.partial`. **Remaining:** the `history` command itself (connect through ReadOnlyGateway, run MarketData's history load, refuse a gap or error, call `write_bars`), `--days`, and the backtest-reads-it test. |
 
 Decisions taken without Andre (he ordered no questions; change any of them):
 
@@ -200,6 +201,7 @@ Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |
 |---|---|
+| Q2-12 (no `fsync` before the link) | Durability on power loss cannot be observed by a test without crashing the machine; the fsync is kept so a finished-looking file is on disk |
 | Q1-16 (`underlying_quote` without the `_connected` check) | `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so a disconnected service has no future line to return either way. The check is kept for symmetry with `chain()` |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
