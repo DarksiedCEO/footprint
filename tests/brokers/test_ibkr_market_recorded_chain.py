@@ -140,3 +140,18 @@ def test_nothing_while_disconnected(
     assert w.md.recorded_chain(w.clock.now) is not None
     w.md.on_market_connection(Connection.LOST)
     assert w.md.recorded_chain(w.clock.now) is None
+
+
+def test_chain_is_still_as_old_as_the_futures_quote_when_that_is_the_oldest(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    """Pins chain()'s stamp through the shared helper (unchanged behaviour)."""
+    w = chain_world(execution, instrument)
+    w.clock.now += timedelta(seconds=2)
+    call = next(c for c in CHAIN if c.strike == D(20020) and c.right == "C")
+    w.tick(call, D(150), D(151))
+    chain, rec = w.md.chain(w.clock.now), w.md.recorded_chain(w.clock.now)
+    assert chain is not None
+    assert rec is not None
+    assert rec.future.ts < rec.options[0].quote.ts  # the future's quote is the oldest
+    assert chain.ts == rec.future.ts
