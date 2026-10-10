@@ -1138,6 +1138,17 @@ class Manager:
             hold_id = self._ledger.open_position_id or order_id
             known = self._unowned_pending[contract_id] = (order_id, now, hold_id)
             self._hold_durably(SoldHold(hold_id, contract_id, order_id), now)
+            if hold_id == order_id:
+                # Only Andre's booking releases it: told now, never silent (G5-1).
+                self._alarm(
+                    now,
+                    f"{order_id} (reconcile) filled {contract_id} at the broker with no "
+                    "position in the ledger, its price pending: a hold is saved under "
+                    f"{order_id}. Until it is released, reconcile sends nothing on "
+                    f"{contract_id}. Book this round trip once, with Ledger.book_by_hand as "
+                    f"{order_id}, at the statement's net P&L: that releases the hold (the "
+                    "same round trip as the 'never recorded' alarm: never book it twice)",
+                )
         order_id, since, hold_id = known
         wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
         if now - since < wait:

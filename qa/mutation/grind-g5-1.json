@@ -1,0 +1,33 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g5_2.py",
+   "tests/execution/test_unowned_unpriced_sell.py",
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_grind_g7_1.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if hold_id == order_id:\n                # Only Andre's booking releases it: told now, never silent (G5-1).",
+   "            if False:\n                # Only Andre's booking releases it: told now, never silent (G5-1).",
+   "M1: the hold under the order's own id is saved silently again (G5-1)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if hold_id == order_id:\n                # Only Andre's booking releases it: told now, never silent (G5-1).",
+   "            if True:\n                # Only Andre's booking releases it: told now, never silent (G5-1).",
+   "M2: also told to book an open position's hold by hand under the order id"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    f\"{contract_id}. Book this round trip once, with Ledger.book_by_hand as \"\n                    f\"{order_id}, at the statement's net P&L",
+   "                    f\"{contract_id}. Book this round trip once, with Ledger.book_by_hand as \"\n                    f\"{hold_id}x, at the statement's net P&L",
+   "M3: the alarm names a wrong id to book under"
+  ]
+ ]
+}
