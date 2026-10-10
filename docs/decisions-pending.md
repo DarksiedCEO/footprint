@@ -236,6 +236,12 @@ Mutation equivalences argued (not proven):
 | Q2H-15 (`first_gap`: `while minute <= end` -> `< end`) | `end` is the last bar's minute, which always has a bar, so scanning it only ever ends a run; a run that reaches the minute before it is judged by the same `run > max_missing` test after the loop . **Superseded by the G29-2 fix (9ccf0a3):** `end` can now be the last minute closed at the read time, which may have no bar, so this mutant is now killed (re-run on 9ccf0a3: 31/31) |
 | Q1-16 (`underlying_quote` without the `_connected` check) | `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so a disconnected service has no future line to return either way. The check is kept for symmetry with `chain()` |
 
+## Operator runbooks (doc only)
+
+| ID | What | Notes |
+|---|---|---|
+| Q4-b | `docs/runbook-dry-run-monday.md` (remediation-v1): a supervised paper run with no market data: read-only check, kill switch status, start (`--no-blackouts`, `--new-ledger` the first time, `--alarms-local-only` if the D20 keys are not set), `status`, kill switch refused while running, a deliberate Gateway exit and re-login, `quit`, restart | It tells Andre **not** to type `clear` (no entry can be sent without it). Every expected line is quoted from the code; **UNVERIFIED against the real Gateway** until he runs it. Choosing `--no-blackouts` for a no-data run decides nothing about D-rows |
+
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
 Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the hard-coded-literal guard (`tests/test_no_hardcoded_literals_ast.py`) are chased. These stay open, accepted; none has a hit in src today. Every value in src is still also reviewed in pull-request review.
