@@ -269,11 +269,17 @@ def test_a_missing_directory_is_refused_before_anything_runs(tmp_path: Path) -> 
 def test_a_non_positive_number_is_refused(
     tmp_path: Path, interval: int, run_seconds: int, poll: float
 ) -> None:
+    class NoSpin(Clock):
+        def sleep(self, seconds: float) -> None:
+            if seconds <= 0:
+                raise RuntimeError("a zero sleep: the loop would spin")  # fail, never hang
+            super().sleep(seconds)
+
     with pytest.raises(ValueError, match="must be positive"):
         run(
             Market(chain_at),
             tmp_path,
-            Clock(),
+            NoSpin(),
             interval=interval,
             run_seconds=run_seconds,
             poll=poll,
