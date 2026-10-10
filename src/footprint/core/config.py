@@ -21,7 +21,7 @@ from footprint.core.holiday_rules import (
     missing_days,
 )
 
-_PERCENT_MAX = Decimal(100)  # allow-literal: upper bound of a percentage
+_PERCENT_MAX = Decimal(100)  # upper bound of a percentage (reviewed in the A-18 guard)
 
 
 class ConfigError(ValueError):
