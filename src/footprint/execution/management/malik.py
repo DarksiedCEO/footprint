@@ -868,7 +868,8 @@ class Manager:
                     "is not booked (daily loss and drawdown are understated). Book this round "
                     "trip once, with Ledger.book_by_hand from the broker statement, under the "
                     "id named when the first reconcile order for it is sent "
-                    f"(reconcile-...-{contract_id}), or the one a later hold names: never a "
+                    f"(reconcile-...-{contract_id}; if an order already working covers it, "
+                    "that order's id, named then), or the one a later hold names: never a "
                     "second id",
                 )
             reducing = [
@@ -897,7 +898,22 @@ class Manager:
                 continue
             self._reprice_stuck(reducing, stuck_before, abs(qty), price)
             if needed <= 0:
-                continue  # orders that would not cancel already cover it
+                # Orders that would not cancel already cover it. No reconcile order is
+                # sent, so the id to book an unrecorded round trip under is the covering
+                # order's, told once (grind review G13-1).
+                if reducing and ledger_open is None and contract_id not in self._unrecorded_named:
+                    self._unrecorded_named.add(contract_id)
+                    cover = reducing[0].order.order_id
+                    self._alarm(
+                        now,
+                        f"{cover} (still working, its cancel not confirmed) covers the "
+                        f"{side.value} of {abs(qty)} {contract_id}, a holding with no position "
+                        "in the ledger: no reconcile order is sent for it. Book this round "
+                        f"trip once, with Ledger.book_by_hand as {cover}, at the statement's "
+                        "net P&L, unless a later alarm names a hold under a reconcile order "
+                        f"for {contract_id} (then as that one): never book it twice",
+                    )
+                continue
             order_id = f"reconcile-{self._reconcile_round}-{self._run_token}-{contract_id}"
             order = Order(
                 order_id=order_id,
