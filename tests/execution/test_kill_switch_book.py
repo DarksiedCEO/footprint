@@ -256,3 +256,11 @@ def test_a_negative_pnl_can_be_typed_as_its_own_argument(
     code, _ = _run(tmp_path, args, ["BOOK"])
     assert code == 0
     assert _ledger(profiles, tmp_path).account(T0).equity == before + D(LOSS)
+
+
+def test_equity_after_is_shown_before_the_confirmation(profiles: Profiles, tmp_path: Path) -> None:
+    """Mutant B10: Andre sees what the booking will do before he types BOOK."""
+    before = _open_and_latched(profiles, tmp_path).account(T0).equity
+    _, term = _run(tmp_path, _book_args("pos-1"), ["no"])
+    shown_before_asking = "\n".join(term.lines[:-1])
+    assert str(before + D(LOSS)) in shown_before_asking
