@@ -20,6 +20,15 @@ from footprint.core.config import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+
+def require_ibapi() -> None:
+    """A test that needs IBKR's ibapi (the binding, the live program): skipped where
+    ibapi is not installed (the cloud sandbox cannot download it), but required in CI,
+    which sets FOOTPRINT_REQUIRE_IBAPI so a missing ibapi fails there, never skips."""
+    if not os.environ.get("FOOTPRINT_REQUIRE_IBAPI"):
+        pytest.importorskip("ibapi", reason="ibapi not installed: scripts/install_ibapi.py")
+
+
 _PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 _LOCAL_NAMES = {"localhost", "127.0.0.1", "::1"}
 
