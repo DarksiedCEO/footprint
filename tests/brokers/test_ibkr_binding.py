@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -32,6 +33,7 @@ from footprint.brokers.ibkr.binding import (
     to_quantity,
 )
 from footprint.brokers.ibkr.gateway import Connection, IbContract, IbOrderRequest
+from footprint.brokers.ibkr.paper import AccountNotChecked
 from footprint.core.config import IbkrConfig
 
 D = Decimal
@@ -198,6 +200,57 @@ def test_nothing_is_sent_without_a_connection() -> None:
     binding = IbBinding(settings(), SCOPE)
     with pytest.raises(ConnectionError):
         binding.place_order(request())
+
+
+def _order_calls(client: Recording) -> list[str]:
+    return [n for n, _ in client.calls if n in ("placeOrder", "cancelOrder", "reqGlobalCancel")]
+
+
+def _try_every_order_call(binding: IbBinding) -> None:
+    calls: list[Callable[[], None]] = [
+        lambda: binding.place_order(request()),
+        lambda: binding.cancel_order(7),
+        binding.global_cancel,
+    ]
+    for call in calls:
+        with pytest.raises(AccountNotChecked):
+            call()
+
+
+def test_order_calls_refuse_before_the_sessions_account_check() -> None:
+    """L-c: connected, but IBKR has not yet listed the login's accounts: nothing goes
+    out, and the refused place is not remembered as sent."""
+    binding, client, _, _ = bound()
+    binding._wrapper.nextValidId(100)  # the next id alone is not the account check
+    _try_every_order_call(binding)
+    assert _order_calls(client) == []
+    assert binding._sent_ids == set()
+
+
+def test_order_calls_refuse_for_good_after_the_account_is_refused() -> None:
+    binding, client, _, _ = bound()
+    binding._wrapper.managedAccounts("DU0000002")  # not the configured account
+    assert binding.refused is not None
+    binding._client = client  # even if a client were still there
+    client.connected = True
+    _try_every_order_call(binding)
+    assert _order_calls(client) == []
+
+
+def test_order_calls_refuse_after_a_drop_and_until_the_new_sessions_account_check() -> None:
+    binding, client, _, _ = opened()
+    binding.place_order(request())
+    assert _order_calls(client) == ["placeOrder"]
+    binding._wrapper.closed()  # the session dropped
+    _try_every_order_call(binding)
+    binding._wrapper.new_session()  # a reconnect: IBKR forgot the old session
+    _try_every_order_call(binding)
+    binding._wrapper.managedAccounts(ACCOUNT)
+    _try_every_order_call(binding)  # the session is not open until its next id too
+    assert _order_calls(client) == ["placeOrder"]
+    binding._wrapper.nextValidId(200)
+    binding.cancel_order(7)
+    assert _order_calls(client) == ["placeOrder", "cancelOrder"]
 
 
 # --- the session ---------------------------------------------------------------------------

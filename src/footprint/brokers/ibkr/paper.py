@@ -29,6 +29,13 @@ class LiveAccountRefused(ValueError):
     """A live account, a live port, or a live login: never connected to."""
 
 
+class AccountNotChecked(ConnectionError):
+    """An order call (place, cancel, broker-wide cancel) before this session's account
+    check passed, or after the connection was refused: nothing is sent. A
+    ConnectionError, like a call on a binding with no connection, so callers take the
+    path they already take for "nothing was sent" (independent audit L-c)."""
+
+
 def is_paper_account(account: str) -> bool:
     return PAPER_ACCOUNT.fullmatch(account) is not None
 
@@ -54,4 +61,16 @@ def check_paper_login(accounts: Iterable[str]) -> None:
     if live:
         raise LiveAccountRefused(
             f"the login manages non-paper account(s) {live}: this is a live login"
+        )
+
+
+def check_orders_allowed(refused: str | None, account_checked: bool) -> None:
+    """Raise AccountNotChecked unless this session's account check passed and the
+    connection was never refused. The binding asks this before every order call."""
+    if refused is not None:
+        raise AccountNotChecked(f"the IBKR connection was refused ({refused}): nothing is sent")
+    if not account_checked:
+        raise AccountNotChecked(
+            "this session's account check has not passed (IBKR has not yet listed the "
+            "login's accounts, or the session ended): nothing is sent"
         )

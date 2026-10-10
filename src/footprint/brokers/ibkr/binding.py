@@ -64,7 +64,12 @@ from footprint.brokers.ibkr.gateway import (
     IbOrderRequest,
     QuoteField,
 )
-from footprint.brokers.ibkr.paper import LiveAccountRefused, check_paper, check_paper_login
+from footprint.brokers.ibkr.paper import (
+    LiveAccountRefused,
+    check_orders_allowed,
+    check_paper,
+    check_paper_login,
+)
 from footprint.brokers.ibkr.settings import IbConnectionSettings as IbConnectionSettings
 from footprint.brokers.ibkr.settings import read_env_file as read_env_file
 
@@ -308,16 +313,18 @@ class IbBinding:
     # --- IbGateway --------------------------------------------------------------------
 
     def place_order(self, request: IbOrderRequest) -> None:
+        client = self._order_client()
         with self._lock:
             self._sent_ids.add(request.ib_id)
-        self._call().placeOrder(
+        client.placeOrder(
             request.ib_id, build_contract(request), build_order(request, self._s.account)
         )
 
     def cancel_order(self, ib_id: int) -> None:
-        self._call().cancelOrder(ib_id, OrderCancel())
+        self._order_client().cancelOrder(ib_id, OrderCancel())
 
     def global_cancel(self) -> None:
+        self._order_client()  # refuses before anything else is asked
         others = self._wrapper.other_accounts()
         if others:
             # Orders placed in those accounts since the last listing may be unseen.
@@ -331,7 +338,7 @@ class IbBinding:
                 f"a broker-wide cancel would also cancel {foreign} order(s) of other "
                 "accounts on this login: cancel by hand"
             )
-        self._call().reqGlobalCancel(OrderCancel())
+        self._order_client().reqGlobalCancel(OrderCancel())
 
     def request_open_orders(self) -> None:
         self._call().reqAllOpenOrders()
@@ -454,6 +461,13 @@ class IbBinding:
             raise ConnectionError("IB Gateway is not connected")
         return client
 
+    def _order_client(self) -> Any:
+        """The client, for an order call: only once this session's account check has
+        passed and the session is open, never after a refusal (independent audit L-c).
+        AccountNotChecked is a ConnectionError, like a call with no connection."""
+        check_orders_allowed(self._refused, self._wrapper.orders_allowed())
+        return self._call()
+
     # --- used by the wrapper ---------------------------------------------------------
 
     def _market_events(self) -> IbMarketEvents | None:
@@ -505,6 +519,12 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._void: set[int] = set()  # market requests voided by a fault
             self._claimed: set[int] = set()  # market request ids used in this session
             self._dropped_market = False
+
+    def orders_allowed(self) -> bool:
+        """This session's account check passed and the session is open (announced to the
+        adapter, not yet closed)."""
+        with self._session_lock:
+            return self._accounts_ok and self._open
 
     def claim(self, req_id: int) -> None:
         """A market request id, used once per session: IBKR can still deliver a cancelled
