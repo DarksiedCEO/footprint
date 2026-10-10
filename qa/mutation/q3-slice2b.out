@@ -1,0 +1,22 @@
+source: b3d4afa26912608f58091eda68cd1a5cbb6cd2f5 tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-1: a snapshot taken at or after the end
+  2 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-2: the snapshot read at the pre-step time
+  3 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-3: missed snapshots back-filled
+  4 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-4: a sleep may run past the end
+  5 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-5: MarketData not stepped between snapshots
+  6 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-6: a refused snapshot still exits 0
+  7 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-7: a failed write still exits 0
+  8 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-8: nothing written still exits 0
+  9 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-9: a refusal not said as an ERROR
+ 10 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-10: a missing directory not refused up front
+ 11 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-11: a zero poll accepted
+ 12 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-12: a naive clock accepted
+ 13 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-13: the configured age limit not passed through
+ 14 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-14: a failed write not counted
+ 15 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-15: an empty interval not counted
+ 16 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-16: a file-system error stops the recording
+ 17 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3L-17: a refused snapshot stops the recording
+ 18 KILLED   [rec] src/footprint/core/config.py: Q3L-18: record_minutes 0 accepted
+ 19 KILLED   [rec] src/footprint/core/config.py: Q3L-19: record_interval_seconds 0 accepted
+19 mutants, 0 survived or errored
