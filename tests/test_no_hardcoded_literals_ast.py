@@ -39,6 +39,11 @@ PROSE_NUMBER = re.compile(r"(?<![\w.:-])(?:\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?|\
 # A number written with thousands separators ("$1,800", "25,000") is also read whole
 # (G18-2); PROSE_NUMBER alone would split it at the commas.
 GROUPED_NUMBER = re.compile(r"(?<![\w.:,-])\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\w:-]|,\d)")
+# A minus that is not glued to a word, a digit or another minus is a sign ("-900",
+# "-1,800"); glued to a digit it is a date or a range ("2026-04-03", "2100-2199") (G19-1).
+SIGNED_NUMBER = re.compile(
+    r"(?<![\w.:,-])-((?:\d{1,3}(?:,\d{3})+|\d[\d_]*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\.\d+)(?![\w:-]|,\d)"
+)
 DATE_CALLS = frozenset({"date", "datetime"})
 
 
@@ -97,7 +102,19 @@ class Forbidden:
             number = _number(match.group().replace(",", ""))
             if number is not None and number in self.numbers:
                 hits.append(f"text {_show(number)}")
+        for match in SIGNED_NUMBER.finditer(text):
+            number = _number(match.group(1).replace(",", ""))
+            if number is not None:
+                hits += [f"text {_show(n)}" for n in self.signed(-number)]
         return hits
+
+    def signed(self, negative: Decimal) -> list[Decimal]:
+        """A negative number counts as itself when forbidden, else as its value when
+        that is forbidden (the rule G18-1 applies to a minus over a constant in code)."""
+        for number in (negative, -negative):
+            if number in self.numbers:
+                return [number]
+        return []
 
 
 def _date_call(node: ast.Call) -> datetime.date | None:
@@ -154,6 +171,8 @@ def scan_source(source: str, forbidden: Forbidden) -> Counter[str]:
             spelled = _number(value)
             if spelled is not None and spelled in forbidden.numbers:
                 found[f"code {_show(spelled)}"] += 1
+            elif spelled is not None and spelled < 0 and -spelled in forbidden.numbers:
+                found[f"code {_show(-spelled)}"] += 1  # G19-2: "-900" as 900 does in code
             else:
                 found.update(forbidden.in_text(value))
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -478,5 +497,34 @@ def test_scanner_sees_negative_only_values_and_grouped_prose_numbers(tmp_path: P
             "code 1800": 1,  # -1800: 1800 is forbidden, so the inner constant counts
             "code -3": 1,
             "text 1800": 1,  # "$1,800" whole; "1,800,000" is 1800000, not forbidden
+        }
+    )
+
+
+def test_scanner_reads_a_leading_minus_in_prose_and_in_number_strings(tmp_path: Path) -> None:
+    """G19-1: a number with a leading minus in a comment or docstring ("-900") is read,
+    as its negative when that is forbidden, else as the value itself; a minus glued to
+    a digit (a date "2026-04-03", a range "2100-2199") is still not a sign. G19-2: a
+    string spelling of a negative ("-900") counts as the value when only the positive
+    is in config, as `-900` in code already does (G18-1)."""
+    config = tmp_path / "c.yaml"
+    config.write_text("risk:\n  daily_loss: -750\n  stop: 900\n  max_cost: 1800\n  day: 4\n")
+    forbidden = Forbidden([config])
+    hits = scan_source(
+        "from decimal import Decimal\n"
+        'A = Decimal("-900")\n'
+        'B = Decimal("-750")\n'
+        "# daily loss -750; stop at -900; loss -1,800; $-900\n"
+        "# not signs: 2026-04-03, 2100-2199, x-900, --900\n"
+        '"""Ranges 1-4 and 750-900 are not signs either."""\n',
+        forbidden,
+    )
+    assert hits == Counter(
+        {
+            "code 900": 1,  # Decimal("-900"): 900 is forbidden, -900 is not
+            "code -750": 1,
+            "text -750": 1,
+            "text 900": 2,  # "-900" and "$-900"
+            "text 1800": 1,  # "-1,800" whole
         }
     )
