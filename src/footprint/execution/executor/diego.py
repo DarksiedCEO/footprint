@@ -38,7 +38,9 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    BrokerDown,
     FillUnpriced,
+    NeverPlaced,
     NotSent,
     Order,
     OrderState,
@@ -368,7 +370,10 @@ class Executor:
         every step: _guard_pending_stop), and nothing is booked until the real price
         arrives (the ticket stays WORKING and is asked again every step). Past
         `fill_price_wait_seconds`: FillUnpriced, so the runner halts and reconciles
-        what the broker holds."""
+        what the broker holds. The wait is decided even when the stop check raises
+        (grind review G7-3): a check that keeps failing must not hide CHECK THE FILL.
+        BrokerDown is the exception: the runner waits for the broker, and the first
+        step that reaches it decides."""
         if ticket.price_pending_since is None:
             ticket.price_pending_since = now
             log.warning(
@@ -376,13 +381,23 @@ class Executor:
                 ticket.order_id,
                 filled,
             )
-        self._guard_pending_stop(ticket, filled)
+        since = ticket.price_pending_since
         wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)
-        if now - ticket.price_pending_since >= wait:
-            raise FillUnpriced(
-                f"entry {ticket.order_id} filled {filled} at the broker but its price has "
-                f"not been reported since {ticket.price_pending_since.isoformat()}"
-            )
+        overdue = FillUnpriced(
+            f"entry {ticket.order_id} filled {filled} at the broker but its price has "
+            f"not been reported since {since.isoformat()}"
+        )
+        try:
+            self._guard_pending_stop(ticket, filled)
+        except BrokerDown:
+            raise
+        except Exception as exc:
+            if now - since >= wait:
+                log.critical("stop check failed past the price wait: %r", exc)
+                raise overdue from exc
+            raise
+        if now - since >= wait:
+            raise overdue
         return ticket
 
     def _guard_pending_stop(self, ticket: EntryTicket, filled: int) -> None:
@@ -399,10 +414,23 @@ class Executor:
         stop_id = ticket.stop_order_id
         if stop_id is None:
             return
-        held = self._broker.status(stop_id)
+        pid = ticket.position_id
+        replacement = f"{pid}{_PENDING_STOP_SUFFIX}"
+        try:
+            held = self._broker.status(stop_id)
+        except NeverPlaced:
+            if stop_id != replacement:
+                raise  # the attached stop went out with the entry: a fault
+            # Its send's outcome was unknown, and the broker says it never got it:
+            # there is no stop. Nothing more is sent (grind review G7-3).
+            self._halt.trip(
+                f"{pid}: no resting stop at the broker while the entry's fill price is "
+                f"pending (stop {stop_id} never reached the broker): protect the "
+                "position by hand"
+            )
+            return
         if held.protects or held.state is OrderState.FILLED:
             return
-        pid = ticket.position_id
         if held.state is OrderState.WORKING:
             self._halt.trip(
                 f"{pid}: stop {stop_id} is live but "
@@ -415,7 +443,6 @@ class Executor:
                 f"{pid}: {_partly_sold(stop_id, held)} (the entry's fill price is pending)"
             )
             return
-        replacement = f"{pid}{_PENDING_STOP_SUFFIX}"
         if stop_id == replacement:
             self._halt.trip(
                 f"{pid}: no resting stop at the broker while the entry's fill price is "
