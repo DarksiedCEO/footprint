@@ -1,0 +1,37 @@
+{
+ "groups": {
+  "qa": [
+   "tests/test_qa_tools.py"
+  ]
+ },
+ "mutants": [
+  [
+   "qa",
+   "qa/mutation/mutate.py",
+   "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache}",
+   "        yield {**base, \"PYTHONPYCACHEPREFIX\": cache}",
+   "G31-M1: test runs write bytecode"
+  ],
+  [
+   "qa",
+   "qa/mutation/mutate.py",
+   "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache}",
+   "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\"}",
+   "G31-M2: test runs read the tree's __pycache__ (stale bytecode back)"
+  ],
+  [
+   "qa",
+   "qa/mutation/mutate.py",
+   "            env=isolated,",
+   "            env=env,",
+   "G31-M3: the isolated env built but not used"
+  ],
+  [
+   "qa",
+   "qa/mutation/mutate.py",
+   "    with tempfile.TemporaryDirectory(prefix=\"mutate-pyc-\") as cache:",
+   "    with tempfile.TemporaryDirectory(prefix=\"mutate-pyc-\", dir=\"/tmp\") as _unused, open(\"/dev/null\") as _n:\n        cache = \"/tmp\"",
+   "G31-M4: one shared (non-empty) cache for every run"
+  ]
+ ]
+}
