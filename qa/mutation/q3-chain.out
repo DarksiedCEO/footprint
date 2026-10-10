@@ -1,4 +1,4 @@
-source: f45abb91303e77a09fad4e4df62089e76184f92c tree-dirty: 0 files
+source: e50854039223e1542561abfe13e1458f70c9150f tree-dirty: 0 files
 baseline [rec]: passed
   1 KILLED   [rec] src/footprint/data/chain_record.py: Q3-1: a quote exactly the configured age refused
   2 KILLED   [rec] src/footprint/data/chain_record.py: Q3-2: stale quotes written
