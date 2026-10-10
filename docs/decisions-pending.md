@@ -282,6 +282,12 @@ Mutation equivalences argued (not proven):
 | Q3S2-7 (`MarketData._offered` without the `_connected` check; shared by `chain()` and `recorded_chain()`) | Same reason as Q1-16 below: `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so the next line (`_underlying is None`) already returns None for a disconnected service. The check is kept: it is the pre-existing `chain()` guard, moved unchanged |
 | Q1-16 (`underlying_quote` without the `_connected` check) | `on_market_connection(LOST)` runs `_new_session`, which sets `_underlying = None` and empties `_lines` under the same lock, so a disconnected service has no future line to return either way. The check is kept for symmetry with `chain()` |
 
+## Operator runbooks (doc only)
+
+| ID | What | Notes |
+|---|---|---|
+| Q4-b | `docs/runbook-dry-run-monday.md` (remediation-v1): a supervised paper run with no market data: read-only check, kill switch status, start (`--no-blackouts`, `--new-ledger` the first time, `--alarms-local-only` if the D20 keys are not set), `status`, kill switch refused while running, a deliberate Gateway exit and re-login, `quit`, restart | It tells Andre **not** to type `clear` (no entry can be sent without it). Every expected line is quoted from the code; **UNVERIFIED against the real Gateway** until he runs it. Choosing `--no-blackouts` for a no-data run decides nothing about D-rows |
+
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
 Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the hard-coded-literal guard (`tests/test_no_hardcoded_literals_ast.py`) are chased. These stay open, accepted; none has a hit in src today. Every value in src is still also reviewed in pull-request review.
