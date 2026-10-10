@@ -337,3 +337,32 @@ def test_a_probe_number_below_one_is_refused(tmp_path: Any, key: str) -> None:
     path.write_text("\n".join(lines) + "\n")
     with pytest.raises(ConfigError, match=key):
         load_execution(path)
+
+
+# --- G27-2: a missing bid is said, never printed as a price of 0 ---------------------------
+
+
+ONE_SIDED = Quote("NQ 20261218 future", D(0), D("20000.50"), T0 - 2 * SEC)
+
+
+def test_a_future_without_a_bid_is_named_as_the_cause_and_never_printed_as_bid_0() -> None:
+    # MarketData: no bid tick -> Quote.bid == 0, and chain() is None while the future's
+    # bid is not above 0, whatever the options are doing.
+    clock = Clock()
+    code, text = run(Source([], ONE_SIDED, ()), clock, wait=2)
+    assert code == 1
+    assert "future NQ 20261218 future: bid none ask 20000.50, quote age" in text
+    assert "bid 0" not in text
+    assert text.splitlines()[-1] == (
+        "NO MARKET DATA after 2 s: the future quote has no bid (the option chain needs a "
+        "two-sided future quote) (IBKR's reason, if it sent one, is in the ALARM lines above)"
+    )
+
+
+def test_an_option_without_a_bid_is_printed_as_bid_none() -> None:
+    clock = Clock()
+    no_bid = (oq("c20000", 20000, Right.CALL, "0", "2"),)
+    code, text = run(Source([], FUTURE, no_bid), clock, count=1)
+    assert code == 0
+    assert "  2026-10-15 20000 CALL c20000: bid none ask 2, quote age" in text
+    assert "bid 0 " not in text

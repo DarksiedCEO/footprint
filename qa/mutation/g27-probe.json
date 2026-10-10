@@ -1,0 +1,11 @@
+{
+ "groups": {"g27": ["tests/brokers/test_market_probe.py"]},
+ "mutants": [
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "    return str(quote.bid) if quote.bid > 0 else \"none\"", "    return str(quote.bid)", "G27-2a: a missing bid printed as 0"],
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "    return str(quote.bid) if quote.bid > 0 else \"none\"", "    return str(quote.bid) if quote.bid >= 0 else \"none\"", "G27-2b: bid 0 counted as a price"],
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "        if future is not None and future.bid <= 0:", "        if False:", "G27-2c: a one-sided future blamed on the options"],
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "        if future is not None and future.bid <= 0:", "        if future is not None and future.bid < 0:", "G27-2d: boundary bid 0 not caught"],
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "bid {_bid(future)} ask", "bid {future.bid} ask", "G27-2e: future line prints the raw bid"],
+  ["g27", "src/footprint/brokers/ibkr/readonly.py", "bid {_bid(fresh)} ask", "bid {fresh.bid} ask", "G27-2f: option line prints the raw bid"]
+ ]
+}

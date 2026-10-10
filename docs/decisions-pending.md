@@ -197,6 +197,17 @@ Decisions taken without Andre (he ordered no questions; change any of them):
 | Q1-c | The probe's MarketData also starts the normal history load in the background | It is the same service the runner uses, unchanged; quotes are asked for first. The history requests are read-only and paced by `history_request_gap_seconds` |
 | Q1-d | The `check --market-data` wiring (`check.py`) is type-checked here (mypy --strict) but never run here, and no ibapi test drives it yet | `check.py` needs ibapi to import; all probe logic lives in `readonly.py` and is tested and mutated here. **UNVERIFIED until CI with ibapi and Andre's first run on 2026-10-14** |
 
+Grind review 1758c0d..d2d898f (2026-10-10 18:46 UTC, CONDITIONAL, report on PR #21, project doc claude/grind-review-d2d898f.md) and its fixes:
+
+| ID | Severity | Finding | State |
+|---|---|---|---|
+| G27-1 | MEDIUM | No test drove `check(..., market_data=True)` or `main --market-data`, even in CI | **Fixed** (market-probe-v1): `tests/brokers/test_ibkr_check.py` (ibapi; skipped here, run in CI) now drives the market check on the simulated Gateway with a virtual clock: MarketData is attached before run and asks for the future (reqContractDetails), no order call is sent, missing quotes exit 1 with the configured wait in the message; MarketData is built on the ReadOnlyGateway, never the raw binding; the plain check starts no market data; `main` passes the flag. These tests cannot run here (ibapi download blocked), so they are verified by CI only; Q1-d is superseded for the wiring, the real Gateway stays UNVERIFIED until 2026-10-14 |
+| G27-2 | LOW (src) | A future with an ask and no bid printed `bid 0` and blamed "no fresh option quote" (chain() needs a two-sided future) | **Fixed** (market-probe-v1, test first): a missing bid prints `bid none` (future and options); a one-sided future is named as the cause: "the future quote has no bid (the option chain needs a two-sided future quote)". Mutation spec `qa/mutation/g27-probe.json` |
+| G27-3 | LOW (src) | Nothing pinned `handle.flush()` before `os.fsync` in `write_bars` (mutant survived) | **Fixed** on history-export-v1: a test reads the `.partial` at the moment of the fsync and requires every bar there; it kills the no-flush mutant (`qa/mutation/g27-export.json`) |
+| G27-4 | INFO | Q1-16 is labelled EQUIVALENT but the committed evidence shows it KILLED | Recorded: it is killed (a test does catch it), so the equivalence row below is not needed as an argument; it stays only as the record of why the check exists |
+| G27-5 | INFO | Which of two strikes equidistant from the future prints first is untested (tie-break mutant survives) | Accepted: display order only |
+| G27-6 | INFO | `os.link` fails on file systems without hard links (exFAT/FAT drives, some SMB shares) | Fails closed (`.partial` kept). For the data-day runbook: export onto the Mac's internal disk |
+
 Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |
