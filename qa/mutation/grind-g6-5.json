@@ -1,0 +1,44 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g6_5.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_grind_g7_1.py",
+   "tests/execution/test_grind_g4_2.py"
+  ]
+ },
+ "mutants": [
+  ["exec", "src/footprint/execution/executor/diego.py",
+   "    return (attached, f\"{attached}-2\", f\"{position_id}{_PENDING_STOP_SUFFIX}\")\n",
+   "    return (attached, f\"{attached}-2\")\n",
+   "M1: the stop placed while the entry's price was pending is never asked about"],
+  ["exec", "src/footprint/execution/executor/diego.py",
+   "    return (attached, f\"{attached}-2\", f\"{position_id}{_PENDING_STOP_SUFFIX}\")\n",
+   "    return (attached, f\"{position_id}{_PENDING_STOP_SUFFIX}\")\n",
+   "M2: the stop placed on the fill is never asked about"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "                for stop_id in stop_order_ids(pid):\n",
+   "                for stop_id in stop_order_ids(pid)[:1]:\n",
+   "M3: the orphan check asks only about <pid>-stop (the G6-5 gap)"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "        candidates += reversed(stop_order_ids(position.position_id))  # G6-5\n",
+   "        candidates.append(f\"{position.position_id}-stop\")\n",
+   "M4: reconcile's sell candidates hold only <pid>-stop (the G6-5 gap)"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "                if len(orphans) > 1:\n",
+   "                if False:\n",
+   "M5: two stops that both filled are booked at the first one's price"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "                    self._stand_down(now, f\"{pid}: sold twice\")\n",
+   "                    pass\n",
+   "M6: sold twice does not stand down"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "                    return self._fill_pending(position, orphan.order.order_id, ExitReason.STOP, now)\n",
+   "                    return self._fill_pending(position, f\"{pid}-stop\", ExitReason.STOP, now)\n",
+   "M7: an unpriced orphan's price is awaited under <pid>-stop, not the stop that sold"],
+  ["exec", "src/footprint/execution/management/malik.py",
+   "                            orphans.append(orphan)\n",
+   "                            orphans.append(orphan)\n                            break\n",
+   "M8: the search stops at the first filled stop (a sale twice is not seen)"]
+ ]
+}

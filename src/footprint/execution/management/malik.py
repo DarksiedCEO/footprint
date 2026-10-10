@@ -43,7 +43,7 @@ from footprint.core.config import Profiles
 from footprint.core.models import require_utc
 from footprint.decision.session import NewsBlackout, in_news_blackout
 from footprint.decision.stop import BidTick, StopCheck, StopKeeper
-from footprint.execution.executor.diego import Position
+from footprint.execution.executor.diego import Position, stop_order_ids
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger, SoldHold
 from footprint.execution.market import QuoteBook
@@ -483,14 +483,30 @@ class Manager:
                     raise NeedsReconcile(message)
                 position.stop_order_id = None
             else:
-                # Unprotected: a stop may have reached the broker unacknowledged. If it
+                # Unprotected: a stop may have reached the broker unacknowledged, under
+                # any id a stop of this position can have (grind review G6-5). If one
                 # already filled, the trade is over.
-                with contextlib.suppress(KeyError):
-                    orphan = self._broker.status(f"{pid}-stop")
-                    if orphan.state is OrderState.FILLED:
-                        if orphan.avg_price is not None:
-                            return self._close(position, orphan.avg_price, now, ExitReason.STOP)
-                        return self._fill_pending(position, f"{pid}-stop", ExitReason.STOP, now)
+                orphans = []
+                for stop_id in stop_order_ids(pid):
+                    with contextlib.suppress(KeyError):
+                        orphan = self._broker.status(stop_id)
+                        if orphan.state is OrderState.FILLED:
+                            orphans.append(orphan)
+                if len(orphans) > 1:
+                    # Sold twice: no one fill is its exit, and nothing more is sold.
+                    message = (
+                        f"{pid}: its stops {[o.order.order_id for o in orphans]} both "
+                        "filled: sold twice. Nothing more is sold; check the account and "
+                        "flatten by hand, then book it with Ledger.book_by_hand"
+                    )
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: sold twice")
+                    raise NeedsReconcile(message)
+                if orphans:
+                    orphan = orphans[0]
+                    if orphan.avg_price is not None:
+                        return self._close(position, orphan.avg_price, now, ExitReason.STOP)
+                    return self._fill_pending(position, orphan.order.order_id, ExitReason.STOP, now)
             # Whatever else is open on this contract (an unacknowledged stop, another
             # path's sell) is cancelled and confirmed first, so the exit can never sit
             # beside a second seller.
@@ -1040,7 +1056,7 @@ class Manager:
         stop, its exits, reconcile orders sent for it), newest first, each once."""
         pending = self._pending.get(position.position_id)
         candidates = [pending[0] if pending else None, position.stop_order_id]
-        candidates.append(f"{position.position_id}-stop")
+        candidates += reversed(stop_order_ids(position.position_id))  # G6-5
         candidates += [
             f"{position.position_id}-exit-{n}"
             for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)

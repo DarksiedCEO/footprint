@@ -56,6 +56,15 @@ log = logging.getLogger("footprint.execution")
 _PENDING_STOP_SUFFIX = "-stop-wait"
 
 
+def stop_order_ids(position_id: str) -> tuple[str, ...]:
+    """Every id a position's stop can have: attached to the entry, placed on the fill
+    (when the attached one was not working), and placed while the entry's price was
+    pending. Whatever asks whether a stop already sold asks about all of them (grind
+    review G6-5)."""
+    attached = f"{position_id}-stop"
+    return (attached, f"{attached}-2", f"{position_id}{_PENDING_STOP_SUFFIX}")
+
+
 def _partly_sold(stop_id: str, held: OrderStatus) -> str:
     """The halt reason for a stop that sold part of the position: ended, or still live
     (WORKING), and then not trusted as the position's protection (grind review G7-2)."""
