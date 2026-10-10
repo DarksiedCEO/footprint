@@ -31,9 +31,8 @@ except ModuleNotFoundError as missing:  # pragma: no cover - only without ibapi
     if missing.name != "ibapi" and not (missing.name or "").startswith("ibapi."):
         raise
     sys.exit("ibapi is not installed: run  uv run python scripts/install_ibapi.py")
-from footprint.brokers.ibkr.chain_recorder import record_chain, run_seconds
+from footprint.brokers.ibkr.chain_recorder import recorder_action
 from footprint.brokers.ibkr.check import NOT_PAPER_EXIT, check
-from footprint.brokers.ibkr.market import MarketData
 from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.core.config import load_profiles
 
@@ -66,13 +65,12 @@ def main(
         help="seconds to wait for the resync (default: one reconnect plus the resync limit)",
     )
     args = parser.parse_args(argv)
+    out: Path = args.out
     try:
         profiles = load_profiles(args.config, args.instrument)
-        m = profiles.execution.market_data
-        length = run_seconds(m.record_minutes, args.minutes)
+        record = recorder_action(profiles.execution, args.minutes, out, clock, sleep)
     except ValueError as exc:
         parser.error(str(exc))
-    out: Path = args.out
     try:
         out.mkdir(parents=True, exist_ok=True)
     except OSError as exc:  # FileExistsError included: a file where the directory goes
@@ -87,25 +85,6 @@ def main(
     wait = args.wait
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)
-    max_age = profiles.execution.quotes.max_age_seconds
-
-    def record(market: MarketData, say: Callable[[str], None], poll_seconds: float) -> int:
-        say(
-            f"recording the chain every {m.record_interval_seconds} s for {length} s "
-            f"into {out} (quotes no older than {max_age} s)"
-        )
-        return record_chain(
-            market,
-            out,
-            interval_seconds=m.record_interval_seconds,
-            run_seconds=length,
-            max_age_seconds=max_age,
-            poll_seconds=poll_seconds,
-            say=say,
-            clock=clock,
-            sleep=sleep,
-        )
-
     return run_check(
         profiles, settings, wait, sys.stdout, clock=clock, sleep=sleep, market_action=record
     )

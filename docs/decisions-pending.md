@@ -259,6 +259,18 @@ Grind review 48cb641..5539be9 (G31-1 runner fix, 2026-10-10 22:30 UTC, CONDITION
 | G32-3 | INFO | A LOST delivered re-entrantly during a poll's gateway call would let the rest of that poll claim a quote line with `_connected == False` | Recorded: the line has no quote, its request fails, no tick arrives for it, the next CONNECTED resets everything, so nothing is offered (Q1-16 stays equivalent). Whether IbBinding ever does this: UNVERIFIED (ibapi) |
 | G32-4 | INFO | 644040d and 8e32c64 had no CI run of their own | Recorded: CI green on ff901a0 and 5539be9 |
 
+Grind review 5539be9..fc735d0 (Q3 slices 2b and 3: recorder loop and `record_chain` command, 2026-10-10 23:14 UTC, CONDITIONAL, report on PR #21, project doc claude/grind-review-fc735d0.md):
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| G33-1 | LOW (src wiring) | Nothing pinned the numbers `record_chain.main` passed to the loop (interval, run length, quote-age limit): a mutant passing the 60-minute run length as the age limit, or swapping interval and length, passed every test here and in CI | **Fixed (needs review):** the action moved into the ibapi-free `chain_recorder.recorder_action(execution, minutes, directory, clock, sleep)`; tests pin the configured interval, the poll from `check`, `--minutes` over `record_minutes`, the live `quotes.max_age_seconds` as the writer's limit (9/10 s written, 11 s refused at a limit of 10), the start line, and `--minutes 0` refused when built. `main` now only passes `profiles.execution` and `--minutes`; the ibapi test runs the captured action and checks `--minutes 3` reached it (CI only). Evidence `qa/mutation/g33-fix.out` |
+| G33-2 | INFO | `MarketData.step` also runs the background history load (`_ensure_bars`), so a recording pulls 1-minute history too (paced, read-only) | Recorded; changing `step` touches the live path |
+| G33-3 | INFO (test tooling) | A loop-bound mutant (`now >= end` → `>`) hangs the suite at exactly `end` (no per-test timeout installed) instead of failing | Recorded |
+| G33-4 | INFO | A side that ticks milliseconds after the snapshot time is recorded under it (a line's time is its older side's) | Recorded: fresher than stamped, never staler; pre-existing MarketData semantics |
+| G33-5 | INFO | `record_chain` accepts any existing path as its directory (R7 `is_dir` → `exists` survived) | Recorded: a file there fails every write closed (ERROR, exit 1); the command already refuses a file at `--out` |
+| G33-6 | INFO | `--out` is created before the paper-account check | Recorded: an empty directory left behind, no safety effect |
+| G33-7 | Note for Q4 | Every tool connects with the fixed client id 0, so `record_chain`, `check`, `history` and the paper runner cannot share one Gateway at the same time | For the data-day runbook: run them one after another |
+
 Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |

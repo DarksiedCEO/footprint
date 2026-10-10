@@ -65,9 +65,23 @@ def test_main_runs_the_read_only_check_with_the_recorder_as_its_market_action(
     clock = Clock()
     out = tmp_path / "data" / "chain"
     assert main(args(out, tmp_path, "--minutes", "3"), fake_check, clock, clock.sleep) == 0
-    assert callable(seen[0]["market_action"])
     assert seen[0]["clock"] is clock
     assert out.is_dir()  # created, parents too
+    reads: list[datetime] = []
+
+    class NoChain:
+        def step(self, now: datetime) -> None:
+            pass
+
+        def recorded_chain(self, now: datetime) -> None:
+            reads.append(now)
+
+    said: list[str] = []
+    began = clock.now
+    assert seen[0]["market_action"](NoChain(), said.append, 1.0) == 1
+    assert clock.now == began + timedelta(minutes=3)  # --minutes reached the action
+    assert said[0].startswith("recording the chain every ")
+    assert f"into {out} " in said[0]
 
 
 def test_minutes_below_one_is_a_usage_error(tmp_path: Path) -> None:

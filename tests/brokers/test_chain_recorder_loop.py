@@ -6,15 +6,16 @@ is ever written."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from footprint.brokers.ibkr.chain_recorder import record_chain, run_seconds
+from footprint.brokers.ibkr.chain_recorder import record_chain, recorder_action, run_seconds
 from footprint.brokers.ibkr.market import RecordedChain, RecordedOption
-from footprint.core.config import ConfigError, load_execution
+from footprint.core.config import ConfigError, ExecutionProfile, load_execution
 from footprint.core.options import Right
 from footprint.data.chain_record import ChainRow, day_file, write_snapshot
 from footprint.execution.orders import Quote
@@ -331,3 +332,65 @@ def test_the_run_length_is_the_configured_minutes_unless_given() -> None:
 def test_minutes_below_one_are_refused(minutes: int) -> None:
     with pytest.raises(ValueError, match=f"--minutes {minutes}"):
         run_seconds(60, minutes)
+
+
+# --- the command's action (G33-1): the configured numbers reach the loop ------------------
+
+
+def _execution(interval: int, minutes: int, max_age: int) -> ExecutionProfile:
+    e = load_execution(REPO_ROOT / "config" / "execution.yaml")
+    return replace(
+        e,
+        market_data=replace(
+            e.market_data, record_interval_seconds=interval, record_minutes=minutes
+        ),
+        quotes=replace(e.quotes, max_age_seconds=max_age),
+    )
+
+
+def _act(
+    execution: ExecutionProfile, minutes: int | None, market: Market, directory: Path
+) -> tuple[int, list[str], Clock]:
+    clock = Clock()
+    said: list[str] = []
+    action = recorder_action(execution, minutes, directory, clock, clock.sleep)
+    return action(market, said.append, 1), said, clock
+
+
+def test_the_action_records_every_configured_interval_for_the_configured_minutes(
+    tmp_path: Path,
+) -> None:
+    market = Market(chain_at)
+    code, said, clock = _act(_execution(7, 1, MAX_AGE), None, market, tmp_path)
+    assert code == 0
+    assert market.reads == [START + timedelta(seconds=s) for s in range(0, 60, 7)]
+    assert market.steps == [START + timedelta(seconds=s) for s in range(60)]  # check's poll
+    assert clock.at == START + timedelta(minutes=1)
+    assert said[0].startswith("recording the chain every 7 s for 60 s into ")
+
+
+def test_the_action_takes_minutes_over_the_configured_run_length(tmp_path: Path) -> None:
+    market = Market(chain_at)
+    code, _, clock = _act(_execution(60, 1, MAX_AGE), 3, market, tmp_path)
+    assert code == 0
+    assert len(market.reads) == 3
+    assert clock.at == START + timedelta(minutes=3)
+
+
+@pytest.mark.parametrize(("age", "written"), [(9, True), (10, True), (11, False)])
+def test_the_action_writes_with_the_configured_quote_age_limit(
+    tmp_path: Path, age: int, written: bool
+) -> None:
+    """The live `quotes.max_age_seconds` (Q3-c) is the writer's limit, not any other
+    number: a quote just over it is refused, never written as fresh."""
+    market = Market(lambda now: chain_at(now, age=age))
+    code, said, _ = _act(_execution(60, 1, 10), None, market, tmp_path)
+    assert (code == 0) is written
+    assert day_file(tmp_path, START).exists() is written
+    assert "(quotes no older than 10 s)" in said[0]
+
+
+def test_the_action_refuses_minutes_below_one_when_built(tmp_path: Path) -> None:
+    clock = Clock()
+    with pytest.raises(ValueError, match="--minutes 0"):
+        recorder_action(_execution(60, 1, MAX_AGE), 0, tmp_path, clock, clock.sleep)

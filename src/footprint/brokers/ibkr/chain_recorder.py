@@ -4,6 +4,8 @@
                                     writes for one snapshot taken at `now`
     record_chain(market, directory, ...) -> the recording loop (exit code)
     run_seconds(configured_minutes, minutes) -> the run length (`--minutes` or config)
+    recorder_action(execution, minutes, ...) -> the `record_chain` command's action, with
+                                               every number taken from config
 
 `recorded` is `MarketData.recorded_chain(now)` (the read-only MarketData, quotes no older
 than the configured quote age, open interest None when IBKR sent none). Every row
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Protocol
 
 from footprint.brokers.ibkr.market import RecordedChain
+from footprint.core.config import ExecutionProfile
 from footprint.core.models import require_utc
 from footprint.data.chain_record import ChainRow, write_snapshot
 
@@ -135,3 +138,39 @@ def record_chain(
         f"{refused} refused, {failed} failed"
     )
     return 0 if written and not refused and not failed else 1
+
+
+def recorder_action(
+    execution: ExecutionProfile,
+    minutes: int | None,
+    directory: Path,
+    clock: Callable[[], datetime],
+    sleep: Callable[[float], None],
+) -> Callable[[ChainSource, Callable[[str], None], float], int]:
+    """What `python -m footprint.brokers.ibkr.record_chain` runs once resynced: one
+    snapshot every `market_data.record_interval_seconds` for `--minutes` (else
+    `market_data.record_minutes`), each quote no older than the live
+    `quotes.max_age_seconds` (Q3-c). A `--minutes` below one raises ValueError here,
+    before anything connects."""
+    m = execution.market_data
+    length = run_seconds(m.record_minutes, minutes)
+    max_age = execution.quotes.max_age_seconds
+
+    def record(market: ChainSource, say: Callable[[str], None], poll_seconds: float) -> int:
+        say(
+            f"recording the chain every {m.record_interval_seconds} s for {length} s "
+            f"into {directory} (quotes no older than {max_age} s)"
+        )
+        return record_chain(
+            market,
+            directory,
+            interval_seconds=m.record_interval_seconds,
+            run_seconds=length,
+            max_age_seconds=max_age,
+            poll_seconds=poll_seconds,
+            say=say,
+            clock=clock,
+            sleep=sleep,
+        )
+
+    return record
