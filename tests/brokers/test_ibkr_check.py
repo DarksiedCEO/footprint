@@ -1,7 +1,9 @@
 """The read-only first look: it reports what the system would see, and can send nothing."""
 
 import io
+import logging
 import os
+import threading
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -17,7 +19,7 @@ from ibapi.order import Order
 from ibapi.order_state import OrderState
 
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
-from footprint.brokers.ibkr.check import ReadOnlyGateway, check
+from footprint.brokers.ibkr.check import IBKR_LOGGERS, PlannedHangUp, ReadOnlyGateway, check
 from footprint.core.config import Profiles, load_profiles
 from tests.brokers.test_ibkr_binding import ACCOUNT, request, settings
 
@@ -160,3 +162,34 @@ def test_the_check_can_send_nothing() -> None:
     gateway.request_executions()
     gateway.request_positions()
     assert sent == ["request_open_orders", "request_executions", "request_positions"]
+
+
+# --- G25-1 (2026-10-10): the check's own hang-up printed a bare "IBKR connection lost"
+# line on stderr (the adapter's critical log, through logging's last-resort handler),
+# which reads like a real loss. ---------------------------------------------------------
+
+
+def test_the_planned_hang_up_is_not_logged_as_a_loss(
+    profiles: Profiles, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        code, out, _ = run_check(profiles, settings())
+    assert code == 0
+    assert "disconnecting as planned" in out  # still said, once, as planned
+    lost = [r for r in caplog.records if "connection lost" in r.getMessage()]
+    assert lost == []
+
+
+def test_the_quiet_filter_is_removed_after_the_check(profiles: Profiles) -> None:
+    run_check(profiles, settings())
+    for name in IBKR_LOGGERS:
+        assert not any(isinstance(f, PlannedHangUp) for f in logging.getLogger(name).filters)
+
+
+def test_ibkr_logs_pass_until_the_check_hangs_up() -> None:
+    closing = threading.Event()
+    quiet = PlannedHangUp(closing)
+    record = logging.LogRecord("footprint.ibkr", logging.CRITICAL, __file__, 1, "x", None, None)
+    assert quiet.filter(record)  # a real loss during the check is still logged
+    closing.set()
+    assert not quiet.filter(record)
