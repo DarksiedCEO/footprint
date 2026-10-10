@@ -169,7 +169,13 @@ def build(
     binding.attach(adapter)
     tracked = TrackedBroker(adapter)
     halt = Halt()
-    ledger = Ledger(p.risk, p.instrument, StateStore(state_dir / "ledger.json"), create=new_ledger)
+    ledger = Ledger(
+        p.risk,
+        p.instrument,
+        StateStore(state_dir / "ledger.json"),
+        create=new_ledger,
+        exclusive=True,
+    )
     pipeline = Pipeline(p)
     stops = StopKeeper(p.risk, p.instrument, p.execution)
     executor = Executor(p, pipeline, tracked, stops, ledger, halt, book)

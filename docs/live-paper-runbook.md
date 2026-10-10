@@ -146,16 +146,27 @@ After 5 failed reconnects in a row it alarms once that a person is needed and re
 less often (D32). A halt (a real disagreement: something held that should not be, an
 order that will not cancel) also latches the kill switch. The halt itself clears with a
 restart, but the kill switch does NOT: it is written to `state/ledger.json` and survives
-restarts, so the system makes no new entries until it is cleared. There is no operator
-command for that yet. To clear it, after you have looked at why: STOP the system first
-(a running system keeps its latch in memory and writes it back on its next save, undoing
-a clear made from another process), then from Python build the ledger over the same
-state file the system uses, as `footprint.live` does (`Ledger(profiles.risk,
-profiles.instrument, StateStore(<state>/ledger.json))`), and call
-`.clear_kill_switch("<your name>")`. It also resets the drawdown peak to current
-equity (so the drawdown breaker starts again from today's equity). Never edit
-`ledger.json` by hand. (An operator command, and whether an operational latch should
-reset the peak, are open decisions for Andre: see docs/decisions-pending.md, P6-1.)
+restarts, so the system makes no new entries until it is cleared. To clear it, after
+you have looked at why:
+
+1. Stop the live system (`quit`). The clear command is refused while the live system
+   has the ledger open, because a running system would write its latch back.
+2. Check what is latched:
+
+       uv run python -m footprint.live.kill_switch status
+
+3. Clear it, with your name and the reason it is safe:
+
+       uv run python -m footprint.live.kill_switch clear --by Andre --reason "checked IBKR: flat"
+
+   Type `CLEAR` when asked. It is refused, with nothing changed, while a position is
+   open or a CHECK THE FILL hold stands: check IBKR's own platform and book or flatten
+   by hand first.
+
+Clearing keeps the drawdown peak (P6-1, decided 2026-10-10). After a latch from the
+drawdown limit, the limit is still breached and entries stay blocked; add
+`--reset-peak` only if you mean to start the drawdown count again from today's equity.
+Never edit `ledger.json` by hand.
 
 ## Where things go (all in `state/`, git-ignored)
 

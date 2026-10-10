@@ -415,6 +415,9 @@ REVIEWED: dict[str, dict[str, int]] = {
         "code 2": 6,
         "text 4": 1,
     },
+    "footprint/live/kill_switch.py": {
+        "code 2": 1,  # REFUSED, the command's exit code (P6-1)
+    },
 }
 
 

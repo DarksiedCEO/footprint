@@ -7,8 +7,12 @@
 - The kill switch latches when equity falls the configured percentage from its
   peak, and on every operational halt in management and reconcile (an order that will
   not cancel, a disagreement with the broker). It survives restarts; only
-  `clear_kill_switch` (Andre, by hand) unlatches it, and that also resets the drawdown
-  peak to current equity.
+  `clear_kill_switch` (Andre, by hand, through `python -m footprint.live.kill_switch`)
+  unlatches it. Clearing keeps the drawdown peak unless Andre asks for a reset (P6-1,
+  decided 2026-10-10), so a loss is never forgiven by accident.
+- An exclusive ledger (`exclusive=True`: the live system and the operator command)
+  holds an OS lock on a sibling `.lock` file for as long as it is open, so a clear made
+  while the live system runs is refused instead of being overwritten by it.
 - A sell of the open position that the broker reports FILLED with its price pending
   is held durably (`hold_sold`, grind review G2-1, D40): reconcile never sells that
   contract again, also after a restart. The hold is released only when the sale is
@@ -20,6 +24,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -35,6 +40,10 @@ from footprint.core.models import require_utc
 from footprint.decision.risk.gate import AccountState, drawdown_breached
 
 log = logging.getLogger("footprint.ledger")
+
+
+class LedgerBusy(RuntimeError):
+    """Another process holds this ledger exclusively (the live system is running)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,18 @@ class StateStore:
     @property
     def path(self) -> Path:
         return self._path
+
+    def lock(self) -> int:
+        """Take the ledger's exclusive OS lock without waiting; returns the open file
+        descriptor that holds it. Raises LedgerBusy when another holder has it."""
+        lock_path = self._path.with_suffix(self._path.suffix + ".lock")
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise LedgerBusy(f"ledger {self._path} is in use by another process") from None
+        return fd
 
     def load(self) -> LedgerState | None:
         if not self._path.exists():
@@ -133,6 +154,7 @@ class Ledger:
         store: StateStore,
         *,
         create: bool = False,
+        exclusive: bool = False,
     ) -> None:
         """Open the ledger. A missing state file is an error unless `create` is set
         (the very first run): silently starting fresh would clear breakers and a latched
@@ -141,8 +163,10 @@ class Ledger:
         self._risk = risk
         self._instrument = instrument
         self._store = store
+        self._lock_fd: int | None = store.lock() if exclusive else None
         loaded = store.load()
         if loaded is None and not create:
+            self.close()
             raise FileNotFoundError("ledger state file is missing; pass create=True on first run")
         self._state = loaded or LedgerState(
             equity=risk.bankroll,
@@ -159,6 +183,12 @@ class Ledger:
         )
         if loaded is None:
             store.save(self._state)
+
+    def close(self) -> None:
+        """Release the exclusive lock, if this ledger holds it."""
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
 
     @property
     def open_position_id(self) -> str | None:
@@ -222,12 +252,20 @@ class Ledger:
             log.critical("kill switch latched: %s", reason)
             self._save(replace(self._state, kill_switch_latched=True))
 
-    def clear_kill_switch(self, cleared_by: str) -> None:
-        """Andre only. Also resets the drawdown peak to current equity."""
+    def clear_kill_switch(
+        self, cleared_by: str, *, reason: str = "", reset_peak: bool = False
+    ) -> None:
+        """Andre only. Keeps the drawdown peak unless `reset_peak` is asked for (P6-1)."""
         if not cleared_by.strip():
             raise ValueError("clearing the kill switch needs the name of who cleared it")
-        log.critical("kill switch cleared by %s", cleared_by)
-        self._save(replace(self._state, kill_switch_latched=False, peak_equity=self._state.equity))
+        peak = self._state.equity if reset_peak else self._state.peak_equity
+        log.critical(
+            "kill switch cleared by %s (%s); drawdown peak %s",
+            cleared_by,
+            reason.strip() or "no reason given",
+            f"reset to {peak}" if reset_peak else f"kept at {peak}",
+        )
+        self._save(replace(self._state, kill_switch_latched=False, peak_equity=peak))
 
     def book_by_hand(self, now: datetime, position_id: str, net_pnl: Decimal, by: str) -> None:
         """Andre only: book a position the system lost track of, at the net P&L he found

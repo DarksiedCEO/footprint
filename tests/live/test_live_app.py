@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from footprint.core.config import Profiles, load_profiles
+from footprint.execution.ledger import LedgerBusy
 from footprint.execution.management.malik import Alarm
 from footprint.execution.orders import Order, OrderType, Side
 from footprint.live.app import AlarmFile, Driver, Live, build
@@ -87,8 +88,12 @@ def test_a_missing_ledger_is_never_created_unless_asked(profiles: Profiles, tmp_
     live, _ = make(profiles, tmp_path, new_ledger=True)
     assert (tmp_path / "state" / "ledger.json").exists()
     live.alarms.close(timedelta(seconds=1))
+    with pytest.raises(LedgerBusy):  # a second live system on the same ledger is refused
+        make(profiles, tmp_path, new_ledger=False)
+    live.ledger.close()  # the first one stops
     again, _ = make(profiles, tmp_path, new_ledger=False)  # a restart opens the same file
     again.alarms.close(timedelta(seconds=1))
+    again.ledger.close()
 
 
 def test_everything_is_wired_to_one_another(profiles: Profiles, tmp_path: Path) -> None:
