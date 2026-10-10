@@ -6,6 +6,7 @@ is a blank cell, never 0. Hand-built rows; nothing here says anything about pric
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -172,3 +173,19 @@ def test_an_empty_existing_file_gets_its_header(tmp_path: Path) -> None:
 def test_a_row_that_is_not_a_quote_is_refused(change: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
         replace(row(), **change)  # type: ignore[arg-type]
+
+
+def test_every_snapshot_is_on_disk_when_the_call_returns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[str] = []
+    real = os.fsync
+
+    def fsync(fd: int) -> None:
+        seen.append(day_file(tmp_path, TS).read_text(encoding="utf-8"))
+        real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    write_snapshot(tmp_path, [row(), row("20025")], MAX_AGE)
+    assert len(seen) == 1
+    assert seen[0].count("NQ-20") == 2  # flushed before the fsync, every row there
