@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from footprint.brokers.ibkr.chain_recorder import record_chain
+from footprint.brokers.ibkr.chain_recorder import record_chain, run_seconds
 from footprint.brokers.ibkr.market import RecordedChain, RecordedOption
 from footprint.core.config import ConfigError, load_execution
 from footprint.core.options import Right
@@ -316,3 +316,18 @@ def test_a_recorder_number_below_one_is_refused(tmp_path: Path, key: str) -> Non
     with pytest.raises(ConfigError, match=key):
         load_execution(with_value(0))
     assert getattr(load_execution(with_value(1)).market_data, key) == 1
+
+
+# --- the run length (`--minutes`) -------------------------------------------------------
+
+
+def test_the_run_length_is_the_configured_minutes_unless_given() -> None:
+    assert run_seconds(60, None) == 3600
+    assert run_seconds(60, 5) == 300
+    assert run_seconds(60, 1) == 60
+
+
+@pytest.mark.parametrize("minutes", [0, -1])
+def test_minutes_below_one_are_refused(minutes: int) -> None:
+    with pytest.raises(ValueError, match=f"--minutes {minutes}"):
+        run_seconds(60, minutes)

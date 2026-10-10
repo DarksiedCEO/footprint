@@ -3,6 +3,7 @@
     snapshot_rows(now, recorded) -> the rows `footprint.data.chain_record.write_snapshot`
                                     writes for one snapshot taken at `now`
     record_chain(market, directory, ...) -> the recording loop (exit code)
+    run_seconds(configured_minutes, minutes) -> the run length (`--minutes` or config)
 
 `recorded` is `MarketData.recorded_chain(now)` (the read-only MarketData, quotes no older
 than the configured quote age, open interest None when IBKR sent none). Every row
@@ -46,6 +47,14 @@ def snapshot_rows(now: datetime, recorded: RecordedChain | None) -> list[ChainRo
         )
         for o in recorded.options
     ]
+
+
+def run_seconds(configured_minutes: int, minutes: int | None) -> int:
+    """`--minutes N` for this run, else the configured `market_data.record_minutes`."""
+    chosen = configured_minutes if minutes is None else minutes
+    if chosen < 1:
+        raise ValueError(f"--minutes {chosen}: record for at least one minute")
+    return chosen * int(timedelta(minutes=1).total_seconds())
 
 
 class ChainSource(Protocol):

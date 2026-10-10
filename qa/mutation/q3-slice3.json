@@ -1,0 +1,37 @@
+{
+ "groups": {
+  "rec": [
+   "tests/brokers/test_chain_recorder_loop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    chosen = configured_minutes if minutes is None else minutes",
+   "    chosen = configured_minutes",
+   "Q3C-1: --minutes ignored"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    chosen = configured_minutes if minutes is None else minutes",
+   "    chosen = minutes or configured_minutes",
+   "Q3C-2: --minutes 0 falls back to config"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    if chosen < 1:",
+   "    if chosen < 0:",
+   "Q3C-3: zero minutes accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    return chosen * int(timedelta(minutes=1).total_seconds())",
+   "    return chosen",
+   "Q3C-4: minutes taken as seconds"
+  ]
+ ]
+}
