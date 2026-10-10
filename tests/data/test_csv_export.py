@@ -113,3 +113,24 @@ def test_a_file_that_appears_during_the_export_is_never_replaced(
         write_bars([bar(0)], out)
     assert out.read_text(encoding="utf-8") == "written meanwhile"
     assert partial_path(out).exists()
+
+
+def test_every_bar_is_on_disk_when_the_file_is_synced_before_it_gets_its_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # G27-3: fsync only makes durable what already left Python's buffer. If the bars
+    # were still buffered at the fsync, a power loss after the link could leave a
+    # truncated file under the finished name.
+    out = tmp_path / "b.csv"
+    bars = [bar(i) for i in range(3)]
+    seen: list[str] = []
+    real_fsync = os.fsync
+
+    def fsync_reading_the_partial(fd: int) -> None:
+        seen.append(partial_path(out).read_text(encoding="utf-8"))
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync_reading_the_partial)
+    assert write_bars(bars, out) == 3
+    assert seen == [out.read_text(encoding="utf-8")]  # all of it, at the sync
+    assert len(seen[0].splitlines()) == 1 + len(bars)
