@@ -1,0 +1,7 @@
+source: 295a3c222e7cf09288eb04423edef9876725d918 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: M1: the stop placed on the fill gets an id the orphan and sell checks never ask about
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: M2: the wait stop gets an id the orphan and sell checks never ask about
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: M3: the attached stop gets an id the orphan and sell checks never ask about
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: M4: the stop placed on the fill reuses the attached stop's id
+4 mutants, 0 survived or errored
