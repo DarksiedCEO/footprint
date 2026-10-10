@@ -1,0 +1,54 @@
+{
+ "groups": {
+  "ib": [
+   "tests/brokers/test_grind_n3_3.py",
+   "tests/brokers/test_audit_delta2.py",
+   "tests/brokers/test_audit_delta.py",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if copy.status == _INACTIVE and copy.cancel_sent and not copy.cancel_confirmed:\n                copy.cancel_sent = False\n",
+   "",
+   "N1: no re-arm once ready (the N3-3 hole: a cancel whose 504 was dropped is never sent again)"
+  ],
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if copy.status == _INACTIVE and copy.cancel_sent and not copy.cancel_confirmed:",
+   "            if copy.cancel_sent and not copy.cancel_confirmed:",
+   "N2: re-arm any copy, not only an Inactive one (a PendingCancel copy loses its LIVE-again mark)"
+  ],
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if copy.status == _INACTIVE and copy.cancel_sent and not copy.cancel_confirmed:",
+   "            if copy.status == _INACTIVE and copy.cancel_sent:",
+   "N3: re-arm a cancel IBKR already answered (sent again after a reconnect)"
+  ],
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            if state is Connection.LOST:\n                self._connected = self._ready = False\n",
+   "            if state is Connection.LOST:\n                self._connected = self._ready = False\n                for c in self._copies.values():\n                    if c.status == _INACTIVE and not c.cancel_confirmed:\n                        c.cancel_sent = False\n",
+   "N4: clear the mark on the loss instead (an order back acting is no longer said LIVE again)"
+  ],
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            cancel = self._inactive(copy, alarms)\n            if cancel is not None:\n                cancels.append(cancel)\n        self._resync_since = None",
+   "            cancel = self._inactive(copy, alarms)\n        self._resync_since = None",
+   "N5: the re-armed cancel is decided but never sent"
+  ],
+  [
+   "ib",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if not (self._connected and self._ready):\n            # D35",
+   "        if not self._connected:\n            # D35",
+   "N6: a re-armed cancel is sent before the resync is done (D35)"
+  ]
+ ]
+}

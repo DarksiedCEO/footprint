@@ -1174,7 +1174,13 @@ class IbkrBroker:
         self._ready = True
         # Inactive orders of ours seen while IBKR was away: cancelled now, never while
         # it was away (D35; independent audit A-3). Sent by the caller outside the lock.
+        # One IBKR still lists Inactive whose cancel it never answered is cancelled
+        # again: the send may have gone out as the session closed, its "not connected"
+        # answer dropped by the closed binding (N3-3). Sent twice is harmless; never
+        # sent, the order could become active again.
         for copy in self._copies.values():
+            if copy.status == _INACTIVE and copy.cancel_sent and not copy.cancel_confirmed:
+                copy.cancel_sent = False
             cancel = self._inactive(copy, alarms)
             if cancel is not None:
                 cancels.append(cancel)
