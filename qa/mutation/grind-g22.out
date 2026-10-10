@@ -1,0 +1,11 @@
+source: 5a4d8bf663336f545b19e61e638e75bbc2f42a39 tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M1: no $ end is left to the chain (read twice)
+  2 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M2: the claimed offset is the $, not the number
+  3 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M3: PROSE_NUMBER refuses every $ after digit-hyphen again (G21 form)
+  4 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M4: GROUPED_NUMBER refuses every $ after digit-hyphen again (G21 form)
+  5 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M5: ISO dates are read as chains
+  6 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M6: the $ is located, not the -$
+  7 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M7: a chain claims its whole span (2026-04-03,900 loses 900)
+  8 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G22 M8: the claim is never checked
+8 mutants, 0 survived or errored
