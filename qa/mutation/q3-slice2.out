@@ -1,0 +1,16 @@
+source: 136dbedef2eda1fd06936c5e611ec0e0d30407ac tree-dirty: 0 files
+baseline [md]: passed
+baseline [rows]: passed
+  1 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-1: unknown open interest recorded as 0
+  2 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-2: chain() passes unknown open interest through (live path changed)
+  3 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-3: chain() no longer as old as the future's quote
+  4 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-4: a future without a bid offers a chain
+  5 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-5: an empty recorded chain instead of none
+  6 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-6: recorded options not in chain() order
+  7 SURVIVED [md] src/footprint/brokers/ibkr/market.py: Q3S2-7: no connection check
+  8 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-8: options off the chosen chain offered
+  9 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-9: the future's quote time guessed as now
+ 10 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-10: an option's quote time taken from the future
+ 11 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-11: unknown open interest written as 0
+ 12 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-12: a naive snapshot time accepted
+12 mutants, 1 survived or errored
