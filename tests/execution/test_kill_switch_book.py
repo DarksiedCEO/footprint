@@ -11,6 +11,7 @@ kill switch.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ import pytest
 
 from footprint.core.calendar import SessionKind
 from footprint.core.config import Profiles
-from footprint.execution.ledger import Ledger, SoldHold, StateStore
+from footprint.execution.ledger import Ledger, LedgerState, SoldHold, StateStore
 from footprint.live import kill_switch
 from tests.conftest import REPO_ROOT
 
@@ -264,3 +265,81 @@ def test_equity_after_is_shown_before_the_confirmation(profiles: Profiles, tmp_p
     _, term = _run(tmp_path, _book_args("pos-1"), ["no"])
     shown_before_asking = "\n".join(term.lines[:-1])
     assert str(before + D(LOSS)) in shown_before_asking
+
+
+# --- grind review 4604ac6 (G26-1, G26-2, G26-3) ----------------------------------------
+
+
+class FailingStore(StateStore):
+    """A ledger file whose `fail_at`-th save from now raises, as a full disk would."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.fail_at: int | None = None
+        self.saves = 0
+
+    def save(self, state: LedgerState) -> None:
+        self.saves += 1
+        if self.fail_at is not None and self.saves == self.fail_at:
+            raise OSError("disk full")
+        super().save(state)
+
+
+@pytest.mark.parametrize("open_position", [True, False])
+@pytest.mark.parametrize("fail_at", [1, 2, 3])
+def test_a_failed_save_never_leaves_a_booking_unrecorded(
+    profiles: Profiles, tmp_path: Path, fail_at: int, open_position: bool
+) -> None:
+    """G26-1: the P&L and the id's "booked by hand" mark land in one write, so a failed
+    write can never book the P&L while leaving the id bookable again (a re-run with
+    --unrecorded, as the refusal advises, would then book it twice)."""
+    store = FailingStore(tmp_path / "ledger.json")
+    ledger = Ledger(profiles.risk, profiles.instrument, store, create=True)
+    if open_position:
+        ledger.on_entry_filled(T0, "pos-1", SessionKind.PRIME)
+    ledger.hold_sold(SoldHold("pos-1", "C-1", "exit-1"))
+    before = ledger.account(T0).equity
+    store.saves = 0
+    store.fail_at = fail_at
+    with contextlib.suppress(OSError):
+        ledger.book_by_hand(T0, "pos-1", D(LOSS), "Andre", reason="IBKR statement")
+    on_disk = StateStore(tmp_path / "ledger.json").load()
+    assert on_disk is not None
+    booked = on_disk.equity != before
+    assert booked == ("pos-1" in on_disk.booked_by_hand)
+    assert booked == (on_disk.sold_unpriced == ())
+    assert on_disk.equity in (before, before + D(LOSS))
+
+
+@pytest.mark.parametrize("position", ["", "   "])
+def test_a_blank_position_id_is_refused(profiles: Profiles, tmp_path: Path, position: str) -> None:
+    """G26-2: even with --unrecorded, a blank id is never booked."""
+    _ledger(profiles, tmp_path, create=True)
+    before = _snapshot(profiles, tmp_path)
+    code, term = _run(tmp_path, _book_args(position, LOSS, "--unrecorded"), ["BOOK"])
+    assert code == 2
+    assert "--position" in term.text
+    assert _snapshot(profiles, tmp_path) == before
+
+
+def test_spaces_around_the_position_id_are_ignored(profiles: Profiles, tmp_path: Path) -> None:
+    """G26-3 probe P3: " pos-1 " is the open position, booked under its own id."""
+    before = _open_and_latched(profiles, tmp_path).account(T0).equity
+    code, _ = _run(tmp_path, _book_args(" pos-1 "), ["BOOK"])
+    assert code == 0
+    after = _ledger(profiles, tmp_path)
+    assert after.open_position_id is None
+    assert after.account(T0).equity == before + D(LOSS)
+    reloaded = StateStore(tmp_path / "ledger.json").load()
+    assert reloaded is not None
+    assert reloaded.booked_by_hand == ("pos-1",)
+
+
+def test_the_position_and_pnl_are_shown_before_the_confirmation(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    """G26-3 probe P4: the summary line naming the statement's figure precedes the ask."""
+    _open_and_latched(profiles, tmp_path)
+    _, term = _run(tmp_path, _book_args("pos-1"), ["no"])
+    shown_before_asking = "\n".join(term.lines[:-2])
+    assert f"position: pos-1   net P&L from the statement: {LOSS}" in shown_before_asking

@@ -126,6 +126,9 @@ def _book(
         say(f"Refused: --pnl {args.pnl!r} is not a number (write it like -412.50).")
         return REFUSED
     position = args.position.strip()
+    if not position:
+        say("Refused: --position is blank; give the position id from `status`.")
+        return REFUSED
     held = {hold.position_id for hold in ledger.sold_unpriced}
     known = position == ledger.open_position_id or position in held
     if not known and not args.unrecorded:

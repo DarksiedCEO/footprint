@@ -286,18 +286,13 @@ class Ledger:
             net_pnl,
             reason.strip() or "no reason given",
         )
-        if self._state.open_position_id == position_id:
-            self.on_trade_closed(now, position_id, net_pnl)
-        else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
-            self._book(now, net_pnl, close_position=False)
-        self._save(
-            replace(
-                self._state,
-                booked_by_hand=(*self._state.booked_by_hand, position_id),
-                sold_unpriced=tuple(
-                    h for h in self._state.sold_unpriced if h.position_id != position_id
-                ),
-            )
+        # The P&L, the "booked by hand" mark and the hold release land in ONE write
+        # (G26-1): a failed write never books the P&L while leaving the id bookable again.
+        self._book(
+            now,
+            net_pnl,
+            close_position=self._state.open_position_id == position_id,
+            by_hand=position_id,
         )
 
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
@@ -324,12 +319,23 @@ class Ledger:
             )
         self._book(now, net_pnl, close_position=True)
 
-    def _book(self, now: datetime, net_pnl: Decimal, *, close_position: bool) -> None:
+    def _book(
+        self,
+        now: datetime,
+        net_pnl: Decimal,
+        *,
+        close_position: bool,
+        by_hand: str | None = None,
+    ) -> None:
         """Book a close. Closing the open position also releases its D40 holds in the
-        same save (the sale is booked, at its real price)."""
+        same save (the sale is booked, at its real price). A booking by hand also marks
+        `by_hand` as booked and releases its holds, in that same save (G26-1)."""
         self._roll(now)
         s = self._state
         equity = s.equity + net_pnl
+        released: set[str | None] = {s.open_position_id} if close_position else set()
+        if by_hand is not None:
+            released.add(by_hand)
         state = replace(
             s,
             equity=equity,
@@ -338,11 +344,8 @@ class Ledger:
             realized_week=s.realized_week + net_pnl,
             stopouts_today=s.stopouts_today + (net_pnl < 0),
             open_position_id=None if close_position else s.open_position_id,
-            sold_unpriced=(
-                tuple(h for h in s.sold_unpriced if h.position_id != s.open_position_id)
-                if close_position
-                else s.sold_unpriced
-            ),
+            sold_unpriced=tuple(h for h in s.sold_unpriced if h.position_id not in released),
+            booked_by_hand=(s.booked_by_hand if by_hand is None else (*s.booked_by_hand, by_hand)),
         )
         self._save(state)
         if drawdown_breached(self._risk, self.account(now)):
