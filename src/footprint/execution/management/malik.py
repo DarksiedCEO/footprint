@@ -921,10 +921,16 @@ class Manager:
                 # Flat (and settled), but no fill confirms what closed it: the ledger
                 # never takes a guessed price. It stays open; the system stays dark.
                 self._unbooked_alarmed = True
+                parts = self._sold_in_parts(position)
+                how = (
+                    f"it was sold in parts ({parts}), so no one fill gives its exit price"
+                    if parts is not None
+                    else "no fill confirms the exit price"
+                )
                 self._alarm(
                     now,
-                    f"{position.position_id}: flat at the broker but no fill confirms the "
-                    "exit price: book it with Ledger.book_by_hand from the broker statement",
+                    f"{position.position_id}: flat at the broker but {how}: book it with "
+                    "Ledger.book_by_hand from the broker statement",
                 )
         elif not remaining and ledger_open is not None and position is None:
             self._alarm(
@@ -974,9 +980,9 @@ class Manager:
             return self._close(position, status.avg_price, now, reason)
         return self._fill_pending(position, order_id, reason, now)
 
-    def _unpriced_sell(self, position: Position) -> str | None:
-        """The id of a sell of this position (its stop, an exit, a reconcile order sent
-        for it) the broker reports filled with no price yet; None if there is none."""
+    def _sell_candidates(self, position: Position) -> list[str]:
+        """Every order id that may be a sell of this position (its pending sell, its
+        stop, its exits, reconcile orders sent for it), newest first, each once."""
         pending = self._pending.get(position.position_id)
         candidates = [pending[0] if pending else None, position.stop_order_id]
         candidates.append(f"{position.position_id}-stop")
@@ -985,20 +991,33 @@ class Manager:
             for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)
         ]
         candidates += list(reversed(self._reconcile_orders.get(position.position_id, [])))
-        for order_id in candidates:
-            if order_id is None:
-                continue
+        return list(dict.fromkeys(o for o in candidates if o is not None))
+
+    def _sells_that_sold(self, position: Position) -> list[OrderStatus]:
+        """The broker's answer for each sell of this position that sold any of it."""
+        sold = []
+        for order_id in self._sell_candidates(position):
             try:
                 status = self._broker.status(order_id)
             except KeyError:
                 continue
             if (
-                status.state is OrderState.FILLED
-                and status.avg_price is None
+                status.filled > 0
                 and status.order.side is Side.SELL
                 and status.order.contract_id == position.contract_id
             ):
-                return order_id
+                sold.append(status)
+        return sold
+
+    def _unpriced_sell(self, position: Position) -> str | None:
+        """The id of a sell of this position (its stop, an exit, a reconcile order sent
+        for it) that the broker reports has sold some of it with no price yet; None if
+        there is none. Filled in part counts as well as FILLED: a stop that sold 1 of 2
+        and was then cancelled has sold, whatever its final state, and a second sell
+        beside it while the report lags can go short (grind review G7-1)."""
+        for status in self._sells_that_sold(position):
+            if status.avg_price is None:
+                return status.order.order_id
         return None
 
     def _sold_unpriced(self, position: Position | None, contract_id: str, now: datetime) -> bool:
@@ -1030,10 +1049,10 @@ class Manager:
             self._alarm(
                 now,
                 f"{pid}: CHECK THE FILL: {order_id} sold this position at the broker "
-                f"(FILLED) but its price never came, and the broker still reports "
-                f"{contract_id} held. Nothing more is sold (a second sell could go short); "
-                "the kill switch is latched. Check the fill in the broker's own platform "
-                "and flatten by hand only what is really held",
+                "(FILLED, in full or in part) but its price never came, and the broker "
+                f"still reports {contract_id} held. Nothing more is sold (a second sell "
+                "could go short); the kill switch is latched. Check the fill in the "
+                "broker's own platform and flatten by hand only what is really held",
             )
         self._stand_down(now, f"{pid}: {order_id} filled, price and holding not reported")
         return True
@@ -1055,7 +1074,8 @@ class Manager:
 
     def _unpriced_reconcile_order(self, contract_id: str) -> str | None:
         """The newest reconcile order this process sent for `contract_id`, under any
-        owner and on either side, that the broker reports FILLED with no price yet."""
+        owner and on either side, that the broker reports has filled (in full or in
+        part, whatever its final state) with no price yet."""
         for order_ids in self._reconcile_orders.values():
             for order_id in reversed(order_ids):
                 try:
@@ -1063,7 +1083,7 @@ class Manager:
                 except KeyError:
                     continue
                 if (
-                    status.state is OrderState.FILLED
+                    status.filled > 0  # FILLED or filled in part (G7-1)
                     and status.avg_price is None
                     and status.order.contract_id == contract_id
                 ):
@@ -1266,28 +1286,34 @@ class Manager:
         self._cancels_stuck_since, self._cancel_escalated = None, False
 
     def _actual_exit(self, position: Position) -> tuple[Decimal, bool]:
-        """The price of the order that really closed THIS position (its stop, its
-        exits, or reconcile orders sent for it), and whether one was found."""
-        pending = self._pending.get(position.position_id)
-        candidates = [pending[0] if pending else None, position.stop_order_id]
-        candidates.append(f"{position.position_id}-stop")
-        candidates += [
-            f"{position.position_id}-exit-{n}"
-            for n in range(self._exit_attempts.get(position.position_id, 0), 0, -1)
-        ]
-        candidates += list(reversed(self._reconcile_orders.get(position.position_id, [])))
-        for order_id in candidates:
-            if order_id is None:
-                continue
-            try:
-                status = self._broker.status(order_id)
-            except KeyError:
-                continue
+        """The price of the one order that really closed THIS position (its stop, its
+        exits, or reconcile orders sent for it), and whether one was found. Found only
+        when a single sell, FILLED at a reported price, sold the whole position and no
+        other sell of it sold anything: a position sold in parts (a stop that sold 1 of
+        2 and was cancelled, then a reconcile sell of the rest), or sold twice, has no
+        one exit price, and booking it at one of them is a guessed price (grind review
+        G7-1). Then nothing is booked; Andre books it by hand (see `_sold_in_parts`)."""
+        sold = self._sells_that_sold(position)
+        if len(sold) == 1:
+            (status,) = sold
             if (
                 status.state is OrderState.FILLED
                 and status.avg_price is not None
-                and status.order.side is Side.SELL
-                and status.order.contract_id == position.contract_id
+                and status.filled == position.contracts
             ):
                 return status.avg_price, True
         return self._p.instrument.option_tick_size, False
+
+    def _sold_in_parts(self, position: Position) -> str | None:
+        """How this position was sold, when more than one sell, or a sell in part,
+        sold it (so no single fill gives its exit price); None otherwise."""
+        sold = self._sells_that_sold(position)
+        if len(sold) == 1 and sold[0].filled == position.contracts:
+            return None
+        if not sold:
+            return None
+        return ", ".join(
+            f"{s.order.order_id} sold {s.filled} of {s.order.quantity} "
+            f"({s.state.value}, at {s.avg_price if s.avg_price is not None else 'no price yet'})"
+            for s in sold
+        )
