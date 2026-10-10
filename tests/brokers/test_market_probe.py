@@ -168,6 +168,7 @@ class Source:
     options: tuple[OptionQuote, ...] = ()
     stamps: dict[str, datetime] = field(default_factory=dict)
     from_step: int = 0
+    options_from_step: int = 0
     stale_now: set[str] = field(default_factory=set)
     steps: list[datetime] = field(default_factory=list)
 
@@ -183,6 +184,8 @@ class Source:
     def chain(self, now: datetime) -> OptionChain | None:
         if not self._on() or self.future is None or not self.options:
             return None
+        if len(self.steps) <= self.options_from_step:
+            return None  # the future is quoted; the options are not yet
         return OptionChain("NQ", now, (self.future.bid + self.future.ask) / 2, self.options)
 
     def option_quote(self, contract_id: str, now: datetime) -> Quote | None:
@@ -244,6 +247,16 @@ def test_quotes_are_printed_nearest_strike_first_and_the_probe_exits_zero() -> N
     assert len(lines) == 5
     assert len(src.steps) == 3  # stopped on the first step that had quotes
     assert clock.slept == [1, 1]
+
+
+def test_a_future_quote_alone_does_not_end_the_wait() -> None:
+    clock = Clock()
+    src = Source([], FUTURE, OPTIONS, options_from_step=3)
+    code, text = run(src, clock, wait=10, count=1)
+    assert code == 0
+    assert len(src.steps) == 4  # the future was quoted from the first look; options on the 4th
+    assert "NO MARKET DATA" not in text
+    assert "  2026-10-15 20000 CALL c20000: bid 150 ask 151" in text
 
 
 def test_fewer_quotes_than_asked_for_prints_them_all() -> None:

@@ -162,7 +162,7 @@ def probe_market(
         now = clock()
         market.step(now)
         future = market.underlying_quote(now)
-        chain = market.chain(now) if future is not None else None
+        chain = market.chain(now)  # None without a fresh future quote, too
         waited = (now - start).total_seconds()
         if (future is not None and chain is not None) or waited >= wait_seconds:
             break
