@@ -864,8 +864,11 @@ class Manager:
                 self._alarm(
                     now,
                     f"flattening {qty} of {contract_id} that the ledger never recorded: its P&L "
-                    "is not booked (daily loss and drawdown are understated). Book it with "
-                    "Ledger.book_by_hand from the broker statement",
+                    "is not booked (daily loss and drawdown are understated). Book this round "
+                    "trip once, with Ledger.book_by_hand from the broker statement, under the "
+                    f"id of the reconcile order that flattens it (reconcile-...-{contract_id}; "
+                    "the alarm about its late price names it): never under a "
+                    "second id",
                 )
             reducing = [
                 status
@@ -1052,12 +1055,13 @@ class Manager:
         STUCK. The hold is also kept in the ledger, so a restart (`reconcile(None)`)
         never sells beside the filled sell either (G2-1; see `_held_from_before`)."""
         if position is None or contract_id != position.contract_id:
-            return self._sold_unowned(contract_id, now)
+            beside = position.contract_id if position is not None else None
+            return self._sold_unowned(contract_id, now, beside)
         pid = position.position_id
         if pid not in self._pending:
             unpriced = self._unpriced_sell(position)
             if unpriced is None:
-                return self._sold_unowned(contract_id, now)
+                return self._sold_unowned(contract_id, now, None)
             reason = self._exit_reason.get(pid, ExitReason.RECONCILE)
             self._pending[pid] = (unpriced, now, reason)
             self._hold_durably(SoldHold(pid, position.contract_id, unpriced), now)
@@ -1112,7 +1116,7 @@ class Manager:
                     return order_id
         return None
 
-    def _sold_unowned(self, contract_id: str, now: datetime) -> bool:
+    def _sold_unowned(self, contract_id: str, now: datetime, beside: str | None) -> bool:
         """Reconcile: what is held on `contract_id` was already sold (or bought back) by
         a reconcile order that is not a recorded position's own sell (sent after a
         restart, or for a stray contract), FILLED with its price pending (grind review
@@ -1122,7 +1126,10 @@ class Manager:
         `Ledger.book_by_hand` releases it). It is kept even once the order's price
         arrives: a report that still shows the contract held after a priced fill is
         not acted on either (fail closed). Past `fill_price_wait_seconds`: latch, halt
-        and one CHECK THE FILL alarm, as for the position's own sell (D40)."""
+        and one CHECK THE FILL alarm, as for the position's own sell (D40). `beside`:
+        the contract of the recorded position open beside it, when this is a stray
+        holding of another contract (that position must never be booked by hand for
+        it, G5-2)."""
         known = self._unowned_pending.get(contract_id)
         if known is None:
             order_id = self._unpriced_reconcile_order(contract_id)
@@ -1138,15 +1145,37 @@ class Manager:
             return True
         if contract_id not in self._unowned_overdue:
             self._unowned_overdue.add(contract_id)
+            if hold_id == order_id:
+                # No position in the ledger: only Andre's booking releases it (G5-2).
+                release = (
+                    "The hold is released when you book this round trip once, with "
+                    f"Ledger.book_by_hand as {hold_id}, at the statement's net P&L. It is "
+                    f"the same round trip as the 'never recorded' alarm for {contract_id}: "
+                    "never book it twice"
+                )
+            elif beside is not None and beside != contract_id:
+                # A stray beside the open position: booking that position by hand while
+                # it is held would close it in the ledger (G5-2).
+                release = (
+                    f"The hold is kept under the open position {hold_id} and released when "
+                    f"that position is booked; do not book {hold_id} by hand while it is "
+                    "still held"
+                )
+            else:
+                release = (
+                    f"The hold is kept under the open position {hold_id} and released when "
+                    f"it is booked. If {contract_id} is that position's contract and none of "
+                    f"it is still held, book it once, with Ledger.book_by_hand as {hold_id}, "
+                    "at the statement's net P&L (never book it twice); otherwise do not book "
+                    "it by hand"
+                )
             self._alarm(
                 now,
                 f"CHECK THE FILL: {order_id} (reconcile) filled {contract_id} at the broker "
                 f"(FILLED, price pending when seen), and the broker still reports "
                 f"{contract_id} held. Nothing more is sent for it (a second order could go "
                 "short); the kill switch is latched. Check the fill in the broker's own "
-                "platform and flatten by hand only what is really held. The hold is "
-                f"released when {hold_id} is booked; if the system cannot book it, book it "
-                f"with Ledger.book_by_hand as {hold_id}",
+                f"platform and flatten by hand only what is really held. {release}",
             )
         self._stand_down(now, f"{contract_id}: {order_id} filled, price and holding not reported")
         return True

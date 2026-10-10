@@ -1,0 +1,53 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g5_2.py",
+   "tests/execution/test_unowned_unpriced_sell.py",
+   "tests/execution/test_check_the_fill_restart.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if hold_id == order_id:\n                # No position in the ledger",
+   "            if hold_id != order_id:\n                # No position in the ledger",
+   "M1: the no-ledger wording given under an open position (and the reverse)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            elif beside is not None and beside != contract_id:",
+   "            elif False:",
+   "M2: a stray beside the open position is told to book that position by hand"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            elif beside is not None and beside != contract_id:",
+   "            elif True:",
+   "M3: after a restart the position's own sale is never booked by hand (no instruction)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            beside = position.contract_id if position is not None else None",
+   "            beside = None",
+   "M4: the stray's open position is never passed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    \"is not booked (daily loss and drawdown are understated). Book this round \"\n                    \"trip once, with",
+   "                    \"is not booked (daily loss and drawdown are understated). Book this round \"\n                    \"trip, with",
+   "M5: the unrecorded alarm no longer says once"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    f\"the same round trip as the 'never recorded' alarm for {contract_id}: \"\n                    \"never book it twice\"",
+   "                    \"\"",
+   "M6: CHECK THE FILL no longer ties the hold to the 'never recorded' alarm"
+  ]
+ ]
+}
