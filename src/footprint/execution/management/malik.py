@@ -166,6 +166,7 @@ class Manager:
         self._acting = False
         self._unbooked_alarmed = False
         self._unrecorded_alarmed: set[str] = set()
+        self._unrecorded_named: set[str] = set()  # contracts whose booking id is told
         self._unsettled_since: datetime | None = None
         self._settle_escalated = False
         self._stuck_ids: set[str] = set()
@@ -866,8 +867,8 @@ class Manager:
                     f"flattening {qty} of {contract_id} that the ledger never recorded: its P&L "
                     "is not booked (daily loss and drawdown are understated). Book this round "
                     "trip once, with Ledger.book_by_hand from the broker statement, under the "
-                    f"id of the reconcile order that flattens it (reconcile-...-{contract_id}; "
-                    "the alarm about its late price names it): never under a "
+                    "id named when the first reconcile order for it is sent "
+                    f"(reconcile-...-{contract_id}), or the one a later hold names: never a "
                     "second id",
                 )
             reducing = [
@@ -914,6 +915,19 @@ class Manager:
             owner = position.position_id if position is not None else None
             self._reconcile_orders.setdefault(owner, []).append(order.order_id)
             self._broker.place(order)  # recorded and followed by id from now on
+            if ledger_open is None and contract_id not in self._unrecorded_named:
+                # The id to book the unrecorded round trip under, told once, when the
+                # first reconcile order for it is sent: otherwise only a late price would
+                # ever name one (grind review G12-1).
+                self._unrecorded_named.add(contract_id)
+                self._alarm(
+                    now,
+                    f"{order_id} (reconcile) sent to {side.value} {needed} of {contract_id}, "
+                    "a holding with no position in the ledger. Book this round trip once, "
+                    f"with Ledger.book_by_hand as {order_id}, at the statement's net P&L, "
+                    "unless a later alarm names a hold under another reconcile order for "
+                    f"{contract_id} (then as that one): never book it twice",
+                )
         if not remaining and position is not None and ledger_open == position.position_id:
             price, actual_fill = self._actual_exit(position)
             if actual_fill:
@@ -1338,6 +1352,7 @@ class Manager:
         self._acting = False
         self._unbooked_alarmed = False
         self._unrecorded_alarmed = set()
+        self._unrecorded_named = set()
         self._unsettled_since, self._settle_escalated = None, False
         self._stuck_ids = set()
         self._seen.clear()
