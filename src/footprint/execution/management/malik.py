@@ -973,11 +973,33 @@ class Manager:
 
     def _await_price(self, position: Position, now: datetime) -> Closed | None:
         """A sell of this position filled with its price pending: book it once the
-        price arrives (never a guess), and send nothing meanwhile."""
-        order_id, _, reason = self._pending[position.position_id]
+        price arrives (never a guess), and send nothing meanwhile. Booked only when that
+        one sell sold the whole position (`_actual_exit`): a position sold in parts, or
+        sold twice, has no one exit price, so nothing is booked, Andre is told each
+        sale, the kill switch is latched and reconcile takes over (grind review G11-1;
+        the G7-1 rule on this path)."""
+        pid = position.position_id
+        order_id, _, reason = self._pending[pid]
         status = self._broker.status(order_id)
         if status.state is OrderState.FILLED and status.avg_price is not None:
-            return self._close(position, status.avg_price, now, reason)
+            price, whole = self._actual_exit(position)
+            if whole:
+                return self._close(position, price, now, reason)
+            parts = self._sold_in_parts(position)
+            how = (
+                f"it was sold in parts ({parts}), so no one fill gives its exit price"
+                if parts is not None
+                else f"no one fill confirms its exit price ({order_id} filled)"
+            )
+            message = (
+                f"{pid}: {how}. Nothing more is sold; book it with Ledger.book_by_hand "
+                "from the broker statement"
+            )
+            if not self._unbooked_alarmed:
+                self._unbooked_alarmed = True
+                self._alarm(now, message)
+            self._stand_down(now, f"{pid}: sold in parts, book it by hand")
+            raise NeedsReconcile(message)
         return self._fill_pending(position, order_id, reason, now)
 
     def _sell_candidates(self, position: Position) -> list[str]:
