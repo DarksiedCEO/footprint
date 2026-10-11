@@ -187,7 +187,7 @@ as the live runner and the run with no rule named do. A `--exit trail` run write
 same files as the default run; the only difference is the readout's assumption line
 `exit rule: trail`.
 
-What the existing exit actually is (review G52-1; reading Q5.4-b, for Andre): once the
+What the existing exit actually is (review G52-1; reading Q5.4-b, APPROVED BY ANDRE 2026-10-11 10:30 PT): once the
 gain on the bid, net of round-trip fees, reaches `risk.profit_target` ($1,000), the stop
 moves to lock `risk.trail_keep_pct` (50%) of the peak net gain and then follows the
 peak at that share (`src/footprint/decision/stop.py`, decision D13). **The trail has no
@@ -196,6 +196,8 @@ volume adjustment** ("No volume or theta adjustment until those agents exist"), 
 contracts > 1)" never applies. The approved wording above says "volume-aware trail";
 the baseline is the trail that exists, unchanged, and nothing was built to make it
 volume-aware.
+Andre confirmed this baseline on 2026-10-11 10:30 PT: build no volume-aware trail;
+any future one is a new piece that he will define.
 
 ## Q5.5 exit "target" (`exit-target-v1`)
 
