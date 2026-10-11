@@ -249,6 +249,20 @@
    "        self._count = 0\n        self._target = None\n        self._invalid = True",
    "        self._count = 0\n        self._invalid = True",
    "Q52-36 (G40-1): an invalid step keeps the stair's entry level"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "                self._target is not None and self._already_invalid()\n            ):\n                self._invalidate()\n",
+   "                self._target is not None and self._already_invalid()\n            ):\n                self._invalidate() if len(self._pause_lows) > self._s.max_pause_bars else self._drop()\n",
+   "Q52-37 (G41-1): a pause that breaks (a)/(b) after the stair forms drops the partition (a stair may form inside it)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "> self._s.max_stair_bars:\n            self._invalidate()",
+   "> self._s.max_stair_bars:\n            self._invalidate() if self._pause_lows else self._drop()",
+   "Q52-38 (G41-2): a stair past max_stair_bars mid-push drops the push (a new push restarts mid-rise)"
   ]
  ]
 }

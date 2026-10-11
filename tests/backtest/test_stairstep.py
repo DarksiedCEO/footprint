@@ -483,3 +483,59 @@ def test_a_pause_bar_that_breaks_the_step_and_closes_above_the_level_is_not_the_
     rows = [*STAIR[:11], ("113", "111", "112.5", 100)]
     assert up(make(rows)) == [11]
     assert down(make(mirror(rows))) == [11]
+
+
+# --- what starts the next count after an invalid step (review G41) ----------------------
+
+
+def test_no_stair_forms_inside_pause_4_after_it_breaks_the_step() -> None:
+    # G41-1: bar 11 (pause 4) breaks (a) and (b) after the stair forms (low 100). The bars
+    # after it stay below push 4's high 113, so they are still pause 4: the stair they
+    # draw (pushes to 104, 106, 108; pause lows 102, 104, 106; bar 18 closes 108.5 above
+    # 108) is not a stair. Only a bar above 113 can start the next count.
+    rows = [
+        *STAIR[:11],
+        ("101", "100", "100.5", 100),
+        ("104", "100.5", "103.5", 200),
+        ("103", "102", "102.5", 100),
+        ("106", "102.5", "105.5", 200),
+        ("105", "104", "104.5", 100),
+        ("108", "104.5", "107.5", 200),
+        ("107", "106", "106.5", 100),
+        ("109", "106.5", "108.5", 200),
+    ]
+    assert up(make(rows)) == []
+    assert up(make(rows), vol=True) == []
+    assert down(make(mirror(rows))) == []
+    assert down(make(mirror(rows)), vol=True) == []
+    # The same mini stair on its own (one lead bar) does fire: only pause 4 blocks it.
+    assert up(make([("101", "100", "100.5", 100), *rows[12:]])) == [7]
+
+
+# Push 1 starts from bar 0 (low 90) and rises on bars 1-9 (highs 101..109). Then four
+# clean steps: a pause bar giving back 1, and a push bar 3 higher.
+LONG_PUSH = [
+    ("100", "90", "99", 50),
+    *[(str(100 + k), str(98 + k), f"{99 + k}.5", 200) for k in range(1, 10)],
+    ("108.5", "108", "108.2", 100),
+    ("112", "108.1", "111.5", 200),
+    ("111.5", "111", "111.2", 100),
+    ("115", "111.1", "114.5", 200),
+    ("114.5", "114", "114.2", 100),
+    ("118", "114.1", "117.5", 200),
+    ("117.5", "117", "117.2", 100),
+    ("121", "117.1", "120.5", 200),
+]
+
+
+def test_a_stair_that_passes_max_stair_bars_mid_push_does_not_count_that_push() -> None:
+    # G41-2, reading Q5.2-c: with max_stair_bars 8 the stair (from bar 0) passes 8 bars
+    # on bar 8 while push 1 is still rising. That push and its pause (bar 10) are not
+    # counted; bar 11 (above 109) starts the new count from bar 10: steps end on bars
+    # 13, 15, 17, and bar 17 closes 120.5 above push 3's 118 (stair bars 10-17: 8).
+    eight = StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=10, max_stair_bars=8)
+    assert up(make(LONG_PUSH), eight) == [17]
+    assert down(make(mirror(LONG_PUSH)), eight) == [17]
+    # Without the limit, push 1 is step 1 and bar 15 closes above push 3's 115.
+    assert up(make(LONG_PUSH)) == [15]
+    assert down(make(mirror(LONG_PUSH))) == [15]
