@@ -162,9 +162,12 @@ Andre to confirm); every reading is pinned by a hand-built fixture in
 `config/backtest.yaml` `rules: pullback:`. Slice 2b-1: `spike_score` is the spike test
 "breakout" uses, read as the spike bar test alone (MomentumReader step 1, pinned against
 MomentumReader and VolumeReader; reading Q5.3-d), and `PullbackTrigger` puts the
-detector in the momentum slot of the decision pipeline. Not built yet (slice 2b-2):
-"pullback" in `ENTRY_RULES`, its lifetime in the readout, pipeline/CLI tests. Nothing
-can select it yet.
+detector in the momentum slot of the decision pipeline. Slice 2b-2: "pullback" is in
+`ENTRY_RULES` (`--entry pullback`); the factory builds the trigger from the live
+`strategy.volume` numbers and session time zone (the ones "breakout" uses), the
+`rules: pullback:` lifetime and the 1-minute entry bars, and the readout records
+`rule pullback lifetime_minutes`. Every other gate still decides; the live path and the
+run with no rule named are unchanged.
 
 ## Q5.4 exit "trail" (`exit-trail-v1`): BASELINE
 
