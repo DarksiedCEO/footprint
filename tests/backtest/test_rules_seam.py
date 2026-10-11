@@ -277,9 +277,7 @@ def _live_path_violations(
                     if _BACKTEST_MODULE.fullmatch(f"{source_module}.{a.name}")
                 ]
         if isinstance(node, ast.Import):
-            found += [
-                f"imports {a.name}" for a in node.names if a.name.startswith("footprint.backtest")
-            ]
+            found += [f"imports {a.name}" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if _BACKTEST_MODULE.fullmatch(node.value):
                 found.append(f"names the module {node.value}")
@@ -395,6 +393,9 @@ _IMPORT_EVASIONS = {
     "relative, the package itself": ("from .. import backtest\n", "footprint.agents"),
     "relative, deeper": ("from ...backtest.rules import ENTRY_RULES\n", "footprint.a.b"),
     "relative, inside a package": ("from . import rules\n", "footprint.backtest"),
+    # G57-1: the plain `import` statement, with and without a submodule and alias.
+    "a plain import": ("import footprint.backtest\n", "footprint.agents"),
+    "a plain import of a submodule": ("import footprint.backtest.rules as r\n", "footprint.x"),
 }
 
 
@@ -410,6 +411,9 @@ _IMPORTS_ALLOWED = {
     "relative to a sibling": ("from ..decision import pipeline\n", "footprint.agents"),
     "relative, own package": ("from . import momentum_reader\n", "footprint.agents"),
     "a name that only starts so": ("from footprint import backtesting\n", "footprint.x"),
+    # G57-1: a plain import is read by the same module pattern as `from` imports.
+    "a plain import that only starts so": ("import footprint.backtesting\n", "footprint.x"),
+    "a plain import of a sibling": ("import footprint.decision.pipeline\n", "footprint.x"),
 }
 
 
