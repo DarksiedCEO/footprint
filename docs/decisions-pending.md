@@ -354,6 +354,8 @@ APPROVED BY ANDRE 2026-10-11 10:30 PT. Given in chat (session https://claude.ai/
 
 - **Q5.2-c: CONFIRMED** as recorded. A pause past `max_pause_bars`, or a stair past `max_stair_bars`, makes the step invalid; the old pause runs on; a push still rising when the stair limit hits is dropped. **G40-4 CONFIRMED:** a valid step 4 before the entry close leaves the entry level at the third push high.
 
+- **Q5.3-d: CONFIRMED.** "Same spike test as breakout" means the spike bar test alone (MomentumReader step 1); breakout's follow-through is not part of it (`entry-pullback-v1`).
+
 This approval covers only its listed rows. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them.
 
 ### Q5 numbers awaiting Andre
