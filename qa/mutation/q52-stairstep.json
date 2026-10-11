@@ -270,6 +270,13 @@
    "        if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars:\n",
    "        if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars and self._pause_lows:\n",
    "Q52-39 (G42-1): the stair length is checked only during a pause (a push bar past max_stair_bars can enter)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        contiguous = previous is not None and bar.ts - previous.ts == interval\n",
+   "        contiguous = previous is not None and bar.ts > previous.ts and bar.ts - previous.ts <= interval\n",
+   "Q52-40 (G43-1): bars closer together than one interval count as contiguous"
   ]
  ]
 }

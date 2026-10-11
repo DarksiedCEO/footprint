@@ -260,6 +260,23 @@ def test_a_missing_minute_breaks_the_stair(gap: timedelta) -> None:
     assert up(shifted) == []
 
 
+def test_bars_closer_than_one_interval_are_not_contiguous() -> None:
+    # G43-1: "any step in time other than one bar interval" drops the stair, a shorter
+    # step included. The base stair at 30-second spacing, read as 1-min bars: no two
+    # bars are one interval apart, so no push ever starts and nothing fires.
+    def half(rows: list[tuple[str, str, str, int]]) -> list[Bar]:
+        return [
+            Bar(b.symbol, T0 + i * (MINUTE / 2), b.open, b.high, b.low, b.close, b.volume)
+            for i, b in enumerate(make(rows))
+        ]
+
+    assert up(make(STAIR)) == [ENTRY]
+    assert up(half(STAIR)) == []
+    assert up(half(STAIR), vol=True) == []
+    assert down(half(mirror(STAIR))) == []
+    assert down(half(mirror(STAIR)), vol=True) == []
+
+
 def test_a_stair_after_a_gap_is_found_on_its_own() -> None:
     friday = datetime(2026, 10, 9, 20, 0, tzinfo=UTC)
     sunday = datetime(2026, 10, 11, 22, 0, tzinfo=UTC)
@@ -554,6 +571,7 @@ def test_a_push_bar_past_max_stair_bars_is_not_the_entry() -> None:
     assert up(make(rows), fits) == [11]
     assert up(make(rows), fits, vol=True) == [11]
     assert down(make(mirror(rows)), fits) == [11]
+    assert down(make(mirror(rows)), fits, vol=True) == [11]
     assert up(make(rows), short) == []
     assert up(make(rows), short, vol=True) == []
     assert down(make(mirror(rows)), short) == []
