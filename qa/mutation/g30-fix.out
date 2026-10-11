@@ -1,0 +1,16 @@
+source: e50854039223e1542561abfe13e1458f70c9150f tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/data/chain_record.py: G30-M1: a future quote stamped after the snapshot written
+  2 KILLED   [rec] src/footprint/data/chain_record.py: G30-M2: a stale future quote written
+  3 KILLED   [rec] src/footprint/data/chain_record.py: G30-M3: a future quote exactly the configured age refused
+  4 KILLED   [rec] src/footprint/data/chain_record.py: G30-M4: a future quote stamped at the snapshot refused
+  5 KILLED   [rec] src/footprint/data/chain_record.py: G30-M5: rows with two future quote times are one snapshot
+  6 KILLED   [rec] src/footprint/data/chain_record.py: G30-M6: the option's age written as the future's
+  7 KILLED   [rec] src/footprint/data/chain_record.py: G30-M7: a file cut off mid-line appended to (G30-1 back)
+  8 KILLED   [rec] src/footprint/data/chain_record.py: G30-M8: only a bare CR taken as a torn line
+  9 KILLED   [rec] src/footprint/data/chain_record.py: G30-M9: a naive future quote time accepted
+ 10 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R2: blank contract id accepted
+ 11 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R3: datetime expiry accepted
+ 12 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R4: zero option ask accepted
+ 13 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R5: naive quote time accepted
+13 mutants, 0 survived or errored

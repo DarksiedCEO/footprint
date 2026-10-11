@@ -111,3 +111,5 @@ market_data:
                               #   this many consecutive tradable minutes have no bar (a
                               #   window's end minute is tradable after CME's halt; a quiet
                               #   minute may have no trade)
+  record_interval_seconds: 60 # DEFAULT: `record_chain` writes one chain snapshot this often
+  record_minutes: 60          # DEFAULT: ... for this long, unless --minutes says otherwise

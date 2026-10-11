@@ -1,0 +1,143 @@
+{
+ "groups": {
+  "rec": [
+   "tests/brokers/test_chain_recorder_loop.py",
+   "tests/brokers/test_chain_recorder_rows.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "        if due <= taken < end:",
+   "        if due <= taken:",
+   "Q3L-1: a snapshot taken at or after the end"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "        taken = clock()\n",
+   "        taken = now\n",
+   "Q3L-2: the snapshot read at the pre-step time"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            while due <= taken:\n                due += interval",
+   "            due += interval",
+   "Q3L-3: missed snapshots back-filled"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "        wake = min(due, end)",
+   "        wake = due",
+   "Q3L-4: a sleep may run past the end"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "        sleep(max(0.0, min(poll_seconds, (wake - now).total_seconds())))",
+   "        sleep(max(0.0, (wake - now).total_seconds()))",
+   "Q3L-5: MarketData not stepped between snapshots"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    return 0 if written and not refused and not failed else 1",
+   "    return 0 if written and not failed else 1",
+   "Q3L-6: a refused snapshot still exits 0"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    return 0 if written and not refused and not failed else 1",
+   "    return 0 if written and not refused else 1",
+   "Q3L-7: a failed write still exits 0"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    return 0 if written and not refused and not failed else 1",
+   "    return 0 if not refused and not failed else 1",
+   "Q3L-8: nothing written still exits 0"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "                say(f\"ERROR: snapshot at {taken.isoformat()} refused: {exc}; nothing written\")",
+   "                say(f\"snapshot at {taken.isoformat()} refused: {exc}; nothing written\")",
+   "Q3L-9: a refusal not said as an ERROR"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    if not directory.is_dir():",
+   "    if False:",
+   "Q3L-10: a missing directory not refused up front"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    if interval_seconds <= 0 or run_seconds <= 0 or poll_seconds <= 0:",
+   "    if interval_seconds <= 0 or run_seconds <= 0:",
+   "Q3L-11: a zero poll accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    require_utc(begun, \"clock()\")\n",
+   "",
+   "Q3L-12: a naive clock accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "                    path = write_snapshot(directory, rows, max_age_seconds)",
+   "                    path = write_snapshot(directory, rows, max_age_seconds + 1)",
+   "Q3L-13: the configured age limit not passed through"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "                failed += 1\n",
+   "",
+   "Q3L-14: a failed write not counted"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "                    empty += 1\n",
+   "",
+   "Q3L-15: an empty interval not counted"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            except OSError as exc:",
+   "            except ConnectionError as exc:",
+   "Q3L-16: a file-system error stops the recording"
+  ],
+  [
+   "rec",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            except ValueError as exc:",
+   "            except TypeError as exc:",
+   "Q3L-17: a refused snapshot stops the recording"
+  ],
+  [
+   "rec",
+   "src/footprint/core/config.py",
+   "        record_minutes=_integer(m, \"record_minutes\", m_where, minimum=1),",
+   "        record_minutes=_integer(m, \"record_minutes\", m_where, minimum=0),",
+   "Q3L-18: record_minutes 0 accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/core/config.py",
+   "        record_interval_seconds=_integer(m, \"record_interval_seconds\", m_where, minimum=1),",
+   "        record_interval_seconds=_integer(m, \"record_interval_seconds\", m_where, minimum=0),",
+   "Q3L-19: record_interval_seconds 0 accepted"
+  ]
+ ]
+}
