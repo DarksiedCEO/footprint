@@ -1,0 +1,23 @@
+{
+ "groups": {
+  "gaps": [
+   "tests/data/test_history_gaps.py"
+  ]
+ },
+ "mutants": [
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    minute = min(start, bars[0].ts)\n",
+   "    minute = start\n",
+   "G64-1: bars older than start are not gap-checked"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    first_day, last_day = min(start, bars[0].ts).date(), end.date()",
+   "    first_day, last_day = start.date(), end.date()",
+   "G64-1b: the calendar range ignores bars older than start"
+  ]
+ ]
+}
