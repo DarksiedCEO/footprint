@@ -89,29 +89,38 @@ def test_a_waiting_message_is_not_queued_twice() -> None:
 
 
 def test_beyond_the_cap_the_oldest_are_dropped_and_counted() -> None:
+    # Deterministic (G44-2): the first delivery of "alarm 0" is held inside the pager
+    # until all ten alarms are submitted, so the cap is always hit with alarm 0 in
+    # flight. The outcome no longer depends on when the worker thread is scheduled.
+    entered = threading.Event()  # set = alarm 0 is inside the pager
+    submitted = threading.Event()  # set = all ten alarms are submitted
     down = threading.Event()  # set = the line works
     heard: list[str] = []
 
     def pager(a: Alarm) -> None:
+        if not entered.is_set():
+            entered.set()
+            submitted.wait(WAIT.total_seconds())
+            raise ConnectionError("pager down")
         if not down.is_set():
             raise ConnectionError("pager down")
         heard.append(a.message)
 
     line = AlarmLine(pager, retry=FAST, max_pending=3)
-    for n in range(10):
+    line.submit(alarm(0))
+    assert entered.wait(WAIT.total_seconds())
+    for n in range(1, 10):
         line.submit(alarm(n))
     assert line.pending == 3
+    assert line.dropped == 7
+    submitted.set()
     down.set()
-    assert eventually(lambda: any("dropped" in m for m in heard) and len(heard) >= 4)
-    assert eventually(lambda: line.pending == 0)
-    survivors = [m for m in heard if "dropped" not in m]
-    # The newest survive, in order. The alarm being tried when the cap is hit is never
-    # dropped (it may be "alarm 0", depending on when the worker picked it up), so the
-    # oldest survivor is alarm 0 or alarm 7: never both, and always 7 dropped in all.
-    assert survivors in (["alarm 7", "alarm 8", "alarm 9"], ["alarm 0", "alarm 8", "alarm 9"])
-    assert heard[1].startswith("7 alarm(s)")  # told right after the line comes back
-    note = next(m for m in heard if "dropped" in m)
-    assert note.startswith("7 alarm(s) were dropped")
+    assert eventually(lambda: line.pending == 0 and len(heard) == 4)
+    # The alarm in flight when the cap is hit is never dropped; of the rest the oldest
+    # go (alarms 1 to 7) and the newest survive, in order.
+    assert heard[0] == "alarm 0"
+    assert heard[1].startswith("7 alarm(s) were dropped")  # told right after it is back
+    assert heard[2:] == ["alarm 8", "alarm 9"]
     assert line.close(WAIT)
 
 
