@@ -53,6 +53,18 @@ def test_stairstep_vol_adds_the_volume_test() -> None:
     assert trigger(vol=True).read(make(mirror(rows))).score is Score.NEUTRAL
 
 
+def test_the_reason_names_the_rule_that_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    # G45-1: the reason goes into the decision log (the momentum_with_trend gate
+    # detail), so a stairstep_vol entry must never be journalled as stairstep.
+    for vol, name in ((False, "stairstep"), (True, "stairstep_vol")):
+        assert trigger(vol=vol).read(make(STAIR)).reason == f"{name}: up stair entry"
+        assert trigger(vol=vol).read(make(mirror(STAIR))).reason == f"{name}: down stair entry"
+        assert trigger(vol=vol).read(make(STAIR)[:ENTRY]).reason == f"{name}: no stair entry"
+    monkeypatch.setattr(stairstep, "fires_on_last", lambda *a, **k: True)
+    assert trigger(vol=True).read(make(STAIR)).reason == "stairstep_vol: both directions"
+    assert trigger().read(make(STAIR)).reason == "stairstep: both directions"
+
+
 def test_both_directions_on_one_bar_is_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
     # Fail closed: no fixture is known where both stairs enter on one bar; if they ever
     # did, the trigger takes neither side.

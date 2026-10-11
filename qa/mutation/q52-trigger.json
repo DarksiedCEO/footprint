@@ -67,6 +67,13 @@
    "        return \"momentum\"\n",
    "        return \"stairstep\"\n",
    "Q52T-11: the trigger does not answer in the momentum slot"
+  ],
+  [
+   "trig",
+   "src/footprint/backtest/stairstep.py",
+   "        name = \"stairstep_vol\" if self._with_volume else \"stairstep\"\n",
+   "        name = \"stairstep\"\n",
+   "Q52T-12 (G45-1): the reason does not name stairstep_vol"
   ]
  ]
 }
