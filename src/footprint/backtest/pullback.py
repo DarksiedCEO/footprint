@@ -35,6 +35,23 @@ from decimal import Decimal
 from footprint.core.models import Bar, Score
 
 
+@dataclass(frozen=True, slots=True)
+class PullbackSettings:
+    """The pullback rule's number (config/backtest.yaml `rules: pullback:`): how many
+    minutes after the spike the setup stays alive (DEFAULT, accepted by Andre
+    2026-10-10 for backtest only)."""
+
+    lifetime_minutes: int
+
+    def __post_init__(self) -> None:
+        if self.lifetime_minutes < 1:
+            raise ValueError("pullback lifetime_minutes must be at least one")
+
+    @property
+    def lifetime(self) -> timedelta:
+        return timedelta(minutes=self.lifetime_minutes)
+
+
 @dataclass(slots=True)
 class _Setup:
     spike: int

@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from footprint.backtest.pullback import PullbackSettings
 from footprint.backtest.stairstep import StairSettings
 from footprint.core.config import (
     _PERCENT_MAX,
@@ -52,6 +53,7 @@ class RuleSettings:
     """The Q5 rule library's numbers (docs/strategy-rules.md). Backtest only."""
 
     stairstep: StairSettings
+    pullback: PullbackSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,4 +120,9 @@ def _rules(raw: object, where: str) -> RuleSettings:
         stairstep = StairSettings(steps, max_giveback, max_pause_bars, max_stair_bars)
     except ValueError as exc:
         raise ConfigError(f"{s_where}: {exc}") from exc
-    return RuleSettings(stairstep=stairstep)
+    p_where = f"{r_where}: pullback"
+    p = _check_keys(r["pullback"], {f.name for f in fields(PullbackSettings)}, p_where)
+    pullback = PullbackSettings(
+        lifetime_minutes=_integer(p, "lifetime_minutes", p_where, minimum=1)
+    )
+    return RuleSettings(stairstep=stairstep, pullback=pullback)

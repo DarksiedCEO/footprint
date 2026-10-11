@@ -151,8 +151,8 @@ APPROVED BY ANDRE 2026-10-10:
 > If a "breakout" entry already fired on the same spike, the pullback rule is a
 > separate test run and does not stack positions (one position at a time).
 
-DEFAULT, accepted for backtest (keys: added with its piece): how many minutes after the
-spike the setup stays alive.
+DEFAULT, accepted for backtest: how many minutes after the spike the setup stays alive
+(`config/backtest.yaml` `rules: pullback: lifetime_minutes`, 15; slice 2a).
 
 How it is built (`entry-pullback-v1`, slice 1: the detector): `footprint.backtest.pullback.pullback_entries`
 takes 1-min bars and the spike test's answer per bar and returns the bars where the
