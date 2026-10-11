@@ -422,6 +422,7 @@ def test_the_guard_passes_other_imports(source: str, package: str) -> None:
 
 def test_a_relative_import_with_no_known_package_is_refused() -> None:
     assert _live_path_violations("from . import x\n") != []
+    assert _live_path_violations("from .backtest import rules\n") != []
     assert _live_path_violations("from ... import x\n", package="footprint.agents") != []
 
 
