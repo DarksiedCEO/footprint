@@ -1,0 +1,16 @@
+{
+ "groups": {
+  "loop": [
+   "tests/brokers/test_chain_recorder_loop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "loop",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "        if due <= taken < end:",
+   "        if due <= taken <= end:",
+   "G64-3: a snapshot taken exactly at the end"
+  ]
+ ]
+}
