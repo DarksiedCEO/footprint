@@ -17,11 +17,12 @@ exactly as the live runner does.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import fields
 from datetime import timedelta
 
 from footprint.agents.momentum_reader import MomentumReader
 from footprint.backtest.settings import RuleSettings
-from footprint.backtest.stairstep import StairTrigger
+from footprint.backtest.stairstep import StairSettings, StairTrigger
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import EntryTrigger
 from footprint.execution.management.malik import ExitRule
@@ -58,4 +59,17 @@ ENTRY_RULES: dict[str, EntryRule] = {
     "stairstep": stairstep,
     "stairstep_vol": stairstep_vol,
 }
+_STAIR_RULES = frozenset({"stairstep", "stairstep_vol"})
+
+
+def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]:
+    """The rule-library numbers the named entry rule runs with, for the readout's
+    assumptions ("rule <section> <key>" -> value), so a run names the numbers that
+    produced it (review G47-1). "breakout" reads none of them."""
+    if name not in _STAIR_RULES:
+        return {}
+    stair = rule_settings.stairstep
+    return {f"rule stairstep {f.name}": str(getattr(stair, f.name)) for f in fields(StairSettings)}
+
+
 EXIT_RULES: dict[str, ExitRuleFactory] = {}

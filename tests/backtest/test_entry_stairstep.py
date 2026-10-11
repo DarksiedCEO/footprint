@@ -8,17 +8,26 @@ tests). "breakout" and the run with no rule named are unchanged.
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import shutil
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from footprint.backtest import rules
+from footprint.backtest.__main__ import main
 from footprint.backtest.settings import BacktestSettings, RuleSettings
-from footprint.backtest.stairstep import StairTrigger
+from footprint.backtest.stairstep import StairSettings, StairTrigger
 from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read
+from tests.backtest.conftest import TRADE_FROM
+from tests.backtest.test_cli import write_bars
 from tests.backtest.test_rules_seam import _run
+from tests.conftest import REPO_ROOT
 
 ONE_MINUTE = timedelta(minutes=1)
 
@@ -68,3 +77,69 @@ def test_a_stair_run_reads_every_decision_through_the_stair_trigger(
     assert "entry rule" in printed
     assert name in printed
     assert (out / "readout.json").exists()
+
+
+def _config_with_stair_numbers(tmp_path: Path) -> Path:
+    """A copy of config/ whose stairstep numbers all differ from the repo's."""
+    config = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", config)
+    path = config / "backtest.yaml"
+    text = path.read_text(encoding="utf-8")
+    for old, new in (
+        ("    steps: 3 ", "    steps: 2 "),
+        ("    max_giveback: 0.5 ", "    max_giveback: 0.4 "),
+        ("    max_pause_bars: 10 ", "    max_pause_bars: 7 "),
+        ("    max_stair_bars: 60 ", "    max_stair_bars: 33 "),
+    ):
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    path.write_text(text, encoding="utf-8")
+    return config
+
+
+@pytest.mark.parametrize("name", ["stairstep", "stairstep_vol"])
+def test_a_stair_run_uses_and_records_the_numbers_of_the_named_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    # G47-1: the readout names the stair numbers the run used; G47-2: they come from
+    # --config, not from the repo's own config/.
+    config = _config_with_stair_numbers(tmp_path)
+    built: list[StairTrigger] = []
+    real_factory = rules.ENTRY_RULES[name]
+
+    def spy_factory(profiles: Profiles, rule_settings: RuleSettings) -> StairTrigger:
+        trigger = real_factory(profiles, rule_settings)
+        assert isinstance(trigger, StairTrigger)
+        built.append(trigger)
+        return trigger
+
+    monkeypatch.setitem(rules.ENTRY_RULES, name, spy_factory)
+    bars = tmp_path / "bars.csv"
+    write_bars(bars)
+    out = tmp_path / "run"
+    with contextlib.redirect_stdout(io.StringIO()) as printed:
+        main(
+            [
+                *("--bars", str(bars), "--out", str(out), "--config", str(config)),
+                *("--trade-from", TRADE_FROM.isoformat(), "--entry", name),
+            ]
+        )
+    assert [t._settings for t in built] == [StairSettings(2, Decimal("0.4"), 7, 33)]
+    recorded = json.loads((out / "readout.json").read_text(encoding="utf-8"))["assumptions"]
+    assert recorded["entry rule"] == name
+    assert {k: v for k, v in recorded.items() if k.startswith("rule ")} == {
+        "rule stairstep steps": "2",
+        "rule stairstep max_giveback": "0.4",
+        "rule stairstep max_pause_bars": "7",
+        "rule stairstep max_stair_bars": "33",
+    }
+    assert "- rule stairstep max_pause_bars: 7" in printed.getvalue()
+
+
+def test_a_breakout_run_records_no_rule_numbers(tmp_path: Path) -> None:
+    # breakout reads none of the rule library's numbers, so its readout names none.
+    out, printed = _run(tmp_path, "--entry", "breakout")
+    recorded = json.loads((out / "readout.json").read_text(encoding="utf-8"))["assumptions"]
+    assert recorded["entry rule"] == "breakout"
+    assert not [k for k in recorded if k.startswith("rule ")]
+    assert "rule stairstep" not in printed

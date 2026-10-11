@@ -18,7 +18,7 @@ from pathlib import Path
 
 from footprint.backtest.engine import Backtest
 from footprint.backtest.readout import read_out, to_json, to_markdown
-from footprint.backtest.rules import ENTRY_RULES, EXIT_RULES
+from footprint.backtest.rules import ENTRY_RULES, EXIT_RULES, entry_rule_numbers
 from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
@@ -76,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.entry is not None:
         assumptions["entry rule"] = args.entry
+        assumptions.update(entry_rule_numbers(args.entry, settings.rules))
     if args.exit is not None:
         assumptions["exit rule"] = args.exit
     readout = read_out(run, settings, assumptions)

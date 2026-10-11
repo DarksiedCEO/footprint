@@ -127,6 +127,8 @@ registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` (`--entry stairstep`,
 `--entry stairstep_vol`); each factory builds the trigger from `config/backtest.yaml`
 `rules: stairstep:` on the pipeline's completed 1-min bars. Every other gate still
 decides, exactly as for "breakout" (reading Q5.2-l, for Andre to confirm).
+A stair run's readout lists the four stairstep numbers it ran with (`rule stairstep ...`
+under assumptions; review G47-1), so runs on different DEFAULTs can be told apart.
 Until the entry close the steps still count: if the step after the formed stair turns
 invalid first, the count is zero and there is no entry (review G39-1; reading Q5.2-b,
 for Andre to confirm).
