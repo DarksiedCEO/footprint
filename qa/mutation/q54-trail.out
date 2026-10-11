@@ -1,0 +1,7 @@
+source: 6959bfe9363b3d343bbb9a35499dd87f1af62d30 tree-dirty: 0 files
+baseline [trail]: passed
+  1 KILLED   [trail] src/footprint/backtest/rules.py: Q54-1: trail adds a way out (always out)
+  2 KILLED   [trail] src/footprint/backtest/rules.py: Q54-2: trail hands trade management a rule (one that never wants out) instead of none
+  3 KILLED   [trail] src/footprint/backtest/rules.py: Q54-3: trail is not registered
+  4 KILLED   [trail] src/footprint/backtest/engine.py: Q54-4: with no exit rule, trade management is not built exactly as the live call
+4 mutants, 0 survived or errored
