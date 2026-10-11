@@ -1,0 +1,10 @@
+source: d6b6bbe04742c61cc61e85af0b4c78369298f1d0 tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] src/footprint/backtest/rules.py: Q56S-1: time not registered
+  2 KILLED   [t] src/footprint/backtest/rules.py: Q56S-2: time adds no rule
+  3 KILLED   [t] src/footprint/backtest/rules.py: Q56S-3: numbers from the repo's config, not the run's
+  4 KILLED   [t] src/footprint/backtest/rules.py: Q56S-4: time numbers recorded for the wrong rules
+  5 KILLED   [t] src/footprint/backtest/rules.py: Q56S-5: readout key loses its section
+  6 KILLED   [t] src/footprint/backtest/__main__.py: Q56S-6: exit numbers not recorded
+  7 KILLED   [t] src/footprint/backtest/__main__.py: Q56S-7: the rule built from the cwd's config, not --config
+7 mutants, 0 survived or errored

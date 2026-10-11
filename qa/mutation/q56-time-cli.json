@@ -39,8 +39,8 @@
   [
    "t",
    "src/footprint/backtest/rules.py",
-   "            f\"rule time {f.name}\": str(getattr(numbers, f.name))\n",
-   "            f\"rule {f.name}\": str(getattr(numbers, f.name))\n",
+   "            f\"rule time {f.name}\": str(getattr(numbers, f.name)) for f in fields(TimeExitSettings)\n",
+   "            f\"rule {f.name}\": str(getattr(numbers, f.name)) for f in fields(TimeExitSettings)\n",
    "Q56S-5: readout key loses its section"
   ],
   [
