@@ -218,6 +218,7 @@ Mutation equivalences argued (not proven):
 | ID | What | Notes |
 |---|---|---|
 | Q4-b | `docs/runbook-dry-run-monday.md` (remediation-v1): a supervised paper run with no market data: read-only check, kill switch status, start (`--no-blackouts`, `--new-ledger` the first time, `--alarms-local-only` if the D20 keys are not set), `status`, kill switch refused while running, a deliberate Gateway exit and re-login, `quit`, restart | It tells Andre **not** to type `clear` (no entry can be sent without it). Every expected line is quoted from the code; **UNVERIFIED against the real Gateway** until he runs it. Choosing `--no-blackouts` for a no-data run decides nothing about D-rows. **G34-1 (fixed):** step 7 no longer says Ctrl-C does the same as `quit`; Ctrl-C skips the held-position WARNING (`live/__main__.py` KeyboardInterrupt only sets stop), so the runbook says to use `quit` |
+| Q4-c | `docs/pr-review-guide.md` (remediation-v1, merged forward): PRs #1–#24 in merge order, one paragraph each (what it adds, the review verdicts its own body records, what to look at) | Written from the PR bodies and the review reports on PR #21; no review was re-run for it. #3's body records no independent review of its own (whether a later whole-tree audit covered it: not verified). #24's title and body still say "slice 1 of 3" (stale; all three slices are built). Updated as the Q5 PRs open |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
