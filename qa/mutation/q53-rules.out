@@ -1,0 +1,11 @@
+source: 814e1475b7c137471fe45e7e7c4f4b0e28381d10 tree-dirty: 0 files
+baseline [rules]: passed
+  1 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-1: the trigger is not handed the 1-minute entry interval
+  2 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-2: the spike test does not use the instrument's session time zone
+  3 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-3: pullback is not registered
+  4 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-4: the lifetime is not the configured one
+  5 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-5: a pullback run records no rule numbers
+  6 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-6: the recorded number does not name its rule
+  7 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-7: the recorded number is not the one the run used
+  8 KILLED   [rules] src/footprint/backtest/rules.py: Q53R-8: a pullback run records the stair numbers
+8 mutants, 0 survived or errored
