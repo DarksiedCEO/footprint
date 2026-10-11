@@ -180,6 +180,13 @@ APPROVED BY ANDRE 2026-10-10:
 Config keys: the existing `risk.stop_loss`, `risk.profit_target` and trail keys. No new
 keys.
 
+Built (`exit-trail-v1`): `--exit trail`. The existing exit is trade management itself
+(hard stop and gap first, then every existing reason, the target and the volume-aware
+trail), so "trail" adds no exit rule: its factory gives None and the backtest builds
+trade management exactly as the live runner and the run with no rule named do. A
+`--exit trail` run writes the same files as the default run; the only difference is the
+readout's assumption line `exit rule: trail`.
+
 ## Q5.5 exit "target" (`exit-target-v1`)
 
 APPROVED BY ANDRE 2026-10-10:
