@@ -81,6 +81,8 @@ def test_the_values_reach_the_settings_unchanged(tmp_path: Path) -> None:
         ("max_giveback", 0),
         ("max_giveback", -0.5),
         ("max_giveback", 1.01),
+        ("max_giveback", "0.5"),  # G46-1: a quoted number is not a number
+        ("max_giveback", True),
         ("max_pause_bars", 0),
         ("max_stair_bars", 0),
         ("max_stair_bars", 2.5),
@@ -89,6 +91,13 @@ def test_the_values_reach_the_settings_unchanged(tmp_path: Path) -> None:
 def test_a_bad_value_is_refused_at_load(tmp_path: Path, key: str, value: object) -> None:
     with pytest.raises(ConfigError, match="stairstep"):
         load_backtest(_with_stair(tmp_path, **{key: value}))
+
+
+def test_a_count_of_exactly_one_is_allowed(tmp_path: Path) -> None:
+    # G46-1: the lower boundary of every count is one, inclusive.
+    path = _with_stair(tmp_path, steps=1, max_pause_bars=1, max_stair_bars=1)
+    stair = load_backtest(path).rules.stairstep
+    assert (stair.steps, stair.max_pause_bars, stair.max_stair_bars) == (1, 1, 1)
 
 
 def test_a_giveback_of_exactly_one_is_allowed(tmp_path: Path) -> None:
