@@ -11,7 +11,7 @@ family). A same-model review is not a human review: **your review is the gate.**
 the PR bodies and the review reports on PR #21; it did not re-run any of those reviews.
 
 Merge order: #1 → #2 → … → #21 (the base of everything new), then the draft data-day
-PRs #22 → #23 → #24, then the Q5 backtest-rule PRs as they open.
+PRs #22 → #23 → #24, then the Q5 backtest-rule PRs #25 → … → #31.
 
 ## Core system (#1–#10)
 
@@ -134,8 +134,56 @@ writes nothing and the run goes on. Also holds `docs/runbook-data-day.md`. Grind
 reviews: CONDITIONAL, findings fixed (G30–G34). Look at: open question **Q3-c** (should
 the recorder keep a longer quote-age limit than the live 5 s?) and the defaults Q3-d.
 
-## Q5 backtest rule library (to come)
+## Q5 backtest rule library (drafts, #25–#31)
 
-Each Q5 piece (rules-seam, entry breakout, stairstep, pullback, exit trail, target,
-time) will open as its own draft PR stacked on #24. They are backtest-only: the live
-entry and exit do not change. This guide is updated as each one opens.
+Andre's 2026-10-09 test queue, built from the definitions he approved on 2026-10-10
+(word for word in `docs/strategy-rules.md`, on #27 and above). Every Q5 piece is
+**backtest-only**: `footprint.backtest.rules` and `footprint.backtest.exits` are imported
+by nothing outside `footprint.backtest` (a test enforces this), the live entry and exit do
+not change, and with no `--entry`/`--exit` the backtest's output is byte-identical to
+before (tested). Every candidate entry still passes the same gates (trend agreement,
+session, risk gate, kill switch, levels, sizing, hard stop); every candidate exit is asked
+**last**, after the hard stop and every existing reason to get out, and can only add a way
+out. Synthetic test bars say **nothing** about profitability: real-data comparison runs
+come after 2026-10-14 and are your call. Every reading made after your 21:12 PT approval
+is in `docs/decisions-pending.md` marked "for Andre".
+
+**#25 `rules-seam-v1` (draft): Q5.0 rules seam.** `python -m footprint.backtest --bars F
+--entry <name> --exit <name>`. Unknown names are refused before anything runs. Grind
+reviews: CONDITIONAL (G37, G38). Look at: the byte-identical no-option test.
+
+**#26 `entry-breakout-v1` (draft): Q5.1 "breakout", the BASELINE.** The existing
+momentum entry under a name; no logic changed. Grind reviews: CONDITIONAL (G38, G44).
+Look at: reading Q5.1-b (you approved keeping the follow-through exactly as coded).
+
+**#27 `entry-stairstep-v1` (draft): Q5.2 "stairstep" and "stairstep_vol".** Three valid
+steps (higher pause low; at most 50% giveback), entry on the first 1-min close above the
+third push's high; the `_vol` variant adds push volume above its pause's. Numbers in
+`config/backtest.yaml` `rules: stairstep:` (`max_pause_bars`, `max_stair_bars` are
+DEFAULTs you accepted for backtest only). Ten review rounds (G39–G48): NOT_CERTIFIED
+rounds on rule fidelity and test gaps, all fixed; the last review of its commits found
+nothing open. Look at: readings Q5.2-a/b and the run readout's `rule stairstep ...`
+lines.
+
+**#28 `entry-pullback-v1` (draft): Q5.3 "pullback".** After a volume spike, a touch of the
+spike candle's high, no close below it, entry on the first up-close above the prior bar's
+high, within `rules: pullback: lifetime_minutes` (DEFAULT 15, accepted for backtest only).
+The PR title still says "slice 1"; all slices are built. Grind reviews G48–G51, last
+**CONDITIONAL** with nothing open. Look at: readings Q5.3-a and Q5.3-d (for you).
+
+**#29 `exit-trail-v1` (draft): Q5.4 "trail", the BASELINE.** The existing exit under a
+name; the backtest builds trade management exactly as the live runner. Grind reviews:
+NOT_CERTIFIED (G52-1: the docs called the trail volume-aware with scale-outs; the code
+has neither), fixed; then **CONDITIONAL** (G53). Look at: reading **Q5.4-b**: your
+approved text says "volume-aware trail (and scale-outs)", but the existing trail is a
+fixed 50% lock of the fee-net peak and scale-out is not built. Nothing was added.
+
+**#30 `exit-target-v1` (draft): Q5.5 "target".** Close the whole position when open
+profit (on the bid, net of fees) reaches the existing `risk.profit_target`; no trail.
+Grind review: **CONDITIONAL** (G53). Look at: readings Q5.5-a and Q5.5-b.
+
+**#31 `exit-time-v1` (draft): Q5.6 "time".** Ten minutes after the entry fill, close the
+whole position if open profit is below +$250 (both APPROVED values in
+`config/backtest.yaml` `rules: time:`); otherwise the baseline trail carries on. Judged
+once; exactly +$250.00 keeps the trade. Slice 1 grind review: **CONDITIONAL** (G54);
+slice 2 (`--exit time`, readout numbers) awaits review. Look at: readings Q5.6-a.
