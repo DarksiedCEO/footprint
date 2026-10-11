@@ -363,6 +363,9 @@ APPROVED BY ANDRE 2026-10-11 10:30 PT. Given in chat (session https://claude.ai/
 
 - **Q5.4-b: CONFIRMED** (`exit-trail-v1`). The baseline exit "trail" is the code as it stands: the hard stop, then from `risk.profit_target` (net of fees) the stop locks `risk.trail_keep_pct` of the peak net gain and follows the peak. No volume adjustment, no scale-out. Build no volume-aware trail; any future one is a new piece that Andre will define.
 
+- **Q5.5-a (1)-(5): CONFIRMED** as recorded (`exit-target-v1`).
+- **Q5.5-b: CHANGED TO LATCHED** (`exit-target-v1` row Q5.5-c; the old reading, row Q5.5-b, is on `exit-time-v1`). Once `net_open` reaches the target, the target verdict is held for that position until it is gone, the same way Q5.6-a(6) holds an "out". If the exit cannot begin yet (positions uncertain, or a refused stop cancel), it still waits exactly as now; it then closes as soon as an exit can begin, at the bid at that time, even if the bid has fallen back below the target. Everything else unchanged: limit at the bid, stop cancelled first, never sell twice, hard stop unchanged and asked first. Backtest-only, in `footprint.backtest.exits.TargetExit`; no change to `malik.py` or the live path. Built in HARDENING H1-0.
+
 This approval covers only its listed rows. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them.
 
 ### Q5 numbers awaiting Andre
