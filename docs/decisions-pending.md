@@ -217,7 +217,7 @@ Mutation equivalences argued (not proven):
 
 | ID | What | Notes |
 |---|---|---|
-| Q4-b | `docs/runbook-dry-run-monday.md` (remediation-v1): a supervised paper run with no market data: read-only check, kill switch status, start (`--no-blackouts`, `--new-ledger` the first time, `--alarms-local-only` if the D20 keys are not set), `status`, kill switch refused while running, a deliberate Gateway exit and re-login, `quit`, restart | It tells Andre **not** to type `clear` (no entry can be sent without it). Every expected line is quoted from the code; **UNVERIFIED against the real Gateway** until he runs it. Choosing `--no-blackouts` for a no-data run decides nothing about D-rows |
+| Q4-b | `docs/runbook-dry-run-monday.md` (remediation-v1): a supervised paper run with no market data: read-only check, kill switch status, start (`--no-blackouts`, `--new-ledger` the first time, `--alarms-local-only` if the D20 keys are not set), `status`, kill switch refused while running, a deliberate Gateway exit and re-login, `quit`, restart | It tells Andre **not** to type `clear` (no entry can be sent without it). Every expected line is quoted from the code; **UNVERIFIED against the real Gateway** until he runs it. Choosing `--no-blackouts` for a no-data run decides nothing about D-rows. **G34-1 (fixed):** step 7 no longer says Ctrl-C does the same as `quit`; Ctrl-C skips the held-position WARNING (`live/__main__.py` KeyboardInterrupt only sets stop), so the runbook says to use `quit` |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
