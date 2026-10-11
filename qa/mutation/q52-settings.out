@@ -1,4 +1,4 @@
-source: 747d71b20146e1aede2ce0129b17cdf44a6173ad tree-dirty: 0 files
+source: af3c91d91f69f67b5a049e7fa1ea16e29c50d13f tree-dirty: 0 files
 baseline [set]: passed
   1 KILLED   [set] src/footprint/backtest/settings.py: Q52S-1: max_pause_bars is read from the wrong key
   2 KILLED   [set] src/footprint/backtest/settings.py: Q52S-2: the two bar limits are swapped
@@ -7,4 +7,8 @@ baseline [set]: passed
   5 KILLED   [set] src/footprint/backtest/settings.py: Q52S-5: unknown or missing stairstep keys are not refused as config errors
   6 KILLED   [set] src/footprint/backtest/settings.py: Q52S-6: steps is not type-checked
   7 KILLED   [set] src/footprint/backtest/settings.py: Q52S-7: the configured giveback is ignored
-7 mutants, 0 survived or errored
+  8 KILLED   [set] src/footprint/backtest/settings.py: Q52S-8: the giveback's type is not checked by the loader (G46-1a)
+  9 KILLED   [set] src/footprint/backtest/settings.py: Q52S-9: a legal steps of one is refused (G46-1b)
+ 10 KILLED   [set] src/footprint/backtest/settings.py: Q52S-10: a legal max_pause_bars of one is refused (G46-1b)
+ 11 KILLED   [set] src/footprint/backtest/settings.py: Q52S-11: a legal max_stair_bars of one is refused (G46-1b)
+11 mutants, 0 survived or errored
