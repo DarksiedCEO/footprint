@@ -51,8 +51,11 @@ How it is built (first slice, entry side): `--entry NAME` picks a factory from
 
 Exit side (second slice): `--exit NAME` picks a factory from
 `footprint.backtest.rules.EXIT_RULES`. Trade management asks the rule last, on a fresh
-quote, after every existing reason to get out (gap and hard stop first, then the
-close, news, daily and weekly loss, kill switch). A yes closes the whole position with
+quote, after every existing reason to get out. In code order: a resting stop that is
+filled, held back, being cancelled by someone else or gone, or no resting stop at all
+(each exits before the rule is reached); a stale quote or a vanished bid (the rule is
+not asked); then the gap, the hard stop, the close, news, the news time stop, the daily
+loss limit, the weekly loss limit and the kill switch; the rule comes last. A yes closes the whole position with
 exit reason `RULE`. The rule can only add a way out; it never moves, replaces or
 loosens the hard stop. With no `--exit` trade management is built exactly as the live
 runner builds it.
