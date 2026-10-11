@@ -155,8 +155,8 @@
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "            if self._target is not None and self._already_invalid():",
-   "            if False and self._already_invalid():",
+   "                self._target is not None and self._already_invalid()",
+   "                False and self._already_invalid()",
    "Q52-22 (G39-1): a step that fails (a)/(b) after the stair forms does not cancel it"
   ],
   [
@@ -207,6 +207,48 @@
    "        self._push_volumes = [first.volume]",
    "        self._push_volumes = [first.volume, first.volume]",
    "Q52-30 (G39-2): the first new-high bar weighs twice in the push average"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "> self._s.max_stair_bars:\n            self._invalidate()",
+   "> self._s.max_stair_bars:\n            self._drop()",
+   "Q52-31 (G40-1): a stair past max_stair_bars drops the pause in progress (a new push may start inside it)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "            if len(self._pause_lows) > self._s.max_pause_bars or (\n                self._target is not None and self._already_invalid()\n            ):\n                self._invalidate()\n",
+   "            if len(self._pause_lows) > self._s.max_pause_bars:\n                self._drop()\n                return\n            if self._target is not None and self._already_invalid():\n                self._invalidate()\n",
+   "Q52-32 (G40-1): a pause past max_pause_bars drops the partition (a new push may start inside it)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "if not self._invalid and self._step_valid():",
+   "if self._step_valid():",
+   "Q52-33 (G40-1): a step already made invalid is judged again when its pause ends"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "                self._target is not None and self._already_invalid()",
+   "                self._target is not None\n                and bar.close <= self._target\n                and self._already_invalid()",
+   "Q52-34 (G40-2): a pause bar that breaks (a)/(b) and closes above the level enters"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        self._invalid = False  # the step in progress",
+   "        self._invalid = self._invalid if hasattr(self, '_invalid') else False  # the step in progress",
+   "Q52-35 (G40-1): a drop does not clear the invalid mark (every later step invalid)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        self._count = 0\n        self._target = None\n        self._invalid = True",
+   "        self._count = 0\n        self._invalid = True",
+   "Q52-36 (G40-1): an invalid step keeps the stair's entry level"
   ]
  ]
 }

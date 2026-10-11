@@ -386,3 +386,100 @@ def test_vol_averages_weigh_every_push_and_pause_bar_once() -> None:
     assert up(make(rows), vol=True) == []
     rows = [*STAIR[:7], ("107", "105.5", "106", 250), *STAIR[7:]]  # average 175: valid
     assert up(make(rows), vol=True) == [ENTRY + 1]
+
+
+# --- after an over-long pause or stair the push/pause partition goes on (G40-1) ---------
+# "A PAUSE is the bars after a push until a bar makes a new high above that push's high":
+# a pause that runs past max_pause_bars, or a stair that runs past max_stair_bars, makes
+# the step invalid (count zero, reading Q5.2-c), but those bars are still that pause, so
+# no new push starts before a bar exceeds the old push high (as for (a)/(b) failures).
+
+# Push 1 to 140 (start bar 0, low 98), then pause bars 3-6 at 120-125 (never above 140).
+LONG_PAUSE_HEAD = [
+    ("100", "98", "99", 50),
+    ("110", "99", "109", 200),
+    ("140", "109", "139", 200),
+    ("125", "120", "121", 100),
+    ("124", "120", "121", 100),
+    ("124", "120", "121", 100),
+    ("124", "120", "121", 100),
+]
+# A stair whose highs all stay below 140: pushes to 130, 134, 138 with pause lows 127,
+# 131, 135 (each higher, each giving back at most 50%), closing 138.5 on its last bar.
+MINI_STAIR = [
+    ("126", "121", "125", 200),
+    ("130", "124", "129", 200),
+    ("129", "127", "128", 100),
+    ("132", "127.5", "131", 200),
+    ("134", "130", "133", 200),
+    ("133", "131", "132", 100),
+    ("136", "131.5", "135", 200),
+    ("138", "135", "137", 200),
+    ("137", "135", "136", 100),
+    ("139", "135.5", "138.5", 200),
+]
+# After the old pause: a bar above 140 starts push 1 of a new count (from the last pause
+# bar, low 120); three valid steps follow and bar 13 closes above push 3's 149: ENTRY.
+NEW_STAIR = [
+    ("141", "121", "140", 200),
+    ("140", "135", "136", 100),
+    ("145", "136", "144", 200),
+    ("144", "141", "142", 100),
+    ("149", "142", "148", 200),
+    ("148", "146", "147", 100),
+    ("150", "147", "149.5", 200),
+]
+
+
+def test_no_stair_forms_inside_a_pause_that_ran_past_max_pause_bars() -> None:
+    three = StairSettings(
+        steps=3, max_giveback=Decimal("0.5"), max_pause_bars=3, max_stair_bars=100
+    )
+    rows = [*LONG_PAUSE_HEAD, *MINI_STAIR]
+    assert up(make(rows), three) == []
+    assert up(make(rows), three, vol=True) == []
+    assert down(make(mirror(rows)), three) == []
+    assert down(make(mirror(rows)), three, vol=True) == []
+    # The same stair on its own (one lead bar) does fire: only the old pause blocks it.
+    assert up(make([("121", "120", "120", 100), *MINI_STAIR]), three) == [10]
+
+
+def test_after_an_over_long_pause_the_bar_above_the_old_push_high_starts_a_new_count() -> None:
+    three = StairSettings(
+        steps=3, max_giveback=Decimal("0.5"), max_pause_bars=3, max_stair_bars=100
+    )
+    rows = [*LONG_PAUSE_HEAD, *NEW_STAIR]
+    assert up(make(rows), three) == [13]
+    assert up(make(rows), three, vol=True) == [13]
+    assert down(make(mirror(rows)), three) == [13]
+
+
+def test_no_stair_forms_inside_a_pause_once_the_stair_ran_past_max_stair_bars() -> None:
+    # Pause 1 is 12 bars (3-14), so max_pause 20 never bites; the old stair (from bar 0)
+    # passes 12 bars on bar 12, inside the pause. The mini stair (start bar 14 to its
+    # close on bar 24: 11 bars) would fit in 12 bars on its own.
+    pause = [("124", "120", "121", 100)] * 8
+    rows = [*LONG_PAUSE_HEAD, *pause, *MINI_STAIR]
+    twelve = StairSettings(
+        steps=3, max_giveback=Decimal("0.5"), max_pause_bars=20, max_stair_bars=12
+    )
+    assert up(make(rows), twelve) == []
+    assert down(make(mirror(rows)), twelve) == []
+    assert up(make([("121", "120", "120", 100), *MINI_STAIR]), twelve) == [10]
+
+
+# --- the bar that breaks pause 4 and closes above the level is not the entry (G40-2) ----
+
+
+def test_a_pause_bar_that_breaks_the_step_and_closes_above_the_level_is_not_the_entry() -> None:
+    # Bar 11 (pause 4) closes 112.5 above push 3's 112 but its low breaks the step:
+    # (a) low 108 is not above pause 3's 109; (b) low 110.5 gives back 2.5 of push 4's 4.
+    later = ("113", "111", "112.5", 100)
+    for low in ("108", "110.5"):
+        rows = [*STAIR[:11], ("113", low, "112.5", 100), later]
+        assert up(make(rows)) == []
+        assert down(make(mirror(rows))) == []
+    # With a low that keeps the step valid, that same bar is the entry.
+    rows = [*STAIR[:11], ("113", "111", "112.5", 100)]
+    assert up(make(rows)) == [11]
+    assert down(make(mirror(rows))) == [11]

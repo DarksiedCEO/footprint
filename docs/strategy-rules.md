@@ -121,6 +121,10 @@ detector from the pipeline's 1-min bars.
 Until the entry close the steps still count: if the step after the formed stair turns
 invalid first, the count is zero and there is no entry (review G39-1; reading Q5.2-b,
 for Andre to confirm).
+A pause past `max_pause_bars` or a stair past `max_stair_bars` is an invalid step like
+any other: the pause runs on until a bar exceeds its push high, and that push starts the
+new count, so no stair forms inside the old pause (review G40-1; reading Q5.2-c, for
+Andre to confirm).
 
 ## Q5.3 entry "pullback" (`entry-pullback-v1`)
 

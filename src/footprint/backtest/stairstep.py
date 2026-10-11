@@ -25,7 +25,10 @@ How each word is read here (docs/decisions-pending.md, Q5.2-a):
   test when it ends) the count is zero and there is no entry. After an entry the count
   starts again from zero.
 - The stair runs from the first push's start bar to the entry bar; more than
-  max_stair_bars bars and it is dropped (count zero). A missing bar (any step in time
+  max_stair_bars bars and it is dropped (count zero). A step dropped this way, or by
+  a pause longer than max_pause_bars, is an invalid step like any other: its bars are
+  still that push and pause, so the pause runs on until a bar exceeds the push high,
+  and that bar's push starts the new count (Q5.2-c). A missing bar (any step in time
   other than one bar interval: a gap, the daily halt, days with no bars) drops it too, and no
   push starts across the missing time.
 - The down move is the exact mirror: every price is reflected (highs <-> lows).
@@ -102,6 +105,14 @@ class _Scan:
         self._pause_lows: list[Decimal] = []
         self._pause_volumes: list[Decimal] = []
         self._target: Decimal | None = None  # set once the stair is formed
+        self._invalid = False  # the step in progress is already invalid; count is zero
+
+    def _invalidate(self) -> None:
+        """The step in progress is invalid: the count is zero and there is no stair,
+        but the push and its pause run on until a bar exceeds the push high."""
+        self._count = 0
+        self._target = None
+        self._invalid = True
 
     def _start_push(self, start: int, start_bar: _View, first: _View) -> None:
         if self._count == 0:
@@ -140,7 +151,7 @@ class _Scan:
             self._drop()
             return
         if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars:
-            self._drop()
+            self._invalidate()
         if self._push_start_low is None:  # looking for a push (never with a formed stair)
             if bar.high > prev.high:
                 self._start_push(i - 1, prev, bar)
@@ -149,7 +160,7 @@ class _Scan:
             self._push_high = bar.high
             self._push_volumes.append(bar.volume)
         elif bar.high > self._push_high:  # the pause ends: judge the step
-            if self._step_valid():
+            if not self._invalid and self._step_valid():
                 self._count += 1
                 self._prev_pause_low = min(self._pause_lows)
             else:
@@ -160,14 +171,10 @@ class _Scan:
         else:  # a pause bar
             self._pause_lows.append(bar.low)
             self._pause_volumes.append(bar.volume)
-            if len(self._pause_lows) > self._s.max_pause_bars:
-                self._drop()
-                return
-            if self._target is not None and self._already_invalid():
-                # The step after the stair is already invalid: the count is zero (the
-                # pause runs on and is judged invalid when it ends, as for any step).
-                self._target = None
-                self._count = 0
+            if len(self._pause_lows) > self._s.max_pause_bars or (
+                self._target is not None and self._already_invalid()
+            ):
+                self._invalidate()
         if self._target is not None and bar.close > self._target:
             self.entries.append(i)
             self._drop()
