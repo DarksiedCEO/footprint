@@ -295,8 +295,12 @@ def test_no_live_module_imports_the_backtest_rules() -> None:
     for path in src.rglob("*.py"):
         if path.is_relative_to(src / "backtest"):
             continue
-        source = path.read_text(encoding="utf-8")
-        assert _live_path_violations(source, owns_exit_rule=path == malik) == [], path
+        found = _live_path_violations(path.read_text(encoding="utf-8"))
+        if path == malik:  # trade management keeps the rule it is given, and only it
+            assert found, path
+            assert set(found) == {"touches _exit_rule"}, (path, found)
+        else:
+            assert found == [], (path, found)
 
 
 # H1 (G36-1, G37-2): the guard above must also see the indirect ways of reaching the

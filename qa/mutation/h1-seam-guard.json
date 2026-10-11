@@ -99,9 +99,16 @@
   [
    "t",
    "tests/backtest/test_rules_seam.py",
-   "        assert _live_path_violations(source, owns_exit_rule=path == malik) == [], path\n",
-   "        assert _live_path_violations(source, owns_exit_rule=True) == [], path\n",
-   "H1S-14: every module may hold the rule (real-tree guard)"
+   "            assert set(found) == {\"touches _exit_rule\"}, (path, found)\n",
+   "            pass\n",
+   "H1S-14: trade management may hold anything else"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if path == malik:  # trade management keeps the rule it is given, and only it\n",
+   "        if path.name == \"malik.py\" or path.name == \"app.py\":\n",
+   "H1S-15: a second module may hold the rule"
   ]
  ]
 }
