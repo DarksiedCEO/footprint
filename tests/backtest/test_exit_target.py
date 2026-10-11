@@ -13,13 +13,16 @@ import pytest
 
 from footprint.backtest import rules
 from footprint.backtest.exits import TargetExit
+from footprint.backtest.settings import BacktestSettings
 from footprint.core.config import Profiles
 from footprint.execution.management.malik import ExitRule, Manager
 from tests.backtest.test_rules_seam import _run
 
 
-def test_target_is_registered_and_built_from_the_configured_target(profiles: Profiles) -> None:
-    built = rules.EXIT_RULES["target"](profiles)
+def test_target_is_registered_and_built_from_the_configured_target(
+    profiles: Profiles, settings: BacktestSettings
+) -> None:
+    built = rules.EXIT_RULES["target"](profiles, settings.rules)
     assert isinstance(built, TargetExit)
     assert built.target is profiles.risk.profit_target
 

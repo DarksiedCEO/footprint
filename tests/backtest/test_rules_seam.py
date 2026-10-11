@@ -190,7 +190,7 @@ def test_a_named_exit_rule_is_asked_and_can_close_the_trade(
 ) -> None:
     built: list[AlwaysOut] = []
 
-    def always(profiles: Profiles) -> AlwaysOut:
+    def always(profiles: Profiles, rule_settings: RuleSettings) -> AlwaysOut:
         built.append(AlwaysOut())
         return built[-1]
 

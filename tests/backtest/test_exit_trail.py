@@ -17,14 +17,17 @@ from pathlib import Path
 import pytest
 
 from footprint.backtest import rules
+from footprint.backtest.settings import BacktestSettings
 from footprint.core.config import Profiles
 from footprint.execution.management.malik import ExitRule, Manager
 from tests.backtest.test_rules_seam import _normalised, _run
 
 
-def test_trail_is_registered_and_adds_no_exit_rule(profiles: Profiles) -> None:
+def test_trail_is_registered_and_adds_no_exit_rule(
+    profiles: Profiles, settings: BacktestSettings
+) -> None:
     assert "trail" in rules.EXIT_RULES
-    assert rules.EXIT_RULES["trail"](profiles) is None
+    assert rules.EXIT_RULES["trail"](profiles, settings.rules) is None
 
 
 def test_a_trail_run_builds_trade_management_exactly_as_the_live_runner(

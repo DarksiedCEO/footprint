@@ -22,8 +22,10 @@ from decimal import Decimal
 
 from footprint.backtest.exits import TargetExit
 from footprint.backtest.rules import EXIT_RULES
+from footprint.backtest.settings import load_backtest
 from footprint.core.config import Profiles
 from footprint.execution.management.malik import ExitReason, Manager
+from tests.conftest import REPO_ROOT
 from tests.execution.conftest import SEND, Stack
 from tests.execution.test_execution import filled_position
 
@@ -34,7 +36,9 @@ TICK_BELOW = D("201.50")  # net +995.00
 
 
 def _with_rule(stack: Stack, profiles: Profiles) -> None:
-    rule = EXIT_RULES["target"](profiles)
+    rule = EXIT_RULES["target"](
+        profiles, load_backtest(REPO_ROOT / "config" / "backtest.yaml").rules
+    )
     assert rule is not None
     stack.manager = Manager(
         stack.profiles,

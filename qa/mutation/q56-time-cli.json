@@ -1,0 +1,61 @@
+{
+ "groups": {
+  "t": [
+   "tests/backtest/test_exit_time.py",
+   "tests/backtest/test_entry_stairstep.py",
+   "tests/backtest/test_exit_trail.py",
+   "tests/backtest/test_exit_target.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    \"time\": time,\n",
+   "",
+   "Q56S-1: time not registered"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    return TimeExit(rule_settings.time)\n",
+   "    return None\n",
+   "Q56S-2: time adds no rule"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    return TimeExit(rule_settings.time)\n",
+   "    return TimeExit(__import__('footprint.backtest.settings', fromlist=['load_backtest']).load_backtest(__import__('pathlib').Path(__file__).parents[3] / 'config' / 'backtest.yaml').rules.time)\n",
+   "Q56S-3: numbers from the repo's config, not the run's"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    if name == \"time\":\n",
+   "    if name != \"time\":\n",
+   "Q56S-4: time numbers recorded for the wrong rules"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "            f\"rule time {f.name}\": str(getattr(numbers, f.name))\n",
+   "            f\"rule {f.name}\": str(getattr(numbers, f.name))\n",
+   "Q56S-5: readout key loses its section"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/__main__.py",
+   "        assumptions.update(exit_rule_numbers(args.exit, settings.rules))\n",
+   "",
+   "Q56S-6: exit numbers not recorded"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/__main__.py",
+   "exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles, settings.rules),",
+   "exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles, load_backtest(Path('config') / 'backtest.yaml').rules),",
+   "Q56S-7: the rule built from the cwd's config, not --config"
+  ]
+ ]
+}
