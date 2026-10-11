@@ -126,6 +126,16 @@ def test_the_entry_must_close_up() -> None:
     assert both(rows, SPIKES) == ([], [])
 
 
+def test_a_doji_above_the_prior_high_is_not_a_close_up() -> None:
+    # G64-2: close == open is not "closes up (close > open)", even above the prior high.
+    rows = list(BASE)
+    rows[3] = ("106.5", "106.75", "105.25", "106.5")  # doji, close 106.5 > bar 2's high 106
+    rows[4] = ("107", "107", "106.5", "107")  # doji, close 107 > bar 3's high 106.75
+    assert both(rows, SPIKES) == ([], [])
+    rows[4] = ("106.75", "107", "106.5", "107")  # one tick up: it is the entry
+    assert both(rows, SPIKES) == ([4], [4])
+
+
 def test_the_entry_must_close_strictly_above_the_prior_high() -> None:
     rows = list(BASE)
     rows[3] = ("105.5", "106.5", "105.25", "106")  # close == bar 2's high

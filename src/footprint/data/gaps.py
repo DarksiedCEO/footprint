@@ -4,12 +4,14 @@
 
 A minute is tradable when the instrument's calendar (`session_at`) puts it in the PRIME
 or OVERNIGHT window. Minutes the calendar calls CLOSED (the daily halt, weekends,
-holidays, after an early close) are never gaps. Every minute from `start` to the last
-bar is looked at, and with `until` (the moment the bars were read) on to the last minute
-that had closed by then, so a missing tail is a gap too (G29-2). A run of more than
-`max_missing` consecutive tradable minutes without a bar is a gap (a closed minute or a
-bar ends a run). A short run is allowed because a window includes its end minute, when
-the exchange has already halted, and a quiet minute may have no trade.
+holidays, after an early close) are never gaps. Every minute from `start` (or from the
+first bar, when a bar is older than `start`: every bar handed in is written, so every one
+is checked, G64-1) to the last bar is looked at, and with `until` (the moment the bars
+were read) on to the last minute that had closed by then, so a missing tail is a gap too
+(G29-2). A run of more than `max_missing` consecutive tradable minutes without a bar is a
+gap (a closed minute or a bar ends a run). A short run is allowed because a window
+includes its end minute, when the exchange has already halted, and a quiet minute may
+have no trade.
 
 Fails closed: no bars at all is a gap, and bars outside the maintained calendar
 (`calendar_from`..`calendar_through`, where the calendar cannot say which minutes trade)
@@ -37,8 +39,8 @@ def first_gap(
     until: datetime | None = None,
 ) -> str | None:
     """The first run of more than `max_missing` tradable minutes with no bar, from `start`
-    (a whole UTC minute) to the last bar, or to the last minute closed by `until` when
-    that is later, said in words; None when there is none."""
+    (a whole UTC minute; or the first bar when it is older) to the last bar, or to the
+    last minute closed by `until` when that is later, said in words; None when there is none."""
     require_utc(start, "start")
     if start.second or start.microsecond:
         raise ValueError(f"start {start.isoformat()} must be a whole minute")
@@ -59,7 +61,7 @@ def first_gap(
     have = {b.ts for b in bars}
     run_from: datetime | None = None
     run = 0
-    minute = start
+    minute = min(start, bars[0].ts)
     while minute <= end:
         if minute in have or session_at(minute, instrument) is SessionKind.CLOSED:
             if run > max_missing:
