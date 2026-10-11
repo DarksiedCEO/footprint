@@ -1,0 +1,6 @@
+source: 90ef0e9489f3cf9ac383f7da32193d2e8af0629a tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] qa/mutation/mutate.py: G32-1 R2: the inherited env spread last wins over the runner's isolation
+  2 KILLED   [t] qa/mutation/mutate.py: G32-1: an inherited PYTHONDONTWRITEBYTECODE wins
+  3 KILLED   [t] qa/mutation/mutate.py: G32-1: an inherited PYTHONPYCACHEPREFIX wins
+3 mutants, 0 survived or errored
