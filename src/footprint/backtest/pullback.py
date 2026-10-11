@@ -32,7 +32,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 
-from footprint.core.models import Bar, Score
+from footprint.agents._series import candle_direction, relative_volume
+from footprint.core.config import VolumeSettings
+from footprint.core.models import Bar, Read, Score
+from footprint.core.series import require_series
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,3 +114,63 @@ def pullback_entries(
         if spikes[i] is wanted:
             live.append(_Setup(i, bar.high if rising else bar.low))
     return entries
+
+
+def spike_score(bars: Sequence[Bar], index: int, volume: VolumeSettings, timezone: str) -> Score:
+    """The spike test "breakout" uses, on bars[index] alone (MomentumReader's first
+    step, the same read VolumeReader gives for that bar): relative volume against the
+    same time of day on earlier sessions at or above the configured multiple, on a
+    candle with a direction. NEUTRAL when it cannot be measured, is below the multiple,
+    or is a doji. Breakout's follow-through is not part of it (reading Q5.3-d)."""
+    rel = relative_volume(bars, index, volume.lookback_sessions, timezone)
+    if rel is None or rel < volume.spike_multiple:
+        return Score.NEUTRAL
+    return candle_direction(bars[index])
+
+
+class PullbackTrigger:
+    """Q5.3 "pullback" as an EntryTrigger: BULLISH when the up pullback enters on the
+    last bar, BEARISH when the down one does, NEUTRAL otherwise. Both cannot happen on
+    one bar (an up entry closes above its open, a down entry below).
+
+    It scans back from the last bar only while bars are one interval apart and within
+    the lifetime of the last bar: a setup spiked earlier is dead on the last bar, and a
+    missing bar drops every setup, so the answer equals a scan of the whole history.
+    Relative volume is still measured against the whole history handed in."""
+
+    def __init__(
+        self,
+        settings: PullbackSettings,
+        volume: VolumeSettings,
+        timezone: str,
+        interval: timedelta,
+    ) -> None:
+        self._lifetime = settings.lifetime
+        self._volume = volume
+        self._timezone = timezone
+        self._interval = interval
+
+    @property
+    def agent_id(self) -> str:
+        return "momentum"
+
+    def read(self, bars: Sequence[Bar]) -> Read:
+        require_series(bars, None, "PullbackTrigger bars")
+        last = bars[-1]
+        start = len(bars) - 1
+        while (
+            start > 0
+            and bars[start].ts - bars[start - 1].ts == self._interval
+            and last.ts - bars[start - 1].ts <= self._lifetime
+        ):
+            start -= 1
+        window = bars[start:]
+        spikes = [
+            spike_score(bars, start + k, self._volume, self._timezone) for k in range(len(window))
+        ]
+        target = len(window) - 1
+        if target in pullback_entries(window, spikes, self._lifetime, self._interval, rising=True):
+            return Read(self.agent_id, last.ts, Score.BULLISH, "pullback: up pullback entry")
+        if target in pullback_entries(window, spikes, self._lifetime, self._interval, rising=False):
+            return Read(self.agent_id, last.ts, Score.BEARISH, "pullback: down pullback entry")
+        return Read(self.agent_id, last.ts, Score.NEUTRAL, "pullback: no pullback entry")

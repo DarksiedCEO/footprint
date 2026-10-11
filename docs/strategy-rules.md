@@ -158,9 +158,13 @@ How it is built (`entry-pullback-v1`, slice 1: the detector): `footprint.backtes
 takes 1-min bars and the spike test's answer per bar and returns the bars where the
 entry fires. How each word is read is in `docs/decisions-pending.md` (Q5.3-a, for
 Andre to confirm); every reading is pinned by a hand-built fixture in
-`tests/backtest/test_pullback.py`. Not built yet (slice 2): feeding it the same spike
-test "breakout" uses, the lifetime DEFAULT in `config/backtest.yaml` `rules:`, the
-trigger, and "pullback" in `ENTRY_RULES`. Nothing can select it yet.
+`tests/backtest/test_pullback.py`. Slice 2a: the lifetime DEFAULT loads from
+`config/backtest.yaml` `rules: pullback:`. Slice 2b-1: `spike_score` is the spike test
+"breakout" uses, read as the spike bar test alone (MomentumReader step 1, pinned against
+MomentumReader and VolumeReader; reading Q5.3-d), and `PullbackTrigger` puts the
+detector in the momentum slot of the decision pipeline. Not built yet (slice 2b-2):
+"pullback" in `ENTRY_RULES`, its lifetime in the readout, pipeline/CLI tests. Nothing
+can select it yet.
 
 ## Q5.4 exit "trail" (`exit-trail-v1`): BASELINE
 
