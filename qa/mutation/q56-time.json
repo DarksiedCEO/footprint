@@ -13,7 +13,7 @@
   ["t", "src/footprint/backtest/exits.py", "        if verdict is not None:\n            return verdict\n", "", "Q56-5: judged again on every quote (keep not final, out not held)"],
   ["t", "src/footprint/backtest/exits.py", "        self._verdicts[pid] = verdict\n", "", "Q56-6: verdict not remembered"],
   ["t", "src/footprint/backtest/exits.py", "        self._verdicts[pid] = verdict\n", "        self._verdicts[pid] = False\n", "Q56-7: an out is not held"],
-  ["t", "src/footprint/backtest/exits.py", "        pid = position.position_id\n", "        pid = \"one\"\n", "Q56-8: verdicts not per position"],
+  ["t", "src/footprint/backtest/exits.py", "        pid = position.position_id\n        verdict = self._verdicts.get(pid)\n", "        pid = \"one\"\n        verdict = self._verdicts.get(pid)\n", "Q56-8: verdicts not per position"],
   ["t", "src/footprint/backtest/exits.py", "        return timedelta(minutes=self.minutes)\n", "        return timedelta(seconds=self.minutes)\n", "Q56-9: the mark in the wrong unit"],
   ["t", "src/footprint/backtest/settings.py", "        minutes=_integer(t, \"minutes\", t_where, minimum=1),\n", "        minutes=_integer(t, \"minutes\", t_where, minimum=0),\n", "Q56-10: zero minutes accepted"],
   ["t", "src/footprint/backtest/settings.py", "        minutes=_integer(t, \"minutes\", t_where, minimum=1),\n", "        minutes=_integer(t, \"minutes\", t_where, minimum=2),\n", "Q56-11: one minute refused"],
