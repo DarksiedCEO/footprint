@@ -1,0 +1,37 @@
+{
+ "groups": {
+  "t": [
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "            found += [f\"imports {a.name}\" for a in node.names if False]\n",
+   "G57-1: plain imports not read"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "            found += [f\"imports {a.name}\" for a in node.names if a.name.startswith(\"footprint.backtest\")]\n",
+   "G57-1: plain imports read by prefix (the old check)"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.match(a.name)]\n",
+   "G57-1: plain imports matched at the start only"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "            found += [f\"imports {a.name}\" for a in node.names[:0] if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "G57-1: no imported name read"
+  ]
+ ]
+}
