@@ -1,0 +1,5 @@
+source: a71d8c65449f5365609efbebf0f8b434935d2232 tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] tests/backtest/test_rules_seam.py: G58-1: only the first name of a plain import read
+  2 KILLED   [t] tests/backtest/test_rules_seam.py: G58-1: the first name of a plain import skipped
+2 mutants, 0 survived or errored
