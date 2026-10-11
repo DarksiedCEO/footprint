@@ -1,0 +1,26 @@
+{
+ "groups": {
+  "breakout": [
+   "tests/backtest/test_entry_breakout.py",
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  ["breakout", "src/footprint/backtest/rules.py",
+   "ENTRY_RULES: dict[str, EntryRule] = {\"breakout\": breakout}",
+   "ENTRY_RULES: dict[str, EntryRule] = {\"break_out\": breakout}",
+   "Q51-1: the rule is registered under another name"],
+  ["breakout", "src/footprint/backtest/rules.py",
+   "    return MomentumReader(profiles.strategy.volume, profiles.instrument)",
+   "    return MomentumReader(replace(profiles.strategy.volume, spike_multiple=profiles.strategy.volume.spike_multiple + 1), profiles.instrument)\n\n\nfrom dataclasses import replace",
+   "Q51-2: breakout uses a different spike threshold"],
+  ["breakout", "src/footprint/backtest/rules.py",
+   "    return MomentumReader(profiles.strategy.volume, profiles.instrument)",
+   "    return MomentumReader(replace(profiles.strategy.volume, lookback_sessions=profiles.strategy.volume.lookback_sessions - 1), profiles.instrument)\n\n\nfrom dataclasses import replace",
+   "Q51-3: breakout uses a different look-back"],
+  ["breakout", "src/footprint/agents/momentum_reader.py",
+   "            last.close > spike.close if direction is Score.BULLISH else last.close < spike.close",
+   "            last.close > spike.high if direction is Score.BULLISH else last.close < spike.low",
+   "Q51-4: control: the shared reader's follow-through changes (both runs change alike; the byte test cannot see it, the golden test must)"]
+ ]
+}

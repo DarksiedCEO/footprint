@@ -1,0 +1,7 @@
+source: 0617d98a24f3ec3b1370a56a06f1f858aa345d61 tree-dirty: 0 files
+baseline [breakout]: passed
+  1 KILLED   [breakout] src/footprint/backtest/rules.py: Q51-1: the rule is registered under another name
+  2 KILLED   [breakout] src/footprint/backtest/rules.py: Q51-2: breakout uses a different spike threshold
+  3 KILLED   [breakout] src/footprint/backtest/rules.py: Q51-3: breakout uses a different look-back
+  4 KILLED   [breakout] src/footprint/agents/momentum_reader.py: Q51-4: control: the shared reader's follow-through changes (both runs change alike; the byte test cannot see it, the golden test must)
+4 mutants, 0 survived or errored

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from footprint.agents.momentum_reader import MomentumReader
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import EntryTrigger
 from footprint.execution.management.malik import ExitRule
@@ -24,5 +25,13 @@ from footprint.execution.management.malik import ExitRule
 EntryRule = Callable[[Profiles], EntryTrigger]
 ExitRuleFactory = Callable[[Profiles], ExitRule]
 
-ENTRY_RULES: dict[str, EntryRule] = {}
+
+def breakout(profiles: Profiles) -> EntryTrigger:
+    """Q5.1 "breakout", the BASELINE: the existing momentum entry, unchanged (Darius,
+    built exactly as the pipeline builds it with no rule named). See
+    docs/strategy-rules.md."""
+    return MomentumReader(profiles.strategy.volume, profiles.instrument)
+
+
+ENTRY_RULES: dict[str, EntryRule] = {"breakout": breakout}
 EXIT_RULES: dict[str, ExitRuleFactory] = {}
