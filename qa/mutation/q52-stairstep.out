@@ -1,0 +1,24 @@
+source: ecf0a6509120ed16d90c668f7addeb0201b30599 tree-dirty: 0 files
+baseline [stair]: passed
+  1 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-1: an equal pause low counts as a higher low
+  2 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-2: exactly 50% giveback no longer qualifies
+  3 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-3: the push is measured from its first new-high bar, not the start bar
+  4 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-4: equal push and pause volume passes _vol
+  5 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-5: the start bar counts in the push volume average
+  6 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-6: the stair span restarts at every push
+  7 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-7: stair span off by one
+  8 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-8: a close AT the third push high enters (later bar)
+  9 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-9: the breaking bar enters on a close AT the push high
+ 10 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-10: the stair is not dropped after an entry (enters again)
+ 11 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-11: an equal high starts a push
+ 12 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-12: an equal high continues a push
+ 13 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-13: an equal high ends a pause
+ 14 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-14: the mirror does not swap highs and lows
+ 15 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-15: max pause bars off by one
+ 16 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-16: a missing bar does not break the stair
+ 17 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-17: the higher-low test is never applied
+ 18 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-18: an invalid step does not reset the count
+ 19 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-19: the mirror does not reflect the close
+ 20 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-20: a gap keeps the stair in progress
+ 21 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-21: settings accept a zero max pause
+21 mutants, 0 survived or errored
