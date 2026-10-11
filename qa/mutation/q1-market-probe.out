@@ -1,0 +1,22 @@
+source: ba3e5b36b0d7d3aff8671da94017a56e60f9de82 tree-dirty: 0 files
+baseline [q1]: passed
+  1 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-1: place_order passes through
+  2 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-2: cancel_order silently accepted
+  3 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-3: global_cancel silently accepted
+  4 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-4: quote request id altered
+  5 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-5: history asks to keep up to date
+  6 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-6: stops on a future quote alone (killed by test_a_future_quote_alone_does_not_end_the_wait)
+  7 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-7: deadline off by one look
+  8 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-8: last sleep overruns the deadline
+  9 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-10: not nearest-first
+ 10 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-11: option count ignored
+ 11 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-12: a stale quote is silently skipped
+ 12 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-13: missing quotes exit 0
+ 13 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-14: age sign flipped
+ 14 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-15: future quote not checked for freshness
+ 15 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-16: future quote offered while disconnected (EQUIVALENT, argued in docs/decisions-pending.md: LOST resets _underlying and _lines under the same lock)
+ 16 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-17: option_quote may return the future's line
+ 17 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-18: option quote not checked for freshness
+ 18 KILLED   [q1] src/footprint/core/config.py: Q1-19: probe wait 0 accepted
+ 19 KILLED   [q1] src/footprint/core/config.py: Q1-20: probe count 0 accepted
+19 mutants, 0 survived or errored

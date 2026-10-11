@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,11 @@ from ibapi.contract import Contract
 from ibapi.order import Order
 from ibapi.order_state import OrderState
 
+from footprint.brokers.ibkr import check as check_module
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
-from footprint.brokers.ibkr.check import IBKR_LOGGERS, PlannedHangUp, ReadOnlyGateway, check
+from footprint.brokers.ibkr.check import IBKR_LOGGERS, PlannedHangUp, check, main
+from footprint.brokers.ibkr.market import MarketData
+from footprint.brokers.ibkr.readonly import ReadOnlyGateway
 from footprint.core.config import Profiles, load_profiles
 from tests.brokers.test_ibkr_binding import ACCOUNT, request, settings
 
@@ -193,3 +197,105 @@ def test_ibkr_logs_pass_until_the_check_hangs_up() -> None:
     assert quiet.filter(record)  # a real loss during the check is still logged
     closing.set()
     assert not quiet.filter(record)
+
+
+# --- G27-1 (2026-10-10): `check --market-data` itself, not only probe_market -----------
+
+ORDER_CALLS = {"placeOrder", "cancelOrder", "reqGlobalCancel"}
+
+
+class ProbeClock:
+    """The probe's clock: virtual, so the configured wait passes at once."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 10, 14, 14, 0, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += timedelta(seconds=seconds)
+
+
+def run_market_check(profiles: Profiles) -> tuple[int, str, list[SimulatedGateway]]:
+    gateways: list[SimulatedGateway] = []
+
+    def factory(wrapper: Any) -> SimulatedGateway:
+        gateways.append(SimulatedGateway(wrapper))
+        return gateways[-1]
+
+    out = io.StringIO()
+    clock = ProbeClock()
+    code = check(
+        profiles,
+        settings(),
+        2.0,
+        out,
+        lambda st, scope, alarm: IbBinding(st, scope, alarm, factory),
+        market_data=True,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    return code, out.getvalue(), gateways
+
+
+def test_the_market_check_asks_for_market_data_and_exits_one_without_quotes(
+    profiles: Profiles,
+) -> None:
+    code, out, gateways = run_market_check(profiles)
+    wait = profiles.execution.market_data.probe_wait_seconds
+    assert code == 1
+    assert "resynced" in out
+    assert f"market data: waiting up to {wait} s for quotes" in out
+    assert f"NO MARKET DATA after {wait} s: no fresh future quote" in out
+    sent = [name for g in gateways for name in g.sent]
+    # MarketData was attached before run() and stepped: it looked the future up
+    assert "reqContractDetails" in sent
+    assert ORDER_CALLS.isdisjoint(sent)  # nothing placed, changed or cancelled
+    assert all(not g.connected for g in gateways)
+
+
+def test_the_market_check_reads_through_the_read_only_gateway(
+    profiles: Profiles, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built: list[Any] = []
+    real = MarketData
+
+    def recording(gateway: Any, *rest: Any) -> Any:
+        built.append(gateway)
+        return real(gateway, *rest)
+
+    monkeypatch.setattr(check_module, "MarketData", recording)
+    run_market_check(profiles)
+    assert len(built) == 1
+    assert isinstance(built[0], ReadOnlyGateway)  # never the raw binding
+
+
+def test_the_plain_check_starts_no_market_data(
+    profiles: Profiles, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built: list[Any] = []
+    monkeypatch.setattr(check_module, "MarketData", lambda *a: built.append(a))
+    code, _, gateways = run_check(profiles, settings())
+    assert code == 0
+    assert built == []
+    assert all("reqContractDetails" not in g.sent for g in gateways)
+
+
+@pytest.mark.parametrize(("argv", "expected"), [([], False), (["--market-data"], True)])
+def test_main_passes_the_market_data_flag(
+    argv: list[str], expected: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[bool] = []
+
+    def fake_check(*args: Any, market_data: bool = False) -> int:
+        seen.append(market_data)
+        return 0
+
+    # no .env is read: the paper settings the other tests use
+    monkeypatch.setattr(check_module, "read_env_file", lambda path: {})
+    monkeypatch.setattr(IbConnectionSettings, "from_env", lambda env, ibkr: settings())
+    monkeypatch.setattr(check_module, "check", fake_check)
+    config = ["--config", str(ROOT / "config"), "--env", str(tmp_path / ".env")]
+    assert main([*config, *argv]) == 0
+    assert seen == [expected]

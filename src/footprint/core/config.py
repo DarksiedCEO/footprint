@@ -744,6 +744,8 @@ class MarketDataSettings:
     strike_window_points: Decimal
     recenter_points: Decimal
     max_quote_lines: int
+    probe_wait_seconds: int
+    probe_option_quotes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -873,6 +875,8 @@ def load_execution(path: Path) -> ExecutionProfile:
         strike_window_points=_positive_decimal(m, "strike_window_points", m_where),
         recenter_points=_positive_decimal(m, "recenter_points", m_where),
         max_quote_lines=_integer(m, "max_quote_lines", m_where, minimum=2),
+        probe_wait_seconds=_integer(m, "probe_wait_seconds", m_where, minimum=1),
+        probe_option_quotes=_integer(m, "probe_option_quotes", m_where, minimum=1),
     )
     if (
         market_data.strike_window_points

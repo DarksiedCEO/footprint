@@ -1,0 +1,142 @@
+{
+ "groups": {
+  "q1": [
+   "tests/brokers/test_market_probe.py"
+  ]
+ },
+ "mutants": [
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        raise PermissionError(\"read-only check: no order is sent\")",
+   "        self._inner.place_order(request)  # type: ignore[attr-defined]",
+   "Q1-1: place_order passes through"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "    def cancel_order(self, ib_id: int) -> None:\n        raise PermissionError(\"read-only check: no order is cancelled\")",
+   "    def cancel_order(self, ib_id: int) -> None:\n        return None",
+   "Q1-2: cancel_order silently accepted"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "    def global_cancel(self) -> None:\n        raise PermissionError(\"read-only check: no order is cancelled\")",
+   "    def global_cancel(self) -> None:\n        return None",
+   "Q1-3: global_cancel silently accepted"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        self._inner.request_quotes(req_id, contract)",
+   "        self._inner.request_quotes(req_id + 1, contract)",
+   "Q1-4: quote request id altered"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        self._inner.request_bars(req_id, query, end, duration, keep_up_to_date)",
+   "        self._inner.request_bars(req_id, query, end, duration, True)",
+   "Q1-5: history asks to keep up to date"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        if (future is not None and chain is not None) or waited >= wait_seconds:",
+   "        if future is not None or waited >= wait_seconds:",
+   "Q1-6: stops on a future quote alone (killed by test_a_future_quote_alone_does_not_end_the_wait)"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        if (future is not None and chain is not None) or waited >= wait_seconds:",
+   "        if (future is not None and chain is not None) or waited > wait_seconds:",
+   "Q1-7: deadline off by one look"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        sleep(min(poll_seconds, wait_seconds - waited))",
+   "        sleep(poll_seconds)",
+   "Q1-8: last sleep overruns the deadline"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        key=lambda q: (abs(q.strike - price), q.strike, q.right.value, q.contract_id),",
+   "        key=lambda q: (q.strike, q.right.value, q.contract_id),",
+   "Q1-10: not nearest-first"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        shown = _nearest(chain)[:option_count]",
+   "        shown = _nearest(chain)",
+   "Q1-11: option count ignored"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "            if fresh is None:\n                say(f\"{name}: no fresh quote now\")\n            else:",
+   "            if False:\n                say(f\"{name}: no fresh quote now\")\n            elif fresh is not None:",
+   "Q1-12: a stale quote is silently skipped"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "        return 1\n    return 0",
+   "        return 0\n    return 0",
+   "Q1-13: missing quotes exit 0"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/readonly.py",
+   "    return f\"quote age {(now - quote.ts).total_seconds():.1f} s\"",
+   "    return f\"quote age {(quote.ts - now).total_seconds():.1f} s\"",
+   "Q1-14: age sign flipped"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/market.py",
+   "            line = self._lines.get(self._underlying)\n            return None if line is None else self._fresh(line, now)",
+   "            line = self._lines.get(self._underlying)\n            return None if line is None else line.quote()",
+   "Q1-15: future quote not checked for freshness"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if not self._connected or self._underlying is None:\n                return None\n            line = self._lines.get(self._underlying)",
+   "            if self._underlying is None:\n                return None\n            line = self._lines.get(self._underlying)",
+   "Q1-16: future quote offered while disconnected (EQUIVALENT, argued in docs/decisions-pending.md: LOST resets _underlying and _lines under the same lock)"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/market.py",
+   "                if req != self._underlying and line.contract_id == contract_id:",
+   "                if line.contract_id == contract_id:",
+   "Q1-17: option_quote may return the future's line"
+  ],
+  [
+   "q1",
+   "src/footprint/brokers/ibkr/market.py",
+   "                    return self._fresh(line, now)\n            return None\n\n    def _in_chain",
+   "                    return line.quote()\n            return None\n\n    def _in_chain",
+   "Q1-18: option quote not checked for freshness"
+  ],
+  [
+   "q1",
+   "src/footprint/core/config.py",
+   "        probe_wait_seconds=_integer(m, \"probe_wait_seconds\", m_where, minimum=1),",
+   "        probe_wait_seconds=_integer(m, \"probe_wait_seconds\", m_where, minimum=0),",
+   "Q1-19: probe wait 0 accepted"
+  ],
+  [
+   "q1",
+   "src/footprint/core/config.py",
+   "        probe_option_quotes=_integer(m, \"probe_option_quotes\", m_where, minimum=1),",
+   "        probe_option_quotes=_integer(m, \"probe_option_quotes\", m_where, minimum=0),",
+   "Q1-20: probe count 0 accepted"
+  ]
+ ]
+}
