@@ -397,6 +397,8 @@ _IMPORT_EVASIONS = {
     # G57-1: the plain `import` statement, with and without a submodule and alias.
     "a plain import": ("import footprint.backtest\n", "footprint.agents"),
     "a plain import of a submodule": ("import footprint.backtest.rules as r\n", "footprint.x"),
+    # G58-1: every name of a multi-name plain import is read, not only the first.
+    "a plain import, second name": ("import os, footprint.backtest\n", "footprint.x"),
 }
 
 
