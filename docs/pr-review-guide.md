@@ -11,7 +11,8 @@ family). A same-model review is not a human review: **your review is the gate.**
 the PR bodies and the review reports on PR #21; it did not re-run any of those reviews.
 
 Merge order: #1 → #2 → … → #21 (the base of everything new), then the draft data-day
-PRs #22 → #23 → #24, then the Q5 backtest-rule PRs #25 → … → #31.
+PRs #22 → #23 → #24, then the Q5 backtest-rule PRs #25 → … → #31, then the Q6
+comparison runner #32.
 
 ## Core system (#1–#10)
 
@@ -191,3 +192,20 @@ once; exactly +$250.00 keeps the trade. Slice 1 grind review: **CONDITIONAL** (G
 slice 2 (`--exit time`, readout numbers): see rows Q5.6-b onward for its reviews. Readings
 Q5.6-a (1)-(7) approved by you 2026-10-11 10:30 PT. Look at: the readout's `rule time`
 lines.
+
+## Q6 comparison runner (draft, #32)
+
+**#32 `compare-v1` (draft) → exit-time-v1: Q6 comparison runner.** Backtest-only
+tooling; it adds no rule, no number and no metric. (i) Review G52-2: every backtest
+readout (readout.md, readout.json and the printed readout, the run with no rule named
+included) now records the exit numbers it ran with, `risk.profit_target`,
+`risk.trail_keep_pct` and `risk.stop_loss`, from the config the run loaded; the
+no-option golden output changes only by those three lines per file. (ii)
+`uv run python -m footprint.backtest.compare --bars F --out DIR` runs every entry rule
+against every exit rule (sorted) by calling the single-run command with `--entry E
+--exit X`, each into `DIR/<entry>__<exit>/`, then writes `summary.md` and `summary.csv`
+with each run's verdict and go-live gate values copied from its readout.json, never
+ranked or highlighted, headed "Synthetic or unverified data says nothing about
+profitability." Grind review: **CONDITIONAL** (G67; one doc LOW, this paragraph). Look
+at: readings **Q6-a** (the extra `--trade-from` option, not in your list) to **Q6-e** in
+`docs/decisions-pending.md`. It has never been run on real data.
