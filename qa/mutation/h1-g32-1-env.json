@@ -1,0 +1,10 @@
+{
+ "groups": {
+  "t": ["tests/test_qa_tools.py"]
+ },
+ "mutants": [
+  ["t", "qa/mutation/mutate.py", "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache}\n", "        yield {\"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache, **base}\n", "G32-1 R2: the inherited env spread last wins over the runner's isolation"],
+  ["t", "qa/mutation/mutate.py", "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache}\n", "        yield {\"PYTHONDONTWRITEBYTECODE\": \"1\", **base, \"PYTHONPYCACHEPREFIX\": cache}\n", "G32-1: an inherited PYTHONDONTWRITEBYTECODE wins"],
+  ["t", "qa/mutation/mutate.py", "        yield {**base, \"PYTHONDONTWRITEBYTECODE\": \"1\", \"PYTHONPYCACHEPREFIX\": cache}\n", "        yield {\"PYTHONPYCACHEPREFIX\": cache, **base, \"PYTHONDONTWRITEBYTECODE\": \"1\"}\n", "G32-1: an inherited PYTHONPYCACHEPREFIX wins"]
+ ]
+}

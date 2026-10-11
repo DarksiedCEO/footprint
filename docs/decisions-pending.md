@@ -255,7 +255,7 @@ Grind review 48cb641..5539be9 (G31-1 runner fix, 2026-10-10 22:30 UTC, CONDITION
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| G32-1 | LOW (test tooling) | Nothing pins that the runner's bytecode isolation wins over an inherited `PYTHONPYCACHEPREFIX`/`PYTHONDONTWRITEBYTECODE` (the test deletes them; reviewer mutant R2, inherited env spread last, survived) | Recorded (test-tooling LOW, not chased). Current code is correct; cheap fix: set hostile values in the test and assert they are overridden |
+| G32-1 | LOW (test tooling) | Nothing pins that the runner's bytecode isolation wins over an inherited `PYTHONPYCACHEPREFIX`/`PYTHONDONTWRITEBYTECODE` (the test deletes them; reviewer mutant R2, inherited env spread last, survived) | **Fixed in HARDENING H1** (grind stage https://claude.ai/code/session_01G3UMSLcZARWHMjQe6Hc7DB; needs review by a different session), test tooling only, `chain-recorder-v1`: `test_every_test_run_gets_its_own_empty_bytecode_cache` now sets hostile inherited values (`PYTHONDONTWRITEBYTECODE` empty; `PYTHONPYCACHEPREFIX` a non-empty directory holding a stale .pyc) instead of deleting them, and asserts neither run got the inherited cache. R2 fails the test first. Mutation `qa/mutation/h1-g32-1-env.json` (R2 and each variable inherited alone) on the committed tree |
 | G32-2 | INFO | Nothing pins that each run's cache directory is removed (R1, `mkdtemp` never removed, survived) | Recorded: a `/tmp` leak only |
 | G32-3 | INFO | A LOST delivered re-entrantly during a poll's gateway call would let the rest of that poll claim a quote line with `_connected == False` | Recorded: the line has no quote, its request fails, no tick arrives for it, the next CONNECTED resets everything, so nothing is offered (Q1-16 stays equivalent). Whether IbBinding ever does this: UNVERIFIED (ibapi) |
 | G32-4 | INFO | 644040d and 8e32c64 had no CI run of their own | Recorded: CI green on ff901a0 and 5539be9 |
@@ -384,6 +384,13 @@ Each is marked `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit af
 | `rules.stairstep.max_stair_bars` (`config/backtest.yaml`) | 60 | Plainest round number: the whole stair, first push's start bar to the entry bar, within one hour of 1-min bars |
 
 | `rules.pullback.lifetime_minutes` (`config/backtest.yaml`) | 15 | Plainest value tied to the system: one bar of the 15-min trend timeframe the console already uses; a bar more than 15 minutes after the spike bar can neither touch nor enter (reading Q5.3-a (5)) |
+
+## HARDENING H1 fixes on remediation-v1 (grind, test tooling and docs only)
+
+| ID | What | Evidence |
+|---|---|---|
+| H1-G44-2 | Review G44 (2026-10-11 06:55 UTC) **G44-2 (LOW, test tooling, pre-existing)** fixed in HARDENING H1 (grind stage https://claude.ai/code/session_01G3UMSLcZARWHMjQe6Hc7DB; needs review by a different session): `tests/execution/test_alarms.py::test_beyond_the_cap_the_oldest_are_dropped_and_counted` depended on when the worker thread picked up alarm 0. Between retries no alarm is in flight, so if the worker had taken alarm 0 and failed before the cap was hit, the oldest *waiting* alarm could be any of 0..2 and a survivor outside the two the test allowed was possible; it failed once beside a second pytest. Rewritten without a retry or a sleep: the pager holds the first delivery of alarm 0 inside the call until all ten alarms are submitted, so the cap is always hit with alarm 0 in flight; the test now asserts the exact outcome (pending 3, dropped 7, delivered `alarm 0`, then the "7 alarm(s) were dropped" note, then `alarm 8`, `alarm 9`). `src/` unchanged. Not shown failing first: the flake could not be forced on demand here (a probe with 4 ms between submits passed 3 of 3); the fix removes the scheduling dependence by construction | Test passed 5 of 5 alone. Mutation `qa/mutation/h1-g44-2-alarm-cap.json` (cap off by one, newest dropped, in-flight droppable, drops miscounted, note told last) on the committed tree |
+| H1-G38-1 | Review G38 **G38-1 (LOW, doc)**: `docs/pr-review-guide.md` did not list draft PRs #25/#26. **Already fixed** before this stage: the guide on remediation-v1 lists #25–#31. Closed here (no change); the #30/#31 paragraphs are refreshed for Andre's 2026-10-11 10:30 PT approvals and the H1-0 latch | Doc only |
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
