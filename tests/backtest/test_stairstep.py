@@ -33,6 +33,9 @@ LOOSE = StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=10, m
 # Pause 3: bar 9 (low 109): gives back 3 of 7; 109 > 105.
 # Bar 10 breaks 112 (step 3 valid, the stair is formed) but closes 111.
 # Bar 11 closes exactly 112: not above. Bar 12 closes 112.5: ENTRY.
+# Until that close the steps still count (G39-1): bar 10 is push 4 (from bar 9) and
+# bar 11 is pause 4 (low 111 > 109, gives back 2 of 4, volume 100 < 200), which bar 12
+# ends as a valid step.
 STAIR = [
     ("100", "98", "99", 50),
     ("102", "99", "101", 200),
@@ -45,7 +48,7 @@ STAIR = [
     ("112", "108", "111", 200),
     ("111", "109", "110", 100),
     ("113", "110", "111", 200),
-    ("113", "111", "112", 200),
+    ("113", "111", "112", 100),
     ("114", "111", "112.5", 200),
 ]
 ENTRY = 12
@@ -288,3 +291,98 @@ def test_settings_must_be_sane() -> None:
         StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=0, max_stair_bars=1)
     with pytest.raises(ValueError, match="max_stair_bars "):
         StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=1, max_stair_bars=0)
+
+
+# --- after the stair is formed: the steps still count until the entry close (G39-1) -----
+# Bar 10 breaks push 3 (112) and closes 111: the stair is formed, no entry yet. Bar 10 is
+# push 4's first new-high bar (from bar 9, low 109; push 4 high 113); bar 11 is pause 4.
+
+
+def test_a_collapse_after_the_stair_forms_resets_it_before_the_entry_close() -> None:
+    # Pause 4 falls below pause 3's low (109) and gives back far over 50% of push 4:
+    # an invalid step resets the count, so the later close above 112 is not an entry.
+    rows = [
+        *STAIR[:11],
+        ("111", "95", "96", 100),
+        ("100", "90", "91", 100),
+        ("105", "92", "104", 100),
+        ("113", "104", "112.5", 200),
+    ]
+    assert up(make(rows)) == []
+    assert down(make(mirror(rows))) == []
+
+
+def test_a_drift_longer_than_max_pause_bars_after_the_stair_forms_cancels_it() -> None:
+    drift = [("112.5", "111", "111.5", 100)] * 30
+    rows = [*STAIR[:11], *drift, ("114", "111", "112.5", 200)]
+    assert up(make(rows)) == []
+    assert down(make(mirror(rows))) == []
+
+
+def test_pause_four_at_the_exact_boundaries_keeps_or_cancels_the_stair() -> None:
+    # Pause 4 is STAIR bar 11 (low 111 > 109; gives back 2 of push 4's 4: exactly 50%).
+    assert up(make(STAIR)) == [ENTRY]
+    # Pause 4 low equal to pause 3's low: not a higher low: reset, no entry.
+    assert up(make(edit(STAIR, 11, lo="109"))) == []
+    # With giveback allowed up to 100%, the equal low alone (a) still resets it, also
+    # when the entry close comes on a later pause-4 bar (high 113, not above push 4).
+    wide = StairSettings(steps=3, max_giveback=Decimal(1), max_pause_bars=10, max_stair_bars=100)
+    late = ("113", "110", "112.5", 100)
+    assert up(make([*STAIR[:11], ("113", "109.01", "111", 100), late]), wide) == [12]
+    assert up(make([*STAIR[:11], ("113", "109", "111", 100), late]), wide) == []
+    # Pause 4 gives back just over 50% (2.01 of 4) but stays above 109: reset.
+    assert up(make(edit(STAIR, 11, lo="110.99"))) == []
+    # A pause 4 of exactly max_pause_bars keeps the stair; one bar more cancels it.
+    held = ("113", "111", "111.5", 100)
+    two = StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=2, max_stair_bars=100)
+    rows = [*STAIR[:11], held, held, STAIR[12]]
+    assert up(make(rows), two) == [13]
+    rows = [*STAIR[:11], held, held, held, STAIR[12]]
+    assert up(make(rows), two) == []
+
+
+def test_vol_variant_judges_step_four_when_its_pause_ends_before_the_entry() -> None:
+    # Pause 4 (bar 11) volume equal to push 4's average (bar 10: 200): step 4 is invalid
+    # under _vol when bar 12 ends the pause, so bar 12's close is not an entry.
+    rows = edit(STAIR, 11, v=200)
+    assert up(make(rows), vol=True) == []
+    assert up(make(rows)) == [ENTRY]
+    assert down(make(mirror(rows)), vol=True) == []
+
+
+# --- the core words: lowest low, averages over every bar (G39-2) -----------------------
+
+
+def test_the_pause_low_is_the_lowest_low_in_the_pause_not_its_last_bar() -> None:
+    # Pause 2 = two bars, the first the lower (104.9): gives back 3.1 of 6 (> 50%).
+    rows = [*STAIR[:6], ("107", "104.9", "106", 100), ("107", "105.5", "106", 100), *STAIR[7:]]
+    assert up(make(rows)) == []
+    # The same with the first at 105.1: within 50%: entry.
+    rows = [*STAIR[:6], ("107", "105.1", "106", 100), ("107", "105.5", "106", 100), *STAIR[7:]]
+    assert up(make(rows)) == [ENTRY + 1]
+
+
+def test_the_higher_low_test_uses_the_previous_pause_lowest_low() -> None:
+    # Pause 1 = three bars, lows 102.2, 102.8, 102.3: its pause low is 102.2. Pause 2's
+    # low 102.5 is above 102.2 (valid) though below the pause's highest low 102.8.
+    wide = StairSettings(steps=3, max_giveback=Decimal(1), max_pause_bars=10, max_stair_bars=100)
+    pause1 = [("103", "102.2", "102.5", 100), ("103", "102.8", "103", 100)]
+    pause1 += [("103", "102.3", "102.5", 100)]
+    rows = [*STAIR[:3], *pause1, *edit(STAIR, 6, lo="102.5")[4:]]
+    assert up(make(rows), wide) == [ENTRY + 2]
+    rows = [*STAIR[:3], *pause1, *edit(STAIR, 6, lo="102.2")[4:]]
+    assert up(make(rows), wide) == []
+
+
+def test_vol_averages_weigh_every_push_and_pause_bar_once() -> None:
+    # Push 2 = bars 4 (120) and 5 (70): average 95, not above pause 2's 100: invalid.
+    # (Counting only its first bar, or its first bar twice, would make it valid.)
+    rows = edit(edit(STAIR, 4, v=120), 5, v=70)
+    assert up(make(rows), vol=True) == []
+    rows = edit(edit(STAIR, 4, v=130), 5, v=80)  # average 105: valid
+    assert up(make(rows), vol=True) == [ENTRY]
+    # Pause 2 = bars at 100 and 400: average 250, not below push 2's 200: invalid.
+    rows = [*STAIR[:7], ("107", "105.5", "106", 400), *STAIR[7:]]
+    assert up(make(rows), vol=True) == []
+    rows = [*STAIR[:7], ("107", "105.5", "106", 250), *STAIR[7:]]  # average 175: valid
+    assert up(make(rows), vol=True) == [ENTRY + 1]

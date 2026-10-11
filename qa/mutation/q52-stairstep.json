@@ -8,8 +8,8 @@
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "not pause_low > self._prev_pause_low",
-   "not pause_low >= self._prev_pause_low",
+   "not pause_low > self._prev_pause_low:\n            return False",
+   "not pause_low >= self._prev_pause_low:\n            return False",
    "Q52-1: an equal pause low counts as a higher low"
   ],
   [
@@ -57,22 +57,22 @@
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "            if bar.close > self._target:\n                self.entries",
-   "            if bar.close >= self._target:\n                self.entries",
-   "Q52-8: a close AT the third push high enters (later bar)"
+   "if self._target is not None and bar.close > self._target:",
+   "if self._target is not None and bar.close >= self._target:",
+   "Q52-8: a close AT the third push high enters"
   ],
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "                if bar.close > self._target:\n                    self.entries",
-   "                if bar.close >= self._target:\n                    self.entries",
-   "Q52-9: the breaking bar enters on a close AT the push high"
+   "            self._start_push(i - 1, prev, bar)\n        else:",
+   "            self._start_push(i - 1, prev, bar)\n            return\n        else:",
+   "Q52-9: the breaking bar itself is never the entry"
   ],
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "                self.entries.append(i)\n                self._drop()\n            return",
-   "                self.entries.append(i)\n            return",
+   "            self.entries.append(i)\n            self._drop()",
+   "            self.entries.append(i)",
    "Q52-10: the stair is not dropped after an entry (enters again)"
   ],
   [
@@ -85,15 +85,15 @@
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "            if bar.high > self._push_high:\n                self._push_high = bar.high",
-   "            if bar.high >= self._push_high:\n                self._push_high = bar.high",
+   "if not self._pause_lows and bar.high > self._push_high:",
+   "if not self._pause_lows and bar.high >= self._push_high:",
    "Q52-12: an equal high continues a push"
   ],
   [
    "stair",
    "src/footprint/backtest/stairstep.py",
-   "        if bar.high > self._push_high:  # the pause ends",
-   "        if bar.high >= self._push_high:  # the pause ends",
+   "        elif bar.high > self._push_high:",
+   "        elif bar.high >= self._push_high:",
    "Q52-13: an equal high ends a pause"
   ],
   [
@@ -151,6 +151,62 @@
    "        if self.max_pause_bars < 1:",
    "        if self.max_pause_bars < 0:",
    "Q52-21: settings accept a zero max pause"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "            if self._target is not None and self._already_invalid():",
+   "            if False and self._already_invalid():",
+   "Q52-22 (G39-1): a step that fails (a)/(b) after the stair forms does not cancel it"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        if self._prev_pause_low is not None and not pause_low > self._prev_pause_low:\n            return True",
+   "        if False:\n            return True",
+   "Q52-23 (G39-1): the higher-low test is skipped after the stair forms"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        return giveback > self._s.max_giveback * (self._push_high - self._push_start_low)",
+   "        return giveback >= self._s.max_giveback * (self._push_high - self._push_start_low)",
+   "Q52-24 (G39-1): exactly 50% giveback of push 4 cancels the stair"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        pause_low = min(self._pause_lows)\n        if self._prev_pause_low is not None and not pause_low > self._prev_pause_low:\n            return False",
+   "        pause_low = self._pause_lows[-1]\n        if self._prev_pause_low is not None and not pause_low > self._prev_pause_low:\n            return False",
+   "Q52-26 (G39-2): the pause low is the last pause bar's low, not the lowest"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "                self._prev_pause_low = min(self._pause_lows)",
+   "                self._prev_pause_low = max(self._pause_lows)",
+   "Q52-27 (G39-2): the higher-low test uses the previous pause's highest low"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "            self._push_volumes.append(bar.volume)",
+   "            pass",
+   "Q52-28 (G39-2): the push average counts only its first new-high bar"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "            self._pause_volumes.append(bar.volume)\n            if len",
+   "            if len",
+   "Q52-29 (G39-2): pause bars are left out of the pause average"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        self._push_volumes = [first.volume]",
+   "        self._push_volumes = [first.volume, first.volume]",
+   "Q52-30 (G39-2): the first new-high bar weighs twice in the push average"
   ]
  ]
 }

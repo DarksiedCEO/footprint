@@ -19,7 +19,11 @@ How each word is read here (docs/decisions-pending.md, Q5.2-a):
 - An invalid step resets the count to zero; the push that ends its pause starts a
   new count. After `steps` valid steps the stair is formed and the ENTRY is the first
   bar (from the bar that ends the last pause) whose CLOSE is above the last push high.
-  After an entry the count starts again from zero.
+  Until that close the steps still count: the bars after the formed stair are the next
+  push and its pause, and if that step is invalid before the entry close (its pause
+  fails (a) or (b), runs past max_pause_bars, or, for stairstep_vol, fails the volume
+  test when it ends) the count is zero and there is no entry. After an entry the count
+  starts again from zero.
 - The stair runs from the first push's start bar to the entry bar; more than
   max_stair_bars bars and it is dropped (count zero). A missing bar (any step in time
   other than one bar interval: a gap, the daily halt, days with no bars) drops it too, and no
@@ -120,6 +124,16 @@ class _Scan:
             self._with_volume and not _mean(self._push_volumes) > _mean(self._pause_volumes)
         )
 
+    def _already_invalid(self) -> bool:
+        """(a) or (b) has failed on the pause so far. A pause low only falls as the pause
+        grows, so neither can pass again by the time the pause ends."""
+        assert self._push_start_low is not None
+        pause_low = min(self._pause_lows)
+        if self._prev_pause_low is not None and not pause_low > self._prev_pause_low:
+            return True
+        giveback = self._push_high - pause_low
+        return giveback > self._s.max_giveback * (self._push_high - self._push_start_low)
+
     def step(self, i: int, bar: _View, prev: _View | None) -> None:
         """Bar i; `prev` is bar i-1 when it is exactly one interval earlier, else None."""
         if prev is None:
@@ -127,24 +141,14 @@ class _Scan:
             return
         if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars:
             self._drop()
-        if self._target is not None:
-            if bar.close > self._target:
-                self.entries.append(i)
-                self._drop()
-            return
-        if self._push_start_low is None:  # looking for a push
+        if self._push_start_low is None:  # looking for a push (never with a formed stair)
             if bar.high > prev.high:
                 self._start_push(i - 1, prev, bar)
             return
-        if not self._pause_lows:  # in a push
-            if bar.high > self._push_high:
-                self._push_high = bar.high
-                self._push_volumes.append(bar.volume)
-            else:
-                self._pause_lows.append(bar.low)
-                self._pause_volumes.append(bar.volume)
-            return
-        if bar.high > self._push_high:  # the pause ends: judge the step
+        if not self._pause_lows and bar.high > self._push_high:  # the push goes on
+            self._push_high = bar.high
+            self._push_volumes.append(bar.volume)
+        elif bar.high > self._push_high:  # the pause ends: judge the step
             if self._step_valid():
                 self._count += 1
                 self._prev_pause_low = min(self._pause_lows)
@@ -152,15 +156,20 @@ class _Scan:
                 self._drop()
             if self._count == self._s.steps:
                 self._target = self._push_high
-                if bar.close > self._target:
-                    self.entries.append(i)
-                    self._drop()
-                return
             self._start_push(i - 1, prev, bar)
-            return
-        self._pause_lows.append(bar.low)
-        self._pause_volumes.append(bar.volume)
-        if len(self._pause_lows) > self._s.max_pause_bars:
+        else:  # a pause bar
+            self._pause_lows.append(bar.low)
+            self._pause_volumes.append(bar.volume)
+            if len(self._pause_lows) > self._s.max_pause_bars:
+                self._drop()
+                return
+            if self._target is not None and self._already_invalid():
+                # The step after the stair is already invalid: the count is zero (the
+                # pause runs on and is judged invalid when it ends, as for any step).
+                self._target = None
+                self._count = 0
+        if self._target is not None and bar.close > self._target:
+            self.entries.append(i)
             self._drop()
 
 

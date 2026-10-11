@@ -118,6 +118,9 @@ How it is built (`entry-stairstep-v1`, slice 1 of 2: the detector):
 `tests/backtest/test_stairstep.py`. Slice 2 (not built yet) loads the four numbers from
 config, registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` and feeds the
 detector from the pipeline's 1-min bars.
+Until the entry close the steps still count: if the step after the formed stair turns
+invalid first, the count is zero and there is no entry (review G39-1; reading Q5.2-b,
+for Andre to confirm).
 
 ## Q5.3 entry "pullback" (`entry-pullback-v1`)
 
