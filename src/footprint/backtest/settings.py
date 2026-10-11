@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from footprint.backtest.exits import TimeExitSettings
 from footprint.backtest.pullback import PullbackSettings
 from footprint.backtest.stairstep import StairSettings
 from footprint.core.config import (
@@ -54,6 +55,7 @@ class RuleSettings:
 
     stairstep: StairSettings
     pullback: PullbackSettings
+    time: TimeExitSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,4 +127,10 @@ def _rules(raw: object, where: str) -> RuleSettings:
     pullback = PullbackSettings(
         lifetime_minutes=_integer(p, "lifetime_minutes", p_where, minimum=1)
     )
-    return RuleSettings(stairstep=stairstep, pullback=pullback)
+    t_where = f"{r_where}: time"
+    t = _check_keys(r["time"], {f.name for f in fields(TimeExitSettings)}, t_where)
+    time = TimeExitSettings(
+        minutes=_integer(t, "minutes", t_where, minimum=1),
+        min_gain=_positive_decimal(t, "min_gain", t_where),
+    )
+    return RuleSettings(stairstep=stairstep, pullback=pullback, time=time)

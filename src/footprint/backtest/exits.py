@@ -8,7 +8,7 @@ position out now? It can only add a way out; the exit itself is the existing one
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from footprint.execution.executor.diego import Position
@@ -30,3 +30,47 @@ class TargetExit:
 
     def wants_out(self, position: Position, net_open: Decimal, now: datetime) -> bool:
         return net_open >= self.target
+
+
+@dataclass(frozen=True, slots=True)
+class TimeExitSettings:
+    """Q5.6 "time" numbers (config/backtest.yaml `rules: time:`, APPROVED BY ANDRE
+    2026-10-10): the minutes after the entry fill, and the open profit below which the
+    position is closed then."""
+
+    minutes: int
+    min_gain: Decimal
+
+    @property
+    def after(self) -> timedelta:
+        return timedelta(minutes=self.minutes)
+
+
+class TimeExit:
+    """Q5.6 "time", APPROVED BY ANDRE 2026-10-10: if the configured minutes after the
+    entry fill the position's open profit is less than the configured gain, close the
+    whole position; otherwise the trade continues under the baseline "trail" exit; the
+    hard loss stop unchanged.
+
+    Readings Q5.6-a (for Andre): the open profit is trade management's figure, on the
+    bid and net of round-trip fees; the entry fill is the position's entry time; the
+    judgment is made once, on the first fresh quote trade management asks this rule
+    about at or after the mark; "less than" is strict; a keep is final; an out is held
+    until the position is gone."""
+
+    __slots__ = ("_settings", "_verdicts")
+
+    def __init__(self, settings: TimeExitSettings) -> None:
+        self._settings = settings
+        self._verdicts: dict[str, bool] = {}
+
+    def wants_out(self, position: Position, net_open: Decimal, now: datetime) -> bool:
+        pid = position.position_id
+        verdict = self._verdicts.get(pid)
+        if verdict is not None:
+            return verdict
+        if now - position.entry_ts < self._settings.after:
+            return False
+        verdict = net_open < self._settings.min_gain
+        self._verdicts[pid] = verdict
+        return verdict
