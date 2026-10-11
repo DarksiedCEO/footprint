@@ -1,0 +1,10 @@
+source: 69b0e564b30ff95f1186cc4b0a112f61582fd2f7 tree-dirty: 0 files
+baseline [exit_numbers]: passed
+baseline [golden]: passed
+  1 KILLED   [exit_numbers] src/footprint/backtest/__main__.py: Q6-i a: risk.profit_target not recorded
+  2 KILLED   [exit_numbers] src/footprint/backtest/__main__.py: Q6-i b: risk.trail_keep_pct not recorded
+  3 KILLED   [exit_numbers] src/footprint/backtest/__main__.py: Q6-i c: risk.stop_loss not recorded
+  4 KILLED   [exit_numbers] src/footprint/backtest/__main__.py: Q6-i d: stop_loss reported from the wrong field (stop_max)
+  5 KILLED   [exit_numbers] src/footprint/backtest/__main__.py: Q6-i e: trail_keep_pct a fixed string, not the loaded profile
+  6 KILLED   [golden] src/footprint/backtest/__main__.py: Q6-i f: the golden pins the added line
+6 mutants, 0 survived or errored
