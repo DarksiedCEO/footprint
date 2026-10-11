@@ -1,0 +1,61 @@
+{
+ "groups": {
+  "gaps": [
+   "tests/data/test_history_gaps.py"
+  ],
+  "drv": [
+   "tests/brokers/test_history_export.py"
+  ]
+ },
+ "mutants": [
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        end = max(end, until.replace(second=0, microsecond=0) - _MINUTE)",
+   "        end = end",
+   "G29-M1: the tail after the last bar not looked at"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        end = max(end, until.replace(second=0, microsecond=0) - _MINUTE)",
+   "        end = max(end, until.replace(second=0, microsecond=0))",
+   "G29-M2: the still-forming minute counted as missing"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        end = max(end, until.replace(second=0, microsecond=0) - _MINUTE)",
+   "        end = max(end, until.replace(second=0, microsecond=0) - 2 * _MINUTE)",
+   "G29-M3: the last closed minute not looked at"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        end = max(end, until.replace(second=0, microsecond=0) - _MINUTE)",
+   "        end = until.replace(second=0, microsecond=0) - _MINUTE",
+   "G29-M4: bars after the read time not looked at"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        require_utc(until, \"until\")",
+   "        pass",
+   "G29-M5: a naive read time accepted"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, window_from(begun), instrument, max_missing, until=now)",
+   "G29-M6: window taken when the wait began (G29-1 back)"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, window_from(now), instrument, max_missing)",
+   "G29-M7: the tail not checked by the export (G29-2 back)"
+  ]
+ ]
+}

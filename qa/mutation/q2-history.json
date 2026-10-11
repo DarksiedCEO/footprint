@@ -1,0 +1,229 @@
+{
+ "groups": {
+  "gaps": [
+   "tests/data/test_history_gaps.py"
+  ],
+  "drv": [
+   "tests/brokers/test_history_export.py"
+  ]
+ },
+ "mutants": [
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    if start.second or start.microsecond:",
+   "    if False:",
+   "Q2H-1: a start with seconds accepted"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    if not bars:\n        return \"no bars at all\"\n",
+   "",
+   "Q2H-2: no bars not named"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "first_day < instrument.calendar_from",
+   "first_day <= instrument.calendar_from",
+   "Q2H-3: calendar_from itself refused"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "last_day > instrument.calendar_through",
+   "last_day >= instrument.calendar_through",
+   "Q2H-4: calendar_through itself refused"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "first_day < instrument.calendar_from or",
+   "False or",
+   "Q2H-5: before calendar_from waved through"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "or last_day > instrument.calendar_through:",
+   "or False:",
+   "Q2H-6: after calendar_through waved through"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "min(start, bars[0].ts).date()",
+   "bars[0].ts.date()",
+   "Q2H-7: the start's own day not checked against the calendar"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        if minute in have or session_at(minute, instrument) is SessionKind.CLOSED:",
+   "        if minute in have:",
+   "Q2H-8: closed minutes counted as gaps"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "        if minute in have or session_at(minute, instrument) is SessionKind.CLOSED:",
+   "        if session_at(minute, instrument) is SessionKind.CLOSED:",
+   "Q2H-9: bars ignored"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "            if run > max_missing:\n                break",
+   "            if run >= max_missing:\n                break",
+   "Q2H-10: a run of exactly the allowance stops the scan"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    if run > max_missing and run_from is not None:",
+   "    if run >= max_missing and run_from is not None:",
+   "Q2H-11: a run of exactly the allowance is a gap"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "            run, run_from = 0, None",
+   "            run_from = None",
+   "Q2H-12: short holes added together"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    minute = start\n",
+   "    minute = bars[0].ts\n",
+   "Q2H-13: the scan starts at the first bar, not the window start"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "            if run_from is None:\n                run_from = minute",
+   "            run_from = minute",
+   "Q2H-14: the run's last minute named, not its first"
+  ],
+  [
+   "gaps",
+   "src/footprint/data/gaps.py",
+   "    while minute <= end:",
+   "    while minute < end:",
+   "Q2H-15: last bar's minute not scanned (argued equivalent: it always has a bar; a run ending before it is caught after the loop)"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if out.exists():",
+   "    if False:",
+   "Q2H-16: existing file found only after loading"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if partial.exists():",
+   "    if False:",
+   "Q2H-17: left-over partial found only after loading"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "        if bars or waited >= wait_seconds:",
+   "        if waited >= wait_seconds:",
+   "Q2H-18: ready history waits out the deadline"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "        if bars or waited >= wait_seconds:",
+   "        if bars or waited > wait_seconds:",
+   "Q2H-19: no look at the deadline itself"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "        sleep(min(poll_seconds, wait_seconds - waited))",
+   "        sleep(poll_seconds)",
+   "Q2H-20: last sleep runs past the deadline"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if not bars:\n        say(",
+   "    if False:\n        say(",
+   "Q2H-21: timeout not reported as such"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if gap is not None:",
+   "    if False:",
+   "Q2H-22: a gap is written"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, bars[0].ts, instrument, max_missing, until=now)",
+   "Q2H-23: the window start ignored"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "first_gap(bars, window_from(now), instrument, max_missing, until=now)",
+   "first_gap(bars, window_from(now), instrument, 0, until=now)",
+   "Q2H-24: configured allowance ignored"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    except (ExportRefused, ValueError, OSError) as exc:",
+   "    except (ExportRefused, OSError) as exc:",
+   "Q2H-25: a bad bar crashes instead of exiting 1"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "        return 1\n    say(f\"wrote",
+   "        pass\n    say(f\"wrote",
+   "Q2H-26: a failed write exits 0"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if days is None:\n        return profiles\n",
+   "",
+   "Q2H-27: no --days still rebuilds (identity lost)"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "    if days < 1:",
+   "    if days < 0:",
+   "Q2H-28: --days 0 accepted"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "replace(profiles.execution.market_data, history_days=days)",
+   "profiles.execution.market_data",
+   "Q2H-29: --days ignored"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "now.date() - timedelta(days=history_days)",
+   "now.date() - timedelta(days=history_days - 1)",
+   "Q2H-30: window one day short"
+  ],
+  [
+   "drv",
+   "src/footprint/brokers/ibkr/history_export.py",
+   "time(0), tzinfo=UTC)",
+   "now.time(), tzinfo=UTC)",
+   "Q2H-31: window not at midnight"
+  ]
+ ]
+}

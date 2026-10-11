@@ -1,0 +1,6 @@
+{
+ "groups": {"g27": ["tests/data/test_csv_export.py"]},
+ "mutants": [
+  ["g27", "src/footprint/data/csv_export.py", "        handle.flush()\n", "", "G27-3: no flush before the fsync"]
+ ]
+}

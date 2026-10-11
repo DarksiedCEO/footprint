@@ -1,0 +1,35 @@
+source: 9ccf0a357aa36bfb5932cea6baeff0a9ee17d0c6 tree-dirty: 0 files
+baseline [drv]: passed
+baseline [gaps]: passed
+  1 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-1: a start with seconds accepted
+  2 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-2: no bars not named
+  3 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-3: calendar_from itself refused
+  4 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-4: calendar_through itself refused
+  5 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-5: before calendar_from waved through
+  6 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-6: after calendar_through waved through
+  7 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-7: the start's own day not checked against the calendar
+  8 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-8: closed minutes counted as gaps
+  9 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-9: bars ignored
+ 10 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-10: a run of exactly the allowance stops the scan
+ 11 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-11: a run of exactly the allowance is a gap
+ 12 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-12: short holes added together
+ 13 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-13: the scan starts at the first bar, not the window start
+ 14 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-14: the run's last minute named, not its first
+ 15 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-15: last bar's minute not scanned (argued equivalent: it always has a bar; a run ending before it is caught after the loop)
+ 16 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-16: existing file found only after loading
+ 17 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-17: left-over partial found only after loading
+ 18 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-18: ready history waits out the deadline
+ 19 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-19: no look at the deadline itself
+ 20 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-20: last sleep runs past the deadline
+ 21 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-21: timeout not reported as such
+ 22 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-22: a gap is written
+ 23 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-23: the window start ignored
+ 24 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-24: configured allowance ignored
+ 25 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-25: a bad bar crashes instead of exiting 1
+ 26 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-26: a failed write exits 0
+ 27 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-27: no --days still rebuilds (identity lost)
+ 28 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-28: --days 0 accepted
+ 29 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-29: --days ignored
+ 30 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-30: window one day short
+ 31 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-31: window not at midnight
+31 mutants, 0 survived or errored

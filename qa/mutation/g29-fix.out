@@ -1,0 +1,11 @@
+source: 9ccf0a357aa36bfb5932cea6baeff0a9ee17d0c6 tree-dirty: 0 files
+baseline [drv]: passed
+baseline [gaps]: passed
+  1 KILLED   [gaps] src/footprint/data/gaps.py: G29-M1: the tail after the last bar not looked at
+  2 KILLED   [gaps] src/footprint/data/gaps.py: G29-M2: the still-forming minute counted as missing
+  3 KILLED   [gaps] src/footprint/data/gaps.py: G29-M3: the last closed minute not looked at
+  4 KILLED   [gaps] src/footprint/data/gaps.py: G29-M4: bars after the read time not looked at
+  5 KILLED   [gaps] src/footprint/data/gaps.py: G29-M5: a naive read time accepted
+  6 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: G29-M6: window taken when the wait began (G29-1 back)
+  7 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: G29-M7: the tail not checked by the export (G29-2 back)
+7 mutants, 0 survived or errored
