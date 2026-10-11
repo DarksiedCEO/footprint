@@ -70,11 +70,11 @@ class TimeExit:
     whole position; otherwise the trade continues under the baseline "trail" exit; the
     hard loss stop unchanged.
 
-    Readings Q5.6-a (for Andre): the open profit is trade management's figure, on the
-    bid and net of round-trip fees; the entry fill is the position's entry time; the
-    judgment is made once, on the first fresh quote trade management asks this rule
-    about at or after the mark; "less than" is strict; a keep is final; an out is held
-    until the position is gone."""
+    Readings Q5.6-a (APPROVED BY ANDRE 2026-10-11 10:30 PT): the open profit is trade
+    management's figure, on the bid and net of round-trip fees; the entry fill is the
+    position's entry time; the judgment is made once, on the first fresh quote trade
+    management asks this rule about at or after the mark; "less than" is strict; a keep
+    is final; an out is held until the position is gone."""
 
     __slots__ = ("_settings", "_verdicts")
 
