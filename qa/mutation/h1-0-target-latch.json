@@ -24,8 +24,8 @@
   [
    "t",
    "src/footprint/backtest/exits.py",
-   "        pid = position.position_id\n",
-   "        pid = \"one\"\n",
+   "        pid = position.position_id\n        if pid in self._latched:\n",
+   "        pid = \"one\"\n        if pid in self._latched:\n",
    "H1-0: one verdict for every position (not per position)"
   ],
   [
