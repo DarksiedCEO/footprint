@@ -111,6 +111,14 @@ The 50% giveback and the count of three steps are APPROVED values.
 DEFAULT: not approved (keys: added with its piece): maximum bars in one pause; maximum
 bars for the whole stair (so slow sideways drift cannot qualify).
 
+How it is built (`entry-stairstep-v1`, slice 1 of 2: the detector): 
+`footprint.backtest.stairstep.stair_entries` reads the definition above on a run of
+1-min bars and returns the bars where the entry fires. How each word is read is in
+`docs/decisions-pending.md` (Q5.2-a); every reading is pinned by a hand-built fixture in
+`tests/backtest/test_stairstep.py`. Slice 2 (not built yet) loads the four numbers from
+config, registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` and feeds the
+detector from the pipeline's 1-min bars.
+
 ## Q5.3 entry "pullback" (`entry-pullback-v1`)
 
 APPROVED BY ANDRE 2026-10-10:
