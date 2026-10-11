@@ -1,0 +1,10 @@
+source: 736e3c6147cbd63bae47e609b4345558fbac23fd tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] src/footprint/backtest/exits.py: Q55-1: exactly at the target does not close
+  2 KILLED   [t] src/footprint/backtest/exits.py: Q55-2: comparison reversed
+  3 KILLED   [t] src/footprint/backtest/exits.py: Q55-3: always out
+  4 KILLED   [t] src/footprint/backtest/exits.py: Q55-4: gross of fees instead of net (five = one round trip here)
+  5 KILLED   [t] src/footprint/backtest/rules.py: Q55-5: built from another configured number
+  6 KILLED   [t] src/footprint/backtest/rules.py: Q55-6: target adds no rule (behaves as trail)
+  7 KILLED   [t] src/footprint/backtest/rules.py: Q55-7: target is not registered
+7 mutants, 0 survived or errored
