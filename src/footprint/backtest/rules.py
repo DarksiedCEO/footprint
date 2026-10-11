@@ -23,6 +23,7 @@ from dataclasses import fields
 from datetime import timedelta
 
 from footprint.agents.momentum_reader import MomentumReader
+from footprint.backtest.exits import TargetExit
 from footprint.backtest.pullback import PullbackSettings, PullbackTrigger
 from footprint.backtest.settings import RuleSettings
 from footprint.backtest.stairstep import StairSettings, StairTrigger
@@ -107,6 +108,13 @@ def trail(profiles: Profiles) -> ExitRule | None:
     return None
 
 
+def target(profiles: Profiles) -> ExitRule | None:
+    """Q5.5 "target": close the whole position when its open profit reaches the
+    configured profit target (risk.profit_target). See TargetExit."""
+    return TargetExit(profiles.risk.profit_target)
+
+
 EXIT_RULES: dict[str, ExitRuleFactory] = {
+    "target": target,
     "trail": trail,
 }
