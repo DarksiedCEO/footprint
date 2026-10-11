@@ -1,4 +1,4 @@
-source: ef5bb83ed6af2103f30ede4cdae580ccec1fdf79 tree-dirty: 0 files
+source: e36a3cb70bc2c8c553c307ad4299b82d5a724dcd tree-dirty: 0 files
 baseline [rules]: passed
   1 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-1: stairstep gains the volume condition
   2 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-2: stairstep_vol loses the volume condition
@@ -6,4 +6,9 @@ baseline [rules]: passed
   4 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-4: stairstep_vol is registered as the plain rule
   5 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-5: breakout builds the stair trigger
   6 KILLED   [rules] src/footprint/backtest/__main__.py: Q52R-6: the CLI hands the rule numbers other than the file's
-6 mutants, 0 survived or errored
+  7 KILLED   [rules] src/footprint/backtest/__main__.py: Q52R-7: the rule numbers come from ./config, not --config (G47-2)
+  8 KILLED   [rules] src/footprint/backtest/__main__.py: Q52R-8: the readout omits the stair numbers (G47-1)
+  9 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-9: stairstep_vol's readout omits its numbers
+ 10 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-10: breakout's readout names stair numbers it does not read
+ 11 KILLED   [rules] src/footprint/backtest/rules.py: Q52R-11: one stair number is left out of the readout
+11 mutants, 0 survived or errored
