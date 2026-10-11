@@ -1,0 +1,54 @@
+{
+ "groups": {
+  "exit_numbers": [
+   "tests/backtest/test_readout_exit_numbers.py"
+  ],
+  "golden": [
+   "tests/backtest/test_rules_seam.py::test_with_no_rule_named_the_run_is_byte_identical_to_before_the_seam"
+  ]
+ },
+ "mutants": [
+  [
+   "exit_numbers",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.profit_target\": str(profiles.risk.profit_target),\n",
+   "",
+   "Q6-i a: risk.profit_target not recorded"
+  ],
+  [
+   "exit_numbers",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.trail_keep_pct\": str(profiles.risk.trail_keep_pct),\n",
+   "",
+   "Q6-i b: risk.trail_keep_pct not recorded"
+  ],
+  [
+   "exit_numbers",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.stop_loss\": str(profiles.risk.stop_loss),\n",
+   "",
+   "Q6-i c: risk.stop_loss not recorded"
+  ],
+  [
+   "exit_numbers",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.stop_loss\": str(profiles.risk.stop_loss),\n",
+   "        \"risk.stop_loss\": str(profiles.risk.stop_max),\n",
+   "Q6-i d: stop_loss reported from the wrong field (stop_max)"
+  ],
+  [
+   "exit_numbers",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.trail_keep_pct\": str(profiles.risk.trail_keep_pct),\n",
+   "        \"risk.trail_keep_pct\": \"50\",\n",
+   "Q6-i e: trail_keep_pct a fixed string, not the loaded profile"
+  ],
+  [
+   "golden",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.profit_target\": str(profiles.risk.profit_target),\n",
+   "",
+   "Q6-i f: the golden pins the added line"
+  ]
+ ]
+}

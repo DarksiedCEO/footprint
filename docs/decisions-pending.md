@@ -401,6 +401,14 @@ Each is marked `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit af
 | H2-G64-2 | Review G64 **G64-2 (LOW, src test gap)**: the approved pullback (c) "closes up (close > open)" was not pinned: `close > open` -> `>=` and the mirror `close < open` -> `<=` in `_turns` (`src/footprint/backtest/pullback.py`) survived every pullback test (the existing doji fixture did not close above the prior high). Test added; src unchanged, it was already correct. No new reading (grind stage https://claude.ai/code/session_011oT5kWw76xv2a1MCtQohwM; needs review by a different session) | `tests/backtest/test_pullback.py::test_a_doji_above_the_prior_high_is_not_a_close_up` (both directions; one tick up then enters): fails with each mutant applied. Mutation `qa/mutation/h2-g64-2-pullback-doji.json` |
 | H2-G64-3 | Review G64 **G64-3 (LOW, src test gap)**: `record_chain`'s `due <= taken < end` (`src/footprint/brokers/ibkr/chain_recorder.py`) was not pinned at `taken == end` (mutant `<= end` survived). Test added; src unchanged, it was already correct (grind stage https://claude.ai/code/session_011oT5kWw76xv2a1MCtQohwM; needs review by a different session) | `tests/brokers/test_chain_recorder_loop.py::test_no_snapshot_is_taken_when_a_slow_step_ends_exactly_at_the_end`: fails with the mutant applied, passes without. Mutation `qa/mutation/h2-g64-3-chain-end.json` |
 
+## Q6 comparison runner (branch compare-v1, backtest-only tooling)
+
+H2 closed by review G66 (2026-10-11 ~21:53 UTC, CONDITIONAL, no findings above INFO, PR #21). Q6 adds no rule, no number and no metric.
+
+| ID | What | Evidence |
+|---|---|---|
+| Q6-i | Review G52-2 done: every backtest readout (readout.md, readout.json and the printed readout, the run with no rule named included) records the exit numbers it ran with, `risk.profit_target`, `risk.trail_keep_pct`, `risk.stop_loss`, from the profiles the run loaded, as three assumption lines right after "fees per contract per side". The no-option golden (`tests/backtest/golden/seam_default`) changes only by those 9 added lines (3 per file), updated in the same commit (grind stage https://claude.ai/code/session_013yfwcuDQJ9KZX9MQ3SS49N; needs review by a different session) | Tests first (`tests/backtest/test_readout_exit_numbers.py`, 6 tests: no rule, each exit rule, a copied config with all three moved, line order); all 6 failed before the change. Mutation `qa/mutation/q6-exit-numbers.json` |
+
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
 Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the hard-coded-literal guard (`tests/test_no_hardcoded_literals_ast.py`) are chased. These stay open, accepted; none has a hit in src today. Every value in src is still also reviewed in pull-request review.
