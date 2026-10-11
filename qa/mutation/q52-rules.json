@@ -1,0 +1,53 @@
+{
+ "groups": {
+  "rules": [
+   "tests/backtest/test_entry_stairstep.py",
+   "tests/backtest/test_entry_breakout.py",
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=True)\n",
+   "Q52R-1: stairstep gains the volume condition"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=True)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "Q52R-2: stairstep_vol loses the volume condition"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "_ENTRY_BARS = timedelta(minutes=1)",
+   "_ENTRY_BARS = timedelta(minutes=5)",
+   "Q52R-3: the stair reads a 5-minute interval on 1-minute bars"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    \"stairstep_vol\": stairstep_vol,\n",
+   "    \"stairstep_vol\": stairstep,\n",
+   "Q52R-4: stairstep_vol is registered as the plain rule"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return MomentumReader(profiles.strategy.volume, profiles.instrument)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "Q52R-5: breakout builds the stair trigger"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/__main__.py",
+   "ENTRY_RULES[args.entry](profiles, settings.rules)",
+   "ENTRY_RULES[args.entry](profiles, type(settings.rules)(stairstep=type(settings.rules.stairstep)(1, settings.rules.stairstep.max_giveback, 1, 1)))",
+   "Q52R-6: the CLI hands the rule numbers other than the file's"
+  ]
+ ]
+}

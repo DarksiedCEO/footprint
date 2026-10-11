@@ -122,9 +122,11 @@ How it is built (`entry-stairstep-v1`, slice 1 of 2: the detector):
 1-min bars and returns the bars where the entry fires. How each word is read is in
 `docs/decisions-pending.md` (Q5.2-a); every reading is pinned by a hand-built fixture in
 `tests/backtest/test_stairstep.py`. Slice 2a (`StairTrigger`) puts the detector in the
-momentum slot; slice 2b-1 loads the four numbers from config (above). Slice 2b-2 (not
-built yet) registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` and feeds the
-detector from the pipeline's 1-min bars.
+momentum slot; slice 2b-1 loads the four numbers from config (above). Slice 2b-2
+registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` (`--entry stairstep`,
+`--entry stairstep_vol`); each factory builds the trigger from `config/backtest.yaml`
+`rules: stairstep:` on the pipeline's completed 1-min bars. Every other gate still
+decides, exactly as for "breakout" (reading Q5.2-l, for Andre to confirm).
 Until the entry close the steps still count: if the step after the formed stair turns
 invalid first, the count is zero and there is no entry (review G39-1; reading Q5.2-b,
 for Andre to confirm).

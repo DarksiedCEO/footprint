@@ -14,18 +14,22 @@ from pathlib import Path
 
 from footprint.agents.momentum_reader import MomentumReader
 from footprint.backtest.rules import ENTRY_RULES
+from footprint.backtest.settings import load_backtest
 from footprint.core.config import Profiles
 from footprint.core.models import Score
 from footprint.decision.pipeline import Pipeline
 from tests.backtest.test_rules_seam import _normalised, _run
+from tests.conftest import REPO_ROOT
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 from tests.decision.test_console_pipeline import clean
+
+RULES = load_backtest(REPO_ROOT / "config" / "backtest.yaml").rules
 
 
 def test_breakout_is_registered_and_builds_the_momentum_reader_from_the_live_settings(
     profiles: Profiles,
 ) -> None:
-    trigger = ENTRY_RULES["breakout"](profiles)
+    trigger = ENTRY_RULES["breakout"](profiles, RULES)
     assert type(trigger) is MomentumReader
     live = MomentumReader(profiles.strategy.volume, profiles.instrument)
     assert vars(trigger) == vars(live)
@@ -35,7 +39,7 @@ def test_breakout_is_registered_and_builds_the_momentum_reader_from_the_live_set
 def test_breakout_reads_the_scenario_exactly_as_the_live_reader(
     profiles: Profiles,
 ) -> None:
-    trigger = ENTRY_RULES["breakout"](profiles)
+    trigger = ENTRY_RULES["breakout"](profiles, RULES)
     live = MomentumReader(profiles.strategy.volume, profiles.instrument)
     bars = market()
     seen = set()
@@ -55,7 +59,7 @@ def test_breakout_reaches_the_same_decision_as_the_default_pipeline(profiles: Pr
     bars = market()
     chain = chain_for(bars[-1].close)
     default = Pipeline(profiles).decide(bars, chain, clean(profiles), (), DECISION_TIME)
-    named = Pipeline(profiles, ENTRY_RULES["breakout"](profiles)).decide(
+    named = Pipeline(profiles, ENTRY_RULES["breakout"](profiles, RULES)).decide(
         bars, chain, clean(profiles), (), DECISION_TIME
     )
     assert default.fired

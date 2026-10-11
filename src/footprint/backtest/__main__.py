@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out,
         blackouts=blackouts_from(args.blackouts),
         trade_from=args.trade_from,
-        trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles),
+        trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles, settings.rules),
         exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles),
     ).run()
     assumptions = {
