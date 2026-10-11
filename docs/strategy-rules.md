@@ -48,7 +48,14 @@ How it is built (first slice, entry side): `--entry NAME` picks a factory from
 `Pipeline` (`Pipeline(profiles, trigger)`); with no `--entry` the backtest builds
 `Pipeline(profiles)` exactly as the live runner does. Proven byte-identical by
 `tests/backtest/test_rules_seam.py` against golden files written by the pre-seam code.
-The `--exit` side comes in the next slice.
+
+Exit side (second slice): `--exit NAME` picks a factory from
+`footprint.backtest.rules.EXIT_RULES`. Trade management asks the rule last, on a fresh
+quote, after every existing reason to get out (gap and hard stop first, then the
+close, news, daily and weekly loss, kill switch). A yes closes the whole position with
+exit reason `RULE`. The rule can only add a way out; it never moves, replaces or
+loosens the hard stop. With no `--exit` trade management is built exactly as the live
+runner builds it.
 
 ## Q5.1 entry "breakout" (`entry-breakout-v1`): BASELINE
 

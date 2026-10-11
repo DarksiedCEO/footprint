@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
+from typing import Protocol
 from uuid import uuid4
 
 from footprint.core.calendar import SessionKind, entry_cutoff, session_at
@@ -82,6 +83,7 @@ class ExitReason(Enum):
     RECONCILE = "RECONCILE"
     FAILSAFE = "FAILSAFE"
     END_OF_DATA = "END_OF_DATA"  # backtest only: the history ran out with a trade open
+    RULE = "RULE"  # backtest only: a named exit rule wanted out (footprint.backtest.rules)
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,13 @@ class Alarm:
     message: str
 
 
+class ExitRule(Protocol):
+    """A named exit rule (backtest only): asked last, on a fresh quote, whether to get
+    out. It can only add a way out; it never moves or loosens the hard stop."""
+
+    def wants_out(self, position: Position, net_open: Decimal, now: datetime) -> bool: ...
+
+
 class Manager:
     def __init__(
         self,
@@ -109,8 +118,13 @@ class Manager:
         halt: Halt,
         book: QuoteBook,
         on_alarm: Callable[[Alarm], None] | None = None,
+        *,
+        exit_rule: ExitRule | None = None,
     ) -> None:
+        """`exit_rule`: a named exit rule (backtest rule library); None, as the live
+        runner builds it, is the exit unchanged."""
         self._p = profiles
+        self._exit_rule = exit_rule
         self._broker = broker
         self._stops = stops
         self._ledger = ledger
@@ -408,6 +422,8 @@ class Manager:
             return ExitReason.WEEKLY_LOSS
         if account.kill_switch_latched:
             return ExitReason.KILL_SWITCH
+        if self._exit_rule is not None and self._exit_rule.wants_out(position, net_open, now):
+            return ExitReason.RULE
         return None
 
     def _start_exit(

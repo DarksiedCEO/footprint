@@ -173,9 +173,47 @@ def test_an_unknown_entry_rule_is_refused_before_anything_runs(tmp_path: Path) -
     assert not (tmp_path / "run").exists()
 
 
+class AlwaysOut:
+    """A stand-in exit rule: out at the first fresh quote it is asked about."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def wants_out(self, position: object, net_open: object, now: object) -> bool:
+        self.asked += 1
+        return True
+
+
+def test_a_named_exit_rule_is_asked_and_can_close_the_trade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built: list[AlwaysOut] = []
+
+    def always(profiles: Profiles) -> AlwaysOut:
+        built.append(AlwaysOut())
+        return built[-1]
+
+    monkeypatch.setitem(rules.EXIT_RULES, "always", always)
+    out, printed = _run(tmp_path, "--exit", "always")
+    assert len(built) == 1
+    assert built[0].asked > 0
+    trades = (out / "journal" / "trades.jsonl").read_text()
+    assert '"RULE"' in trades
+    assert "exit rule" in printed
+    assert "always" in printed
+
+
+def test_an_unknown_exit_rule_is_refused_before_anything_runs(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as refused:
+        _run(tmp_path, "--exit", "no-such-rule")
+    assert refused.value.code == 2
+    assert not (tmp_path / "run").exists()
+
+
 def test_no_live_module_imports_the_backtest_rules() -> None:
     """Candidate rules are backtest-only: nothing outside footprint.backtest may import
-    footprint.backtest (rules included), and the live path builds Pipeline(profiles)."""
+    footprint.backtest (rules included), the live path builds Pipeline(profiles), and no
+    module outside footprint.backtest passes a Manager an exit rule."""
     src = REPO_ROOT / "src" / "footprint"
     for path in src.rglob("*.py"):
         if path.is_relative_to(src / "backtest"):
@@ -193,3 +231,5 @@ def test_no_live_module_imports_the_backtest_rules() -> None:
             ):
                 assert len(node.args) == 1, path
                 assert not node.keywords, path
+            if isinstance(node, ast.keyword):
+                assert node.arg != "exit_rule", path

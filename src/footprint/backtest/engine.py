@@ -54,7 +54,7 @@ from footprint.execution.executor.diego import Executor
 from footprint.execution.halt import Halt
 from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger, StateStore
-from footprint.execution.management.malik import Alarm, Manager
+from footprint.execution.management.malik import Alarm, ExitRule, Manager
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import SimulatedBroker, TrackedBroker
 from footprint.execution.runner import Runner
@@ -95,11 +95,13 @@ class Backtest:
         blackouts: Callable[[datetime], Iterable[NewsBlackout]] = lambda now: (),
         trade_from: datetime | None = None,
         trigger: EntryTrigger | None = None,
+        exit_rule: ExitRule | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
         clock starts at the first bar at or after it. None: start at the first bar.
         `trigger`: a named entry rule's trigger (footprint.backtest.rules); None is
-        the live entry, unchanged."""
+        the live entry, unchanged. `exit_rule`: a named exit rule; None is the live
+        exit, unchanged."""
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -136,7 +138,11 @@ class Backtest:
         pipeline = Pipeline(p) if trigger is None else Pipeline(p, trigger)
         stops = StopKeeper(p.risk, p.instrument, p.execution)
         executor = Executor(p, pipeline, tracked, stops, self.ledger, self.halt, self.book)
-        manager = Manager(p, tracked, stops, self.ledger, self.halt, self.book)
+        manager = (
+            Manager(p, tracked, stops, self.ledger, self.halt, self.book)
+            if exit_rule is None
+            else Manager(p, tracked, stops, self.ledger, self.halt, self.book, exit_rule=exit_rule)
+        )
         self.journal = Journal(workdir / "journal")
         self.runner = Runner(
             pipeline,
