@@ -240,3 +240,15 @@ APPROVED BY ANDRE 2026-10-10:
 > unchanged.
 
 The 10 minutes and the $250 are APPROVED values (keys: added with its piece).
+
+Config keys (`config/backtest.yaml`, backtest only): `rules.time.minutes` (10, APPROVED
+BY ANDRE 2026-10-10) and `rules.time.min_gain` (250, APPROVED BY ANDRE 2026-10-10).
+
+Built (`exit-time-v1`): `footprint.backtest.exits.TimeExit`, selectable with
+`--exit time`; built once per run from the `--config` the run names, and the readout
+records `rule time minutes` and `rule time min_gain`. Readings Q5.6-a (APPROVED BY ANDRE 2026-10-11 10:30 PT): the open profit is trade
+management's figure, on the bid and net of round-trip fees; the entry fill is the
+position's entry time; the judgment is made once, on the first fresh quote trade
+management asks the rule about at or after the mark; "less than" is strict, so exactly
++$250.00 at 10:00 keeps the trade; a keep is final (the baseline trail carries on); an
+out is held until the position is gone.

@@ -18,7 +18,12 @@ from pathlib import Path
 
 from footprint.backtest.engine import Backtest
 from footprint.backtest.readout import read_out, to_json, to_markdown
-from footprint.backtest.rules import ENTRY_RULES, EXIT_RULES, entry_rule_numbers
+from footprint.backtest.rules import (
+    ENTRY_RULES,
+    EXIT_RULES,
+    entry_rule_numbers,
+    exit_rule_numbers,
+)
 from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
@@ -63,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         blackouts=blackouts_from(args.blackouts),
         trade_from=args.trade_from,
         trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles, settings.rules),
-        exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles),
+        exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles, settings.rules),
     ).run()
     assumptions = {
         "option prices": "MODELLED from the futures price (no options history)",
@@ -79,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         assumptions.update(entry_rule_numbers(args.entry, settings.rules))
     if args.exit is not None:
         assumptions["exit rule"] = args.exit
+        assumptions.update(exit_rule_numbers(args.exit, settings.rules))
     readout = read_out(run, settings, assumptions)
     (args.out / "readout.md").write_text(to_markdown(readout), encoding="utf-8")
     (args.out / "readout.json").write_text(json.dumps(to_json(readout), indent=2), encoding="utf-8")
