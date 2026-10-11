@@ -263,6 +263,13 @@
    "> self._s.max_stair_bars:\n            self._invalidate()",
    "> self._s.max_stair_bars:\n            self._invalidate() if self._pause_lows else self._drop()",
    "Q52-38 (G41-2): a stair past max_stair_bars mid-push drops the push (a new push restarts mid-rise)"
+  ],
+  [
+   "stair",
+   "src/footprint/backtest/stairstep.py",
+   "        if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars:\n",
+   "        if self._stair_start is not None and i - self._stair_start + 1 > self._s.max_stair_bars and self._pause_lows:\n",
+   "Q52-39 (G42-1): the stair length is checked only during a pause (a push bar past max_stair_bars can enter)"
   ]
  ]
 }

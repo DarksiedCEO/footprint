@@ -539,3 +539,22 @@ def test_a_stair_that_passes_max_stair_bars_mid_push_does_not_count_that_push() 
     # Without the limit, push 1 is step 1 and bar 15 closes above push 3's 115.
     assert up(make(LONG_PUSH)) == [15]
     assert down(make(mirror(LONG_PUSH))) == [15]
+
+
+def test_a_push_bar_past_max_stair_bars_is_not_the_entry() -> None:
+    # G42-1: the stair forms on bar 10 (level 112) and push 4 keeps rising; bar 11 is a
+    # push bar (no pause yet) that closes 112.5 above the level. The stair runs from bar
+    # 0 to the entry bar inclusive (Q5.2-a(7)): 12 bars. With max_stair_bars 12 bar 11 is
+    # the entry; with 11 the stair is too long on that very bar and nothing fires.
+    rows = [*STAIR[:10], ("113", "110", "111", 200), ("114", "112", "112.5", 200)]
+    fits = StairSettings(steps=3, max_giveback=Decimal("0.5"), max_pause_bars=10, max_stair_bars=12)
+    short = StairSettings(
+        steps=3, max_giveback=Decimal("0.5"), max_pause_bars=10, max_stair_bars=11
+    )
+    assert up(make(rows), fits) == [11]
+    assert up(make(rows), fits, vol=True) == [11]
+    assert down(make(mirror(rows)), fits) == [11]
+    assert up(make(rows), short) == []
+    assert up(make(rows), short, vol=True) == []
+    assert down(make(mirror(rows)), short) == []
+    assert down(make(mirror(rows)), short, vol=True) == []
