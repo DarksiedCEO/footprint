@@ -1,0 +1,12 @@
+{
+ "groups": {
+  "t": ["tests/execution/test_alarms.py"]
+ },
+ "mutants": [
+  ["t", "src/footprint/execution/alarms.py", "                    if len(self._pending) >= self._max_pending:\n", "                    if len(self._pending) > self._max_pending:\n", "G44-2: the cap lets one extra alarm wait"],
+  ["t", "src/footprint/execution/alarms.py", "                            (w for w in self._pending if w is not self._in_flight),\n", "                            (w for w in reversed(self._pending) if w is not self._in_flight),\n", "G44-2: the newest is dropped, not the oldest"],
+  ["t", "src/footprint/execution/alarms.py", "                            (w for w in self._pending if w is not self._in_flight),\n", "                            (w for w in self._pending),\n", "G44-2: the alarm in flight can be dropped"],
+  ["t", "src/footprint/execution/alarms.py", "                        self._dropped += 1\n", "                        self._dropped += 2\n", "G44-2: drops miscounted"],
+  ["t", "src/footprint/execution/alarms.py", "                    self._pending.appendleft(note)\n", "                    self._pending.append(note)\n", "G44-2: the drop note is told after the survivors, not first"]
+ ]
+}
