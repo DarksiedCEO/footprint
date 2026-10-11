@@ -1,0 +1,19 @@
+source: 04575a8990f4b161cdc9c2df9f4536df06ac1c36 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: G1: adoption replaces a partly filled stop (the G6-1 short, fill path)
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: G2: adoption keeps it but does not halt
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: G3: adoption drops the partly filled stop (a new one is placed)
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: G4: the price-wait guard replaces a partly filled stop (the G6-1 short)
+  5 KILLED   [exec] src/footprint/execution/executor/diego.py: G5: boundary: one sold is not counted
+  6 KILLED   [exec] src/footprint/execution/executor/diego.py: G6: boundary on the fill path
+  7 KILLED   [exec] src/footprint/execution/executor/diego.py: G7: the guard places nothing but says nothing
+  8 KILLED   [exec] src/footprint/execution/executor/diego.py: G8: the halt does not say how much sold
+  9 KILLED   [exec] src/footprint/execution/executor/diego.py: G9: a NotSent replacement leaves a phantom id (G6-2)
+ 10 KILLED   [exec] src/footprint/execution/executor/diego.py: G10: the old stop id is not restored on NotSent (G6-2)
+ 11 KILLED   [exec] src/footprint/execution/executor/diego.py: G11: an unknown send outcome forgets the replacement id (R1-like)
+ 12 KILLED   [exec] src/footprint/execution/executor/diego.py: R3: replacement sized from the attached stop
+ 13 KILLED   [exec] src/footprint/execution/executor/diego.py: R4: replacement priced for the plan
+ 14 KILLED   [exec] src/footprint/execution/management/malik.py: G12: management flattens beside a partly filled stop gone at the broker
+ 15 KILLED   [exec] src/footprint/execution/management/malik.py: G13: no kill-switch latch on that hand-over
+ 16 KILLED   [exec] src/footprint/execution/management/malik.py: G14: no alarm to Andre on that hand-over
+16 mutants, 0 survived or errored

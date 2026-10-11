@@ -1,0 +1,21 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ],
+  "adapter": [
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_held_back_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "adapter",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "if c.status not in (_INACTIVE, _PENDING_CANCEL) and not c.cancel_sent",
+   "if c.status not in (_INACTIVE, _PENDING_CANCEL)",
+   "N2: our cancel of an Inactive copy forgotten (PendingCancel after Inactive acts)"
+  ]
+ ]
+}

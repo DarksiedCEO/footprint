@@ -1,0 +1,19 @@
+source: 51be30942554bfac872dcb8f16284497e0a0dc2f tree-dirty: 0 files
+baseline [adapter]: passed
+baseline [alarms]: passed
+baseline [calendar]: passed
+baseline [exit]: passed
+  1 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-1: price from part of the executions
+  2 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-1: IBKR's average for another size
+  3 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-4: execution does not reprice
+  4 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-5: execution at 0 is a price
+  5 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: A-2: IBKR average of 0 trusted
+  6 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-3: failed cancel not re-armed
+  7 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: F-3: no doubt on a failed cancel
+  8 KILLED   [exit] src/footprint/execution/management/malik.py: A-6a: sweep outage halts
+  9 KILLED   [exit] src/footprint/execution/management/malik.py: A-6c: work-exit outage halts
+ 10 KILLED   [exit] src/footprint/execution/management/malik.py: F-7: reconcile ids repeat after restart
+ 11 KILLED   [alarms] src/footprint/execution/alarms.py: F-8: closing alarm not forwarded
+ 12 KILLED   [calendar] src/footprint/core/calendar.py: F-6: pre-calendar days trade
+ 13 KILLED   [calendar] src/footprint/core/config.py: F-6/A8b: date before calendar_from accepted
+13 mutants, 0 survived or errored

@@ -1,0 +1,5 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: O5-1: CANCEL STUCK on the first hand-over
+1 mutants, 0 survived
+EXIT 0
+source: mutants applied to the working tree that became bf8db6f (src unchanged since, except round13-rerun's added test)

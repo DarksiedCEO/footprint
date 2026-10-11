@@ -1,0 +1,91 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_runner.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_attached_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "        if self._ticket is not None and not self._settle_entry(now):\n            return",
+   "        if self._ticket is not None:\n            self._settle_entry(now)",
+   "N3-1 runner: reconcile runs over a held entry"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since is not None:",
+   "        if False:",
+   "N3-1 runner: a price-pending entry is dropped"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "            return False\n        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since",
+   "            self._ticket = None\n            return True\n        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since",
+   "N3-1 runner: past the wait the entry is dropped"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "            if ticket.position_id not in self._check_fill_alarmed:",
+   "            if True:",
+   "N3-1 runner: CHECK THE FILL every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "            self._halt.trip(f\"{ticket.position_id}: entry fill price not reported\")",
+   "            pass",
+   "N3-1 runner: no halt past the wait"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "        if ticket.outcome is not EntryOutcome.WORKING:\n            self._entry_done(ticket, now)\n        return True",
+   "        return True",
+   "N3-1 runner: a settled fill is not adopted"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            if status.state is OrderState.WORKING:\n                self.abandon(ticket)\n",
+   "            if False:\n                self.abandon(ticket)\n",
+   "N3-1 diego: settle leaves a working entry working"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                raise  # known to be filled: never dropped; asked again next step",
+   "                return ticket",
+   "N3-1 diego: a failed question about a filled entry is swallowed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            log.critical(\"cannot settle entry %s: %r\", ticket.order_id, exc)\n            self.abandon(ticket)\n",
+   "            log.critical(\"cannot settle entry %s: %r\", ticket.order_id, exc)\n",
+   "N3-1 diego: an unanswered entry is not cancelled"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        require_utc(now, \"now\")\n        if ticket.outcome is not EntryOutcome.WORKING:\n            return ticket\n        try:",
+   "        require_utc(now, \"now\")\n        try:",
+   "N3-1 diego: settle of a finished ticket (equivalent? the runner only holds WORKING tickets)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "\"is sent and reconcile waits for the price; flatten by hand if it never \"",
+   "\"is sent and reconcile waits for the price; Flatten by hand if it never \"",
+   "N3-1 runner: CHECK THE FILL does not ring (no critical marker)"
+  ]
+ ]
+}

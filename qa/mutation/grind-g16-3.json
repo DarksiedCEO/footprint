@@ -1,0 +1,42 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g6_5.py",
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_pending_entry_stop.py",
+   "tests/execution/test_grind_g7_2.py",
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                    _fill_stop_id(ticket.position_id)\n                    if ticket.stop_order_id\n",
+   "                    f\"{ticket.position_id}-stop-3\"\n                    if ticket.stop_order_id\n",
+   "M1: the stop placed on the fill gets an id the orphan and sell checks never ask about"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        replacement = _wait_stop_id(pid)\n",
+   "        replacement = f\"{pid}-stop-wait-x\"\n",
+   "M2: the wait stop gets an id the orphan and sell checks never ask about"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            order_id=_attached_stop_id(position_id),\n",
+   "            order_id=f\"{position_id}-stopx\",\n",
+   "M3: the attached stop gets an id the orphan and sell checks never ask about"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                    _fill_stop_id(ticket.position_id)\n                    if ticket.stop_order_id\n",
+   "                    _attached_stop_id(ticket.position_id)\n                    if ticket.stop_order_id\n",
+   "M4: the stop placed on the fill reuses the attached stop's id"
+  ]
+ ]
+}

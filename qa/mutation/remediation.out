@@ -1,0 +1,55 @@
+  1 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: any id passes as paper
+  2 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: IB Gateway live port allowed
+  3 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: TWS live port allowed
+  4 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: prefix match instead of full
+  5 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: account check off
+  6 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: port check off
+  7 KILLED   [paper] src/footprint/brokers/ibkr/paper.py: live-login check off
+  8 KILLED   [paper] src/footprint/brokers/ibkr/binding.py: settings check off
+  9 KILLED  (TIMEOUT) [paper] src/footprint/brokers/ibkr/binding.py: pre-connect check off
+ 10 KILLED   [paper] src/footprint/brokers/ibkr/binding.py: login list check off
+ 11 SURVIVED [paper] src/footprint/brokers/ibkr/binding.py: account check at login off (redundant with login check)
+ 12 KILLED   [paper] src/footprint/live/app.py: build check off
+ 13 KILLED   [paper] src/footprint/live/__main__.py: main refusal raises instead of a clean exit
+ 14 KILLED   [disconnect] src/footprint/execution/runner.py: steps on while the broker is away
+ 15 KILLED   [disconnect] src/footprint/execution/runner.py: away does not require a reconcile
+ 16 KILLED   [disconnect] src/footprint/execution/runner.py: race re-check in _decide off
+ 17 KILLED   [disconnect] src/footprint/execution/runner.py: failsafe acts during the outage
+ 18 KILLED   [disconnect] src/footprint/execution/runner.py: outage counted as unmanaged after reconnect
+ 19 KILLED   [disconnect] src/footprint/execution/runner.py: every agreed reconcile resets the unmanaged clock
+ 20 KILLED   [disconnect] src/footprint/brokers/ibkr/adapter.py: no doubt at the loss
+ 21 KILLED   [disconnect] src/footprint/brokers/ibkr/adapter.py: no doubt before ready
+ 22 KILLED   [calendar] src/footprint/core/calendar.py: no-trade days trade
+ 23 KILLED   [calendar] src/footprint/core/calendar.py: expired calendar trades (fail open)
+ 24 KILLED   [calendar] src/footprint/core/calendar.py: prime ignores policy
+ 25 KILLED   [calendar] src/footprint/core/calendar.py: overnight ignores policy
+ 26 KILLED   [calendar] src/footprint/core/calendar.py: no-trade day used as the prior day
+ 27 KILLED   [calendar] src/footprint/core/calendar.py: expired alarm text
+ 28 KILLED   [calendar] src/footprint/core/config.py: no-trade/holiday overlap accepted
+ 29 KILLED   [calendar] src/footprint/core/config.py: weekend no-trade day accepted
+ 30 KILLED   [calendar] src/footprint/core/config.py: no-trade day past the calendar accepted
+ 31 KILLED   [alarms] src/footprint/execution/channels.py: no deadline on a send
+ 32 KILLED   [alarms] src/footprint/execution/channels.py: failed call raises (retried, blocks)
+ 33 KILLED   [alarms] src/footprint/execution/channels.py: failed call starts the cooldown
+ 34 KILLED   [alarms] src/footprint/execution/channels.py: down reported on every failure
+ 35 KILLED   [alarms] src/footprint/execution/channels.py: recovery never reported
+ 36 KILLED   [alarms] src/footprint/execution/channels.py: down alert sent to the dead channel too
+ 37 KILLED   [alarms] src/footprint/execution/channels.py: down alert never by SMS
+ 38 KILLED   [alarms] src/footprint/execution/channels.py: down alert not in alarms.log
+ 39 KILLED   [alarms] src/footprint/execution/channels.py: one channel down silences another's call
+ 40 KILLED   [alarms] src/footprint/execution/channels.py: channel down does not ring
+ 41 KILLED   [alarms] src/footprint/execution/channels.py: disconnect does not ring
+ 42 KILLED   [alarms] src/footprint/execution/channels.py: unattended does not ring
+ 43 KILLED   [alarms] src/footprint/execution/channels.py: degraded banner dropped
+ 44 KILLED   [alarms] src/footprint/execution/channels.py: degraded never degraded
+ 45 KILLED   [alarms] src/footprint/execution/channels.py: telegram-only unmarked
+ 46 KILLED   [alarms] src/footprint/live/app.py: unattended never stops entries
+ 47 KILLED   [alarms] src/footprint/live/app.py: full alerting stops entries for quiet
+ 48 KILLED   [alarms] src/footprint/live/app.py: input never counts as attended
+ 49 KILLED   [alarms] src/footprint/live/__main__.py: degraded starts without a terminal
+ 50 KILLED   [alarms] src/footprint/execution/runner.py: revoke does nothing
+ 51 KILLED   [alarms] src/footprint/live/alarm_setup.py: fallback check always passes
+ 52 KILLED   [alarms] src/footprint/live/alarm_setup.py: fallback check really sends to Telegram
+ 53 KILLED   [guard] tests/conftest.py: name lookups allowed
+BAD MUTANT 54 (0 matches): tests/conftest.py: '    for name in _PROXY_VARS:\n        monkeypatch.delenv(name, raising=False)\n'
+54 mutants, 2 survived

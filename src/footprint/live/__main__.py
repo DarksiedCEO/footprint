@@ -19,10 +19,11 @@ import sys
 import threading
 from pathlib import Path
 
-from footprint.brokers.ibkr.binding import IbConnectionSettings, read_env_file
+from footprint.brokers.ibkr.paper import LiveAccountRefused
+from footprint.brokers.ibkr.settings import IbConnectionSettings, read_env_file
 from footprint.core.config import load_profiles
 from footprint.data.news import blackouts_from
-from footprint.execution.channels import ChannelSettings
+from footprint.execution.channels import ChannelSettings, TelegramOnlySettings
 from footprint.live.app import AlarmFile, Driver, build
 
 
@@ -48,31 +49,52 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--new-ledger", action="store_true", help="first run only: create the ledger file"
     )
-    parser.add_argument(
+    degraded = parser.add_mutually_exclusive_group()
+    degraded.add_argument(
         "--alarms-local-only",
         action="store_true",
-        help="no phone alarms: the terminal and state/alarms.log only (D20 needs the "
-        "Telegram and Twilio keys in .env otherwise)",
+        help="DEGRADED_ALERTING, no phone alarms: the terminal and state/alarms.log only "
+        "(attended at the terminal only)",
+    )
+    degraded.add_argument(
+        "--alarms-telegram-only",
+        action="store_true",
+        help="DEGRADED_ALERTING: Telegram only, no SMS fallback, no calls (attended at the "
+        "terminal only)",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     profiles = load_profiles(args.config, args.instrument)
     env = read_env_file(str(args.env))
-    settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
-    channels = None
-    if args.alarms_local_only:
-        print("ALARMS LOCAL ONLY: nothing reaches your phone", file=sys.stderr)
-    else:
-        try:
+    try:
+        settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
+    except LiveAccountRefused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    channels: ChannelSettings | TelegramOnlySettings | None = None
+    if (args.alarms_local_only or args.alarms_telegram_only) and not sys.stdin.isatty():
+        print(
+            "REFUSED: DEGRADED_ALERTING needs a person at an interactive terminal "
+            "(unattended operation is blocked without full alarms)",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        if args.alarms_local_only:
+            print("DEGRADED_ALERTING: local only, nothing reaches your phone", file=sys.stderr)
+        elif args.alarms_telegram_only:
+            channels = TelegramOnlySettings.from_env(env)
+            print("DEGRADED_ALERTING: Telegram only (no SMS, no calls)", file=sys.stderr)
+        else:
             channels = ChannelSettings.from_env(env)
-        except ValueError as exc:
-            print(
-                f"phone alarms are not set up ({exc}). Fill them in (runbook), or start "
-                "with --alarms-local-only",
-                file=sys.stderr,
-            )
-            return 2
+    except ValueError as exc:
+        print(
+            f"phone alarms are not set up ({exc}). Fill them in (runbook), or start "
+            "degraded with --alarms-telegram-only or --alarms-local-only",
+            file=sys.stderr,
+        )
+        return 2
     live = build(
         profiles,
         settings,

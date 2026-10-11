@@ -1,0 +1,14 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+source: 79aa0c6e3a170ea2430ec3954c3fac2f5224e718 tree-dirty: 0 files
+baseline [backtest]: passed
+baseline [config]: passed
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: V2: a FILLED-unpriced BUY of the position counts as its sale
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: V3: a FILLED-unpriced sell of another contract counts as the position's sale
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: V4: a hold on the position's contract also holds off every other contract
+  4 KILLED   [config] src/footprint/core/config.py: V16: a zero price wait is accepted
+  5 KILLED   [backtest] src/footprint/backtest/engine.py: V14: the exact first calendar day is refused
+  6 KILLED   [backtest] src/footprint/backtest/engine.py: V15: the exact last calendar day is refused
+  7 KILLED   [backtest] src/footprint/backtest/engine.py: V14b: one day before calendar_from is accepted
+  8 KILLED   [backtest] src/footprint/backtest/engine.py: V15b: one day past calendar_through is accepted
+8 mutants, 0 survived or errored

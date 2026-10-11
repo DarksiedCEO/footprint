@@ -1,0 +1,38 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._reconcile_cancels.discard(position.stop_order_id)\n",
+   "",
+   "L2-2: reconcile's cancel record kept after the stop protects again"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stop_stuck_since.pop(pid, None)\n        if position.stop_order_id is not None:",
+   "        if position.stop_order_id is not None:",
+   "L2-3: an abandoned exit keeps its stuck clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if gone.state is OrderState.CANCELLED and gone.filled == 0:",
+   "                if gone.state is OrderState.CANCELLED:",
+   "L2-1: a stop that filled before its cancel is expected gone"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            if after.state is not OrderState.CANCELLED:",
+   "            if False:",
+   "L2-6: wrong-size stop's cancel unconfirmed, second stop placed"
+  ]
+ ]
+}

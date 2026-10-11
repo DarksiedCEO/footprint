@@ -1,0 +1,11 @@
+source: 23a918394d0ff98369da64ec087b4ecd1b8e45ab tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: M1: the stop placed while the entry's price was pending is never asked about
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: M2: the stop placed on the fill is never asked about
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: the orphan check asks only about <pid>-stop (the G6-5 gap)
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: reconcile's sell candidates hold only <pid>-stop (the G6-5 gap)
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M5: two stops that both filled are booked at the first one's price
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M6: sold twice does not stand down
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: M7: an unpriced orphan's price is awaited under <pid>-stop, not the stop that sold
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: M8: the search stops at the first filled stop (a sale twice is not seen)
+8 mutants, 0 survived or errored

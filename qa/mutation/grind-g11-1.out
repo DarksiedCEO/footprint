@@ -1,0 +1,10 @@
+source: bac23d916881ce3ac71397b52a3afada8ff15fce tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: G1: _await_price books the pending order's price whatever else sold (the G11-1 defect)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: G2: the guard inverted: a whole sale is never booked, a sale in parts is booked at a tick
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: G3: Andre is never told the position was sold in parts
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: G4: no stand-down: the kill switch is not latched
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: G5: no hand-over to reconcile: management waits silently
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: G6: the flag not set: reconcile alarms a second time
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: G7: the two wordings swapped (Andre is not told each sale)
+7 mutants, 0 survived or errored

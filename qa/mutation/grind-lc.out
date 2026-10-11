@@ -1,0 +1,7 @@
+source: f1c858f5e29f2adcb34f47428155ad0aa4ef18b7 tree-dirty: 0 files
+baseline [lc]: passed
+  1 KILLED   [lc] src/footprint/brokers/ibkr/paper.py: M1: a refused connection does not stop order calls
+  2 KILLED   [lc] src/footprint/brokers/ibkr/paper.py: M2: order calls go out before the account check
+  3 KILLED   [lc] src/footprint/brokers/ibkr/paper.py: M3: the account check is read backwards
+  4 KILLED   [lc] src/footprint/brokers/ibkr/paper.py: M4: the refusal is not a ConnectionError (callers would not read it as nothing sent)
+4 mutants, 0 survived or errored

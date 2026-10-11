@@ -1,0 +1,37 @@
+{
+ "groups": {
+  "lc": [
+   "tests/brokers/test_grind_lc.py"
+  ]
+ },
+ "mutants": [
+  [
+   "lc",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if refused is not None:\n        raise AccountNotChecked(f\"the IBKR",
+   "    if False:\n        raise AccountNotChecked(f\"the IBKR",
+   "M1: a refused connection does not stop order calls"
+  ],
+  [
+   "lc",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if not account_checked:\n",
+   "    if False:\n",
+   "M2: order calls go out before the account check"
+  ],
+  [
+   "lc",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if not account_checked:\n",
+   "    if account_checked:\n",
+   "M3: the account check is read backwards"
+  ],
+  [
+   "lc",
+   "src/footprint/brokers/ibkr/paper.py",
+   "class AccountNotChecked(ConnectionError):",
+   "class AccountNotChecked(RuntimeError):",
+   "M4: the refusal is not a ConnectionError (callers would not read it as nothing sent)"
+  ]
+ ]
+}

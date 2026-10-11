@@ -1,0 +1,18 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+   Building footprint @ file:///home/claude/footprint
+      Built footprint @ file:///home/claude/footprint
+Uninstalled 1 package in 1ms
+Installed 1 package in 1ms
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: O-1 refusal drops attribution whenever not cancelling (also CANCELLED / held back)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: O-2 refusal keeps reconcile's cancel attribution
+  3 SURVIVED [exec] src/footprint/execution/management/malik.py: O-7 _now_unprotected records UNPROTECTED even with no exit under way (equivalence probe)
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: O-9 stop-cancel escalation boundary >= to >
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: O-10 a seen refusal is re-applied every step
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: O5-1: no CANCEL STUCK on a repeat hand-over
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: O5-1: CANCEL STUCK repeated
+  8 SURVIVED [exec] src/footprint/execution/management/malik.py: O5-1: CANCEL STUCK on the first hand-over
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: O5-9: stale quote alarmed every step
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: O5-9: a fresh quote does not end the episode
+10 mutants, 2 survived
+EXIT 1
+source: mutants applied to the working tree that became bf8db6f (src unchanged since, except round13-rerun's added test)

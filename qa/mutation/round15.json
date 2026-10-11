@@ -1,0 +1,17 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_held_back_stop.py",
+   "tests/execution/test_runner.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stop_stuck_alarmed.discard(pid)\n",
+   "",
+   "Q-M1: CANCEL STUCK record kept after the exit is dropped"
+  ]
+ ]
+}

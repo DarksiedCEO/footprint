@@ -5,13 +5,26 @@
   breaker keeps the swarm dark through the overnight session until the next prime
   open); weekly counters reset with the first day of a new ISO week.
 - The kill switch latches when equity falls the configured percentage from its
-  peak, and only `clear_kill_switch` (Andre, by hand) unlatches it.
+  peak, and on every operational halt in management and reconcile (an order that will
+  not cancel, a disagreement with the broker). It survives restarts; only
+  `clear_kill_switch` (Andre, by hand, through `python -m footprint.live.kill_switch`)
+  unlatches it. Clearing keeps the drawdown peak unless Andre asks for a reset (P6-1,
+  decided 2026-10-10), so a loss is never forgiven by accident.
+- An exclusive ledger (`exclusive=True`: the live system and the operator command)
+  holds an OS lock on a sibling `.lock` file for as long as it is open, so a clear made
+  while the live system runs is refused instead of being overwritten by it.
+- A sell of the open position that the broker reports FILLED with its price pending
+  is held durably (`hold_sold`, grind review G2-1, D40): reconcile never sells that
+  contract again, also after a restart. The hold is released only when the sale is
+  booked at its real price (`on_trade_closed`) or Andre books the position by hand;
+  clearing the kill switch does not release it.
 - Every change is written to disk before the call returns (atomic replace + fsync),
   so a crash never forgets a breaker, a latch or an open position.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -27,6 +40,20 @@ from footprint.core.models import require_utc
 from footprint.decision.risk.gate import AccountState, drawdown_breached
 
 log = logging.getLogger("footprint.ledger")
+
+
+class LedgerBusy(RuntimeError):
+    """Another process holds this ledger exclusively (the live system is running)."""
+
+
+@dataclass(frozen=True, slots=True)
+class SoldHold:
+    """A sell of `position_id` on `contract_id` the broker reported FILLED with its
+    price pending (D39, D40): that contract is already sold and is never sold again."""
+
+    position_id: str
+    contract_id: str
+    order_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +72,8 @@ class LedgerState:
     booked_by_hand: tuple[str, ...] = ()
     # The newest completed bar a decision was made on: a restart never decides it again.
     last_decided: datetime | None = None
+    # Filled sells whose price is pending (D40): kept until the sale is booked.
+    sold_unpriced: tuple[SoldHold, ...] = ()
 
 
 class StateStore:
@@ -56,6 +85,18 @@ class StateStore:
     @property
     def path(self) -> Path:
         return self._path
+
+    def lock(self) -> int:
+        """Take the ledger's exclusive OS lock without waiting; returns the open file
+        descriptor that holds it. Raises LedgerBusy when another holder has it."""
+        lock_path = self._path.with_suffix(self._path.suffix + ".lock")
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise LedgerBusy(f"ledger {self._path} is in use by another process") from None
+        return fd
 
     def load(self) -> LedgerState | None:
         if not self._path.exists():
@@ -76,6 +117,14 @@ class StateStore:
             booked_by_hand=tuple(raw.get("booked_by_hand", ())),
             last_decided=(
                 datetime.fromisoformat(raw["last_decided"]) if raw.get("last_decided") else None
+            ),
+            sold_unpriced=tuple(
+                SoldHold(
+                    position_id=str(hold["position_id"]),
+                    contract_id=str(hold["contract_id"]),
+                    order_id=str(hold["order_id"]),
+                )
+                for hold in raw.get("sold_unpriced", ())
             ),
         )
 
@@ -105,6 +154,7 @@ class Ledger:
         store: StateStore,
         *,
         create: bool = False,
+        exclusive: bool = False,
     ) -> None:
         """Open the ledger. A missing state file is an error unless `create` is set
         (the very first run): silently starting fresh would clear breakers and a latched
@@ -113,8 +163,10 @@ class Ledger:
         self._risk = risk
         self._instrument = instrument
         self._store = store
+        self._lock_fd: int | None = store.lock() if exclusive else None
         loaded = store.load()
         if loaded is None and not create:
+            self.close()
             raise FileNotFoundError("ledger state file is missing; pass create=True on first run")
         self._state = loaded or LedgerState(
             equity=risk.bankroll,
@@ -131,6 +183,12 @@ class Ledger:
         )
         if loaded is None:
             store.save(self._state)
+
+    def close(self) -> None:
+        """Release the exclusive lock, if this ledger holds it."""
+        if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
 
     @property
     def open_position_id(self) -> str | None:
@@ -149,6 +207,30 @@ class Ledger:
         if current is not None and bar_ts <= current:
             return
         self._save(replace(self._state, last_decided=bar_ts))
+
+    @property
+    def sold_unpriced(self) -> tuple[SoldHold, ...]:
+        """Filled sells with their price pending (D40); survives restarts."""
+        return self._state.sold_unpriced
+
+    def hold_sold(self, hold: SoldHold) -> None:
+        """Record, durably, a sell the broker reports FILLED with its price pending.
+        Raises if it cannot be saved: the caller must stand down then."""
+        if hold in self._state.sold_unpriced:
+            return
+        log.critical(
+            "holding %s: %s sold %s, price pending",
+            hold.contract_id,
+            hold.order_id,
+            hold.position_id,
+        )
+        self._save(replace(self._state, sold_unpriced=(*self._state.sold_unpriced, hold)))
+
+    def release_sold(self, position_id: str) -> None:
+        """The sale of `position_id` is booked at its real price: drop its holds."""
+        kept = tuple(h for h in self._state.sold_unpriced if h.position_id != position_id)
+        if kept != self._state.sold_unpriced:
+            self._save(replace(self._state, sold_unpriced=kept))
 
     def account(self, now: datetime) -> AccountState:
         self._roll(now)
@@ -170,27 +252,48 @@ class Ledger:
             log.critical("kill switch latched: %s", reason)
             self._save(replace(self._state, kill_switch_latched=True))
 
-    def clear_kill_switch(self, cleared_by: str) -> None:
-        """Andre only. Also resets the drawdown peak to current equity."""
+    def clear_kill_switch(
+        self, cleared_by: str, *, reason: str = "", reset_peak: bool = False
+    ) -> None:
+        """Andre only. Keeps the drawdown peak unless `reset_peak` is asked for (P6-1)."""
         if not cleared_by.strip():
             raise ValueError("clearing the kill switch needs the name of who cleared it")
-        log.critical("kill switch cleared by %s", cleared_by)
-        self._save(replace(self._state, kill_switch_latched=False, peak_equity=self._state.equity))
+        peak = self._state.equity if reset_peak else self._state.peak_equity
+        log.critical(
+            "kill switch cleared by %s (%s); drawdown peak %s",
+            cleared_by,
+            reason.strip() or "no reason given",
+            f"reset to {peak}" if reset_peak else f"kept at {peak}",
+        )
+        self._save(replace(self._state, kill_switch_latched=False, peak_equity=peak))
 
-    def book_by_hand(self, now: datetime, position_id: str, net_pnl: Decimal, by: str) -> None:
+    def book_by_hand(
+        self, now: datetime, position_id: str, net_pnl: Decimal, by: str, *, reason: str = ""
+    ) -> None:
         """Andre only: book a position the system lost track of, at the net P&L he found
         in the broker's statement. Counts like any other close (stop-outs, limits, drawdown).
+        Never clears the kill switch. Operator command: `python -m footprint.live.kill_switch
+        book` (G24-4).
         """
         if not by.strip():
             raise ValueError("booking by hand needs the name of who booked it")
         if position_id in self._state.booked_by_hand:
             raise ValueError(f"{position_id!r} was already booked by hand")
-        log.critical("%s booked %s by hand at %s", by, position_id, net_pnl)
-        if self._state.open_position_id == position_id:
-            self.on_trade_closed(now, position_id, net_pnl)
-        else:  # a trade the ledger never recorded (e.g. its write failed at the fill)
-            self._book(now, net_pnl, close_position=False)
-        self._save(replace(self._state, booked_by_hand=(*self._state.booked_by_hand, position_id)))
+        log.critical(
+            "%s booked %s by hand at %s (%s)",
+            by,
+            position_id,
+            net_pnl,
+            reason.strip() or "no reason given",
+        )
+        # The P&L, the "booked by hand" mark and the hold release land in ONE write
+        # (G26-1): a failed write never books the P&L while leaving the id bookable again.
+        self._book(
+            now,
+            net_pnl,
+            close_position=self._state.open_position_id == position_id,
+            by_hand=position_id,
+        )
 
     def on_entry_filled(self, now: datetime, position_id: str, session: SessionKind) -> None:
         self._roll(now)
@@ -216,10 +319,23 @@ class Ledger:
             )
         self._book(now, net_pnl, close_position=True)
 
-    def _book(self, now: datetime, net_pnl: Decimal, *, close_position: bool) -> None:
+    def _book(
+        self,
+        now: datetime,
+        net_pnl: Decimal,
+        *,
+        close_position: bool,
+        by_hand: str | None = None,
+    ) -> None:
+        """Book a close. Closing the open position also releases its D40 holds in the
+        same save (the sale is booked, at its real price). A booking by hand also marks
+        `by_hand` as booked and releases its holds, in that same save (G26-1)."""
         self._roll(now)
         s = self._state
         equity = s.equity + net_pnl
+        released: set[str | None] = {s.open_position_id} if close_position else set()
+        if by_hand is not None:
+            released.add(by_hand)
         state = replace(
             s,
             equity=equity,
@@ -228,6 +344,8 @@ class Ledger:
             realized_week=s.realized_week + net_pnl,
             stopouts_today=s.stopouts_today + (net_pnl < 0),
             open_position_id=None if close_position else s.open_position_id,
+            sold_unpriced=tuple(h for h in s.sold_unpriced if h.position_id not in released),
+            booked_by_hand=(s.booked_by_hand if by_hand is None else (*s.booked_by_hand, by_hand)),
         )
         self._save(state)
         if drawdown_breached(self._risk, self.account(now)):

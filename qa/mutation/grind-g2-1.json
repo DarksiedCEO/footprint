@@ -1,0 +1,155 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/execution/test_attached_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._hold_durably(position, order_id, now)\n            log.warning(",
+   "            log.warning(",
+   "G2-1: management's pending sell is not saved durably"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._pending[pid] = (unpriced, now, reason)\n            self._hold_durably(position, unpriced, now)\n",
+   "            self._pending[pid] = (unpriced, now, reason)\n",
+   "G2-1: a filled sell reconcile finds itself is not saved durably"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if position is None or contract_id != position.contract_id:\n            return self._held_from_before(contract_id, now)\n",
+   "        if position is None or contract_id != position.contract_id:\n            return False\n",
+   "G2-1: a restart (reconcile(None)) ignores the durable hold (the reviewer's probe)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if unpriced is None:\n                return self._held_from_before(contract_id, now)",
+   "            if unpriced is None:\n                return False",
+   "G2-1: a matching position with no in-memory record ignores the durable hold"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if not holds:\n            return False\n",
+   "        if True:\n            return False\n",
+   "G2-1: the durable hold never blocks"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if contract_id not in self._durable_alarmed:\n            self._durable_alarmed.add(contract_id)\n",
+   "        if True:\n            self._durable_alarmed.add(contract_id)\n",
+   "G2-1: the restart CHECK THE FILL alarm repeats every round"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{contract_id}: {orders} filled before a restart, price pending\")\n",
+   "",
+   "G2-1: a restarted hold neither halts nor latches"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "\"only what is really held, then book the position with Ledger.book_by_hand\",",
+   "\"only what is really held\",",
+   "G2-1: the restart alarm does not say to book by hand"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        holds = [h for h in self._ledger.sold_unpriced if h.contract_id == contract_id]",
+   "        holds = list(self._ledger.sold_unpriced)",
+   "G2-1: a hold blocks every contract (strays never flattened)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._stand_down(now, f\"{position.position_id}: hold on {order_id} not saved\")\n",
+   "",
+   "G2-1: an unsaved hold does not stand down"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "\"process; do not restart the bot until the fill is checked by hand\",",
+   "\"process\",",
+   "G2-1: the unsaved-hold alarm does not warn against a restart"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "        if hold in self._state.sold_unpriced:\n            return\n",
+   "",
+   "G2-1: hold_sold not idempotent (duplicates)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "                tuple(h for h in s.sold_unpriced if h.position_id != s.open_position_id)\n                if close_position\n                else s.sold_unpriced",
+   "                s.sold_unpriced",
+   "G2-1: a booked close never releases its hold"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "                sold_unpriced=tuple(\n                    h for h in self._state.sold_unpriced if h.position_id != position_id\n                ),\n            )\n        )",
+   "            )\n        )",
+   "G2-1: booking by hand never releases the hold"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "                tuple(h for h in s.sold_unpriced if h.position_id != s.open_position_id)",
+   "                ()",
+   "G2-1: a booked close releases every hold, not only its own"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "                for hold in raw.get(\"sold_unpriced\", ())",
+   "                for hold in ()",
+   "G2-1: holds are not read back from the state file"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/ledger.py",
+   "                for hold in raw.get(\"sold_unpriced\", ())",
+   "                for hold in raw[\"sold_unpriced\"]",
+   "G2-1: an older state file without holds fails to load"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{pid}: {order_id} filled, price and holding not reported\")\n        return True\n",
+   "        return True\n",
+   "N3-2 (re-run): no latch past the wait"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{pid}: {order_id} filled, price and holding not reported\")\n        return True\n",
+   "            self._stand_down(now, f\"{pid}: {order_id} filled, price and holding not reported\")\n        return True\n",
+   "R-b (reviewer G2-2): latch and halt only on the first overdue round"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if position is None or contract_id != position.contract_id:\n            return self._held_from_before(contract_id, now)\n",
+   "        if position is None:\n            return self._held_from_before(contract_id, now)\n",
+   "R-c (reviewer G2-2): any contract beside the position counts as its sale"
+  ]
+ ]
+}

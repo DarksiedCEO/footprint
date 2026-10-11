@@ -1,0 +1,32 @@
+source: f3efa76256bfc54bc78cc646f135bf78af76702b tree-dirty: 0 files
+baseline [backtest]: passed
+baseline [broker]: passed
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: N-1 Diego: no price taken as unfilled
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: N-1 Diego: waits for the price forever
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: N-1 Diego: wait bound off by one
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: manage ignores a pending fill
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: flatten ignores a pending fill
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: stop filled unpriced falls through
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: stop filled during the cancel falls through
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: orphan stop filled unpriced falls through
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: sweep fill unpriced reconciles at once
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: _place_exit sells beside an unpriced fill
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: placed exit filled unpriced retried
+ 12 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: working exit filled unpriced retried
+ 13 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: modified exit filled unpriced falls through
+ 14 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: waits for the price forever
+ 15 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 reconcile: flattens what an unpriced fill sold
+ 16 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 reconcile: never stops holding off
+ 17 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 reconcile: pending fill not a booking candidate
+ 18 KILLED   [exec] src/footprint/execution/management/malik.py: N-1 Malik: pending fill never booked
+ 19 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: N-3: 504 ignored
+ 20 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: N-3: 504 re-arms a confirmed cancel
+ 21 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: N-3: no doubt on 504
+ 22 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: R3: re-arm any status
+ 23 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: R5: re-arm only ConnectionError
+ 24 KILLED   [broker] src/footprint/brokers/ibkr/adapter.py: R9: zero execution only if all zero
+ 25 KILLED   [backtest] src/footprint/backtest/engine.py: N-2: before calendar_from accepted
+ 26 KILLED   [backtest] src/footprint/backtest/engine.py: N-2: past calendar_through accepted
+ 27 KILLED   [backtest] src/footprint/backtest/engine.py: N-2: look-back bars checked too
+27 mutants, 0 survived or errored

@@ -1,0 +1,25 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: L-M1: manage never stamps the PendingCancel clock
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: L-M2: reconcile never resets the PendingCancel clock
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: L2-3: manage never resets the PendingCancel clock
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: L-M3: exit reason overwritten by later reasons
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: L-M5: reconcile's cancels not recorded as ours
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: L-M7: landed branch keeps the stop id (cancel sent again)
+  7 SURVIVED [exec] src/footprint/execution/management/malik.py: L-M8: cancelling-ours branch loses the exit reason
+  8 SURVIVED [exec] src/footprint/execution/management/malik.py: L-M9: landed branch loses the exit reason
+  9 KILLED   [exec] src/footprint/execution/management/malik.py: L-M14: hand-cancel alarm repeated every step
+ 10 KILLED   [exec] src/footprint/execution/management/malik.py: L2-2: an abandoned exit keeps its record (hand cancel taken for ours)
+ 11 KILLED   [exec] src/footprint/execution/management/malik.py: L2-2: an abandoned exit keeps its reason
+ 12 KILLED   [exec] src/footprint/execution/management/malik.py: L2-2: an abandoned exit keeps its cancel record
+ 13 SURVIVED [exec] src/footprint/execution/management/malik.py: L2-2: reconcile's cancel record kept after the stop protects again
+ 14 SURVIVED [exec] src/footprint/execution/management/malik.py: L2-3: an abandoned exit keeps its stuck clock
+ 15 KILLED   [exec] src/footprint/execution/management/malik.py: an acknowledged cancel re-sent every step
+ 16 KILLED   [exec] src/footprint/execution/management/malik.py: L2-4: PendingCancel on a normal exit alarms
+ 17 KILLED   [exec] src/footprint/execution/management/malik.py: L2-1: our exit's landed cancel is a reconcile mismatch
+NOTE (builder): this run was killed by the container (exit 137) during mutant 18, before
+the runner could restore it; mutant 18's edit was left in malik.py, found, and restored
+by hand (verified by grep before any further work). Mutants 18-19 and survivors 13-14
+were re-run in round10-rerun (3 killed; 1 survivor, judged equivalent: a CANCELLED stop
+with fills cannot occur at max_contracts: 1, and reconcile's position check disagrees
+anyway). Survivors 7-8 (L-M8, L-M9) were removed by simplifying the code: both branches
+now pass a constant and _start_exit keeps the exit's first reason (pinned by L-M3).

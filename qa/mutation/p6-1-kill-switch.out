@@ -1,0 +1,19 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+source: 0a8f3d4b918face1e14285a4bfe994b1ebe90355 tree-dirty: 0 files
+baseline [ks]: passed
+  1 KILLED   [ks] src/footprint/execution/ledger.py: M1: clearing always resets the peak (the old behaviour)
+  2 KILLED   [ks] src/footprint/execution/ledger.py: M2: --reset-peak is ignored
+  3 KILLED   [ks] src/footprint/execution/ledger.py: M3: an exclusive ledger takes no lock
+  4 KILLED   [ks] src/footprint/execution/ledger.py: M4: the lock is never taken
+  5 KILLED   [ks] src/footprint/execution/ledger.py: M5: close never releases the lock
+  6 KILLED   [ks] src/footprint/execution/ledger.py: M6: the reason is not logged
+  7 KILLED   [ks] src/footprint/live/kill_switch.py: M7: an open position does not block a clear
+  8 KILLED   [ks] src/footprint/live/kill_switch.py: M8: a CHECK THE FILL hold does not block a clear
+  9 KILLED   [ks] src/footprint/live/kill_switch.py: M9: no typed confirmation needed
+ 10 KILLED   [ks] src/footprint/live/kill_switch.py: M10: an empty reason is accepted
+ 11 KILLED   [ks] src/footprint/live/kill_switch.py: M11: an empty name is accepted (the ledger still refuses it)
+ 12 KILLED   [ks] src/footprint/live/kill_switch.py: M12: the command opens the ledger without the lock
+ 13 KILLED   [ks] src/footprint/live/kill_switch.py: M13: no warning that the drawdown limit still blocks entries
+ 14 KILLED   [ks] src/footprint/live/kill_switch.py: M14: clearing an unlatched switch goes on to ask
+ 15 KILLED   [ks] src/footprint/live/kill_switch.py: M15: the command drops --reset-peak
+15 mutants, 0 survived or errored

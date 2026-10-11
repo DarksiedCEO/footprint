@@ -1,0 +1,62 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g11_1.py",
+   "tests/execution/test_grind_g7_1.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_unpriced_sell_guards.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            price, whole = self._actual_exit(position)\n            if whole:\n                return self._close(position, price, now, reason)",
+   "            price, whole = self._actual_exit(position)\n            if True:\n                return self._close(position, status.avg_price, now, reason)",
+   "G1: _await_price books the pending order's price whatever else sold (the G11-1 defect)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            price, whole = self._actual_exit(position)\n            if whole:\n                return self._close(position, price, now, reason)",
+   "            price, whole = self._actual_exit(position)\n            if not whole:\n                return self._close(position, price, now, reason)",
+   "G2: the guard inverted: a whole sale is never booked, a sale in parts is booked at a tick"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                self._alarm(now, message)\n            self._stand_down(now, f\"{pid}: sold in parts, book it by hand\")",
+   "                pass\n            self._stand_down(now, f\"{pid}: sold in parts, book it by hand\")",
+   "G3: Andre is never told the position was sold in parts"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._stand_down(now, f\"{pid}: sold in parts, book it by hand\")\n            raise NeedsReconcile(message)",
+   "            raise NeedsReconcile(message)",
+   "G4: no stand-down: the kill switch is not latched"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._stand_down(now, f\"{pid}: sold in parts, book it by hand\")\n            raise NeedsReconcile(message)",
+   "            self._stand_down(now, f\"{pid}: sold in parts, book it by hand\")\n            return None",
+   "G5: no hand-over to reconcile: management waits silently"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if not self._unbooked_alarmed:\n                self._unbooked_alarmed = True\n                self._alarm(now, message)",
+   "            if not self._unbooked_alarmed:\n                self._alarm(now, message)",
+   "G6: the flag not set: reconcile alarms a second time"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                f\"it was sold in parts ({parts}), so no one fill gives its exit price\"\n                if parts is not None",
+   "                f\"it was sold in parts ({parts}), so no one fill gives its exit price\"\n                if parts is None",
+   "G7: the two wordings swapped (Andre is not told each sale)"
+  ]
+ ]
+}

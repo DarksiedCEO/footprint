@@ -1,0 +1,13 @@
+  1 KILLED   [bracket] src/footprint/execution/executor/diego.py: AEGIS G3 a fill racing the cancel is booked as unfilled (no stop placed)
+  2 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: AEGIS G6 _refused overrides a live copy (retry accepted)
+  3 KILLED   [config] src/footprint/core/holiday_rules.py: AEGIS G9 Good Friday may be deleted
+  4 KILLED   [config] src/footprint/core/config.py: AEGIS G10 one deleted rule allowed
+  5 KILLED   [guard] tests/conftest.py: AEGIS G11 sendto(data, flags, addr) unguarded
+  6 KILLED   [bracket] src/footprint/execution/orders.py: N1: held-back counts as protection
+  7 SURVIVED [bracket] src/footprint/brokers/ibkr/adapter.py: N2: being-cancelled stop not held back
+  8 KILLED   [bracket] src/footprint/brokers/ibkr/adapter.py: N1: adapter never reports held back
+  9 KILLED   [bracket] src/footprint/execution/management/malik.py: N1: Malik keeps a held-back stop
+ 10 KILLED   [config] src/footprint/core/holiday_rules.py: N3: closure listed as early close accepted
+ 11 KILLED   [config] src/footprint/core/holiday_rules.py: N3: days_after ignored
+ 12 KILLED   [guard] tests/conftest.py: N4: sendmsg unguarded
+12 mutants, 1 survived

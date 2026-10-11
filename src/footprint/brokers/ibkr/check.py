@@ -13,6 +13,7 @@ Exit code 0 when the resync completed, 1 when it did not (or the account was ref
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import threading
 import time
@@ -35,9 +36,27 @@ except ModuleNotFoundError as missing:  # pragma: no cover - only without ibapi
         raise
     sys.exit("ibapi is not installed: run  uv run python scripts/install_ibapi.py")
 from footprint.brokers.ibkr.gateway import IbGateway, IbOrderRequest
+from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.core.config import Profiles, load_profiles
 
 _POLL_SECONDS = 0.1
+
+
+IBKR_LOGGERS = ("footprint.ibkr", "footprint.ibkr.binding")
+
+
+class PlannedHangUp(logging.Filter):
+    """Drops IBKR log records once the check hangs up on purpose (G25-1). Without it the
+    adapter's "IBKR connection lost" critical log reached stderr through logging's
+    last-resort handler, reading like a real loss; the planned hang-up is reported once,
+    as "(disconnecting as planned: ...)". Records before the hang-up pass unchanged."""
+
+    def __init__(self, closing: threading.Event) -> None:
+        super().__init__()
+        self._closing = closing
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not self._closing.is_set()
 
 
 class ReadOnlyGateway:
@@ -95,6 +114,10 @@ def check(
         on_alarm=alarm,
     )
     binding.attach(adapter)
+    quiet = PlannedHangUp(closing)
+    loggers = [logging.getLogger(name) for name in IBKR_LOGGERS]
+    for logger in loggers:
+        logger.addFilter(quiet)
     stop = threading.Event()
     worker = threading.Thread(target=binding.run, args=(stop,), name="ibkr", daemon=True)
     say(f"connecting to IB Gateway at {settings.host}:{settings.port} for {settings.account}")
@@ -132,6 +155,8 @@ def check(
         stop.set()
         binding.stop()
         worker.join(timeout=wait_seconds)
+        for logger in loggers:
+            logger.removeFilter(quiet)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,7 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     profiles = load_profiles(args.config, args.instrument)
     ibkr = profiles.execution.ibkr
-    settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), ibkr)
+    try:
+        settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), ibkr)
+    except LiveAccountRefused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     wait = args.wait
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)

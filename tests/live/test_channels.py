@@ -31,7 +31,7 @@ from footprint.execution.channels import (
     is_critical,
 )
 from footprint.execution.management.malik import Alarm
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, require_ibapi
 
 NOW = datetime(2026, 10, 6, 14, 0, tzinfo=UTC)
 TOKEN = "123456:SECRET-TOKEN"
@@ -191,9 +191,17 @@ def test_http_post_never_shows_a_malformed_url(bad: str) -> None:
 def test_a_failing_channel_never_logs_a_secret(
     profiles: Profiles, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The real http_post on a malformed URL, through the hub's retrying line."""
+    """The real http_post on a malformed Telegram URL (it fails inside this process,
+    before any connection), through the hub's retrying line. Twilio is faked."""
     broken = replace(channels(), telegram_token=TOKEN + " # x")  # (from_env refuses this)
-    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), broken, http_post)
+    twilio = Post(201)
+
+    def post(url: str, data: Mapping[str, str], auth: Any, timeout: float) -> int:
+        if "telegram" in url:
+            return http_post(url, data, auth, timeout)
+        return twilio(url, data, auth, timeout)
+
+    hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), broken, post)
     with caplog.at_level("DEBUG"):
         hub.submit(alarm("cleared to trade by Andre"))
         time.sleep(1.5)
@@ -221,22 +229,33 @@ def test_the_critical_alarms_are_the_ones_that_need_hands() -> None:
         "IBKR SESSION KEEPS FAILING: 5 attempts in a row",
         "p1: unprotected, flattening",
         "market data step failed (TimeoutError()): no new data until fixed",
+        "IBKR connection lost: nothing is sent until it is back and resynced",
+        "MARKET DATA: bars failed (timeout); retrying in 30s. Until then that data is missing",
+        "MARKET DATA: could not read the held contracts (KeyError('x'))",
+        "MARKET DATA: cannot stream the held 501: not a known contract",
+        "MARKET DATA: no future to trade (none listed past the roll)",
     ):
         assert is_critical(message), message
     for message in (
         "STARTED: reconciling; no entries until Andre clears to trade",
         "cleared to trade by Andre",
         "market data is stepping again",
-        "IBKR connection lost: nothing is sent until it is back and resynced",
+        "MARKET DATA: no option on the 20261218 future expires in 1-3 days of 2026-12-14",
+        "MARKET DATA: 80 strikes in the window; streaming the nearest 40 (max_quote_lines)",
     ):
         assert not is_critical(message), message
 
 
 def test_every_critical_marker_is_still_said_somewhere_in_the_code() -> None:
     """Renaming an alarm must not silently stop its phone call."""
-    source = "\n".join(
-        p.read_text() for p in (REPO_ROOT / "src").rglob("*.py") if p.name != "channels.py"
-    )
+    texts = []
+    for p in (REPO_ROOT / "src").rglob("*.py"):
+        text = p.read_text()
+        if p.name == "channels.py":  # not the list itself
+            start = text.index("CRITICAL_MARKERS: tuple")
+            text = text[:start] + text[text.index("\n)\n", start) :]
+        texts.append(text)
+    source = "\n".join(texts)
     for marker in CRITICAL_MARKERS:
         assert marker in source, f"no alarm says {marker!r} any more"
 
@@ -264,7 +283,7 @@ def test_one_kind_of_critical_alarm_never_silences_another() -> None:
     assert [m.split(" ")[0] for m in rung] == ["IBKR", "KILL", "p1:"]
 
 
-def test_a_failed_call_is_retried_and_starts_no_cooldown() -> None:
+def test_a_failed_call_is_not_retried_and_starts_no_cooldown() -> None:
     clock = [0.0]
     attempts: list[str] = []
 
@@ -274,9 +293,9 @@ def test_a_failed_call_is_retried_and_starts_no_cooldown() -> None:
             raise ChannelError("Twilio call answered HTTP 503")
 
     calls = CriticalCalls(flaky, 600, lambda: clock[0])
-    with pytest.raises(ChannelError):
-        calls(alarm("HALT: x"))
-    calls(alarm("HALT: x"))  # the line's retry: rings now
+    calls(alarm("HALT: x"))  # fails: never raises, so the line moves on (no retry)
+    calls(alarm("HALT: x"))  # the next alarm of the kind rings: no cooldown was started
+    calls(alarm("HALT: x"))  # this one is inside the cooldown of the successful ring
     assert attempts == ["HALT: x", "HALT: x"]
 
 
@@ -387,15 +406,16 @@ def test_when_telegram_fails_the_alarm_goes_by_sms(profiles: Profiles) -> None:
     post = TelegramDown()
     hub = alarm_hub(lambda a: None, fast(profiles.execution.alarms), channels(), post)
     hub.submit(alarm("cleared to trade by Andre"))
+
+    def texts() -> list[str]:
+        return [d["Body"] for u, d, _, _ in post.calls if u.endswith("Messages.json")]
+
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not any(
-        u.endswith("Messages.json") for u, *_ in post.calls
-    ):
+    while time.monotonic() < deadline and not any("cleared to trade" in t for t in texts()):
         time.sleep(0.05)
     hub.close(timedelta(seconds=1))
-    sms = [d["Body"] for u, d, _, _ in post.calls if u.endswith("Messages.json")]
-    assert sms
-    assert "cleared to trade by Andre" in sms[0]
+    assert any("cleared to trade by Andre" in t for t in texts())  # the fallback
+    assert any("ALARM CHANNEL DOWN: Telegram" in t for t in texts())  # and why
 
 
 def test_the_sms_fallback_is_waited_for_and_counted_on_close(profiles: Profiles) -> None:
@@ -422,7 +442,7 @@ def test_the_sms_fallback_is_waited_for_and_counted_on_close(profiles: Profiles)
         time.sleep(0.05)
     time.sleep(0.1)  # Telegram's retry finishes; only the SMS is left
     try:
-        assert hub.pending == 1
+        assert hub.pending >= 1  # the SMS still in flight (with the channel alerts)
         assert not hub.close(timedelta(seconds=0.3))
     finally:
         release.set()
@@ -486,6 +506,7 @@ def test_closing_hung_channels_costs_one_timeout_not_one_each(profiles: Profiles
 def test_the_live_program_sends_its_alarms_through_the_channels(
     profiles: Profiles, tmp_path: Path
 ) -> None:
+    require_ibapi()
     from footprint.live.app import build
     from tests.brokers.test_ibkr_binding import Recording, settings
 
@@ -511,6 +532,7 @@ def test_the_live_program_sends_its_alarms_through_the_channels(
 def test_the_program_refuses_to_start_without_alarm_keys(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    require_ibapi()
     from footprint.live.__main__ import main
 
     env = tmp_path / ".env"
@@ -652,5 +674,73 @@ def test_a_line_that_will_not_close_in_time_is_reported() -> None:
             time.sleep(1.5)
             return True
 
-    hub = AlarmHub([Stuck()])  # type: ignore[list-item]
+    hub = AlarmHub(Stuck())  # type: ignore[arg-type]
     assert not hub.close(timedelta(seconds=0.1))
+
+
+# --- no test reaches the network ----------------------------------------------------------------
+
+
+def test_the_suite_cannot_reach_twilio_or_telegram(no_network: list[str]) -> None:
+    """The autouse guard (tests/conftest.py): the real sender fails without leaving."""
+    for url in (
+        "https://api.twilio.com/2010-04-01/Accounts/AC0/Messages.json",
+        "https://api.telegram.org/bot1:x/sendMessage",
+    ):
+        with pytest.raises(ChannelError):
+            http_post(url, {"Body": "x"}, (SID, AUTH), 2)
+    assert any("api.twilio.com" in a for a in no_network)
+    assert any("api.telegram.org" in a for a in no_network)
+
+
+def test_no_udp_leaves_the_machine_in_tests(no_network: list[str]) -> None:
+    import socket
+
+    from tests import conftest
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendto(b"x", ("192.0.2.1", 53))
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendto(b"x", 0, ("192.0.2.1", 53))  # (data, flags, address)
+        with pytest.raises(conftest.NetworkBlocked):
+            sock.sendmsg([b"x"], [], 0, ("192.0.2.1", 53))  # AEGIS N4
+        sock.sendto(b"x", ("127.0.0.1", 9))  # loopback is fine
+        sock.sendmsg([b"x"], [], 0, ("127.0.0.1", 9))
+    assert "connect 192.0.2.1:53" in no_network
+
+
+def test_every_name_lookup_is_blocked_in_tests(no_network: list[str]) -> None:
+    """Independent audit A-12: not only getaddrinfo; every resolver call in `socket`."""
+    import socket
+
+    from tests import conftest
+
+    for lookup in (
+        lambda: socket.gethostbyname("example.com"),
+        lambda: socket.gethostbyname_ex("example.com"),
+        lambda: socket.gethostbyaddr("8.8.8.8"),
+        lambda: socket.getnameinfo(("8.8.8.8", 53), 0),
+    ):
+        with pytest.raises(conftest.NetworkBlocked):
+            lookup()
+    assert socket.gethostbyname("localhost")  # loopback still resolves
+    assert sum(a.startswith("lookup ") for a in no_network) == 4
+
+
+def test_a_proxy_on_loopback_cannot_carry_a_request_out(
+    no_network: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even if a proxy setting came back, its endpoint (loopback here) is blocked."""
+    import os
+    import socket
+
+    from tests import conftest
+
+    endpoint = ("127.0.0.1", 44027)
+    monkeypatch.setenv("HTTPS_PROXY", f"http://{endpoint[0]}:{endpoint[1]}")
+    blocked = conftest.no_network.__wrapped__(monkeypatch)  # type: ignore[attr-defined]
+    assert "HTTPS_PROXY" not in os.environ
+    with socket.socket() as sock, pytest.raises(conftest.NetworkBlocked):
+        sock.connect(endpoint)
+    assert blocked == [f"connect {endpoint[0]}:{endpoint[1]}"]

@@ -1,0 +1,39 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g7_2.py",
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:\n            # It sold part of the position",
+   "        if held.filled > 0 and held.state is not OrderState.WORKING:\n            # It sold part of the position",
+   "R1 (the reviewer's): a live stop that sold part is adopted as protection"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:\n            # It sold part of the position",
+   "        if held.filled > 0 and not held.protects:\n            # It sold part of the position",
+   "R2: a protecting stop that sold part is adopted as protection"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "    live = \" (still live: not trusted as protection)\" if held.state is OrderState.WORKING else \"\"",
+   "    live = \"\"",
+   "R3: the halt never says the stop is still live"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "    live = \" (still live: not trusted as protection)\" if held.state is OrderState.WORKING else \"\"",
+   "    live = \" (still live: not trusted as protection)\"",
+   "R4: a finished stop is called live"
+  ]
+ ]
+}

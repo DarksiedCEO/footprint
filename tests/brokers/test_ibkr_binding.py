@@ -3,6 +3,7 @@
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -32,10 +33,11 @@ from footprint.brokers.ibkr.binding import (
     to_quantity,
 )
 from footprint.brokers.ibkr.gateway import Connection, IbContract, IbOrderRequest
+from footprint.brokers.ibkr.paper import AccountNotChecked
 from footprint.core.config import IbkrConfig
 
 D = Decimal
-ACCOUNT = "DUR239136"
+ACCOUNT = "DU1234567"  # an obviously fake paper account id
 SCOPE = ("NQ", "FOP")
 NQ_CALL = IbContract(501, "NQ", "FOP", "CME", "USD", "20260916", D(23725), "C", "20", "Q3C")
 
@@ -47,8 +49,6 @@ def settings(**changes: Any) -> IbConnectionSettings:
         "client_id": 0,
         "account": ACCOUNT,
         "reconnect_seconds": 0.01,
-        "require_paper": True,
-        "paper_account_prefix": "DU",
         "escalate_after_failures": 3,
         "max_reconnect_seconds": 0.05,
         "min_healthy_session_seconds": 0.0,
@@ -202,6 +202,57 @@ def test_nothing_is_sent_without_a_connection() -> None:
         binding.place_order(request())
 
 
+def _order_calls(client: Recording) -> list[str]:
+    return [n for n, _ in client.calls if n in ("placeOrder", "cancelOrder", "reqGlobalCancel")]
+
+
+def _try_every_order_call(binding: IbBinding) -> None:
+    calls: list[Callable[[], None]] = [
+        lambda: binding.place_order(request()),
+        lambda: binding.cancel_order(7),
+        binding.global_cancel,
+    ]
+    for call in calls:
+        with pytest.raises(AccountNotChecked):
+            call()
+
+
+def test_order_calls_refuse_before_the_sessions_account_check() -> None:
+    """L-c: connected, but IBKR has not yet listed the login's accounts: nothing goes
+    out, and the refused place is not remembered as sent."""
+    binding, client, _, _ = bound()
+    binding._wrapper.nextValidId(100)  # the next id alone is not the account check
+    _try_every_order_call(binding)
+    assert _order_calls(client) == []
+    assert binding._sent_ids == set()
+
+
+def test_order_calls_refuse_for_good_after_the_account_is_refused() -> None:
+    binding, client, _, _ = bound()
+    binding._wrapper.managedAccounts("DU0000002")  # not the configured account
+    assert binding.refused is not None
+    binding._client = client  # even if a client were still there
+    client.connected = True
+    _try_every_order_call(binding)
+    assert _order_calls(client) == []
+
+
+def test_order_calls_refuse_after_a_drop_and_until_the_new_sessions_account_check() -> None:
+    binding, client, _, _ = opened()
+    binding.place_order(request())
+    assert _order_calls(client) == ["placeOrder"]
+    binding._wrapper.closed()  # the session dropped
+    _try_every_order_call(binding)
+    binding._wrapper.new_session()  # a reconnect: IBKR forgot the old session
+    _try_every_order_call(binding)
+    binding._wrapper.managedAccounts(ACCOUNT)
+    _try_every_order_call(binding)  # the session is not open until its next id too
+    assert _order_calls(client) == ["placeOrder"]
+    binding._wrapper.nextValidId(200)
+    binding.cancel_order(7)
+    assert _order_calls(client) == ["placeOrder", "cancelOrder"]
+
+
 # --- the session ---------------------------------------------------------------------------
 
 
@@ -219,14 +270,14 @@ def test_connected_is_told_once_after_the_account_and_the_next_id(first: str) ->
     assert events.got == [("on_connection", (Connection.CONNECTED, 100))]
 
 
-def test_a_live_account_is_refused_and_never_retried() -> None:
-    binding, client, events, alarms = bound(account="U1234567")
-    binding._wrapper.managedAccounts("U1234567")
+def test_a_live_login_is_refused_and_never_retried() -> None:
+    binding, client, events, alarms = bound()
+    binding._wrapper.managedAccounts(f"U1234567,{ACCOUNT}")
     binding._wrapper.nextValidId(100)
     assert events.got == []  # the adapter never hears CONNECTED
     assert binding.refused is not None
     assert not client.connected
-    assert any("REFUSED" in a and "paper" in a for a in alarms)
+    assert any("REFUSED" in a and "live login" in a for a in alarms)
     made: list[Any] = []
     binding._factory = lambda wrapper: made.append(wrapper)
     binding.run(threading.Event())  # returns at once: never connects again
@@ -241,11 +292,15 @@ def test_a_login_without_the_configured_account_is_refused() -> None:
     assert any(ACCOUNT in a for a in alarms)
 
 
-def test_going_live_needs_the_paper_guard_turned_off() -> None:
-    binding, _, events, _ = bound(account="U1234567", require_paper=False)
-    binding._wrapper.managedAccounts("U1234567")
+def test_a_live_login_is_refused_even_for_a_paper_account_it_manages() -> None:
+    """A login that manages any non-paper account is a live login."""
+    binding, _, events, alarms = bound()
+    binding._wrapper.managedAccounts(f"{ACCOUNT},U7654321")
     binding._wrapper.nextValidId(5)
-    assert events.got == [("on_connection", (Connection.CONNECTED, 5))]
+    assert events.got == []
+    assert binding.refused is not None
+    assert "U7654321" in binding.refused
+    assert any("IBKR CONNECTION REFUSED" in a for a in alarms)
 
 
 def test_a_dropped_connection_is_told_once() -> None:
@@ -474,8 +529,6 @@ def ibkr_config() -> IbkrConfig:
         resync_realarm_seconds=3,
         reconnect_seconds=1,
         option_security_type="FOP",
-        require_paper=True,
-        paper_account_prefix="DU",
         escalate_after_failures=5,
         max_reconnect_seconds=8,
         min_healthy_session_seconds=2,
@@ -492,12 +545,11 @@ def test_settings_come_from_the_env_file(tmp_path: Path) -> None:
         f"BROKER_ACCOUNT_ID={ACCOUNT}\nBROKER_CLIENT_ID=0\n"
     )
     s = IbConnectionSettings.from_env(read_env_file(str(env_file)), ibkr_config())
-    assert (s.host, s.port, s.client_id, s.account, s.require_paper) == (
+    assert (s.host, s.port, s.client_id, s.account) == (
         "127.0.0.1",
         4002,
         0,
         ACCOUNT,
-        True,
     )
 
 
@@ -529,14 +581,14 @@ def test_the_supervisor_stops_for_good_when_the_account_is_refused() -> None:
         client = Recording(wrapper)
 
         def session(c: Recording) -> None:
-            wrapper.managedAccounts("U1234567")  # a live account behind the paper port
+            wrapper.managedAccounts(f"U1234567,{ACCOUNT}")  # a live login
             wrapper.nextValidId(1)
 
         client.on_run = session
         clients.append(client)
         return client
 
-    binding = IbBinding(settings(account="U1234567"), SCOPE, client_factory=factory)
+    binding = IbBinding(settings(), SCOPE, client_factory=factory)
     events = Events()
     binding.attach(events)
     worker = threading.Thread(target=binding.run, args=(threading.Event(),), daemon=True)
@@ -885,3 +937,41 @@ def test_a_failing_wait_never_ends_the_reconnect_loop() -> None:
     binding.attach(Events())
     binding.run(stop)
     assert stop.waits == [7, 7, 7]  # it fell back to the longest wait and kept going
+
+
+def test_a_bracket_parent_is_held_and_its_child_names_it() -> None:
+    """H-2: the parent goes with transmit off; the child names it and transmits both."""
+    parent = IbOrderRequest(
+        8,
+        NQ_CALL,
+        "BUY",
+        1,
+        "LMT",
+        D("151.5"),
+        None,
+        "p1-entry",
+        None,
+        None,
+        "DAY",
+        transmit=False,
+    )
+    child = IbOrderRequest(
+        9,
+        NQ_CALL,
+        "SELL",
+        1,
+        "STP LMT",
+        D(109),
+        D("114.25"),
+        "p1-stop",
+        "p1",
+        1,
+        "DAY",
+        parent_ib_id=8,
+    )
+    held, attached = build_order(parent, ACCOUNT), build_order(child, ACCOUNT)
+    assert held.transmit is False
+    assert held.parentId == 0  # (ibapi's "no parent")
+    assert attached.parentId == 8
+    assert attached.transmit is True
+    assert attached.ocaGroup == "p1"

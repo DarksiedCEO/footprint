@@ -1,0 +1,41 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "zeroday": [
+   "tests/agents"
+  ]
+ },
+ "mutants": [
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        if self._away_since is not None:\n            return  # the broker is away",
+   "        if False:\n            return  # the broker is away",
+   "failsafe acts while away (ready check alone)"
+  ]
+ ]
+}

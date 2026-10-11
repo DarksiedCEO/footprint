@@ -39,6 +39,16 @@ SEC = timedelta(seconds=1)
 FILLED_AT = SEND + 10 * SEC  # the entry has stepped to its 151.5 ceiling by then
 
 
+def kill_stops_at_fill(broker: SimulatedBroker, parent_id: str) -> None:
+    """The attached stop dies at the moment its entry fills (IBKR cancels it, say):
+    the entry is filled with no stop, and the fill path must place one."""
+    from dataclasses import replace as swap
+
+    for child_id in [c for c in broker._held if broker._orders[c].order.parent_id == parent_id]:
+        broker._held.discard(child_id)
+        broker._orders[child_id] = swap(broker._orders[child_id], state=OrderState.CANCELLED)
+
+
 def filled_position(stack: Stack) -> Position:
     """Submit, step to the ceiling, then let the ask come down so the entry fills at
     151.5 (the simulator fills at the limit price)."""
@@ -184,6 +194,9 @@ def test_an_entry_the_broker_will_not_protect_is_flattened(stack: Stack) -> None
             if order.order_type is OrderType.STOP_LIMIT:
                 return OrderStatus(order, OrderState.REJECTED, 0, None)
             return super().place(order)
+
+        def _release_children(self, parent_id: str, parent: OrderStatus) -> None:
+            kill_stops_at_fill(self, parent_id)  # the attached stop dies as the entry fills
 
     broker = NoStops(stack.book, 5)
     stack.use_broker(broker)
@@ -456,10 +469,16 @@ def test_a_stop_of_unknown_fate_is_never_sold_beside(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", down_for_stops)
+
+    def attached_unacknowledged(parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        # The attached stop was sent with the entry and never acknowledged.
+        return original(parent), OrderStatus(child, OrderState.WORKING, 0, None)
+
+    monkeypatch.setattr(stack.broker, "place_attached", attached_unacknowledged)
     real_status = stack.broker.status
 
     def unanswerable_for_stops(order_id: str) -> OrderStatus:
-        if order_id.endswith("-stop"):  # like IBKR: sent, never acknowledged, unknowable
+        if "-stop" in order_id:  # like IBKR: sent, never acknowledged, unknowable
             raise KeyError(order_id)  # (not NeverPlaced: the broker cannot say)
         return real_status(order_id)
 
@@ -467,7 +486,7 @@ def test_a_stop_of_unknown_fate_is_never_sold_beside(
     real_cancel = stack.broker.cancel
 
     def uncancellable_stops(order_id: str) -> OrderStatus:
-        if order_id.endswith("-stop"):
+        if "-stop" in order_id:
             raise KeyError(order_id)  # nor can a cancel be confirmed
         return real_cancel(order_id)
 
@@ -523,6 +542,9 @@ def test_an_unprotected_position_is_flattened_even_on_a_stale_quote(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", no_stops)
+    monkeypatch.setattr(
+        stack.broker, "_release_children", lambda pid, _: kill_stops_at_fill(stack.broker, pid)
+    )
     ticket = stack.executor.submit(stack.approved, (), SEND)
     stack.quote(150, D(151), SEND)  # the ask comes to the 151 floor: filled there
     ticket = stack.executor.on_time(ticket, SEND)

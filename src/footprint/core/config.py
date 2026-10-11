@@ -12,7 +12,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
-_PERCENT_MAX = Decimal(100)  # allow-literal: upper bound of a percentage
+from footprint.core.holiday_rules import (
+    KINDS,
+    OBSERVED,
+    REQUIRED_RULES,
+    HolidayRule,
+    MissingEaster,
+    missing_days,
+)
+
+_PERCENT_MAX = Decimal(100)  # upper bound of a percentage (reviewed in the A-18 guard)
 
 
 class ConfigError(ValueError):
@@ -59,6 +68,18 @@ class InstrumentProfile:
     trading_days: frozenset[int]
     holidays: frozenset[date]
     early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
+    # Open at the exchange, but Footprint treats them as closed (no session, no entry)
+    # until they are reviewed and approved (US-holiday sessions, remediation item 8).
+    no_trade_days: frozenset[date]
+    # The exchange's standard closures by rule, and Easter Sundays (for rules counted
+    # from Easter): a calendar missing one of these days up to calendar_through is
+    # refused (core/holiday_rules.py).
+    holiday_rules: tuple[HolidayRule, ...]
+    easter_sundays: frozenset[date]
+    # Holidays and early closes are complete from calendar_from to calendar_through.
+    # The start is fixed in config, never taken from the dates listed, so deleting a
+    # whole year cannot switch its check off (independent audit A-8).
+    calendar_from: date
     calendar_through: date  # holidays and early closes are complete up to this date
     calendar_warn_days: int  # say so this many days before the calendar runs out
 
@@ -247,6 +268,72 @@ def _early_closes(raw: Mapping[str, object], key: str, where: str) -> Mapping[da
     return MappingProxyType(closes)
 
 
+_RULE_KEYS = {
+    "name",
+    "month",
+    "day",
+    "observed",
+    "weekday",
+    "nth",
+    "days_from_easter",
+    "days_after",
+    "kind",
+}
+
+
+def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[HolidayRule, ...]:
+    value = raw[key]
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{where}: {key} must be a non-empty list of rules")
+    rules = []
+    for item in value:
+        if not isinstance(item, dict) or not set(item) <= _RULE_KEYS or "name" not in item:
+            raise ConfigError(f"{where}: {key}: each rule needs a name and only {_RULE_KEYS}")
+        name = item["name"]
+        weekday = item.get("weekday")
+        if weekday is not None and weekday not in _WEEKDAYS:
+            raise ConfigError(f"{where}: {key} {name}: weekday must be one of {_WEEKDAYS}")
+        observed = item.get("observed", "none")
+        kind = item.get("kind", "closed")
+        if kind not in KINDS:
+            raise ConfigError(f"{where}: {key} {name}: kind must be one of {KINDS}")
+        if observed not in OBSERVED:
+            raise ConfigError(f"{where}: {key} {name}: observed must be one of {OBSERVED}")
+        numbers = {
+            k: item.get(k) for k in ("month", "day", "nth", "days_from_easter", "days_after")
+        }
+        if any(
+            v is not None and (not isinstance(v, int) or isinstance(v, bool))
+            for v in numbers.values()
+        ):
+            raise ConfigError(
+                f"{where}: {key} {name}: month, day, nth, days_from_easter are integers"
+            )
+        rule = HolidayRule(
+            name=str(name),
+            month=numbers["month"],
+            day=numbers["day"],
+            observed=observed,
+            weekday=None if weekday is None else _WEEKDAYS.index(weekday),
+            nth=numbers["nth"],
+            days_from_easter=numbers["days_from_easter"],
+            days_after=numbers["days_after"] or 0,
+            kind=str(kind),
+        )
+        by_easter = rule.days_from_easter is not None
+        by_weekday = rule.weekday is not None and rule.nth is not None and rule.month is not None
+        by_day = rule.day is not None and rule.month is not None
+        if [by_easter, by_weekday, by_day].count(True) != 1:
+            raise ConfigError(
+                f"{where}: {key} {name}: exactly one of month+day, month+weekday+nth, "
+                "or days_from_easter"
+            )
+        if rule.nth is not None and rule.nth not in (-1, 1, 2, 3, 4, 5):
+            raise ConfigError(f"{where}: {key} {name}: nth must be 1-5, or -1 for the last")
+        rules.append(rule)
+    return tuple(rules)
+
+
 def _date(raw: Mapping[str, object], key: str, where: str) -> date:
     value = raw[key]
     if not isinstance(value, date) or isinstance(value, datetime):
@@ -273,6 +360,10 @@ def load_instrument(path: Path) -> InstrumentProfile:
         trading_days=_trading_days(raw, "trading_days", where),
         holidays=_holidays(raw, "holidays", where),
         early_closes=_early_closes(raw, "early_closes", where),
+        no_trade_days=_holidays(raw, "no_trade_days", where),
+        holiday_rules=_holiday_rules(raw, "holiday_rules", where),
+        easter_sundays=_holidays(raw, "easter_sundays", where),
+        calendar_from=_date(raw, "calendar_from", where),
         calendar_through=_date(raw, "calendar_through", where),
         calendar_warn_days=_integer(raw, "calendar_warn_days", where, minimum=1),
     )
@@ -294,7 +385,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
-    for day in (*profile.holidays, *profile.early_closes):
+    for day in (*profile.holidays, *profile.early_closes, *profile.no_trade_days):
         if day.weekday() not in profile.trading_days:
             raise ConfigError(
                 f"{where}: {day} is a {day:%A}, not a trading day: a holiday or early close "
@@ -308,9 +399,55 @@ def load_instrument(path: Path) -> InstrumentProfile:
                 f"{where}: early close {day} {close} must be after the cash open and "
                 "before the normal prime close"
             )
-    late = [d for d in (*profile.holidays, *profile.early_closes) if d > profile.calendar_through]
+    for day in profile.no_trade_days:
+        if day in profile.holidays:
+            raise ConfigError(f"{where}: {day} is both a holiday and a no-trade day")
+    dated = (*profile.holidays, *profile.early_closes, *profile.no_trade_days)
+    if profile.calendar_from > profile.calendar_through:
+        raise ConfigError(f"{where}: calendar_from is after calendar_through")
+    late = [d for d in dated if d > profile.calendar_through]
     if late:
         raise ConfigError(f"{where}: {sorted(late)[0]} is after calendar_through")
+    early = [d for d in dated if d < profile.calendar_from]
+    if early:
+        raise ConfigError(f"{where}: {sorted(early)[0]} is before calendar_from")
+    # Complete from calendar_from through calendar_through: every standard US exchange
+    # holiday in that window must be listed (closed, early close or no-trade day), so
+    # moving calendar_through forward over a standard closure alone is refused (D34).
+    names = [r.name for r in profile.holiday_rules]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:  # AEGIS I-3: a second rule of the same name could mask the first
+        raise ConfigError(f"{where}: holiday_rules has more than one rule named {repeated}")
+    kinds = {r.name: r.kind for r in profile.holiday_rules}
+    absent = [n for n in REQUIRED_RULES if n not in kinds]
+    if absent:
+        raise ConfigError(f"{where}: holiday_rules has no rule for {', '.join(absent)}")
+    wrong = [f"{n} must be {k}" for n, k in REQUIRED_RULES.items() if kinds[n] != k]
+    if wrong:
+        raise ConfigError(f"{where}: holiday_rules: {'; '.join(wrong)}")
+    for easter in profile.easter_sundays:
+        if easter.weekday() != _WEEKDAYS.index("SUN"):
+            raise ConfigError(f"{where}: easter_sundays {easter} is not a Sunday")
+    try:
+        missing = missing_days(
+            profile.holiday_rules,
+            profile.easter_sundays,
+            {*profile.holidays, *profile.no_trade_days},
+            set(profile.early_closes),
+            profile.calendar_from,
+            profile.calendar_through,
+        )
+    except MissingEaster as exc:
+        raise ConfigError(f"{where}: {exc}") from None
+    except ValueError as exc:  # a rule naming a day that does not exist
+        raise ConfigError(f"{where}: holiday_rules: {exc}") from None
+    if missing:
+        day, name = missing[0]
+        raise ConfigError(
+            f"{where}: calendar_through {profile.calendar_through} but {day} ({name}) is not "
+            f"listed ({len(missing)} standard holiday(s) missing): list the exchange's "
+            "holidays and early closes up to calendar_through"
+        )
     return profile
 
 
@@ -580,6 +717,7 @@ class ReconcileSettings:
     settle_seconds: int
     max_settle_seconds: int
     cancel_escalate_seconds: int
+    fill_price_wait_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,8 +727,6 @@ class IbkrConfig:
     resync_realarm_seconds: int
     reconnect_seconds: int
     option_security_type: str
-    require_paper: bool
-    paper_account_prefix: str
     escalate_after_failures: int
     max_reconnect_seconds: int
     min_healthy_session_seconds: int
@@ -616,6 +752,7 @@ class AlarmSettings:
     max_pending: int
     channel_timeout_seconds: int
     call_cooldown_seconds: int
+    degraded_attendance_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,6 +826,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         settle_seconds=_integer(rc, "settle_seconds", rc_where, minimum=0),
         max_settle_seconds=_integer(rc, "max_settle_seconds", rc_where, minimum=1),
         cancel_escalate_seconds=_integer(rc, "cancel_escalate_seconds", rc_where, minimum=1),
+        fill_price_wait_seconds=_integer(rc, "fill_price_wait_seconds", rc_where, minimum=1),
     )
     if reconcile.max_settle_seconds <= reconcile.settle_seconds:
         raise ConfigError(f"{rc_where}: max_settle_seconds must exceed settle_seconds")
@@ -699,6 +837,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         max_pending=_integer(al, "max_pending", a_where, minimum=1),
         channel_timeout_seconds=_integer(al, "channel_timeout_seconds", a_where, minimum=1),
         call_cooldown_seconds=_integer(al, "call_cooldown_seconds", a_where, minimum=0),
+        degraded_attendance_minutes=_integer(al, "degraded_attendance_minutes", a_where, minimum=1),
     )
     if alarms.channel_timeout_seconds >= alarms.retry_seconds * 2:
         raise ConfigError(
@@ -715,8 +854,6 @@ def load_execution(path: Path) -> ExecutionProfile:
         resync_realarm_seconds=_integer(ib, "resync_realarm_seconds", i_where, minimum=1),
         reconnect_seconds=_integer(ib, "reconnect_seconds", i_where, minimum=1),
         option_security_type=_text(ib, "option_security_type", i_where),
-        require_paper=_boolean(ib, "require_paper", i_where),
-        paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
         escalate_after_failures=_integer(ib, "escalate_after_failures", i_where, minimum=1),
         max_reconnect_seconds=_integer(ib, "max_reconnect_seconds", i_where, minimum=1),
         min_healthy_session_seconds=_integer(ib, "min_healthy_session_seconds", i_where, minimum=0),

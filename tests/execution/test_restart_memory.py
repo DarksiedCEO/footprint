@@ -158,8 +158,14 @@ def test_flattening_a_holding_the_ledger_never_recorded_asks_for_it_to_be_booked
         stack.quote(160, 161, t + second * timedelta(seconds=1))
         stack.manager.reconcile(None, t + second * timedelta(seconds=1))
     booking = [a.message for a in stack.alarms if "book_by_hand" in a.message]
-    assert len(booking) == 1  # once, not every round
-    assert stack.contract in booking[0]
+    # Once each, not every round: the unrecorded holding, and (grind review G12-1) the
+    # id to book it under, told when the first reconcile order for it is sent.
+    unrecorded = [m for m in booking if m.startswith("flattening")]
+    assert len(unrecorded) == 1
+    assert stack.contract in unrecorded[0]
+    named = [m for m in booking if m.startswith("reconcile-")]
+    assert len(named) == 1
+    assert len(booking) == 2
 
 
 def test_the_unbooked_holding_is_alarmed_once_even_when_the_flatten_is_sent_again(
@@ -188,7 +194,11 @@ def test_the_unbooked_holding_is_alarmed_once_even_when_the_flatten_is_sent_agai
         stack.manager.reconcile(None, t)
     sent = [o for o in stack.broker._orders if o.startswith("reconcile-")]
     assert len(sent) >= 2  # the flatten really was sent more than once
-    assert sum("book_by_hand" in a.message for a in stack.alarms) == 1
+    # Once each, though the flatten is sent again: the unrecorded holding, and the id
+    # of the first reconcile order to book it under (grind review G12-1).
+    assert sum(a.message.startswith("flattening") for a in stack.alarms) == 1
+    assert sum(a.message.startswith(f"{sent[0]} (reconcile)") for a in stack.alarms) == 1
+    assert sum("book_by_hand" in a.message for a in stack.alarms) == 2
 
 
 def test_flattening_a_holding_the_ledger_did_record_is_not_called_unrecorded(

@@ -1,0 +1,7 @@
+source: 0ee953e37c0739638a48ae99621ed67bc4fa7480 tree-dirty: 1 files
+baseline [without]: passed
+  1 SURVIVED [without] src/footprint/execution/executor/diego.py: R1: a lost answer after settle's cancel drops the entry (the e56a2ab reviewer's mutant, G1-1)
+  2 SURVIVED [without] src/footprint/execution/executor/diego.py: R1b: only a BrokerDown after settle's cancel drops the entry
+  3 SURVIVED [without] src/footprint/execution/runner.py: R3: BrokerDown in settle handled as CHECK THE FILL (the e56a2ab reviewer's mutant, G1-2)
+  4 SURVIVED [without] src/footprint/execution/runner.py: R5: BrokerDown in a step trips the halt (D39 says it waits)
+4 mutants, 4 survived or errored

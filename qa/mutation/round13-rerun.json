@@ -1,0 +1,17 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:",
+   "                        if pid not in self._stop_stuck_alarmed:",
+   "O5-1: CANCEL STUCK on the first hand-over"
+  ]
+ ]
+}

@@ -1,0 +1,24 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        pid = position.position_id\n        try:\n            # What is held is read once,",
+   "        pid = position.position_id\n        self._exit_started.setdefault(pid, reason)\n        try:\n            # What is held is read once,",
+   "M3-2: reason recorded before anything is sent"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_id in self._exit_cancels or stop_id in self._reconcile_cancels:\n                    # Our exit carries on with the reason it began with.\n                    started = self._exit_started.get(pid, ExitReason.UNPROTECTED)",
+   "                if stop_id in self._exit_cancels or stop_id in self._reconcile_cancels:\n                    # Our exit carries on with the reason it began with.\n                    started = ExitReason.UNPROTECTED",
+   "L-M8: cancelling-ours branch loses the exit reason"
+  ]
+ ]
+}

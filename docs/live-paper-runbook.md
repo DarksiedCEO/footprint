@@ -1,7 +1,10 @@
 # Running Footprint on the IBKR paper account
 
-Everything here runs on your Mac, beside IB Gateway. Paper only: the program refuses
-to start against a live account or with `ibkr.require_paper: false`.
+Everything here runs on your Mac, beside IB Gateway. Paper only, and no setting can
+change that: the paper rule is in the code (`brokers/ibkr/paper.py`), not in config.
+The program (and the read-only check) refuses, before anything is created, an account
+id that does not begin with `DU`, IB Gateway's live port 4001 or TWS's live port 7496,
+and a login that manages any non-paper account. There is no live switch to find.
 
 ## Before the first run
 
@@ -18,19 +21,31 @@ to start against a live account or with `ibkr.require_paper: false`.
 5. A news calendar CSV (`name,start,end`, ISO times **with offsets**, e.g.
    `CPI,2026-10-14T08:28:00-04:00,2026-10-14T08:32:00-04:00`), or decide to run
    without one (`--no-blackouts`).
-6. Phone alarms (D20), or start with `--alarms-local-only` (terminal and
-   `state/alarms.log` only; the program refuses to start without the keys otherwise).
-   See "Phone alarms" below.
+6. Phone alarms (D20): all six keys for FULL alerting. Without them the program refuses
+   to start unless you choose a degraded mode explicitly (see "Degraded alerting").
 
 ## Phone alarms (D20)
 
 Every alarm goes to Telegram; if Telegram fails it goes by SMS instead; the critical
-ones (a halt, the kill switch, a position without its stop or needing hands, IBKR
-refusing or failing for good, a stuck resync, market data failing, an expired exchange
-calendar) also ring your phone: each kind at most once every `call_cooldown_seconds`
-(30 minutes), and one kind ringing never silences another. A stuck resync re-alarms
-every 5 minutes, so it rings every 30 minutes for as long as it lasts, even while flat.
-Every alarm is also in the terminal and `state/alarms.log`.
+ones also ring your phone: a halt, the kill switch, a position without its stop or
+needing hands, IBKR refusing, failing for good or **the connection lost**, a stuck
+resync, market data failing, an expired exchange calendar, an alarm channel down, and
+unattended degraded operation. Each kind rings at most once every
+`call_cooldown_seconds` (30 minutes), and one kind ringing never silences another.
+Expect calls you may not want at first: IB Gateway's nightly restart is a lost
+connection, so it rings once a night; a stuck resync re-alarms every 5 minutes, so it
+rings every 30 minutes while it lasts, even while flat. Every alarm is also in the
+terminal and `state/alarms.log`.
+
+If a channel fails (Twilio rejects a call, Telegram is down, a request hangs past
+`channel_timeout_seconds`), "ALARM CHANNEL DOWN: <channel>" goes at once to the record
+and to every **other** channel (a dead call line is reported by Telegram and SMS; a
+dead Telegram by SMS and a call), and "alarm channel back" when it works again. A
+failed call is not retried. A hung call holds the call line for at most
+`channel_timeout_seconds` (8 s; the request itself, a slow name lookup included, is
+abandoned on its own thread at that deadline, never waited for) and never holds back Telegram or SMS; while it is still
+out, the next call fails at once (one stuck request per channel at most) and is
+reported, and calls are tried again once it ends. `status` shows each channel's state.
 
 All six keys go in `.env` only (never in chat, never committed):
 
@@ -50,6 +65,29 @@ All six keys go in `.env` only (never in chat, never committed):
    ACCEPTED or FAILED, because Twilio accepting them is not delivery: **check that the
    text arrived and the phone rang.** A malformed key (a space, a comment after the
    value) is refused by name before anything is sent.
+4. Fallback check: `uv run python -m footprint.live.alarm_setup test-fallback` makes
+   Telegram fail on the Mac (nothing is sent to Telegram) and runs the real alarm
+   path: you should get a text with the test alarm, a text "ALARM CHANNEL DOWN:
+   Telegram", and one call.
+
+These commands are the only real deliveries: the automated tests cannot reach
+Telegram, Twilio or anything else beyond the machine (a test guard blocks it).
+
+## Degraded alerting
+
+Two explicit flags, never the default, and never shown as full coverage:
+
+- `--alarms-telegram-only`: Telegram only (the two Telegram keys), no SMS fallback,
+  no calls. Every Telegram message starts with `[DEGRADED_ALERTING]`. Test it with
+  `alarm_setup test --telegram-only`.
+- `--alarms-local-only`: nothing reaches your phone (terminal and `alarms.log`).
+
+Either one: the program refuses to start without an interactive terminal; it prints
+a DEGRADED_ALERTING banner; `status` shows it first; and **unattended trading is
+blocked**: after `degraded_attendance_minutes` (15) with nothing typed at the prompt,
+it stops new entries (an UNATTENDED alarm; anything open is still managed) until you
+type `clear <name>` again. It warns a few minutes before. Any command, or `here`,
+counts as attended.
 
 Nothing prints a token, a password or a phone number, and an error never shows a URL
 (Telegram's carries the token).
@@ -68,8 +106,9 @@ It starts reconciling and **sends nothing** until you clear it. At the prompt:
 
 | Type | Does |
 |---|---|
-| `status` | Connection, front future, bars loaded, chain size, reconcile/halt state, position |
+| `status` | Alerting mode and each channel, cleared or not, connection, front future, bars loaded, chain size, reconcile/halt state, position |
 | `clear Andre` | Allows entries (logged as an alarm with your name) |
+| `here` | Says you are at the terminal (keeps a degraded run attended) |
 | `quit` | Stops cleanly (also Ctrl-C) |
 
 Loading 35 days of history takes about a minute after the connection opens
@@ -85,11 +124,60 @@ sold blind). Flatten by hand in IBKR, or check the stop there, before you walk a
 
 ## Gateway restarts and disconnects
 
-IB Gateway restarts itself every night. A disconnect is not a fault: the system waits,
-reconciles once IBKR is back, and carries on (D35). After 5 failed reconnects in a row
-it alarms once that a person is needed and retries less often (D32). A halt (a real
-disagreement: something held that should not be, an order that will not cancel) only
-clears with a restart, after you have looked at why.
+IB Gateway restarts itself every night. On a lost connection (D35, as decided):
+
+- New entries stop at once, and nothing is sent: no order, cancel, modify or flatten.
+- Orders already resting at IBKR (the protective stop) are left as they are.
+- Trading resumes only after IBKR is back, resynced, **and** a reconcile agrees with
+  what IBKR holds. If the stop filled during the outage, the reconcile finds it and
+  books the close. A reconcile that never agrees never lets trading resume.
+- The outage itself does not count against the 30-second "unmanaged" failsafe
+  (D37, confirmed): its clock moves on by exactly the outage's length, so time
+  unmanaged before or after still counts, and a protected position is not flattened
+  on reconnect just because of the outage.
+- An entry still working at IBKR when the connection drops carries its stop attached
+  (D38): IBKR should activate the stop the moment the entry fills, connected or not
+  (IBKR's side is UNVERIFIED until checklist 27 in paper). The entry never works
+  without its stop: if the stop is refused or dies, the entry is cancelled. After the
+  reconnect the reconcile finds any fill and flattens it.
+- It is not a halt. "IBKR connection lost" rings the phone (critical).
+
+After 5 failed reconnects in a row it alarms once that a person is needed and retries
+less often (D32). A halt (a real disagreement: something held that should not be, an
+order that will not cancel) also latches the kill switch. The halt itself clears with a
+restart, but the kill switch does NOT: it is written to `state/ledger.json` and survives
+restarts, so the system makes no new entries until it is cleared. To clear it, after
+you have looked at why:
+
+1. Stop the live system (`quit`). The clear command is refused while the live system
+   has the ledger open, because a running system would write its latch back.
+2. Check what is latched:
+
+       uv run python -m footprint.live.kill_switch status
+
+3. Clear it, with your name and the reason it is safe:
+
+       uv run python -m footprint.live.kill_switch clear --by Andre --reason "checked IBKR: flat"
+
+   Type `CLEAR` when asked. It is refused, with nothing changed, while a position is
+   open or a CHECK THE FILL hold stands: check IBKR's own platform and book or flatten
+   by hand first.
+
+To book a position by hand (G24-4, decided 2026-10-10), the live system still stopped:
+look in IBKR's own platform until the position shows closed, read its net P&L (fees
+included) from the statement, then:
+
+       uv run python -m footprint.live.kill_switch book --position POSITION_ID --pnl -412.50 --by Andre --reason "IBKR statement 2026-10-10"
+
+`status` prints the open position's id and any CHECK THE FILL hold. Type `BOOK` when
+asked. Any other id is refused unless you add `--unrecorded` (a trade the ledger never
+recorded). Never book a figure you did not read in the statement. Booking does not
+clear the kill switch: run `clear` afterwards.
+
+Clearing keeps the drawdown peak (P6-1, decided 2026-10-10). After a latch from the
+drawdown limit, the limit is still breached and entries stay blocked; add
+`--reset-peak` only if you mean to start the drawdown count again from today's equity.
+Never edit `ledger.json` by hand.
 
 ## Where things go (all in `state/`, git-ignored)
 
@@ -103,12 +191,33 @@ clears with a restart, after you have looked at why.
 
 `instruments/nq.yaml` lists the exchange's closed days and early closes through
 `calendar_through`. On an early-close day the system stops new entries and flattens
-5 minutes before that day's close (e.g. 09:55 PT for a 10:00 close). A month before
-the list runs out it alarms once a day until it is extended (checklist 23).
+5 minutes before that day's close (e.g. 09:55 PT for a 10:00 close).
+
+US-holiday sessions (MLK, Presidents, Memorial, Juneteenth, July 3, Labor Day,
+Thanksgiving) are `no_trade_days`: the exchange has a short session, but the stock
+market is closed, so Footprint treats them as closed (no entry, and they never count
+as the prior day) until they are reviewed and approved. The day after Thanksgiving and
+Christmas Eve still trade until their early close.
+
+**Fail closed:** before `calendar_from` and past `calendar_through` every day is
+treated as closed: no trades at all (a backtest over older data needs that year's
+calendar added first). A month before, it alarms once a day; once expired, "EXCHANGE CALENDAR EXPIRED"
+rings the phone daily. To resume, extend the lists and `calendar_through` from CME's
+calendar (checklist 23), add the next year's Easter Sunday to `easter_sundays`, and
+restart. The file is checked at start: every standard closure in `holiday_rules` (New
+Year, MLK, Presidents, Good Friday, Memorial, Juneteenth, July 4, Labor, Thanksgiving,
+Christmas) from `calendar_from` up to `calendar_through` must be listed as a closure,
+and the day after Thanksgiving and Christmas Eve as early closes, or the program
+refuses to start. Moving `calendar_through` forward alone is refused only when a
+standard closure falls in the added days (a window with none, e.g. April to mid-May,
+loads), and the rules do not cover a one-off closure CME may add: extend from CME's
+own calendar, never by moving the date. `calendar_from` is fixed, so deleting a year's
+dates is refused too.
 
 ## Alarms you should expect at first
 
 - `exchange calendar ends ...`: a month before `calendar_through`; extend nq.yaml.
+- `IBKR connection lost` (a call): IB Gateway's nightly restart.
 - `MARKET DATA: ... failed (IBKR 354 ...)`: no real-time subscription.
 - `no option on the ... future expires in 1-3 days`: in a roll week (D27).
 - `IBKR SESSION KEEPS FAILING`: Gateway closed, logged out, or the Mac asleep (D32).

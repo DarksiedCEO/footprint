@@ -52,7 +52,10 @@ def forbidden_words(instrument: Path) -> set[str]:
 def violations(root: Path, numbers: set[Decimal], words: set[str]) -> list[str]:
     word_pattern = re.compile("|".join(rf"(?<!\w){re.escape(word)}(?!\w)" for word in words))
     found = []
-    for path in sorted(p for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+    # Python files are read as Python by the AST guard (test_no_hardcoded_literals_ast.py,
+    # A-18); this line scan keeps the other files under src/ (README, data) covered.
+    files = (p for p in root.rglob("*") if p.is_file() and p.suffix != ".py")
+    for path in sorted(p for p in files if "__pycache__" not in p.parts):
         for line_number, line in enumerate(path.read_text().splitlines(), start=1):
             if ALLOW_MARKER in line:
                 continue
@@ -64,7 +67,7 @@ def violations(root: Path, numbers: set[Decimal], words: set[str]) -> list[str]:
 
 
 # Every exemption must be reviewed: adding a marker under src/ means bumping this.
-EXPECTED_ALLOW_MARKERS = 1
+EXPECTED_ALLOW_MARKERS = 0
 
 
 def count_allow_markers(root: Path) -> int:
@@ -115,7 +118,7 @@ def test_src_contains_no_literal_instrument_values(
 def test_scanner_catches_planted_values(
     instrument_path: Path, risk_path: Path, strategy_path: Path, tmp_path: Path
 ) -> None:
-    (tmp_path / "planted.py").write_text(
+    (tmp_path / "planted.txt").write_text(
         "POINT_VALUE = 20\n"
         "TICK = 0.25\n"
         "x = round(price / 100.0)\n"

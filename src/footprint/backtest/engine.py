@@ -42,7 +42,7 @@ from typing import Any
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
 from footprint.backtest.settings import BacktestSettings
-from footprint.core.calendar import SessionKind, session_at
+from footprint.core.calendar import SessionKind, local_minute, session_at
 from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
@@ -112,6 +112,7 @@ class Backtest:
         self._first = 0 if trade_from is None else bisect_left(self._starts, trade_from)
         if self._first >= len(self._bars):
             raise ValueError("trade_from is after the last bar")
+        self._inside_calendar(self._bars[self._first].ts, self._bars[-1].ts)
         self._model = OptionModel(
             settings.option_model, profiles.instrument, profiles.strategy.options.assumed_delta
         )
@@ -239,6 +240,29 @@ class Backtest:
             marked_max_drawdown=self._worst,
             worst_open_loss=self._worst_open,
         )
+
+    def _inside_calendar(self, first: datetime, last: datetime) -> None:
+        """The traded window must lie inside the maintained exchange calendar. Outside
+        it every day is closed (fail closed: no holiday or early close is known there),
+        so a backtest over it would run without an error and trade nothing (delta review
+        2, N-2). Look-back bars before `trade_from` may lie anywhere: they are never
+        traded."""
+        instrument = self._p.instrument
+        start = local_minute(first, instrument.prime_session)[0]
+        end = local_minute(last, instrument.prime_session)[0]
+        if start < instrument.calendar_from:
+            raise ValueError(
+                f"the backtest trades from {start}, before calendar_from "
+                f"{instrument.calendar_from}: every day there is closed. Add that year's "
+                "holidays, early closes, no-trade days and Easter from the exchange's calendar and "
+                "move calendar_from back first"
+            )
+        if end > instrument.calendar_through:
+            raise ValueError(
+                f"the backtest trades until {end}, past calendar_through "
+                f"{instrument.calendar_through}: every day there is closed. Extend the "
+                "calendar from the exchange's schedule first"
+            )
 
     def _idle(self) -> bool:
         return self.runner.exposure is None and not self.runner.reconciling

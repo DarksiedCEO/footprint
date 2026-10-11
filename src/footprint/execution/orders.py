@@ -56,6 +56,10 @@ class Order:
     # broker cancels the rest, and holds them back while one is routed ("with block").
     # A position's stop and exits share one group (its position id).
     oca_group: str | None = None
+    # Attached (a bracket's child, D35/H-2): held at the broker until the parent order
+    # fills, then working for the filled quantity; cancelled with an unfilled parent.
+    # The broker activates it even while we are disconnected.
+    parent_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("order_id", "contract_id"):
@@ -79,6 +83,12 @@ class Order:
                 raise ValueError("a sell stop-limit's limit must be at or below its stop")
         elif self.stop_price is not None:
             raise ValueError("only a STOP_LIMIT order has a stop_price")
+        if self.parent_id is not None and (
+            not isinstance(self.parent_id, str)
+            or not self.parent_id.strip()
+            or self.parent_id == self.order_id
+        ):
+            raise ValueError("Order.parent_id must be another order's id")
 
 
 def _price(value: Decimal, field: str) -> None:
@@ -93,6 +103,21 @@ class OrderStatus:
     filled: int
     avg_price: Decimal | None
     triggered: bool = False
+    # Working at the broker but unable to act: Inactive there, or being cancelled by
+    # us after it was Inactive (AEGIS N1/N2). Never protection.
+    held_back: bool = False
+    # Working at the broker with its cancel pending (PendingCancel): not protection,
+    # but still live (it can still fill), so nothing may be placed beside it
+    # (AEGIS J-1, K-1, K-2).
+    cancelling: bool = False
+    # How many times the broker acknowledged a cancel (PendingCancel) and then put the
+    # order back to acting: the cancel was refused (AEGIS M3-1).
+    cancel_refusals: int = 0
+
+    @property
+    def protects(self) -> bool:
+        """A stop that will trigger: working, not held back, not being cancelled."""
+        return self.state is OrderState.WORKING and not self.held_back and not self.cancelling
 
 
 class DuplicateOrderId(ValueError):
@@ -125,6 +150,12 @@ class PositionsUncertain(ConnectionError):
     report disagree). Nothing may be sold or booked on it: wait and ask again."""
 
 
+class FillUnpriced(RuntimeError):
+    """An order filled at the broker and its price has not been reported within
+    `fill_price_wait_seconds` (delta review 2, N-1). Nothing is booked at a guessed
+    price and nothing is sent beside the fill: the runner halts and reconciles."""
+
+
 @runtime_checkable
 class OrderBroker(Protocol):
     """What execution needs from a broker. The broker is the source of truth for
@@ -132,6 +163,11 @@ class OrderBroker(Protocol):
     """
 
     def place(self, order: Order) -> OrderStatus: ...
+
+    def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        """Send `parent` with `child` attached (child.parent_id == parent.order_id),
+        together: the broker holds the child until the parent fills."""
+        ...
 
     def modify(
         self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
@@ -197,6 +233,24 @@ class TrackedBroker:
                 return self.status_or_working(order.order_id, order)
             except Exception:
                 raise first from None
+
+    def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        """Record both, then send them together. Not re-sent on an unknown failure (a
+        pair cannot be safely re-sent half-known): both stay recorded as possibly
+        working, so the reconcile that follows the error finds and cancels them."""
+        if child.parent_id != parent.order_id:
+            raise ValueError(f"{child.order_id} is not attached to {parent.order_id}")
+        known = parent.order_id in self._sent or child.order_id in self._sent
+        self._sent[parent.order_id] = parent
+        self._sent[child.order_id] = child
+        try:
+            first, second = self._inner.place_attached(parent, child)
+        except NotSent:
+            if not known:
+                self._sent.pop(parent.order_id, None)
+                self._sent.pop(child.order_id, None)
+            raise
+        return self._seen(first), self._seen(second)
 
     def modify(
         self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
@@ -304,18 +358,26 @@ class SimulatedBroker:
         self._book = book
         book.subscribe(self._on_quote)
         self.log: list[str] = []
+        self._held: set[str] = set()  # attached children waiting for their parent
 
     # --- market --------------------------------------------------------------------
 
     def _on_quote(self, quote: Quote) -> None:
         for order_id in list(self._orders):
             status = self._orders[order_id]  # re-read: a group fill may have cancelled it
-            if status.state is OrderState.WORKING and status.order.contract_id == quote.contract_id:
+            if (
+                status.state is OrderState.WORKING
+                and order_id not in self._held
+                and status.order.contract_id == quote.contract_id
+            ):
                 self._store(order_id, self._try_fill(status, quote, at_touch=False))
 
     def _store(self, order_id: str, status: OrderStatus) -> None:
-        """Record a status; a fill cancels the rest of its one-cancels-all group."""
+        """Record a status; a fill cancels the rest of its one-cancels-all group, and a
+        finished parent activates (filled) or cancels (unfilled) its held children."""
         self._orders[order_id] = status
+        if status.state is not OrderState.WORKING:
+            self._release_children(order_id, status)
         group = status.order.oca_group
         if status.state is not OrderState.FILLED or group is None:
             return
@@ -327,6 +389,20 @@ class SimulatedBroker:
             ):
                 self._orders[other_id] = replace(other, state=OrderState.CANCELLED)
                 self.log.append(f"oca-cancelled {other_id} (group {group} filled)")
+
+    def _release_children(self, parent_id: str, parent: OrderStatus) -> None:
+        for child_id in [c for c in self._held if self._orders[c].order.parent_id == parent_id]:
+            self._held.discard(child_id)
+            child = self._orders[child_id]
+            if parent.state is OrderState.FILLED and parent.filled > 0:
+                self.log.append(f"activated {child_id} (parent {parent_id} filled)")
+                quote = self._book.latest(child.order.contract_id)
+                if quote is not None:
+                    child = self._try_fill(child, quote, at_touch=True)
+                self._store(child_id, child)
+            else:
+                self._orders[child_id] = replace(child, state=OrderState.CANCELLED)
+                self.log.append(f"cancelled {child_id} with its unfilled parent {parent_id}")
 
     def _group_filled(self, group: str | None) -> bool:
         return group is not None and any(
@@ -384,6 +460,17 @@ class SimulatedBroker:
         self._store(order.order_id, status)
         return status
 
+    def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        if child.parent_id != parent.order_id:
+            raise ValueError(f"{child.order_id} is not attached to {parent.order_id}")
+        if child.order_id in self._orders or parent.order_id in self._orders:
+            raise DuplicateOrderId(f"duplicate order id in {parent.order_id}/{child.order_id}")
+        self._orders[child.order_id] = OrderStatus(child, OrderState.WORKING, 0, None)
+        self._held.add(child.order_id)  # held before the parent can fill
+        self.log.append(f"placed {child.order_id} attached to {parent.order_id} (held)")
+        first = self.place(parent)
+        return first, self._orders[child.order_id]
+
     def modify(
         self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
     ) -> OrderStatus:
@@ -393,7 +480,7 @@ class SimulatedBroker:
         order = replace(status.order, limit_price=limit_price, stop_price=stop_price)
         status = replace(status, order=order)
         quote = self._book.latest(order.contract_id)
-        if quote is not None:
+        if quote is not None and order_id not in self._held:
             status = self._try_fill(status, quote, at_touch=True)
         self._store(order_id, status)
         self.log.append(f"modified {order_id} limit {limit_price} stop {stop_price}")
@@ -403,7 +490,8 @@ class SimulatedBroker:
         status = self._known(order_id)
         if status.state is OrderState.WORKING:
             status = replace(status, state=OrderState.CANCELLED)
-            self._orders[order_id] = status
+            self._held.discard(order_id)
+            self._store(order_id, status)  # (an unfilled parent takes its children)
             self.log.append(f"cancelled {order_id}")
         return status
 

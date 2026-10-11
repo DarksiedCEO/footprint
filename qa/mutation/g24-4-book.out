@@ -1,0 +1,16 @@
+source: bf8d3743583ce649da87bcf82303db498ca2e4a9 tree-dirty: 0 files
+baseline [bk]: passed
+  1 KILLED   [bk] src/footprint/live/kill_switch.py: B1: an id the ledger does not know is booked without --unrecorded
+  2 KILLED   [bk] src/footprint/live/kill_switch.py: B2: a CHECK THE FILL hold's position is not recognised
+  3 KILLED   [bk] src/footprint/live/kill_switch.py: B3: confirmation loosened to containing the word
+  4 KILLED   [bk] src/footprint/live/kill_switch.py: B4: confirmation case-insensitive
+  5 KILLED   [bk] src/footprint/live/kill_switch.py: B5: NaN and infinity accepted as a P&L
+  6 KILLED   [bk] src/footprint/live/kill_switch.py: B6: no name or reason needed
+  7 KILLED   [bk] src/footprint/live/kill_switch.py: B7: the reason is not passed to the ledger log
+  8 KILLED   [bk] src/footprint/live/kill_switch.py: B8: a refused second booking exits 0
+  9 KILLED   [bk] src/footprint/live/kill_switch.py: B9: no reminder that the kill switch is still latched
+ 10 KILLED   [bk] src/footprint/live/kill_switch.py: B10: the screen does not show equity after the booking
+ 11 KILLED   [bk] src/footprint/live/kill_switch.py: B11: book does nothing
+ 12 KILLED   [bk] src/footprint/execution/ledger.py: B12: the ledger log drops the reason
+ 13 KILLED   [bk] src/footprint/live/kill_switch.py: B13: thousands separators accepted
+13 mutants, 0 survived or errored

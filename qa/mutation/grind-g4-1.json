@@ -1,0 +1,120 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_unowned_unpriced_sell.py",
+   "tests/execution/test_unpriced_sell_guards.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if position is None or contract_id != position.contract_id:\n            return self._sold_unowned(contract_id, now)\n",
+   "        if position is None or contract_id != position.contract_id:\n            return self._held_from_before(contract_id, now)\n",
+   "G1: restart/stray contracts ignore unpriced reconcile fills (the G4-1 bug)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if unpriced is None:\n                return self._sold_unowned(contract_id, now)\n",
+   "            if unpriced is None:\n                return self._held_from_before(contract_id, now)\n",
+   "G2: the position's own contract ignores reconcile fills recorded under another owner"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n",
+   "                    status.avg_price is None\n                    and status.order.contract_id == contract_id\n",
+   "G3: a working (unfilled) reconcile order counts as a filled sale"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n",
+   "                    status.state is OrderState.FILLED\n                    and status.order.contract_id == contract_id\n",
+   "G4: a priced fill also holds the contract"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n                ):\n                    return order_id\n",
+   "                    and status.avg_price is None\n                ):\n                    return order_id\n",
+   "G5: an unpriced fill of another contract holds this one"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                except KeyError:\n                    continue\n                if (\n                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n",
+   "                except KeyError:\n                    return None\n                if (\n                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n",
+   "G6: an order that was never placed stops the search"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            for order_id in reversed(order_ids):\n                try:\n                    status = self._broker.status(order_id)\n                except KeyError:\n                    continue\n                if (\n                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n                ):\n                    return order_id\n",
+   "            for order_id in reversed(order_ids[-1:]):\n                try:\n                    status = self._broker.status(order_id)\n                except KeyError:\n                    continue\n                if (\n                    status.state is OrderState.FILLED\n                    and status.avg_price is None\n                    and status.order.contract_id == contract_id\n                ):\n                    return order_id\n",
+   "G7: only each owner's newest reconcile order is checked"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            hold_id = self._ledger.open_position_id or order_id\n",
+   "            hold_id = order_id\n",
+   "G10: the hold is never saved under the open position"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            hold_id = self._ledger.open_position_id or order_id\n",
+   "            hold_id = self._ledger.open_position_id or contract_id\n",
+   "G11: with no open position the hold is saved under the contract, not the order"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._hold_durably(SoldHold(hold_id, contract_id, order_id), now)\n        order_id, since, hold_id = known\n",
+   "        order_id, since, hold_id = known\n",
+   "G12: the unowned hold is not saved (lost on a restart)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if now - since < wait:\n            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return True\n        if contract_id not in self._unowned_overdue:",
+   "        if True:\n            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return True\n        if contract_id not in self._unowned_overdue:",
+   "G13: never past the wait (no CHECK THE FILL, no latch)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if now - since < wait:\n            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return True\n        if contract_id not in self._unowned_overdue:",
+   "        if False:\n            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return True\n        if contract_id not in self._unowned_overdue:",
+   "G14: alarmed at once, no wait"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if contract_id not in self._unowned_overdue:\n            self._unowned_overdue.add(contract_id)\n",
+   "        if True:\n            self._unowned_overdue.add(contract_id)\n",
+   "G15: CHECK THE FILL every round"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{contract_id}: {order_id} filled, price and holding not reported\")\n",
+   "",
+   "G16: past the wait, no stand-down naming the order"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        known = self._unowned_pending.get(contract_id)\n",
+   "        known = None\n",
+   "G20: the hold is found afresh every round (its wait never runs out)"
+  ]
+ ]
+}

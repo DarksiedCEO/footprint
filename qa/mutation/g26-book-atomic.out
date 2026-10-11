@@ -1,0 +1,12 @@
+source: 58a1b6333f16d57aa01e390be3011d6afa2da50c tree-dirty: 0 files
+baseline [g26]: passed
+  1 KILLED   [g26] src/footprint/execution/ledger.py: M1: book_by_hand no longer marks the id (a second booking goes through)
+  2 KILLED   [g26] src/footprint/execution/ledger.py: M2: the booked-by-hand mark is dropped from the booking's write
+  3 KILLED   [g26] src/footprint/execution/ledger.py: M3: a booking by hand no longer releases the position's CHECK THE FILL hold
+  4 KILLED   [g26] src/footprint/execution/ledger.py: M4: booking the open position by hand leaves it open
+  5 KILLED   [g26] src/footprint/execution/ledger.py: M5: booking an unrecorded trade closes the open position
+  6 KILLED   [g26] src/footprint/execution/ledger.py: M6: a normal close no longer releases the open position's holds
+  7 KILLED   [g26] src/footprint/live/kill_switch.py: M7: a blank --position is booked
+  8 KILLED   [g26] src/footprint/live/kill_switch.py: M8 (probe P3): the position id is not stripped
+  9 KILLED   [g26] src/footprint/live/kill_switch.py: M9 (probe P4): the position and P&L line is not shown before the ask
+9 mutants, 0 survived or errored

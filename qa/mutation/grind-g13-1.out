@@ -1,0 +1,10 @@
+source: 8f1bef54d0a1a040032568e265aae3710ac9bb23 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: the covering order is never named (G13-1)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: a holding the ledger did record is named for booking by hand
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: named again every round
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: the once-per-contract memory never set
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M5: the never-twice rule dropped
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M6: the never-recorded alarm no longer points at the covering order
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: M7: does not say that no reconcile order is sent
+7 mutants, 0 survived or errored

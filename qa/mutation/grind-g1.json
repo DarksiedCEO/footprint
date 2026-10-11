@@ -1,0 +1,56 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_runner.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_attached_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        status = self._broker.status(ticket.order_id)\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "        try:\n            status = self._broker.status(ticket.order_id)\n        except Exception:\n            if ticket.price_pending_since is not None:\n                raise\n            self.abandon(ticket)\n            return ticket\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "G-1: the old branch (an unseen fill dropped and cancelled on a lost answer)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        status = self._broker.status(ticket.order_id)\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "        try:\n            status = self._broker.status(ticket.order_id)\n        except Exception:\n            self.abandon(ticket)\n            raise\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "G-1: a cancel is sent on a lost answer (ticket kept)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        status = self._broker.status(ticket.order_id)\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "        try:\n            status = self._broker.status(ticket.order_id)\n        except Exception:\n            return ticket\n        if status.state is OrderState.WORKING:\n            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "G-1: a lost answer is swallowed (the runner drops the entry)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self.abandon(ticket)\n            status = self._broker.status(ticket.order_id)\n        return self._after(",
+   "            self.abandon(ticket)\n        return self._after(",
+   "G-3 V2: no fresh status after the cancel (stale WORKING used)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since is not None:\n            log.warning(",
+   "        if ticket.outcome is EntryOutcome.WORKING:\n            log.warning(",
+   "G-3 V1: any working ticket holds reconcile"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/runner.py",
+   "\"is sent and reconcile waits for the price. If it never comes: cancel \"\n                    \"the entry's stop at IBKR first, then flatten by hand\",",
+   "\"is sent and reconcile waits for the price; flatten by hand if it never \"\n                    \"comes\",",
+   "G-2: the alarm no longer says to cancel the stop first"
+  ]
+ ]
+}
