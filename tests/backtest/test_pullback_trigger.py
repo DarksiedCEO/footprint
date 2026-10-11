@@ -161,3 +161,19 @@ def test_the_window_gives_the_whole_history_answer() -> None:
                     else Score.NEUTRAL
                 )
                 assert trigger(settings).read(bars[:end]).score is expected, (life, end)
+
+
+def test_malformed_bars_are_refused() -> None:
+    # G50-1: the input check is the project's (require_series), as for the stair trigger:
+    # empty, mixed-symbol and out-of-order (or repeated) bars are refused, never read.
+    bars = day(BASE, SPIKE_VOLUMES)
+    with pytest.raises(ValueError, match="PullbackTrigger bars must not be empty"):
+        trigger().read([])
+    with pytest.raises(ValueError, match="PullbackTrigger bars mixes symbols"):
+        trigger().read([*bars[:-1], replace(bars[-1], symbol="ES")])
+    with pytest.raises(ValueError, match="PullbackTrigger bars must be in strictly increasing"):
+        trigger().read([*bars[:-2], bars[-1], bars[-2]])
+    with pytest.raises(ValueError, match="PullbackTrigger bars must be in strictly increasing"):
+        trigger().read([*bars, bars[-1]])
+    with pytest.raises(TypeError, match="PullbackTrigger bars must contain only Bar"):
+        trigger().read([*bars, object()])  # type: ignore[list-item]

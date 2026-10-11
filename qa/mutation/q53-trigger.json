@@ -81,6 +81,13 @@
    "        return Read(self.agent_id, last.ts, Score.NEUTRAL, \"pullback: no pullback entry\")",
    "        return Read(self.agent_id, last.ts, Score.NEUTRAL, \"no stair entry\")",
    "Q53T-11: the no-entry reason does not name the rule"
+  ],
+  [
+   "trigger",
+   "src/footprint/backtest/pullback.py",
+   "        require_series(bars, None, \"PullbackTrigger bars\")\n",
+   "        pass\n",
+   "Q53T-12: empty, mixed-symbol or out-of-order bars are not refused (G50-1)"
   ]
  ]
 }
