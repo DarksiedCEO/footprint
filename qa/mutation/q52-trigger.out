@@ -1,4 +1,4 @@
-source: 1fcd98ce12200a5772046f0cb646c45e3f7cbd0d tree-dirty: 0 files
+source: e8a6c73287027fffba9f0d7d6d7d295cc3fb5673 tree-dirty: 0 files
 baseline [trig]: passed
   1 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-1: the scan never reaches back to the first bar
   2 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-4: the scan skips the first bar after the gap
@@ -9,4 +9,5 @@ baseline [trig]: passed
   7 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-9: the down entry is not read as bearish
   8 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-10: empty or malformed bars are not refused
   9 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-11: the trigger does not answer in the momentum slot
-9 mutants, 0 survived or errored
+ 10 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-12 (G45-1): the reason does not name stairstep_vol
+10 mutants, 0 survived or errored
