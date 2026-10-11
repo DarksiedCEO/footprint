@@ -210,3 +210,18 @@ def test_a_read_time_must_be_utc(nq: InstrumentProfile) -> None:
     bars = minutes(at(TUE, 15, 0), at(TUE, 15, 1))
     with pytest.raises(ValueError, match="until"):
         first_gap(bars, at(TUE, 15, 0), nq, 0, until=datetime(2026, 10, 6, 16, 0))  # noqa: DTZ001 - naive on purpose
+
+
+def test_a_hole_in_bars_before_start_is_a_gap(nq: InstrumentProfile) -> None:
+    # G64-1: the exporter writes every bar it is handed, so bars older than `start`
+    # (a series cached across 00:00 UTC) must be checked too, not waved through.
+    hole = frozenset(at(TUE, 15, 10) + i * MIN for i in range(5))
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 59), hole)
+    gap = first_gap(bars, at(TUE, 15, 30), nq, 4)
+    assert gap is not None
+    assert "5 tradable minute(s) from 2026-10-06T15:10:00+00:00 have no bar" in gap
+
+
+def test_whole_bars_before_start_are_not_a_gap(nq: InstrumentProfile) -> None:
+    bars = minutes(at(TUE, 15, 0), at(TUE, 15, 59))
+    assert first_gap(bars, at(TUE, 15, 30), nq, 0) is None

@@ -1,0 +1,5 @@
+source: 63ba60c40a41ebc855a9beb5b9ca8c6dd4d7f354 tree-dirty: 0 files
+baseline [gaps]: passed
+  1 KILLED   [gaps] src/footprint/data/gaps.py: G64-1: bars older than start are not gap-checked
+  2 KILLED   [gaps] src/footprint/data/gaps.py: G64-1b: the calendar range ignores bars older than start
+2 mutants, 0 survived or errored
