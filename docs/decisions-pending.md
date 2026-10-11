@@ -342,6 +342,14 @@ APPROVED BY ANDRE 2026-10-10 21:12 PT (blanket approval of the 20:50 PT update's
 
 This approval covers only those Q5 items. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 probe/export/recorder DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them. Any reading made AFTER 21:12 PT (for example Q5.2-c, recorded 2026-10-11) is not covered and stays "for Andre".
 
+### Andre's approvals of 2026-10-11 10:30 PT (Q5 only)
+
+APPROVED BY ANDRE 2026-10-11 10:30 PT. Given in chat (session https://claude.ai/code/session_01FrkN7mJJfa5JNoRaJqJeDn) after he reviewed a recommendation for each reading ("we will keep that for the baseline then, and for all of the Q5's I will go with what you have given me"), and posted on PR #21 as "ANDRE APPROVAL 2026-10-11 10:30 PT". Recorded by grind stage https://claude.ai/code/session_01NSfdcQdjEF3sf2i4icBqsK. Each item is recorded on the lowest branch that holds its row and merged forward, so a lower branch lists only its own items.
+
+- **Q5.2-c: CONFIRMED** as recorded. A pause past `max_pause_bars`, or a stair past `max_stair_bars`, makes the step invalid; the old pause runs on; a push still rising when the stair limit hits is dropped. **G40-4 CONFIRMED:** a valid step 4 before the entry close leaves the entry level at the third push high.
+
+This approval covers only its listed rows. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them.
+
 ### Q5 numbers awaiting Andre
 
 Each is marked `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs` (approval 3 above) and listed here so Andre sees them after the real-data runs.
