@@ -359,6 +359,8 @@ APPROVED BY ANDRE 2026-10-11 10:30 PT. Given in chat (session https://claude.ai/
 
 - **Q5.3-d: CONFIRMED.** "Same spike test as breakout" means the spike bar test alone (MomentumReader step 1); breakout's follow-through is not part of it (`entry-pullback-v1`).
 
+- **Q5.4-b: CONFIRMED** (`exit-trail-v1`). The baseline exit "trail" is the code as it stands: the hard stop, then from `risk.profit_target` (net of fees) the stop locks `risk.trail_keep_pct` of the peak net gain and follows the peak. No volume adjustment, no scale-out. Build no volume-aware trail; any future one is a new piece that Andre will define.
+
 This approval covers only its listed rows. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them.
 
 ### Q5 numbers awaiting Andre
