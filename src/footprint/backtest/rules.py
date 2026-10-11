@@ -97,10 +97,13 @@ def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]
 
 
 def trail(profiles: Profiles) -> ExitRule | None:
-    """Q5.4 "trail", the BASELINE: the existing exit, unchanged (hard loss stop, the
-    profit target then the volume-aware trail, scale-outs where contracts allow). That
-    exit is trade management itself, so this rule adds nothing: None, and the backtest
-    builds trade management exactly as with no rule named. See docs/strategy-rules.md."""
+    """Q5.4 "trail", the BASELINE: the existing exit, unchanged (the hard loss stop and
+    every existing reason to get out; from the profit target, net of fees, the stop
+    locks a fixed share of the peak net gain and follows it). That trail has no volume
+    adjustment, and scale-out is not built (one contract), whatever the approved wording
+    says: see reading Q5.4-b. That exit is trade management itself, so this rule adds
+    nothing: None, and the backtest builds trade management exactly as with no rule
+    named. See docs/strategy-rules.md."""
     return None
 
 
