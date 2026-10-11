@@ -394,3 +394,22 @@ def test_the_action_refuses_minutes_below_one_when_built(tmp_path: Path) -> None
     clock = Clock()
     with pytest.raises(ValueError, match="--minutes 0"):
         recorder_action(_execution(60, 1, MAX_AGE), 0, tmp_path, clock, clock.sleep)
+
+
+def test_no_snapshot_is_taken_when_a_slow_step_ends_exactly_at_the_end(tmp_path: Path) -> None:
+    # G64-3: the reading after the step lands exactly on the end: none is taken there.
+    clock = Clock()
+    end = START + timedelta(seconds=120)
+
+    class SlowToTheEnd(Market):
+        def step(self, now: datetime) -> None:
+            super().step(now)
+            if len(self.steps) == 2:
+                clock.at = end
+
+    market = SlowToTheEnd(chain_at)
+    code, _ = run(market, tmp_path, clock, interval=60, run_seconds=120)
+    assert code == 0
+    assert market.reads == [START]
+    assert len(rows_in(tmp_path)) == 1
+    assert clock.at == end
