@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from footprint.backtest.stairstep import StairSettings
 from footprint.core.config import (
     _PERCENT_MAX,
     ConfigError,
@@ -47,10 +48,18 @@ class GateSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleSettings:
+    """The Q5 rule library's numbers (docs/strategy-rules.md). Backtest only."""
+
+    stairstep: StairSettings
+
+
+@dataclass(frozen=True, slots=True)
 class BacktestSettings:
     option_model: OptionModelSettings
     engine: EngineSettings
     gates: GateSettings
+    rules: RuleSettings
 
 
 def load_backtest(path: Path) -> BacktestSettings:
@@ -91,4 +100,22 @@ def load_backtest(path: Path) -> BacktestSettings:
     for name in ("min_win_rate_pct", "max_drawdown_pct", "out_of_sample_pct"):
         if getattr(gates, name) >= _PERCENT_MAX:
             raise ConfigError(f"{g_where}: {name} must be below {_PERCENT_MAX}")
-    return BacktestSettings(option_model=option_model, engine=engine, gates=gates)
+    return BacktestSettings(
+        option_model=option_model, engine=engine, gates=gates, rules=_rules(raw["rules"], where)
+    )
+
+
+def _rules(raw: object, where: str) -> RuleSettings:
+    r_where = f"{where}: rules"
+    r = _check_keys(raw, {f.name for f in fields(RuleSettings)}, r_where)
+    s_where = f"{r_where}: stairstep"
+    s = _check_keys(r["stairstep"], {f.name for f in fields(StairSettings)}, s_where)
+    steps = _integer(s, "steps", s_where, minimum=1)
+    max_giveback = _positive_decimal(s, "max_giveback", s_where)
+    max_pause_bars = _integer(s, "max_pause_bars", s_where, minimum=1)
+    max_stair_bars = _integer(s, "max_stair_bars", s_where, minimum=1)
+    try:  # StairSettings checks the rest (max_giveback at most 1)
+        stairstep = StairSettings(steps, max_giveback, max_pause_bars, max_stair_bars)
+    except ValueError as exc:
+        raise ConfigError(f"{s_where}: {exc}") from exc
+    return RuleSettings(stairstep=stairstep)

@@ -22,6 +22,7 @@ import pytest
 from footprint.agents.momentum_reader import MomentumReader
 from footprint.backtest import rules
 from footprint.backtest.__main__ import main
+from footprint.backtest.settings import RuleSettings
 from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score
 from footprint.decision.pipeline import Decision, Pipeline
@@ -153,7 +154,7 @@ def test_a_named_entry_rule_replaces_the_trigger_for_the_whole_run(
 ) -> None:
     built: list[FixedTrigger] = []
 
-    def never(profiles: Profiles) -> FixedTrigger:
+    def never(profiles: Profiles, rule_settings: RuleSettings) -> FixedTrigger:
         built.append(FixedTrigger(Score.NEUTRAL, "never"))
         return built[-1]
 
