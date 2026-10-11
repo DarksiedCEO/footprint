@@ -1,0 +1,4 @@
+source: a21dff58723d13c89099d13d72f143ce8894ad27 tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] tests/backtest/test_rules_seam.py: G59-1: only the last name of a plain import read
+1 mutants, 0 survived or errored
