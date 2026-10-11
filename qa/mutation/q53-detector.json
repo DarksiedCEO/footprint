@@ -130,6 +130,27 @@
    "                setup.touched = True",
    "                setup.touched = False",
    "Q53D-18: the touch is never recorded"
+  ],
+  [
+   "pullback",
+   "src/footprint/backtest/pullback.py",
+   "            live.append(_Setup(i, bar.high if rising else bar.low))",
+   "            live = [_Setup(i, bar.high if rising else bar.low)]",
+   "Q53D-19: a new spike throws away the older live setups (review G48-1 P1)"
+  ],
+  [
+   "pullback",
+   "src/footprint/backtest/pullback.py",
+   "                    fired = True\n                    continue",
+   "                    fired = True\n                    break",
+   "Q53D-20: the first setup that enters drops every later setup (review G48-1 P2)"
+  ],
+  [
+   "pullback",
+   "src/footprint/backtest/pullback.py",
+   "        if i and bar.ts - bars[i - 1].ts != interval:",
+   "        if i and bar.ts - bars[i - 1].ts > interval:",
+   "Q53D-21: a zero or backward time step keeps the setups (review G48-1 P3)"
   ]
  ]
 }

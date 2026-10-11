@@ -171,3 +171,34 @@ def test_a_later_spike_fires_its_own_pullback() -> None:
 def test_spikes_must_match_the_bars() -> None:
     with pytest.raises(ValueError, match="one spike read per bar"):
         pullback_entries(make(BASE), SPIKES[:-1], LIFE, MINUTE, rising=True)
+
+
+def test_setups_live_side_by_side_and_one_entering_keeps_the_others() -> None:
+    # Reading Q5.3-a (6), review G48-1: spike A is touched; spike B starts while A
+    # is alive; A enters on a bar that does not touch B, and B survives that bar
+    # to be touched and to enter on its own later.
+    rows = [
+        ("100", "105", "100", "104"),  # 0 spike A, level 105
+        ("105.5", "106", "105", "105.5"),  # 1 touches A, holds
+        ("105.5", "106", "105.2", "105.8"),  # 2 spike B, level 106; A: up but not > 106
+        ("106.2", "107", "106.1", "106.8"),  # 3 A ENTERS (> 106); B untouched (low 106.1)
+        ("106.8", "106.9", "106", "106.1"),  # 4 touches B (low 106), holds both
+        ("106.1", "107.5", "106.05", "107.2"),  # 5 B ENTERS (close up, > 106.9)
+    ]
+    assert both(rows, [UP, NONE, UP, NONE, NONE, NONE]) == ([3, 5], [3, 5])
+
+
+def test_a_repeated_timestamp_drops_the_setup() -> None:
+    # Reading Q5.3-a (7), review G48-1: any step other than one interval, a zero step
+    # included, drops every live setup.
+    bars = make(BASE)
+    repeated = bars[:3] + [
+        Bar("NQ", b.ts - MINUTE, b.open, b.high, b.low, b.close, 100) for b in bars[3:]
+    ]
+    assert repeated[3].ts == repeated[2].ts
+    assert pullback_entries(repeated, SPIKES, LIFE, MINUTE, rising=True) == []
+    down = make(mirror(BASE))
+    down_repeated = down[:3] + [
+        Bar("NQ", b.ts - MINUTE, b.open, b.high, b.low, b.close, 100) for b in down[3:]
+    ]
+    assert pullback_entries(down_repeated, flip(SPIKES), LIFE, MINUTE, rising=False) == []
