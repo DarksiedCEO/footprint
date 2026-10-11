@@ -1,0 +1,15 @@
+source: 7d944428808845195f339ec0e215769474ee6047 tree-dirty: 0 files
+baseline [exit]: passed
+  1 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-1: the manager never asks the rule
+  2 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-2: a rule exit is booked under another reason
+  3 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-3: the rule is told the wrong open profit
+  4 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-4: the rule is asked before the hard stop
+  5 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-5: the rule is asked before the kill switch
+  6 KILLED   [exit] src/footprint/execution/management/malik.py: Q50E-6: the rule is asked on a stale quote
+  7 KILLED   [exit] src/footprint/backtest/engine.py: Q50E-7: the engine drops the exit rule
+  8 KILLED   [exit] src/footprint/backtest/__main__.py: Q50E-8: --exit parsed but not used
+  9 KILLED   [exit] src/footprint/backtest/__main__.py: Q50E-9: the readout does not name the exit rule
+ 10 KILLED   [exit] src/footprint/backtest/__main__.py: Q50E-10: the default run's readout gains an exit-rule line
+ 11 KILLED   [exit] src/footprint/backtest/__main__.py: Q50E-11: an unknown exit rule name is not refused by the parser
+ 12 KILLED   [exit] src/footprint/live/app.py: Q50E-12: the live runner passes an exit rule
+12 mutants, 0 survived or errored
