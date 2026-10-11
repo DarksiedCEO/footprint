@@ -1,0 +1,23 @@
+{
+ "groups": {
+  "pullback": [
+   "tests/backtest/test_pullback.py"
+  ]
+ },
+ "mutants": [
+  [
+   "pullback",
+   "src/footprint/backtest/pullback.py",
+   "return bar.close > bar.open and bar.close > prior.high",
+   "return bar.close >= bar.open and bar.close > prior.high",
+   "G64-2: an up doji counts as closing up"
+  ],
+  [
+   "pullback",
+   "src/footprint/backtest/pullback.py",
+   "return bar.close < bar.open and bar.close < prior.low",
+   "return bar.close <= bar.open and bar.close < prior.low",
+   "G64-2m: a down doji counts as closing down (mirror)"
+  ]
+ ]
+}
