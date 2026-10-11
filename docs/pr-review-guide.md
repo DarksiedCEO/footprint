@@ -180,10 +180,14 @@ fixed 50% lock of the fee-net peak and scale-out is not built. Nothing was added
 
 **#30 `exit-target-v1` (draft): Q5.5 "target".** Close the whole position when open
 profit (on the bid, net of fees) reaches the existing `risk.profit_target`; no trail.
-Grind review: **CONDITIONAL** (G53). Look at: readings Q5.5-a and Q5.5-b.
+Latched (your 2026-10-11 10:30 PT approval, H1-0): once the target is reached, the
+position closes at the bid as soon as an exit can begin, even if the bid has fallen back.
+Grind reviews: **CONDITIONAL** (G53, G60, G61). Look at: row Q5.5-c (the latch).
 
 **#31 `exit-time-v1` (draft): Q5.6 "time".** Ten minutes after the entry fill, close the
 whole position if open profit is below +$250 (both APPROVED values in
 `config/backtest.yaml` `rules: time:`); otherwise the baseline trail carries on. Judged
 once; exactly +$250.00 keeps the trade. Slice 1 grind review: **CONDITIONAL** (G54);
-slice 2 (`--exit time`, readout numbers) awaits review. Look at: readings Q5.6-a.
+slice 2 (`--exit time`, readout numbers): see rows Q5.6-b onward for its reviews. Readings
+Q5.6-a (1)-(7) approved by you 2026-10-11 10:30 PT. Look at: the readout's `rule time`
+lines.
