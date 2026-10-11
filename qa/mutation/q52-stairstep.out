@@ -1,4 +1,4 @@
-source: c38005804080b71e9256461ea2566336ab5b6cbb tree-dirty: 0 files
+source: c9db1dad9da2ebea80e74126f1e7676b5819d24f tree-dirty: 0 files
 baseline [stair]: passed
   1 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-1: an equal pause low counts as a higher low
   2 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-2: exactly 50% giveback no longer qualifies
@@ -38,4 +38,5 @@ baseline [stair]: passed
  36 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-37 (G41-1): a pause that breaks (a)/(b) after the stair forms drops the partition (a stair may form inside it)
  37 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-38 (G41-2): a stair past max_stair_bars mid-push drops the push (a new push restarts mid-rise)
  38 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-39 (G42-1): the stair length is checked only during a pause (a push bar past max_stair_bars can enter)
-38 mutants, 0 survived or errored
+ 39 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-40 (G43-1): bars closer together than one interval count as contiguous
+39 mutants, 0 survived or errored
