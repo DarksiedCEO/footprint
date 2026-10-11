@@ -119,6 +119,17 @@ def test_pairs_are_every_entry_against_every_exit_sorted(two_by_two: None) -> No
     ]
 
 
+def test_pairs_are_sorted_whatever_order_the_registries_hold(
+    two_by_two: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A name added last that sorts first: insertion order is not the order used.
+    monkeypatch.setitem(rules.ENTRY_RULES, "aaa", rules.breakout)
+    monkeypatch.setitem(rules.EXIT_RULES, "aaa", rules.trail)
+    assert list(rules.ENTRY_RULES)[-1] == "aaa"
+    assert compare.pairs()[:3] == [("aaa", "aaa"), ("aaa", "target"), ("aaa", "trail")]
+    assert compare.pairs()[3] == ("breakout", "aaa")
+
+
 def test_summary_values_are_copied_from_each_runs_readout_json(
     compared: tuple[Path, str],
 ) -> None:

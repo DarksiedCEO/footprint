@@ -2,6 +2,7 @@
  "groups": {
   "fast": [
    "tests/backtest/test_compare.py::test_pairs_are_every_entry_against_every_exit_sorted",
+   "tests/backtest/test_compare.py::test_pairs_are_sorted_whatever_order_the_registries_hold",
    "tests/backtest/test_compare.py::test_options_reach_every_run",
    "tests/backtest/test_compare.py::test_without_options_the_single_run_gets_its_defaults",
    "tests/backtest/test_compare.py::test_a_bad_trade_from_is_refused_before_anything_runs",
