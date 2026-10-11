@@ -1,0 +1,79 @@
+{
+ "groups": {
+  "t": [
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if node.level == 0:\n",
+   "    if True:\n",
+   "G56-1: relative imports read as absolute"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if package is None:\n        return None\n",
+   "    if package is None:\n        return node.module\n",
+   "G56-1: relative import with no package passes"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if node.level - 1 >= len(parts):\n",
+   "    if node.level - 1 > len(parts):\n",
+   "G56-1: a relative import above the top package resolves"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    base = parts[: len(parts) - (node.level - 1)]\n",
+   "    base = parts[: len(parts) - node.level]\n",
+   "G56-1: relative level off by one"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "                    if _BACKTEST_MODULE.fullmatch(f\"{source_module}.{a.name}\")\n",
+   "                    if False\n",
+   "G56-1: imported names not read"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "                found.append(\"relative import with no known package\")\n",
+   "                pass\n",
+   "G56-1: unresolvable relative import passes"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if module != _TRADE_MANAGEMENT:\n        return found\n",
+   "    if module != _TRADE_MANAGEMENT:\n        return []\n",
+   "G56-2: other modules may do anything"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    problems = [f for f in found if f != _HOLDS_THE_RULE]\n",
+   "    problems = []\n",
+   "G56-2 (was H1S-14): trade management may hold anything else"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if _HOLDS_THE_RULE not in found:\n",
+   "    if False:\n",
+   "G56-2: trade management need not hold the rule"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        seen_trade_management |= module == _TRADE_MANAGEMENT\n",
+   "        seen_trade_management |= False\n",
+   "G56-2: the real tree's trade management never matched"
+  ]
+ ]
+}

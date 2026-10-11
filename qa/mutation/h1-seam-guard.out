@@ -1,0 +1,18 @@
+source: b1e50fb59aa302d8c60261f9dcabda4809b66b7f tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-1: starred Pipeline args unseen
+  2 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-2: Pipeline/Manager through a module unseen
+  3 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-3: module path in a string unseen
+  4 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-4: '_exit_rule' by name unseen
+  5 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-5: spread keywords unseen
+  6 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-6: annotations flagged
+  7 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-7: plain calls flagged as handed on
+  8 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-8: class handed on unseen
+  9 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-9: trade management's own rule flagged
+ 10 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-10: rule set by attribute unseen
+ 11 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-11: annotated names flagged
+ 12 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-12: return annotations flagged
+ 13 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-13: the bare package name unseen
+ 14 SURVIVED [t] tests/backtest/test_rules_seam.py: H1S-14: trade management may hold anything else
+ 15 KILLED   [t] tests/backtest/test_rules_seam.py: H1S-15: a second module may hold the rule
+15 mutants, 1 survived or errored
