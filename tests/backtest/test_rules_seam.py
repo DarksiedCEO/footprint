@@ -210,26 +210,134 @@ def test_an_unknown_exit_rule_is_refused_before_anything_runs(tmp_path: Path) ->
     assert not (tmp_path / "run").exists()
 
 
+_LIVE_BUILT = ("Pipeline", "Manager")  # built by the live path; never handed a candidate
+_BACKTEST_MODULE = re.compile(r"footprint\.backtest(\..*)?")
+
+
+def _named(node: ast.AST) -> str | None:
+    """`Pipeline` for `Pipeline` and for `module.Pipeline` (any of _LIVE_BUILT)."""
+    if isinstance(node, ast.Name) and node.id in _LIVE_BUILT:
+        return node.id
+    if isinstance(node, ast.Attribute) and node.attr in _LIVE_BUILT:
+        return node.attr
+    return None
+
+
+def _annotation_nodes(tree: ast.AST) -> set[int]:
+    """Every node inside a type annotation (where naming Pipeline/Manager builds nothing)."""
+    roots: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg) and node.annotation is not None:
+            roots.append(node.annotation)
+        if isinstance(node, ast.AnnAssign):
+            roots.append(node.annotation)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns:
+            roots.append(node.returns)
+    return {id(n) for root in roots for n in ast.walk(root)}
+
+
+def _live_path_violations(source: str, *, owns_exit_rule: bool = False) -> list[str]:
+    """What, in one module outside footprint.backtest, could reach the backtest rule
+    library or hand the live path a candidate rule (empty: nothing). Besides the plain
+    spelling it sees (G36-1, G37-2): a module path in a string (importlib, __import__),
+    Pipeline/Manager reached through a module, spread arguments, the class handed on or
+    bound to another name (functools.partial), and the rule set by name or attribute.
+    `owns_exit_rule`: trade management itself, which keeps the rule it is given."""
+    tree = ast.parse(source)
+    in_annotation = _annotation_nodes(tree)
+    called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith("footprint.backtest")
+        ):
+            found.append(f"imports {node.module}")
+        if isinstance(node, ast.Import):
+            found += [
+                f"imports {a.name}" for a in node.names if a.name.startswith("footprint.backtest")
+            ]
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if _BACKTEST_MODULE.fullmatch(node.value):
+                found.append(f"names the module {node.value}")
+            if node.value in ("exit_rule", "_exit_rule"):
+                found.append(f"names {node.value}")
+        if isinstance(node, ast.Call):
+            built = _named(node.func)
+            if built == "Pipeline" and (
+                len(node.args) != 1 or isinstance(node.args[0], ast.Starred) or node.keywords
+            ):
+                found.append("Pipeline built with more than the profiles")
+            if built is not None and any(k.arg is None for k in node.keywords):
+                found.append(f"{built} built with spread keywords")
+        if isinstance(node, ast.keyword) and node.arg == "exit_rule":
+            found.append("passes exit_rule")
+        named = _named(node)
+        if (
+            named is not None
+            and isinstance(getattr(node, "ctx", None), ast.Load)
+            and id(node) not in called
+            and id(node) not in in_annotation
+        ):
+            found.append(f"{named} handed on instead of built")
+        if isinstance(node, ast.Attribute) and node.attr == "_exit_rule" and not owns_exit_rule:
+            found.append("touches _exit_rule")
+    return found
+
+
 def test_no_live_module_imports_the_backtest_rules() -> None:
     """Candidate rules are backtest-only: nothing outside footprint.backtest may import
     footprint.backtest (rules included), the live path builds Pipeline(profiles), and no
     module outside footprint.backtest passes a Manager an exit rule."""
     src = REPO_ROOT / "src" / "footprint"
+    malik = src / "execution" / "management" / "malik.py"
     for path in src.rglob("*.py"):
         if path.is_relative_to(src / "backtest"):
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                assert not node.module.startswith("footprint.backtest"), path
-            if isinstance(node, ast.Import):
-                assert not any(a.name.startswith("footprint.backtest") for a in node.names), path
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "Pipeline"
-            ):
-                assert len(node.args) == 1, path
-                assert not node.keywords, path
-            if isinstance(node, ast.keyword):
-                assert node.arg != "exit_rule", path
+        source = path.read_text(encoding="utf-8")
+        assert _live_path_violations(source, owns_exit_rule=path == malik) == [], path
+
+
+# H1 (G36-1, G37-2): the guard above must also see the indirect ways of reaching the
+# rule library or handing the live path a candidate rule, not only the plain spelling.
+_EVASIONS = {
+    "starred Pipeline args": "Pipeline(*(p, t))\n",
+    "Pipeline through a module": "pipeline.Pipeline(p, t)\n",
+    "Pipeline with a keyword": "Pipeline(p, trigger=t)\n",
+    "Pipeline handed to partial": "functools.partial(Pipeline, p, t)()\n",
+    "Pipeline bound to another name": "make = Pipeline\nmake(p, t)\n",
+    "importlib": "importlib.import_module('footprint.backtest.rules')\n",
+    "__import__": "__import__('footprint.backtest')\n",
+    "exit_rule through a dict": "Manager(p, b, s, l, h, q, **{'exit_rule': r})\n",
+    "Manager with spread keywords": "Manager(p, b, s, l, h, q, **extra)\n",
+    "Manager handed to partial": "functools.partial(Manager, p)(b, s, l, h, q)\n",
+    "Manager through a module": "malik.Manager(p, b, s, l, h, q, **extra)\n",
+    "setattr of the rule": "setattr(manager, '_exit_rule', r)\n",
+    "assignment of the rule": "manager._exit_rule = r\n",
+}
+
+
+@pytest.mark.parametrize("source", list(_EVASIONS.values()), ids=list(_EVASIONS))
+def test_the_guard_sees_indirect_ways_into_the_live_path(source: str) -> None:
+    assert _live_path_violations(source) != []
+
+
+_ALLOWED = {
+    "the live pipeline": "pipeline = Pipeline(p)\n",
+    "the live manager": "manager = Manager(p, tracked, stops, ledger, halt, book)\n",
+    "an annotation": "def f(pipeline: Pipeline, manager: Manager) -> Pipeline: ...\n",
+    "an annotated name": "x: Manager | None = None\n",
+    "a docstring": "'''footprint.backtest is the backtest; exit_rule is its seam.'''\n",
+}
+
+
+@pytest.mark.parametrize("source", list(_ALLOWED.values()), ids=list(_ALLOWED))
+def test_the_guard_passes_the_live_spellings(source: str) -> None:
+    assert _live_path_violations(source) == []
+
+
+def test_only_trade_management_itself_holds_the_rule() -> None:
+    held = "self._exit_rule = exit_rule\nif self._exit_rule is not None: pass\n"
+    assert _live_path_violations(held, owns_exit_rule=True) == []
+    assert _live_path_violations(held) != []
