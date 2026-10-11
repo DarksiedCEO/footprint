@@ -1,0 +1,59 @@
+{
+ "groups": {
+  "settings": [
+   "tests/backtest/test_pullback_settings.py",
+   "tests/backtest/test_rule_settings.py"
+  ]
+ },
+ "mutants": [
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "        lifetime_minutes=_integer(p, \"lifetime_minutes\", p_where, minimum=1)",
+   "        lifetime_minutes=_integer(p, \"lifetime_minutes\", p_where, minimum=2)",
+   "Q53S-1: a lifetime of exactly one minute is refused"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "        lifetime_minutes=_integer(p, \"lifetime_minutes\", p_where, minimum=1)",
+   "        lifetime_minutes=p[\"lifetime_minutes\"]",
+   "Q53S-2: the lifetime is not type-checked"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "    p_where = f\"{r_where}: pullback\"",
+   "    p_where = f\"{r_where}: stairstep\"",
+   "Q53S-3: a refusal names the wrong section"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "    p = _check_keys(r[\"pullback\"], {f.name for f in fields(PullbackSettings)}, p_where)",
+   "    p = r.get(\"pullback\") or {\"lifetime_minutes\": 15}",
+   "Q53S-4: a missing section or unknown key is not refused"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/pullback.py",
+   "        if self.lifetime_minutes < 1:",
+   "        if self.lifetime_minutes < 0:",
+   "Q53S-5: the settings take a zero lifetime"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/pullback.py",
+   "        return timedelta(minutes=self.lifetime_minutes)",
+   "        return timedelta(seconds=self.lifetime_minutes)",
+   "Q53S-6: the lifetime is read in seconds"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "    return RuleSettings(stairstep=stairstep, pullback=pullback)",
+   "    return RuleSettings(stairstep=stairstep, pullback=PullbackSettings(lifetime_minutes=15))",
+   "Q53S-7: the file's lifetime is ignored"
+  ]
+ ]
+}

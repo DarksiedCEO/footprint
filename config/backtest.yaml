@@ -33,3 +33,5 @@ rules:                        # Q5 backtest rule library (docs/strategy-rules.md
     max_giveback: 0.5         # APPROVED BY ANDRE 2026-10-10: a pause gives back at most 50% of its push
     max_pause_bars: 10        # DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs
     max_stair_bars: 60        # DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs
+  pullback:                   # Q5.3 "pullback" (on 1-minute bars)
+    lifetime_minutes: 15      # DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs

@@ -1,0 +1,66 @@
+{
+ "groups": {
+  "rules": [
+   "tests/backtest/test_entry_pullback.py",
+   "tests/backtest/test_entry_stairstep.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "        _ENTRY_BARS,\n    )\n",
+   "        _ENTRY_BARS + _ENTRY_BARS,\n    )\n",
+   "Q53R-1: the trigger is not handed the 1-minute entry interval"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "        profiles.instrument.prime_session.timezone,\n        _ENTRY_BARS,",
+   "        \"UTC\",\n        _ENTRY_BARS,",
+   "Q53R-2: the spike test does not use the instrument's session time zone"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    \"pullback\": pullback,\n",
+   "",
+   "Q53R-3: pullback is not registered"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return PullbackTrigger(\n        rule_settings.pullback,",
+   "    return PullbackTrigger(\n        PullbackSettings(lifetime_minutes=1),",
+   "Q53R-4: the lifetime is not the configured one"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    if name == \"pullback\":",
+   "    if name == \"pull back\":",
+   "Q53R-5: a pullback run records no rule numbers"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "            f\"rule pullback {f.name}\"",
+   "            f\"rule {f.name}\"",
+   "Q53R-6: the recorded number does not name its rule"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "str(getattr(life, f.name))",
+   "str(getattr(PullbackSettings(lifetime_minutes=1), f.name))",
+   "Q53R-7: the recorded number is not the one the run used"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    if name in _STAIR_RULES:",
+   "    if name in _STAIR_RULES or name == \"pullback\":",
+   "Q53R-8: a pullback run records the stair numbers"
+  ]
+ ]
+}
