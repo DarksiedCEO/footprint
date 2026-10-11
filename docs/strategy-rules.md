@@ -154,6 +154,14 @@ APPROVED BY ANDRE 2026-10-10:
 DEFAULT, accepted for backtest (keys: added with its piece): how many minutes after the
 spike the setup stays alive.
 
+How it is built (`entry-pullback-v1`, slice 1: the detector): `footprint.backtest.pullback.pullback_entries`
+takes 1-min bars and the spike test's answer per bar and returns the bars where the
+entry fires. How each word is read is in `docs/decisions-pending.md` (Q5.3-a, for
+Andre to confirm); every reading is pinned by a hand-built fixture in
+`tests/backtest/test_pullback.py`. Not built yet (slice 2): feeding it the same spike
+test "breakout" uses, the lifetime DEFAULT in `config/backtest.yaml` `rules:`, the
+trigger, and "pullback" in `ENTRY_RULES`. Nothing can select it yet.
+
 ## Q5.4 exit "trail" (`exit-trail-v1`): BASELINE
 
 APPROVED BY ANDRE 2026-10-10:
