@@ -1,0 +1,30 @@
+source: 18d4760309aaf965258a65ba520220c3ab9034c8 tree-dirty: 0 files
+baseline [empty_out]: passed
+baseline [fast]: passed
+baseline [shared]: passed
+  1 SURVIVED [fast] src/footprint/backtest/compare.py: Q6-ii a: pairs not sorted
+  2 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii b: pairs ordered exit-major
+  3 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii c: --blackouts not passed on
+  4 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii d: --trade-from not passed on
+  5 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii e: --instrument not passed on
+  6 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii f: an --out that is a file is not refused
+  7 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii g: a non-empty --out is not refused
+  8 KILLED   [empty_out] src/footprint/backtest/compare.py: Q6-ii h: an existing empty --out is refused
+  9 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii i: a run that exits is not caught as a failure
+ 10 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii j: a run with no readout.json is not a failure
+ 11 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii k: different gates are summarised
+ 12 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii l: a different first bar is summarised
+ 13 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii m: a different last bar is summarised
+ 14 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii n: the gate's requirement copied instead of its actual
+ 15 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii o: every gate reported as pass
+ 16 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii p: verdict not copied
+ 17 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii q: no profitability disclaimer
+ 18 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii r: first bar missing from the head
+ 19 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii s: config missing from the head
+ 20 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii t: no trade-from reads None
+ 21 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii u: trade-from not shown in the head
+ 22 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii v: summary.csv not written
+ 23 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii w: summary not printed
+ 24 KILLED   [shared] src/footprint/backtest/compare.py: Q6-ii x: every run's readout echoed to stdout
+ 25 KILLED   [fast] src/footprint/backtest/compare.py: Q6-ii y: a bad --trade-from is not refused up front
+25 mutants, 1 survived or errored

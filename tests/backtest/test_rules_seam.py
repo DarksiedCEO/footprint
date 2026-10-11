@@ -5,6 +5,9 @@ agreement, session, risk, kill switch, levels, sizing, the hard stop) still deci
 With no rule named, the run's output is byte-identical to the run before the seam
 existed (the golden files were written by the pre-seam code at chain-recorder-v1
 ca5399d; only the temp path and the random position-id suffix are normalised).
+The one intended change since: Q6 (i), review G52-2, added the three exit-number lines
+(risk.profit_target, risk.trail_keep_pct, risk.stop_loss) to the readout's assumptions,
+in readout.md, readout.json and the printed readout; nothing else in the golden moved.
 """
 
 from __future__ import annotations
