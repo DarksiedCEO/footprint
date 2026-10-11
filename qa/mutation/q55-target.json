@@ -1,0 +1,60 @@
+{
+ "groups": {
+  "t": [
+   "tests/execution/test_exit_target_rule.py",
+   "tests/backtest/test_exit_target.py",
+   "tests/backtest/test_entry_stairstep.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "src/footprint/backtest/exits.py",
+   "        return net_open >= self.target\n",
+   "        return net_open > self.target\n",
+   "Q55-1: exactly at the target does not close"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/exits.py",
+   "        return net_open >= self.target\n",
+   "        return net_open <= self.target\n",
+   "Q55-2: comparison reversed"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/exits.py",
+   "        return net_open >= self.target\n",
+   "        return True\n",
+   "Q55-3: always out"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/exits.py",
+   "        return net_open >= self.target\n",
+   "        return net_open + 5 >= self.target\n",
+   "Q55-4: gross of fees instead of net (five = one round trip here)"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    return TargetExit(profiles.risk.profit_target)\n",
+   "    return TargetExit(profiles.risk.stop_loss)\n",
+   "Q55-5: built from another configured number"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    return TargetExit(profiles.risk.profit_target)\n",
+   "    return None\n",
+   "Q55-6: target adds no rule (behaves as trail)"
+  ],
+  [
+   "t",
+   "src/footprint/backtest/rules.py",
+   "    \"target\": target,\n",
+   "",
+   "Q55-7: target is not registered"
+  ]
+ ]
+}
