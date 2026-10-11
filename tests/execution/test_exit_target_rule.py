@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from footprint.backtest.exits import TargetExit
 from footprint.backtest.rules import EXIT_RULES
@@ -124,10 +125,14 @@ def test_the_target_is_the_configured_one(stack: Stack) -> None:
 
 
 def test_the_rule_reads_only_the_open_profit() -> None:
-    rule = TargetExit(D(1000))
-    position = object()
+    """Each position is fresh, so no latch (Q5.5-b) carries a verdict between them."""
     now = SEND
-    assert rule.wants_out(position, D("1000.00"), now)  # type: ignore[arg-type]
-    assert rule.wants_out(position, D("1000.01"), now)  # type: ignore[arg-type]
-    assert not rule.wants_out(position, D("999.99"), now)  # type: ignore[arg-type]
-    assert not rule.wants_out(position, D(-750), now)  # type: ignore[arg-type]
+    for pid, net, out in (
+        ("a", D("1000.00"), True),
+        ("b", D("1000.01"), True),
+        ("c", D("999.99"), False),
+        ("d", D(-750), False),
+    ):
+        rule = TargetExit(D(1000))
+        position = SimpleNamespace(position_id=pid)
+        assert rule.wants_out(position, net, now) is out  # type: ignore[arg-type]
