@@ -63,27 +63,30 @@ UNVERIFIED and printed in each readout); adverse-first inside each minute.
 
 ## IBKR and live (#11–#21)
 
-**#11 `ibkr-v1`: IBKR order adapter, tested against a fake IBKR.** Nothing sent before
+**#11 `ibkr-v1`: IBKR order adapter, tested against a fake IBKR.** **CERTIFIED** at
+479a34e (4 rounds). Nothing sent before
 a full resync, no guessed positions, one order per id, stop and exits in one OCA group.
 
 **#12 `ibkr-binding-v1`: official ibapi 10.50 binding and the read-only first look**
-(`python -m footprint.brokers.ibkr.check`). Paper only, one account, one instrument,
+(`python -m footprint.brokers.ibkr.check`). **CERTIFIED** at c0c02cf (4 rounds). Paper only, one account, one instrument,
 exact prices. Look at: that your stock is only ever "open elsewhere".
 
 **#13 `restart-memory-v1`: a restart never decides the same minute twice.**
 **CERTIFIED** at 6ee5ec1.
 
 **#14 `market-data-v1`: market data connection** (contracts, chains, quotes, bars).
+**CERTIFIED** at 5109cab (4 rounds).
 Real-time only; a market data fault never touches orders.
 
 **#15 `market-service-v1`: market data service** (front future, spliced back-adjusted
-history, polled bars, option chain). Look at: the roll 8 days before expiry and the
+history, polled bars, option chain). **CERTIFIED** at 6a379d9 (2 rounds). Look at: the roll 8 days before expiry and the
 100-point / 80-line chain limits (config defaults).
 
 **#16 `session-backoff-v1`: reconnects escalate once, then back off.** **CERTIFIED**
 at 6982b3d.
 
-**#17 `live-startup-v1`: the live start-up program** (`python -m footprint.live`). Paper
+**#17 `live-startup-v1`: the live start-up program** (`python -m footprint.live`).
+**CERTIFIED** at 12e641c (4 rounds). Paper
 only, no entry until `clear <name>`, `--new-ledger` only on the first run, `quit` warns
 if anything is held.
 
@@ -91,10 +94,11 @@ if anything is held.
 **CERTIFIED** at 4edc489. Decision D36 (the 300 s repeat).
 
 **#19 `holidays-v1`: exchange calendar, flatten 5 min before an early close (D34).**
+**CERTIFIED** at cac05a8 (2 rounds).
 Look at: the holiday dates are **UNVERIFIED** against CME's own 2026/27 pages, and the
 calendar ends 2027-03-31 (alarm 30 days before).
 
-**#20 `alarm-channels-v1`: phone alarms (D20).** Telegram, SMS fallback, calls for
+**#20 `alarm-channels-v1`: phone alarms (D20).** **CERTIFIED** at 22e1099. Telegram, SMS fallback, calls for
 critical alarms; no credential ever in a log line.
 
 **#21 `remediation-v1`: remediation of the AEGIS findings.** The hard-coded paper
