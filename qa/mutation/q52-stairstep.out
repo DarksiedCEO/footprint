@@ -1,4 +1,4 @@
-source: ad5f0baff545cbf1fbc79b1d805e2f931559c5d1 tree-dirty: 0 files
+source: af1fab1f2533931bb68ba93fdc191d84d60a6053 tree-dirty: 0 files
 baseline [stair]: passed
   1 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-1: an equal pause low counts as a higher low
   2 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-2: exactly 50% giveback no longer qualifies
@@ -29,4 +29,10 @@ baseline [stair]: passed
  27 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-28 (G39-2): the push average counts only its first new-high bar
  28 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-29 (G39-2): pause bars are left out of the pause average
  29 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-30 (G39-2): the first new-high bar weighs twice in the push average
-29 mutants, 0 survived or errored
+ 30 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-31 (G40-1): a stair past max_stair_bars drops the pause in progress (a new push may start inside it)
+ 31 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-32 (G40-1): a pause past max_pause_bars drops the partition (a new push may start inside it)
+ 32 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-33 (G40-1): a step already made invalid is judged again when its pause ends
+ 33 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-34 (G40-2): a pause bar that breaks (a)/(b) and closes above the level enters
+ 34 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-35 (G40-1): a drop does not clear the invalid mark (every later step invalid)
+ 35 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-36 (G40-1): an invalid step keeps the stair's entry level
+35 mutants, 0 survived or errored
