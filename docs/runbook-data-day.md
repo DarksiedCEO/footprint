@@ -72,6 +72,12 @@ and back-adjusted across rolls, Saturdays skipped, requests paced), waiting up t
 - **A gap or an error:** the exit code is 1 and no `data/nq_1m.csv` appears. If it is
   refused for many short holes, look at `market_data.export_max_missing_minutes`
   (decision Q2-a), not the rule.
+- **`EXPORT FAILED: … (anything written is in data/nq_1m.csv.partial)`:** the write
+  itself failed and may leave `data/nq_1m.csv.partial`. While that file exists, every
+  export to `data/nq_1m.csv` is refused (`REFUSED: data/nq_1m.csv.partial exists (an
+  earlier export failed)`). Send me the error, then move or delete the `.partial` file
+  before running the export again. Never rename it to `data/nq_1m.csv`: it may be cut
+  short.
 
 ## 6. First real-data backtest
 

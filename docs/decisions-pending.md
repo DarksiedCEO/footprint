@@ -272,6 +272,16 @@ Grind review 5539be9..fc735d0 (Q3 slices 2b and 3: recorder loop and `record_cha
 | G33-6 | INFO | `--out` is created before the paper-account check | Recorded: an empty directory left behind, no safety effect |
 | G33-7 | Note for Q4 | Every tool connects with the fixed client id 0, so `record_chain`, `check`, `history` and the paper runner cannot share one Gateway at the same time | For the data-day runbook: run them one after another |
 
+Grind review fc735d0..b59faac + remediation-v1 1758c0d..45470ea (G33-1 fix, Q4 runbooks, 2026-10-10 23:53 UTC, CONDITIONAL, report on PR #21, project doc claude/grind-review-b59faac.md):
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| G34-1 | LOW (doc) | Dry-run runbook step 7 said Ctrl-C does the same as `quit`; Ctrl-C (`live/__main__.py` KeyboardInterrupt) only sets stop: no held-position WARNING, no `stopping` | **Fixed** on remediation-v1 (merged forward): the runbook says to use `quit`, and why |
+| G34-2 | LOW (doc) | Data-day runbook step 5 did not mention `data/nq_1m.csv.partial`: a failed write can leave it, and every later export to the same path is refused while it exists | **Fixed** on chain-recorder-v1: the runbook names the message, says to send the error, move or delete the `.partial`, and never rename it to the CSV |
+| G34-3 | INFO (pre-existing src) | `live/__main__.py` docstring says `quit` (or Ctrl-C); Ctrl-C skips the held-position check | **For Andre:** giving Ctrl-C the same held check changes the live shutdown path; not built |
+| G34-4 | INFO (doc) | Dry-run step 6 quotes config defaults (5 failed sessions, ~75 s) | Recorded: correct today, stale if config changes |
+| G34-5 | INFO | Client Portal labels and IBKR codes 354/10167/10197 not seen on Andre's screen | Recorded (Q4-a, UNVERIFIED) |
+
 Mutation equivalences argued (not proven):
 
 | Mutant | Why no test can kill it |
