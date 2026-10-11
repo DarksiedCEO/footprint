@@ -211,12 +211,22 @@ from `risk.profit_target`, is handed to trade management as its exit rule. Trade
 management asks it last on every fresh quote, after the hard stop, the gap and every
 other existing reason; when it says out, the whole position leaves through the existing
 exit (limit at the bid, the resting stop cancelled first, never sold twice). Readings
-Q5.5-a (for Andre): the open profit is trade management's figure, on the bid and net of
+Q5.5-a (APPROVED BY ANDRE 2026-10-11 10:30 PT): the open profit is trade management's figure, on the bid and net of
 round-trip fees (the same basis as the trail and every risk check); "reaches" is at or
 above, so exactly +$1,000.00 closes and one option tick below does not; ALL contracts is
 the one position (scale-out is not built, `risk.max_contracts` is 1). "No trail" needs
 nothing extra: trade management asks the rule before it moves the trail, and the trail
 cannot engage before a quote at the target, so the trade is out first.
+
+Q5.5-b LATCHED (APPROVED BY ANDRE 2026-10-11 10:30 PT; built in HARDENING H1-0): once
+the open profit reaches the target, the target verdict is held for that position until
+it is gone, the same way the "time" rule holds an "out". If the exit cannot begin yet
+(the broker's positions uncertain, or a refused cancel of the resting stop, which then
+still protects) it waits exactly as before; it then closes as soon as an exit can
+begin, at the bid then, even if the bid has fallen back below the target. Limit at the
+bid, the stop cancelled first, never sold twice; the hard stop unchanged and asked
+first. Verdicts are per position, and a new position starts unlatched. Backtest-only
+(`TargetExit`); trade management and the live path are unchanged.
 
 ## Q5.6 exit "time" (`exit-time-v1`)
 
