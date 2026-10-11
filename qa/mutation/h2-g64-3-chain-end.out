@@ -1,0 +1,4 @@
+source: 2f47ff7a8f53d4e3d98c6325fd8419b239d1f6d1 tree-dirty: 0 files
+baseline [loop]: passed
+  1 KILLED   [loop] src/footprint/brokers/ibkr/chain_recorder.py: G64-3: a snapshot taken exactly at the end
+1 mutants, 0 survived or errored
