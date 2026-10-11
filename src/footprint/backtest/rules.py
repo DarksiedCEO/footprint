@@ -5,9 +5,11 @@ An entry rule is a factory: Profiles and the rule library's numbers (config/back
 only the momentum read inside the decision pipeline; every other gate (trend
 agreement, session, risk, kill switch, levels, sizing, the hard stop) still decides.
 
-An exit rule is a factory: Profiles in, an ExitRule out. Trade management asks it
-last, on a fresh quote, after every existing reason to get out (hard stop and gap
-first); it can only add a way out and never moves or loosens the hard stop.
+An exit rule is a factory: Profiles in, an ExitRule (or None) out. Trade management
+asks the ExitRule last, on a fresh quote, after every existing reason to get out (hard
+stop and gap first); it can only add a way out and never moves or loosens the hard
+stop. None adds no way out: trade management is built exactly as the live runner
+builds it (the baseline "trail").
 
 Nothing outside footprint.backtest imports this module, so no rule can reach the live
 path. With no rule named the backtest builds the pipeline and trade management
@@ -29,7 +31,7 @@ from footprint.decision.pipeline import EntryTrigger
 from footprint.execution.management.malik import ExitRule
 
 EntryRule = Callable[[Profiles, RuleSettings], EntryTrigger]
-ExitRuleFactory = Callable[[Profiles], ExitRule]
+ExitRuleFactory = Callable[[Profiles], ExitRule | None]
 
 
 _ENTRY_BARS = timedelta(minutes=1)  # the pipeline's entry timeframe: completed 1-min bars
@@ -94,4 +96,17 @@ def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]
     return {}
 
 
-EXIT_RULES: dict[str, ExitRuleFactory] = {}
+def trail(profiles: Profiles) -> ExitRule | None:
+    """Q5.4 "trail", the BASELINE: the existing exit, unchanged (the hard loss stop and
+    every existing reason to get out; from the profit target, net of fees, the stop
+    locks a fixed share of the peak net gain and follows it). That trail has no volume
+    adjustment, and scale-out is not built (one contract), whatever the approved wording
+    says: see reading Q5.4-b. That exit is trade management itself, so this rule adds
+    nothing: None, and the backtest builds trade management exactly as with no rule
+    named. See docs/strategy-rules.md."""
+    return None
+
+
+EXIT_RULES: dict[str, ExitRuleFactory] = {
+    "trail": trail,
+}
