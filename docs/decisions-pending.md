@@ -313,9 +313,19 @@ The approved definitions, word for word, are in `docs/strategy-rules.md`. Every 
 | Q5.1-a | Entry "breakout" (BASELINE), `entry-breakout-v1`: `--entry breakout` = the existing momentum entry, registered by name; no logic changed | `tests/backtest/test_entry_breakout.py`: the factory builds the same MomentumReader from the same settings; it reads the scenario exactly as the live reader; the pipeline decision is identical; a whole `--entry breakout` run writes the default run's files byte for byte apart from the one readout line `entry rule: breakout` |
 | Q5.1-b | **For Andre to confirm (not changed, recorded per Q5.1):** the existing follow-through only needs the next bar to CLOSE beyond the spike bar's CLOSE; it need not be an up-close candle or clear the spike's high. A spike bar with close = open (doji) never triggers. Relative volume is against the same time of day over `lookback_sessions` (20) sessions; `spike_multiple` is 3 (an existing DEFAULT, not part of Q5) | If any of these is not what "follow-through" means to you, that is a change to the live entry and needs your decision; the rule library will not change it |
 
+### Andre's approvals of 2026-10-10 21:12 PT (Q5 only)
+
+APPROVED BY ANDRE 2026-10-10 21:12 PT (blanket approval of the 20:50 PT update's list; he approved without reviewing each reading individually). Given in chat ("What do I need to approve to move? I approve it!") and posted on PR #21 as "ANDRE APPROVAL 2026-10-10 21:12 PT". Recorded here by the grind stage of 2026-10-11 06:20 UTC (the earlier stages that committed on `entry-breakout-v1` / `entry-stairstep-v1` had not recorded it).
+
+1. **Q5.1-b:** keep the existing follow-through exactly as the code has it (the next bar closes beyond the spike's close). No change.
+2. **Q5.2-a readings and Q5.2-b** (the G39-1 reading: the steps keep counting until the entry close), as recorded on `entry-stairstep-v1`.
+3. **Q5 config DEFAULTs** (`max_pause_bars`, `max_stair_bars`, the pullback setup lifetime): the plainest value the builder picks is accepted FOR BACKTEST ONLY. Each is marked in config `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs`.
+
+This approval covers only those Q5 items. It does NOT approve any decision-sheet row (D1-D5, D7-D19, D21-D23, D25, D26, D41, L1, L2), G26-5, QUOTE FEED SILENT, the D24 go-live gate, the Q1-Q3 probe/export/recorder DEFAULTs, Q3-c, G34-3, or anything that touches the live path, money, orders or the paper boundary; those stay open and nothing is built for them. Any reading made AFTER 21:12 PT (for example Q5.2-c, recorded 2026-10-11) is not covered and stays "for Andre".
+
 ### Q5 numbers awaiting Andre
 
-None yet keyed in config. Known, to be added with their pieces (each as `# DEFAULT: not approved by Andre`): stairstep maximum bars in one pause; stairstep maximum bars for the whole stair; pullback minutes the setup stays alive after the spike.
+None yet keyed in config. Known, to be added with their pieces, each marked `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after real-data runs` (approval 3 above): stairstep maximum bars in one pause; stairstep maximum bars for the whole stair; pullback minutes the setup stays alive after the spike. The values are still listed here so Andre sees them after the real-data runs.
 
 ## Known limits of the A-18 guard (accepted, Andre 2026-10-10)
 
