@@ -47,7 +47,7 @@ from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import require_series
-from footprint.decision.pipeline import Pipeline
+from footprint.decision.pipeline import EntryTrigger, Pipeline
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.executor.diego import Executor
@@ -94,9 +94,12 @@ class Backtest:
         workdir: Path,
         blackouts: Callable[[datetime], Iterable[NewsBlackout]] = lambda now: (),
         trade_from: datetime | None = None,
+        trigger: EntryTrigger | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
-        clock starts at the first bar at or after it. None: start at the first bar."""
+        clock starts at the first bar at or after it. None: start at the first bar.
+        `trigger`: a named entry rule's trigger (footprint.backtest.rules); None is
+        the live entry, unchanged."""
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -130,7 +133,7 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
-        pipeline = Pipeline(p)
+        pipeline = Pipeline(p) if trigger is None else Pipeline(p, trigger)
         stops = StopKeeper(p.risk, p.instrument, p.execution)
         executor = Executor(p, pipeline, tracked, stops, self.ledger, self.halt, self.book)
         manager = Manager(p, tracked, stops, self.ledger, self.halt, self.book)

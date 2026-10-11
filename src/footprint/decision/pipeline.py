@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from footprint.agents.contract_picker import ContractChoice, ContractPicker, NoContract
@@ -113,12 +114,22 @@ class Decision:
         return out
 
 
+class EntryTrigger(Protocol):
+    """The momentum read: completed entry-timeframe bars in, a Read out."""
+
+    def read(self, bars: Sequence[Bar]) -> Read: ...
+
+
 class Pipeline:
-    def __init__(self, profiles: Profiles) -> None:
+    def __init__(self, profiles: Profiles, trigger: EntryTrigger | None = None) -> None:
+        """`trigger` replaces only the momentum read (backtest rule library); None, as
+        the live runner builds it, is the momentum reader (Darius)."""
         self._p = profiles
         s, inst = profiles.strategy, profiles.instrument
         self._trend = TrendReader(s.trend)
-        self._momentum = MomentumReader(s.volume, inst)
+        self._momentum: EntryTrigger = (
+            MomentumReader(s.volume, inst) if trigger is None else trigger
+        )
         self._volume = VolumeReader(s.volume, inst)
         self._zero_day = ZeroDayAgent(s.zeroday, s.data, inst)
         self._levels = LevelsReader(s.levels, s.trend, s.data, inst)
