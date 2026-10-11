@@ -1,0 +1,12 @@
+source: 1fcd98ce12200a5772046f0cb646c45e3f7cbd0d tree-dirty: 0 files
+baseline [trig]: passed
+  1 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-1: the scan never reaches back to the first bar
+  2 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-4: the scan skips the first bar after the gap
+  3 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-5: any entry in the window counts, not only the last bar
+  4 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-6: both directions on one bar is not failed closed
+  5 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-7: the down stair ignores the volume test
+  6 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-8: the up stair ignores the volume test
+  7 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-9: the down entry is not read as bearish
+  8 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-10: empty or malformed bars are not refused
+  9 KILLED   [trig] src/footprint/backtest/stairstep.py: Q52T-11: the trigger does not answer in the momentum slot
+9 mutants, 0 survived or errored

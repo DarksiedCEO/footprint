@@ -1,4 +1,4 @@
-source: c9db1dad9da2ebea80e74126f1e7676b5819d24f tree-dirty: 0 files
+source: 1fcd98ce12200a5772046f0cb646c45e3f7cbd0d tree-dirty: 0 files
 baseline [stair]: passed
   1 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-1: an equal pause low counts as a higher low
   2 KILLED   [stair] src/footprint/backtest/stairstep.py: Q52-2: exactly 50% giveback no longer qualifies
