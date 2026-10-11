@@ -34,6 +34,12 @@ How each word is read here (docs/decisions-pending.md, Q5.2-a):
 - The down move is the exact mirror: every price is reflected (highs <-> lows).
 
 Pure and stateless: the same bars give the same answer however often it is asked.
+
+StairTrigger puts the detector in the momentum slot of the decision pipeline (Q5.2
+slice 2a). It answers for the LAST bar only, and scans from the last missing bar
+onward: a missing bar drops every stair and all state (`_drop()`), so the bars before
+it cannot change the answer, and the scan stays one session long instead of the whole
+history the engine hands each decision.
 """
 
 from __future__ import annotations
@@ -43,7 +49,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 
-from footprint.core.models import Bar
+from footprint.core.models import Bar, Read, Score
+from footprint.core.series import require_series
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,3 +205,55 @@ def stair_entries(
         )
         previous = bar
     return scan.entries
+
+
+def fires_on_last(
+    bars: Sequence[Bar],
+    settings: StairSettings,
+    interval: timedelta,
+    *,
+    rising: bool,
+    with_volume: bool,
+) -> bool:
+    """True when the stair entry fires on the last bar. Equal to `len(bars) - 1 in
+    stair_entries(bars, ...)`, but scans only from the last missing bar onward."""
+    start = len(bars) - 1
+    while start > 0 and bars[start].ts - bars[start - 1].ts == interval:
+        start -= 1
+    entries = stair_entries(
+        bars[start:], settings, interval, rising=rising, with_volume=with_volume
+    )
+    return len(bars) - 1 - start in entries
+
+
+class StairTrigger:
+    """Q5.2 "stairstep" / "stairstep_vol" as an EntryTrigger: BULLISH when the up stair
+    enters on the last bar, BEARISH when the down stair does, NEUTRAL otherwise (and
+    NEUTRAL, failing closed, if both ever did on one bar)."""
+
+    def __init__(self, settings: StairSettings, interval: timedelta, *, with_volume: bool) -> None:
+        self._settings = settings
+        self._interval = interval
+        self._with_volume = with_volume
+
+    @property
+    def agent_id(self) -> str:
+        return "momentum"
+
+    def read(self, bars: Sequence[Bar]) -> Read:
+        require_series(bars, None, "StairTrigger bars")
+        last = bars[-1]
+        up = fires_on_last(
+            bars, self._settings, self._interval, rising=True, with_volume=self._with_volume
+        )
+        down = fires_on_last(
+            bars, self._settings, self._interval, rising=False, with_volume=self._with_volume
+        )
+        name = "stairstep_vol" if self._with_volume else "stairstep"
+        if up and down:
+            return Read(self.agent_id, last.ts, Score.NEUTRAL, f"{name}: both directions")
+        if up:
+            return Read(self.agent_id, last.ts, Score.BULLISH, f"{name}: up stair entry")
+        if down:
+            return Read(self.agent_id, last.ts, Score.BEARISH, f"{name}: down stair entry")
+        return Read(self.agent_id, last.ts, Score.NEUTRAL, f"{name}: no stair entry")
