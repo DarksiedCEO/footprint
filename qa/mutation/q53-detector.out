@@ -1,4 +1,4 @@
-source: 692d7f0f8da98d2a39314ce8a4242ac9eafad366 tree-dirty: 0 files
+source: 234843e8787f0dcba1d6898cd10046442d214ce9 tree-dirty: 0 files
 baseline [pullback]: passed
   1 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-1: a close exactly at the spike high cancels
   2 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-2: down: a close exactly at the spike low cancels
@@ -18,4 +18,7 @@ baseline [pullback]: passed
  16 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-16: no hold check
  17 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-17: spikes need not match the bars
  18 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-18: the touch is never recorded
-18 mutants, 0 survived or errored
+ 19 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-19: a new spike throws away the older live setups (review G48-1 P1)
+ 20 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-20: the first setup that enters drops every later setup (review G48-1 P2)
+ 21 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-21: a zero or backward time step keeps the setups (review G48-1 P3)
+21 mutants, 0 survived or errored
