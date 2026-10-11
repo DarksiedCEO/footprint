@@ -102,9 +102,13 @@ again.` This is correct: the running system holds the ledger.
 
 ## 7. Clean shutdown
 
-Type `quit` (Ctrl-C does the same). Expect `stopping`. With nothing held there is no
-WARNING line. A `WARNING: stopping with … held or working` line would mean something is
-open: look in IBKR at once.
+Type `quit`. Expect `stopping`. With nothing held there is no WARNING line. A
+`WARNING: stopping with … held or working` line would mean something is open: look in
+IBKR at once.
+
+**Use `quit`, not Ctrl-C.** Ctrl-C also stops the system, but it skips the
+held-position check: it prints neither the WARNING line nor `stopping`, so an open
+position would go unmentioned.
 
 Then:
 
