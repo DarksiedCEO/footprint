@@ -9,9 +9,12 @@ system: every rule is a **backtest-only candidate**.
 Marks used below:
 
 - **APPROVED BY ANDRE 2026-10-10**: his wording and his numbers.
-- **DEFAULT: not approved**: a number the definition needs but he did not give. It
-  lives in config with a `# DEFAULT: not approved by Andre` comment and is listed in
-  `docs/decisions-pending.md` under "Q5 numbers awaiting Andre".
+- **DEFAULT (accepted for backtest)**: a number the definition needs but he did not
+  give. The builder picks the plainest value; Andre accepted those values FOR BACKTEST
+  ONLY on 2026-10-10 21:12 PT (approval 3 in `docs/decisions-pending.md`). Each lives in
+  config with a `# DEFAULT: accepted by Andre 2026-10-10 for backtest; revisit after
+  real-data runs` comment and is listed in `docs/decisions-pending.md` under "Q5
+  numbers awaiting Andre".
 
 Config keys are filled in by the piece that builds each rule; a rule with no keys yet
 is marked "(keys: added with its piece)".
@@ -108,15 +111,19 @@ APPROVED BY ANDRE 2026-10-10:
 
 The 50% giveback and the count of three steps are APPROVED values.
 
-DEFAULT: not approved (keys: added with its piece): maximum bars in one pause; maximum
-bars for the whole stair (so slow sideways drift cannot qualify).
+Config (`config/backtest.yaml`, `rules: stairstep:`, read by the backtest only):
+`steps: 3` and `max_giveback: 0.5` (APPROVED BY ANDRE 2026-10-10);
+`max_pause_bars: 10` (maximum bars in one pause) and `max_stair_bars: 60` (maximum bars
+for the whole stair, so slow sideways drift cannot qualify): DEFAULT, accepted for
+backtest.
 
 How it is built (`entry-stairstep-v1`, slice 1 of 2: the detector): 
 `footprint.backtest.stairstep.stair_entries` reads the definition above on a run of
 1-min bars and returns the bars where the entry fires. How each word is read is in
 `docs/decisions-pending.md` (Q5.2-a); every reading is pinned by a hand-built fixture in
-`tests/backtest/test_stairstep.py`. Slice 2 (not built yet) loads the four numbers from
-config, registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` and feeds the
+`tests/backtest/test_stairstep.py`. Slice 2a (`StairTrigger`) puts the detector in the
+momentum slot; slice 2b-1 loads the four numbers from config (above). Slice 2b-2 (not
+built yet) registers "stairstep" and "stairstep_vol" in `ENTRY_RULES` and feeds the
 detector from the pipeline's 1-min bars.
 Until the entry close the steps still count: if the step after the formed stair turns
 invalid first, the count is zero and there is no entry (review G39-1; reading Q5.2-b,
@@ -140,8 +147,8 @@ APPROVED BY ANDRE 2026-10-10:
 > If a "breakout" entry already fired on the same spike, the pullback rule is a
 > separate test run and does not stack positions (one position at a time).
 
-DEFAULT: not approved (keys: added with its piece): how many minutes after the spike
-the setup stays alive.
+DEFAULT, accepted for backtest (keys: added with its piece): how many minutes after the
+spike the setup stays alive.
 
 ## Q5.4 exit "trail" (`exit-trail-v1`): BASELINE
 
