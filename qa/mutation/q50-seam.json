@@ -1,0 +1,58 @@
+{
+ "groups": {
+  "seam": [
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "seam",
+   "src/footprint/decision/pipeline.py",
+   "            MomentumReader(s.volume, inst) if trigger is None else trigger",
+   "            MomentumReader(s.volume, inst)",
+   "Q50-1: the pipeline ignores the trigger"
+  ],
+  [
+   "seam",
+   "src/footprint/decision/pipeline.py",
+   "            MomentumReader(s.volume, inst) if trigger is None else trigger",
+   "            trigger if trigger is not None else trigger",
+   "Q50-2: no default momentum reader"
+  ],
+  [
+   "seam",
+   "src/footprint/backtest/engine.py",
+   "        pipeline = Pipeline(p) if trigger is None else Pipeline(p, trigger)",
+   "        pipeline = Pipeline(p)",
+   "Q50-3: the engine drops the trigger"
+  ],
+  [
+   "seam",
+   "src/footprint/backtest/__main__.py",
+   "        trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles),",
+   "        trigger=None,",
+   "Q50-4: --entry parsed but not used"
+  ],
+  [
+   "seam",
+   "src/footprint/backtest/__main__.py",
+   "        assumptions[\"entry rule\"] = args.entry",
+   "        pass",
+   "Q50-5: the readout does not name the entry rule"
+  ],
+  [
+   "seam",
+   "src/footprint/backtest/__main__.py",
+   "    if args.entry is not None:\n        assumptions",
+   "    if True:\n        assumptions",
+   "Q50-6: the default run's readout gains an entry-rule line"
+  ],
+  [
+   "seam",
+   "src/footprint/backtest/__main__.py",
+   "        choices=sorted(ENTRY_RULES),",
+   "        choices=None,",
+   "Q50-7: an unknown rule name is not refused by the parser"
+  ]
+ ]
+}

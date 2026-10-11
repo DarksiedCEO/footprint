@@ -1,0 +1,13 @@
+source: 062657cdaa33b9305b9a93bc1ccda7c89856cd7b tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: relative imports read as absolute
+  2 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: relative import with no package passes
+  3 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: a relative import above the top package resolves
+  4 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: relative level off by one
+  5 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: imported names not read
+  6 KILLED   [t] tests/backtest/test_rules_seam.py: G56-1: unresolvable relative import passes
+  7 KILLED   [t] tests/backtest/test_rules_seam.py: G56-2: other modules may do anything
+  8 KILLED   [t] tests/backtest/test_rules_seam.py: G56-2 (was H1S-14): trade management may hold anything else
+  9 KILLED   [t] tests/backtest/test_rules_seam.py: G56-2: trade management need not hold the rule
+ 10 KILLED   [t] tests/backtest/test_rules_seam.py: G56-2: the real tree's trade management never matched
+10 mutants, 0 survived or errored
