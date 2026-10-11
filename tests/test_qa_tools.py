@@ -135,8 +135,12 @@ def test_every_test_run_gets_its_own_empty_bytecode_cache(
 ) -> None:
     mutate = _mutate()
     monkeypatch.setattr(mutate, "ROOT", Path("/"))
-    for inherited in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"):
-        monkeypatch.delenv(inherited, raising=False)  # set when this runs under the runner
+    # Hostile inherited values (G32-1): the runner's own isolation must win over them.
+    hostile = tmp_path / "inherited-cache"
+    hostile.mkdir()
+    (hostile / "stale.pyc").write_bytes(b"")
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "")
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(hostile))
     envs: list[dict[str, str]] = []
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -151,4 +155,5 @@ def test_every_test_run_gets_its_own_empty_bytecode_cache(
     assert mutate.run(_spec(tmp_path)) == 0
     assert len(envs) == 2  # the baseline and the mutant
     assert envs[0]["PYTHONPYCACHEPREFIX"] != envs[1]["PYTHONPYCACHEPREFIX"]
+    assert str(hostile) not in (envs[0]["PYTHONPYCACHEPREFIX"], envs[1]["PYTHONPYCACHEPREFIX"])
     assert envs[1]["FOOTPRINT_REQUIRE_IBAPI"] == "1"
