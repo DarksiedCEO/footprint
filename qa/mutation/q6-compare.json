@@ -1,0 +1,203 @@
+{
+ "groups": {
+  "fast": [
+   "tests/backtest/test_compare.py::test_pairs_are_every_entry_against_every_exit_sorted",
+   "tests/backtest/test_compare.py::test_options_reach_every_run",
+   "tests/backtest/test_compare.py::test_without_options_the_single_run_gets_its_defaults",
+   "tests/backtest/test_compare.py::test_a_bad_trade_from_is_refused_before_anything_runs",
+   "tests/backtest/test_compare.py::test_a_non_empty_out_is_refused_and_nothing_runs",
+   "tests/backtest/test_compare.py::test_an_out_that_is_a_file_is_refused",
+   "tests/backtest/test_compare.py::test_a_run_that_exits_is_a_failure_too",
+   "tests/backtest/test_compare.py::test_a_run_that_writes_no_readout_is_a_failure"
+  ],
+  "shared": [
+   "tests/backtest/test_compare.py::test_two_by_two_runs_every_pair_in_sorted_order",
+   "tests/backtest/test_compare.py::test_summary_values_are_copied_from_each_runs_readout_json",
+   "tests/backtest/test_compare.py::test_the_summary_heads_with_the_data_config_and_no_profit_claim",
+   "tests/backtest/test_compare.py::test_without_trade_from_the_summary_says_the_first_bar",
+   "tests/backtest/test_compare.py::test_runs_over_different_bars_are_not_summarised",
+   "tests/backtest/test_compare.py::test_runs_with_different_gates_are_not_summarised",
+   "tests/backtest/test_compare.py::test_rows_are_never_reordered_by_result"
+  ],
+  "empty_out": [
+   "tests/backtest/test_compare.py::test_an_existing_empty_out_is_used"
+  ]
+ },
+ "mutants": [
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    return [(entry, exit_) for entry in sorted(ENTRY_RULES) for exit_ in sorted(EXIT_RULES)]",
+   "    return [(entry, exit_) for entry in ENTRY_RULES for exit_ in EXIT_RULES]",
+   "Q6-ii a: pairs not sorted"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    return [(entry, exit_) for entry in sorted(ENTRY_RULES) for exit_ in sorted(EXIT_RULES)]",
+   "    return [(entry, exit_) for exit_ in sorted(EXIT_RULES) for entry in sorted(ENTRY_RULES)]",
+   "Q6-ii b: pairs ordered exit-major"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    if args.blackouts is not None:\n        argv += [\"--blackouts\", str(args.blackouts)]\n",
+   "",
+   "Q6-ii c: --blackouts not passed on"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "        argv += [\"--trade-from\", args.trade_from]\n",
+   "        pass\n",
+   "Q6-ii d: --trade-from not passed on"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "        \"--instrument\",\n        args.instrument,\n",
+   "",
+   "Q6-ii e: --instrument not passed on"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    if args.out.exists() and (not args.out.is_dir() or any(args.out.iterdir())):",
+   "    if args.out.exists() and any(args.out.iterdir()):",
+   "Q6-ii f: an --out that is a file is not refused"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    if args.out.exists() and (not args.out.is_dir() or any(args.out.iterdir())):",
+   "    if args.out.exists() and not args.out.is_dir():",
+   "Q6-ii g: a non-empty --out is not refused"
+  ],
+  [
+   "empty_out",
+   "src/footprint/backtest/compare.py",
+   "    if args.out.exists() and (not args.out.is_dir() or any(args.out.iterdir())):",
+   "    if args.out.exists():",
+   "Q6-ii h: an existing empty --out is refused"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    except SystemExit as stopped:",
+   "    except ArithmeticError as stopped:",
+   "Q6-ii i: a run that exits is not caught as a failure"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    if not (pair_dir(args.out, entry, exit_) / \"readout.json\").is_file():",
+   "    if False:",
+   "Q6-ii j: a run with no readout.json is not a failure"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        if _gate_names(readout) != gates:",
+   "        if False:",
+   "Q6-ii k: different gates are summarised"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        if (readout[\"run\"][\"first_bar\"], readout[\"run\"][\"last_bar\"]) != span:",
+   "        if readout[\"run\"][\"last_bar\"] != span[1]:",
+   "Q6-ii l: a different first bar is summarised"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        if (readout[\"run\"][\"first_bar\"], readout[\"run\"][\"last_bar\"]) != span:",
+   "        if readout[\"run\"][\"first_bar\"] != span[0]:",
+   "Q6-ii m: a different last bar is summarised"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "            row += [str(g[\"actual\"]), \"pass\" if g[\"passed\"] else \"FAIL\"]",
+   "            row += [str(g[\"required\"]), \"pass\" if g[\"passed\"] else \"FAIL\"]",
+   "Q6-ii n: the gate's requirement copied instead of its actual"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "            row += [str(g[\"actual\"]), \"pass\" if g[\"passed\"] else \"FAIL\"]",
+   "            row += [str(g[\"actual\"]), \"pass\"]",
+   "Q6-ii o: every gate reported as pass"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        row = [entry, exit_, str(readout[\"verdict\"])]",
+   "        row = [entry, exit_, \"PASS\"]",
+   "Q6-ii p: verdict not copied"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        f\"**{NO_PROFIT_CLAIM}**\",\n",
+   "",
+   "Q6-ii q: no profitability disclaimer"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        f\"- first bar: {span[0]}\",\n",
+   "",
+   "Q6-ii r: first bar missing from the head"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        f\"- config: {config}\",\n",
+   "",
+   "Q6-ii s: config missing from the head"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        f\"- trade from: {trade_from if trade_from is not None else 'the first bar'}\",\n",
+   "        f\"- trade from: {trade_from}\",\n",
+   "Q6-ii t: no trade-from reads None"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        markdown, table = summarise(args.out, args.bars, args.config, args.trade_from)",
+   "        markdown, table = summarise(args.out, args.bars, args.config)",
+   "Q6-ii u: trade-from not shown in the head"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "    _write(args.out / \"summary.csv\", table)\n",
+   "",
+   "Q6-ii v: summary.csv not written"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "    print(markdown, end=\"\")\n",
+   "",
+   "Q6-ii w: summary not printed"
+  ],
+  [
+   "shared",
+   "src/footprint/backtest/compare.py",
+   "        with contextlib.redirect_stdout(io.StringIO()):\n            code = single.main(_single_argv(args, entry, exit_))",
+   "        code = single.main(_single_argv(args, entry, exit_))",
+   "Q6-ii x: every run's readout echoed to stdout"
+  ],
+  [
+   "fast",
+   "src/footprint/backtest/compare.py",
+   "    datetime.fromisoformat(text)\n",
+   "",
+   "Q6-ii y: a bad --trade-from is not refused up front"
+  ]
+ ]
+}
