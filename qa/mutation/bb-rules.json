@@ -1,0 +1,177 @@
+{
+ "groups": {
+  "bb": [
+   "tests/backtest/test_bollinger.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "    if close > now.upper:",
+   "    if close >= now.upper:",
+   "a close ON the band counts as outside"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if here.bandwidth <= min(b.bandwidth for b in window if b is not None):",
+   "if here.bandwidth < min(b.bandwidth for b in window if b is not None):",
+   "the squeeze bar can never be the lowest (tie with itself)"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "            return Score.NEUTRAL  # an earlier close outside after any squeeze came first",
+   "            continue",
+   "a second breakout after a squeeze fires again"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "for j in range(n - 1, max(n - s.squeeze_window, 0) - 1, -1):",
+   "for j in range(n - 1, max(n - s.squeeze_window - 1, 0) - 1, -1):",
+   "squeeze window one bar longer"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if any(b is None for b in window):",
+   "if all(b is None for b in window):",
+   "a squeeze judged on a partial lookback"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close > b.middle and bars[k].close > bars[k - 1].high",
+   "return bars[k].close > b.middle",
+   "walk entry without the prior-high condition"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "touched = bars[t].low <= b.middle if rising else bars[t].high >= b.middle",
+   "touched = bars[t].low < b.middle if rising else bars[t].high >= b.middle",
+   "a low exactly at the middle line is not a touch"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if walked < s.walk_min_closes:",
+   "if walked <= s.walk_min_closes:",
+   "one more close on the band needed"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if (bars[k].close >= kb.upper) if rising else (bars[k].close <= kb.lower):",
+   "if (bars[k].close > kb.upper) if rising else (bars[k].close <= kb.lower):",
+   "a close exactly on the band not counted"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if any(cancels(k) for k in range(t, n + 1)):",
+   "if any(cancels(k) for k in range(t + 1, n + 1)):",
+   "a break on the touch bar does not cancel"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "            if _first_since(t, n, confirms):\n                return Score.BULLISH if rising else Score.BEARISH\n    return Score.NEUTRAL\n\n\ndef bounce",
+   "            if confirms(n):\n                return Score.BULLISH if rising else Score.BEARISH\n    return Score.NEUTRAL\n\n\ndef bounce",
+   "every walk confirm fires, not only the first"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "for t in range(n - 1, max(n - s.walk_window, 0) - 1, -1):",
+   "for t in range(n - 1, max(n - s.walk_window - 1, 0) - 1, -1):",
+   "walk window one bar longer"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "    if now.middle > before.middle:",
+   "    if now.middle >= before.middle:",
+   "a flat middle line counts as rising"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "inside = b.lower < bar.close < b.upper",
+   "inside = b.lower <= bar.close < b.upper",
+   "a close on the lower band counts as inside"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return inside and (bar.close > bar.open if rising else bar.close < bar.open)",
+   "return inside",
+   "bounce without the candle direction"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "touched = bars[t].low <= b.lower if rising else bars[t].high >= b.upper",
+   "touched = bars[t].low < b.lower if rising else bars[t].high >= b.upper",
+   "a low exactly at the lower band is not a touch"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "            if _first_since(t, n, confirms):\n                return Score.BULLISH if rising else Score.BEARISH\n            return Score.NEUTRAL",
+   "            if confirms(n):\n                return Score.BULLISH if rising else Score.BEARISH\n            return Score.NEUTRAL",
+   "every bounce confirm fires, not only the first"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if not tf or tf[-1].ts + self._span != as_of:",
+   "if not tf or tf[-1].ts + self._span > as_of:",
+   "a slow rule answers on a minute its bar did not complete"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if self.walk_min_closes > self.walk_lookback:",
+   "if self.walk_min_closes > self.walk_lookback + 1:",
+   "impossible walk numbers accepted"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/rule_console.py",
+   "Gate(\"prime_session\", session is SessionKind.PRIME, session.value),",
+   "Gate(\"prime_session\", True, session.value),",
+   "the rule console trades outside prime"
+  ],
+  [
+   "bb",
+   "src/footprint/decision/pipeline.py",
+   "Console(s.console, inst, self._levels, self._range) if console is None else console",
+   "Console(s.console, inst, self._levels, self._range)",
+   "the named console ignored"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/engine.py",
+   "else Pipeline(p, trigger, console)",
+   "else Pipeline(p, trigger)",
+   "the engine drops the rule console"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/__main__.py",
+   "            if args.entry in GATELESS_ENTRY_RULES\n            else None",
+   "            if False\n            else None",
+   "the CLI never builds the rule console"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/settings.py",
+   "    except ValueError as exc:\n        raise ConfigError(f\"{b_where}: {exc}\") from exc",
+   "    except TypeError as exc:\n        raise ConfigError(f\"{b_where}: {exc}\") from exc",
+   "a bad bollinger number escapes as ValueError"
+  ]
+ ]
+}

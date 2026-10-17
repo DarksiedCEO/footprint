@@ -455,3 +455,35 @@ def test_a_bollinger_run_records_that_the_confirmers_are_off(tmp_path: Path) -> 
     with contextlib.redirect_stdout(io.StringIO()):
         main(["--bars", str(bars_csv), "--out", str(out), "--entry", "pullback", *FROM])
     assert "confirmers" not in (out / "readout.md").read_text()
+
+
+def test_a_bollinger_run_builds_its_pipeline_with_the_rule_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from footprint.backtest import engine
+
+    consoles: list[object] = []
+    real = Pipeline
+
+    def spy(*args: object, **kwargs: object) -> Pipeline:
+        consoles.append(args[2] if len(args) > 2 else kwargs.get("console"))
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(engine, "Pipeline", spy)
+    bars_csv = tmp_path / "bars.csv"
+    write_bars(bars_csv)
+    with contextlib.redirect_stdout(io.StringIO()):
+        main(
+            [
+                "--bars",
+                str(bars_csv),
+                "--out",
+                str(tmp_path / "bb"),
+                "--entry",
+                "bb_bounce_slow",
+                *FROM,
+            ]
+        )
+        main(["--bars", str(bars_csv), "--out", str(tmp_path / "pb"), "--entry", "pullback", *FROM])
+    assert isinstance(consoles[0], RuleConsole)
+    assert consoles[1] is None
