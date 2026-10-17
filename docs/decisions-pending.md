@@ -482,7 +482,11 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   closes after the last break count); S2 and S3: a bar that itself fired cannot be the
   touch for a second entry (one setup, one entry); a touch bar that looks like an entry
   but did not fire still arms. bb_walk_* and bb_bounce_* runs made before 2026-10-17's
-  round 2 fixes are void; bb_squeeze_* runs are unaffected.
+  round 2 fixes are void; bb_squeeze_* runs are unaffected. Limits of the "one setup,
+  one entry" check (round 3 review, CONDITIONAL): it recurses along chains of bars that
+  are both a touch and an entry, so `bollinger.history` must stay well under 1,000 bars
+  (Python's recursion limit; today 151); and a chain reaching back past the start of the
+  history tail is judged from that start (0 mismatches found on the shipped numbers).
 - **BB-4 test configs (Andre's Mac, never committed):** copies of config/ with
   risk.profit_target/stop_loss/stop_min set to 500/400/400 (E1) or 700/500/500 (E2),
   max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
