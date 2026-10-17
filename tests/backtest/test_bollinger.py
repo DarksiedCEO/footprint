@@ -126,6 +126,12 @@ def test_a_close_on_the_band_is_not_outside_it() -> None:
     assert squeeze_fires(bars, bs, S) is Score.NEUTRAL
 
 
+def test_a_close_on_the_lower_band_is_not_outside_it() -> None:
+    bs = squeeze_bands([20, 20, 20, 10, 20])
+    bars = [bar(i, 100) for i in range(4)] + [bar(4, 90)]
+    assert squeeze_fires(bars, bs, S) is Score.NEUTRAL
+
+
 def test_the_second_close_outside_after_a_squeeze_does_not_fire() -> None:
     bs = squeeze_bands([20, 20, 20, 10, 20, 20])
     bars = [bar(i, 100) for i in range(4)] + [bar(4, 111), bar(5, 112)]
@@ -245,15 +251,42 @@ def test_walk_short_needs_a_close_below_the_prior_low() -> None:
     assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL
 
 
-def test_walk_can_fire_on_two_bars_in_a_row_for_andre_to_confirm() -> None:
-    # bar 3 confirms and also dips to the middle, which arms a new pullback for bar 4
+def test_walk_short_close_on_the_middle_line_does_not_confirm() -> None:
+    bars = [bar(0, 89), bar(1, 90), bar(2, 102, hi=103, lo=101), bar(3, 100)]
+    assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL  # middle is 100
+
+
+def test_a_close_on_the_lower_band_does_not_cancel_the_walk() -> None:
+    bars = walk_bars(bar(3, 90), bar(4, 107))
+    assert walk_fires(bars, flat(len(bars)), S) is Score.BULLISH  # lower band is 90
+
+
+def test_an_entry_bar_does_not_arm_a_second_walk_entry() -> None:
+    # bar 3 fires and also dips to the middle; one setup gives one entry (Andre)
     bars = walk_bars(bar(3, 107, hi=107, lo=100))
     assert walk_fires(bars, flat(len(bars)), S) is Score.BULLISH
     again = [*bars, bar(4, 108)]
-    assert walk_fires(again, flat(len(again)), S) is Score.BULLISH
+    assert walk_fires(again, flat(len(again)), S) is Score.NEUTRAL
 
 
-# --- band bounce ----------------------------------------------------------------------
+def test_a_touch_that_looks_like_an_entry_but_did_not_fire_still_arms_the_walk() -> None:
+    # bar 2 dips to the middle and closes above bar 1's high, with no earlier touch
+    bars = [bar(0, 111), bar(1, 110), bar(2, 111, hi=112, lo=100), bar(3, 113)]
+    assert walk_fires(bars[:3], flat(3), S) is Score.NEUTRAL
+    assert walk_fires(bars, flat(4), S) is Score.BULLISH
+
+
+def test_a_break_inside_the_lookback_resets_the_walk_count() -> None:
+    # walk close, break, walk close, touch: only one close since the break (Andre)
+    bars = [bar(0, 111), bar(1, 89), bar(2, 110), bar(3, 105, hi=106, lo=100), bar(4, 107)]
+    assert walk_fires(bars, flat(5), S) is Score.NEUTRAL
+    mirror = [bar(0, 89), bar(1, 111), bar(2, 90), bar(3, 95, hi=100, lo=94), bar(4, 93)]
+    assert walk_fires(mirror, flat(5), S) is Score.NEUTRAL
+
+
+def test_a_fresh_walk_after_a_break_fires() -> None:
+    bars = [bar(0, 89), bar(1, 111), bar(2, 110), bar(3, 105, hi=106, lo=100), bar(4, 107)]
+    assert walk_fires(bars, flat(5), S) is Score.BULLISH
 
 
 def rising_bands(count: int, step: int = 1) -> list[Band | None]:
@@ -303,6 +336,14 @@ def test_a_short_bounce_closing_on_the_upper_band_is_not_back_inside() -> None:
     assert bounce_fires(bars, falling, S) is Score.NEUTRAL  # upper band at bar 3 is 107
 
 
+def test_a_doji_is_neither_an_up_nor_a_down_candle() -> None:
+    falling = [Band(D(90 - i), D(100 - i), D(110 - i)) for i in range(4)]
+    short = [bar(0, 100), bar(1, 99), bar(2, 107, hi=108), bar(3, 100, o=100)]
+    assert bounce_fires(short, falling, S) is Score.NEUTRAL
+    long = [bar(0, 100), bar(1, 101), bar(2, 93, lo=92), bar(3, 100, o=100)]
+    assert bounce_fires(long, rising_bands(4), S) is Score.NEUTRAL
+
+
 def test_a_touch_at_the_window_edge_counts() -> None:
     # touch on bar 2, entry on bar 4: two bars back, the edge of a two-bar window
     bars = [bar(0, 100), bar(1, 101), bar(2, 93, lo=92), bar(3, 99, o=100), bar(4, 104, o=102)]
@@ -316,10 +357,18 @@ def test_the_slope_is_measured_exactly_slope_bars_back() -> None:
     assert bounce_fires(bars, bs, S) is Score.NEUTRAL
 
 
-def test_bounce_can_fire_on_two_bars_in_a_row_for_andre_to_confirm() -> None:
-    # bar 2 touches the lower band and closes back inside on an up candle
+def test_an_entry_bar_does_not_arm_a_second_bounce_entry() -> None:
+    # bar 2 touches the lower band and fires; one setup gives one entry (Andre)
     bars = [bar(0, 100), bar(1, 90, lo=90), bar(2, 95, o=93, lo=91)]
     assert bounce_fires(bars, rising_bands(3), S) is Score.BULLISH
+    again = [*bars, bar(3, 104, o=102)]
+    assert bounce_fires(again, rising_bands(4), S) is Score.NEUTRAL
+
+
+def test_a_hammer_that_did_not_fire_still_arms_the_bounce() -> None:
+    # bar 2 touches the lower band and closes back inside up, with no earlier touch
+    bars = [bar(0, 100), bar(1, 101), bar(2, 95, o=93, lo=91)]
+    assert bounce_fires(bars, rising_bands(3), S) is Score.NEUTRAL
     again = [*bars, bar(3, 104, o=102)]
     assert bounce_fires(again, rising_bands(4), S) is Score.BULLISH
 
@@ -405,6 +454,8 @@ def test_settings_refuse_impossible_numbers() -> None:
         replace(S, walk_min_closes=S.walk_lookback + 1)
     with pytest.raises(ValueError, match="bounce_window"):
         replace(S, bounce_window=0)
+    with pytest.raises(ValueError, match="fast_minutes must be shorter"):
+        replace(S, fast_minutes=S.slow_minutes)
 
 
 def random_walk(count: int, seed: int) -> list[Bar]:

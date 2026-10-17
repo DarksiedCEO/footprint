@@ -29,8 +29,10 @@ How each word is read here (for Andre to confirm):
   since that touch to close back inside the bands on an up candle (close above open).
   The slope is measured at the signal bar. Short: the mirror (falling middle, upper
   band, down candle).
-- A confirming bar that is also a touch arms a new setup, so the walk and the bounce
-  can fire on two bars in a row (for Andre to confirm; one position at a time applies).
+- Andre's readings (2026-10-17): in the walk, a close beyond the far band inside the
+  lookback resets the count, so only walk closes after the last break count; in the walk
+  and the bounce, a bar that itself fired cannot be the touch for a second entry (one
+  setup, one entry). A touch bar that looks like a confirm but did not fire still arms.
 
 Pure and stateless: the same bars give the same answer however often it is asked.
 """
@@ -81,6 +83,8 @@ class BollingerSettings:
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"bollinger {name} must be at least one")
+        if self.fast_minutes >= self.slow_minutes:
+            raise ValueError("bollinger fast_minutes must be shorter than slow_minutes")
         if self.walk_min_closes > self.walk_lookback:
             raise ValueError("bollinger walk_min_closes cannot exceed walk_lookback")
 
@@ -168,55 +172,93 @@ def walk_fires(bars: Sequence[Bar], bs: Sequence[Band | None], s: BollingerSetti
     if n < 1 or _band(bs, n) is None:
         return Score.NEUTRAL
     for rising in (True, False):
-
-        def confirms(k: int, rising: bool = rising) -> bool:
-            b = bs[k]
-            if b is None or k < 1:
-                return False
-            if rising:
-                return bars[k].close > b.middle and bars[k].close > bars[k - 1].high
-            return bars[k].close < b.middle and bars[k].close < bars[k - 1].low
-
-        def cancels(k: int, rising: bool = rising) -> bool:
-            b = bs[k]
-            assert b is not None
-            return bars[k].close < b.lower if rising else bars[k].close > b.upper
-
-        for t in range(n - 1, max(n - s.walk_window, 0) - 1, -1):
-            b = _band(bs, t)
-            if b is None:
-                break
-            touched = bars[t].low <= b.middle if rising else bars[t].high >= b.middle
-            if not touched:
-                continue
-            walked, last_walk = 0, t
-            for k in range(t - s.walk_lookback, t):
-                kb = _band(bs, k)
-                if kb is None:
-                    continue
-                if (bars[k].close >= kb.upper) if rising else (bars[k].close <= kb.lower):
-                    walked, last_walk = walked + 1, k
-            if walked < s.walk_min_closes:
-                continue
-            # a break anywhere after the walk cancels, before the touch bar included
-            if any(cancels(k) for k in range(last_walk + 1, n + 1)):
-                continue
-            if _first_since(t, n, confirms):
-                return Score.BULLISH if rising else Score.BEARISH
+        if _walk_at(bars, bs, s, rising, n, {}):
+            return Score.BULLISH if rising else Score.BEARISH
     return Score.NEUTRAL
+
+
+def _walk_at(
+    bars: Sequence[Bar],
+    bs: Sequence[Band | None],
+    s: BollingerSettings,
+    rising: bool,
+    i: int,
+    memo: dict[int, bool],
+) -> bool:
+    """Whether the walk fires in this direction on bar `i` (memoised: an entry bar is
+    checked for having fired itself only when it is also a touch, which is rare)."""
+    if i in memo:
+        return memo[i]
+
+    def confirms(k: int) -> bool:
+        b = bs[k]
+        if b is None or k < 1:
+            return False
+        if rising:
+            return bars[k].close > b.middle and bars[k].close > bars[k - 1].high
+        return bars[k].close < b.middle and bars[k].close < bars[k - 1].low
+
+    def cancels(k: int) -> bool:
+        b = bs[k]
+        assert b is not None
+        return bars[k].close < b.lower if rising else bars[k].close > b.upper
+
+    fired = False
+    for t in range(i - 1, max(i - s.walk_window, 0) - 1, -1):
+        b = _band(bs, t)
+        if b is None:
+            break
+        touched = bars[t].low <= b.middle if rising else bars[t].high >= b.middle
+        if not touched:
+            continue
+        if confirms(t) and _walk_at(bars, bs, s, rising, t, memo):
+            continue  # an entry bar does not arm a second entry (Andre, 2026-10-17)
+        walked, last_walk = 0, t
+        for k in range(t - s.walk_lookback, t):
+            kb = _band(bs, k)
+            if kb is None:
+                continue
+            if cancels(k):
+                walked = 0  # a break resets the walk (Andre, 2026-10-17)
+            elif (bars[k].close >= kb.upper) if rising else (bars[k].close <= kb.lower):
+                walked, last_walk = walked + 1, k
+        if walked < s.walk_min_closes:
+            continue
+        # a break anywhere after the walk cancels, before the touch bar included
+        if any(cancels(k) for k in range(last_walk + 1, i + 1)):
+            continue
+        if _first_since(t, i, confirms):
+            fired = True
+            break
+    memo[i] = fired
+    return fired
 
 
 def bounce_fires(bars: Sequence[Bar], bs: Sequence[Band | None], s: BollingerSettings) -> Score:
     """Band bounce with the trend on the last bar."""
-    n = len(bars) - 1
+    return _bounce_at(bars, bs, s, len(bars) - 1, {})
+
+
+def _bounce_at(
+    bars: Sequence[Bar],
+    bs: Sequence[Band | None],
+    s: BollingerSettings,
+    n: int,
+    memo: dict[int, Score],
+) -> Score:
+    """The bounce on bar `n` (memoised like the walk)."""
+    if n in memo:
+        return memo[n]
     now, before = _band(bs, n), _band(bs, n - s.slope_bars)
     if now is None or before is None:
+        memo[n] = Score.NEUTRAL
         return Score.NEUTRAL
     if now.middle > before.middle:
         rising = True
     elif now.middle < before.middle:
         rising = False
     else:
+        memo[n] = Score.NEUTRAL
         return Score.NEUTRAL
 
     def confirms(k: int) -> bool:
@@ -227,16 +269,21 @@ def bounce_fires(bars: Sequence[Bar], bs: Sequence[Band | None], s: BollingerSet
         inside = b.lower < bar.close < b.upper
         return inside and (bar.close > bar.open if rising else bar.close < bar.open)
 
+    score = Score.NEUTRAL
     for t in range(n - 1, max(n - s.bounce_window, 0) - 1, -1):
         b = _band(bs, t)
         if b is None:
             break
         touched = bars[t].low <= b.lower if rising else bars[t].high >= b.upper
-        if touched:
-            if _first_since(t, n, confirms):
-                return Score.BULLISH if rising else Score.BEARISH
-            return Score.NEUTRAL  # the latest touch decides
-    return Score.NEUTRAL
+        if not touched:
+            continue
+        if confirms(t) and _bounce_at(bars, bs, s, t, memo) is not Score.NEUTRAL:
+            continue  # an entry bar does not arm a second entry (Andre, 2026-10-17)
+        if _first_since(t, n, confirms):
+            score = Score.BULLISH if rising else Score.BEARISH
+        break  # the latest touch decides
+    memo[n] = score
+    return score
 
 
 Detector = Callable[[Sequence[Bar], Sequence[Band | None], BollingerSettings], Score]

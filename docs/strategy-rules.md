@@ -295,6 +295,7 @@ outside is strictly beyond the band; on 5-minute bars a rule answers only on the
 close below the lower band on any bar after the last walk close cancels, the touch bar
 included (that is a break, not a pullback), and a bar wholly below the middle line still
 counts as a touch; in S3 the latest touch in the window decides, the slope is measured
-at the signal bar, and "closes up" means close above open; in S2 and S3 a confirming bar
-that is also a touch arms a new setup, so a rule can fire on two bars in a row. Synthetic test bars say nothing
+at the signal bar, and "closes up" means close above open. Decided by Andre 2026-10-17:
+in S2 a close below the lower band inside the lookback resets the walk count; in S2 and
+S3 one setup gives one entry (a bar that fired cannot be the touch for a second entry). Synthetic test bars say nothing
 about profitability.

@@ -477,9 +477,12 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   a break; fixed 2026-10-17 after the hostile review, so bb_walk_* runs made before this
   fix are void); S2: a touch bar may lie wholly beyond the middle line; S3: the latest
   touch in the window decides; S3: the slope is measured at the signal bar, not the touch
-  bar; "closes up" = close above open; S2 and S3: a confirming bar that is also a touch
-  arms a new setup, so the rule can fire on two bars in a row (one position at a time
-  still applies; Andre to say whether a second fire should be blocked).
+  bar; "closes up" = close above open (a doji is neither up nor down). DECIDED BY ANDRE
+  2026-10-17: S2: a far-band break inside the lookback resets the walk count (only walk
+  closes after the last break count); S2 and S3: a bar that itself fired cannot be the
+  touch for a second entry (one setup, one entry); a touch bar that looks like an entry
+  but did not fire still arms. bb_walk_* and bb_bounce_* runs made before 2026-10-17's
+  round 2 fixes are void; bb_squeeze_* runs are unaffected.
 - **BB-4 test configs (Andre's Mac, never committed):** copies of config/ with
   risk.profit_target/stop_loss/stop_min set to 500/400/400 (E1) or 700/500/500 (E2),
   max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
@@ -497,3 +500,6 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   folded into the spec; see `bb-rules.out` for the re-run. Argued equivalent: (e) the S2
   cancel scan starting at the last walk close instead of the bar after it: a walk close
   is at or beyond the near band, so it can never be beyond the far band.
+  Round 2 (hostile review of 998821b, NOT_CERTIFIED): probes Q1, Q3-Q8 and R5-R10 added.
+  Argued equivalent: Q2 (`max(fast, slow)` replaced by `slow`), since BollingerSettings
+  now refuses fast_minutes >= slow_minutes; Q9 is claim (e).

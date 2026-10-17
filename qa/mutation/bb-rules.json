@@ -71,22 +71,22 @@
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "if any(cancels(k) for k in range(last_walk + 1, n + 1)):",
-   "if any(cancels(k) for k in range(last_walk + 2, n + 1)):",
+   "if any(cancels(k) for k in range(last_walk + 1, i + 1)):",
+   "if any(cancels(k) for k in range(last_walk + 2, i + 1)):",
    "a break on the first bar after the walk does not cancel"
   ],
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "            if _first_since(t, n, confirms):\n                return Score.BULLISH if rising else Score.BEARISH\n    return Score.NEUTRAL\n\n\ndef bounce",
-   "            if confirms(n):\n                return Score.BULLISH if rising else Score.BEARISH\n    return Score.NEUTRAL\n\n\ndef bounce",
+   "        if _first_since(t, i, confirms):\n            fired = True",
+   "        if confirms(i):\n            fired = True",
    "every walk confirm fires, not only the first"
   ],
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "for t in range(n - 1, max(n - s.walk_window, 0) - 1, -1):",
-   "for t in range(n - 1, max(n - s.walk_window - 1, 0) - 1, -1):",
+   "for t in range(i - 1, max(i - s.walk_window, 0) - 1, -1):",
+   "for t in range(i - 1, max(i - s.walk_window - 1, 0) - 1, -1):",
    "walk window one bar longer"
   ],
   [
@@ -120,8 +120,8 @@
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "            if _first_since(t, n, confirms):\n                return Score.BULLISH if rising else Score.BEARISH\n            return Score.NEUTRAL",
-   "            if confirms(n):\n                return Score.BULLISH if rising else Score.BEARISH\n            return Score.NEUTRAL",
+   "        if _first_since(t, n, confirms):\n            score =",
+   "        if confirms(n):\n            score =",
    "every bounce confirm fires, not only the first"
   ],
   [
@@ -253,8 +253,8 @@
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "if any(cancels(k) for k in range(last_walk + 1, n + 1)):",
-   "if any(cancels(k) for k in range(t, n + 1)):",
+   "if any(cancels(k) for k in range(last_walk + 1, i + 1)):",
+   "if any(cancels(k) for k in range(t, i + 1)):",
    "R1 the old cancel scan (a later touch skips the break)"
   ],
   [
@@ -277,6 +277,97 @@
    "need = b.history * max(b.fast_minutes, b.slow_minutes)",
    "need = b.history",
    "R4 engine history checked in bars, not minutes"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "walked, last_walk = walked + 1, k",
+   "walked, last_walk = walked + 1, min(last_walk, k)",
+   "Q1 cancel scan starts after the FIRST walk close"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "else bars[t].high >= b.middle",
+   "else bars[t].high > b.middle",
+   "Q3 short walk: high exactly at the middle not a touch"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "else bars[t].high >= b.upper",
+   "else bars[t].high > b.upper",
+   "Q4 short bounce: high exactly at the upper band not a touch"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "elif close < now.lower:",
+   "elif close <= now.lower:",
+   "Q5 short squeeze: close ON the lower band counts as outside"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "else bar.close < bar.open)",
+   "else bar.close <= bar.open)",
+   "Q6 short bounce: a doji counts as a down candle"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close < b.middle and",
+   "return bars[k].close <= b.middle and",
+   "Q7 short walk: close ON the middle confirms"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close < b.lower if rising",
+   "return bars[k].close <= b.lower if rising",
+   "Q8 long walk: close ON the lower band cancels"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "walked = 0  # a break resets the walk",
+   "pass  # a break resets the walk",
+   "R5 a break inside the lookback does not reset the walk count"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "        if confirms(t) and _walk_at(bars, bs, s, rising, t, memo):\n            continue",
+   "        if False:\n            continue",
+   "R6 an entry bar arms a second walk entry"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if confirms(t) and _bounce_at(bars, bs, s, t, memo) is not Score.NEUTRAL:",
+   "if False:",
+   "R7 an entry bar arms a second bounce entry"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if confirms(t) and _walk_at(bars, bs, s, rising, t, memo):",
+   "if confirms(t):",
+   "R8 any entry-looking touch is skipped in the walk"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if confirms(t) and _bounce_at(bars, bs, s, t, memo) is not Score.NEUTRAL:",
+   "if confirms(t):",
+   "R9 any hammer touch is skipped in the bounce"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "            raise ValueError(\"bollinger fast_minutes must be shorter than slow_minutes\")",
+   "            pass",
+   "R10 fast_minutes not below slow_minutes accepted"
   ]
  ]
 }
