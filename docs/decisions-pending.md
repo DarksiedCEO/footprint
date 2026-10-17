@@ -479,3 +479,11 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
 - **BB-5 for Andre:** iron condors / credit spreads parked: they sell option legs, which
   "never go short" forbids as written.
+- **BB-6 mutation evidence:** `qa/mutation/bb-rules.json` / `.out`: 24 mutants, 24 killed on
+  clean 961ab8e. Argued equivalent, not run: (a) S3 "the latest touch decides" replaced by
+  scanning older touches: an older touch can only pass "first confirm since the touch" if
+  no confirm lies after it, which also holds for the latest touch, so the answer is the
+  same; (b) the one-minute fast path (no resample) gives the same bars as resampling at one
+  minute (speed only); (c) the rule console's `rule_has_direction` gate: a verdict with no
+  direction is never a go anyway (it is there for the journal's reason); (d) the `+ 1` in
+  `BollingerSettings.history`: one spare bar of look-back, never read by any setup.

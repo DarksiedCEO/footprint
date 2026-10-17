@@ -1,4 +1,4 @@
-source: e15de18e2b9709183a534fb3a429a08c42dd6214 tree-dirty: 0 files
+source: 961ab8e1894c2ff3579823df033fe1f7036dd124 tree-dirty: 0 files
 baseline [bb]: passed
   1 KILLED   [bb] src/footprint/backtest/bollinger.py: a close ON the band counts as outside
   2 KILLED   [bb] src/footprint/backtest/bollinger.py: the squeeze bar can never be the lowest (tie with itself)
@@ -12,7 +12,7 @@ baseline [bb]: passed
  10 KILLED   [bb] src/footprint/backtest/bollinger.py: a break on the touch bar does not cancel
  11 KILLED   [bb] src/footprint/backtest/bollinger.py: every walk confirm fires, not only the first
  12 KILLED   [bb] src/footprint/backtest/bollinger.py: walk window one bar longer
- 13 SURVIVED [bb] src/footprint/backtest/bollinger.py: a flat middle line counts as rising
+ 13 KILLED   [bb] src/footprint/backtest/bollinger.py: a flat middle line counts as rising
  14 KILLED   [bb] src/footprint/backtest/bollinger.py: a close on the lower band counts as inside
  15 KILLED   [bb] src/footprint/backtest/bollinger.py: bounce without the candle direction
  16 KILLED   [bb] src/footprint/backtest/bollinger.py: a low exactly at the lower band is not a touch
@@ -24,4 +24,4 @@ baseline [bb]: passed
  22 KILLED   [bb] src/footprint/backtest/engine.py: the engine drops the rule console
  23 KILLED   [bb] src/footprint/backtest/__main__.py: the CLI never builds the rule console
  24 KILLED   [bb] src/footprint/backtest/settings.py: a bad bollinger number escapes as ValueError
-24 mutants, 1 survived or errored
+24 mutants, 0 survived or errored
