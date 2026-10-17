@@ -502,4 +502,8 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   is at or beyond the near band, so it can never be beyond the far band.
   Round 2 (hostile review of 998821b, NOT_CERTIFIED): probes Q1, Q3-Q8 and R5-R10 added.
   Argued equivalent: Q2 (`max(fast, slow)` replaced by `slow`), since BollingerSettings
-  now refuses fast_minutes >= slow_minutes; Q9 is claim (e).
+  now refuses fast_minutes >= slow_minutes; Q9 is claim (e); (f) R1 (the cancel scan
+  from the touch bar instead of the bar after the last walk close) is now equivalent and
+  dropped from the spec: every bar between them lies inside the lookback after the last
+  walk close, so a break there resets the walk count to zero and the touch is already
+  refused before the scan.

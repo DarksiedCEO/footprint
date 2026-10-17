@@ -289,6 +289,14 @@ def test_a_fresh_walk_after_a_break_fires() -> None:
     assert walk_fires(bars, flat(5), S) is Score.BULLISH
 
 
+def test_the_walk_closes_before_a_break_do_not_hide_a_fresh_walk() -> None:
+    # walk close, break, two fresh walk closes, touch, entry: the fresh walk fires
+    long = replace(S, walk_lookback=4)
+    bars = [bar(0, 111), bar(1, 89), bar(2, 111), bar(3, 110)]
+    bars += [bar(4, 105, hi=106, lo=100), bar(5, 107)]
+    assert walk_fires(bars, flat(6), long) is Score.BULLISH
+
+
 def rising_bands(count: int, step: int = 1) -> list[Band | None]:
     return [Band(D(90 + i * step), D(100 + i * step), D(110 + i * step)) for i in range(count)]
 

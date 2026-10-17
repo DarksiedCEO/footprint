@@ -253,13 +253,6 @@
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "if any(cancels(k) for k in range(last_walk + 1, i + 1)):",
-   "if any(cancels(k) for k in range(t, i + 1)):",
-   "R1 the old cancel scan (a later touch skips the break)"
-  ],
-  [
-   "bb",
-   "src/footprint/backtest/bollinger.py",
    "walked, last_walk = walked + 1, k",
    "walked, last_walk = walked + 1, last_walk",
    "R2 the last walk close is never recorded"
