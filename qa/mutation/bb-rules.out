@@ -1,4 +1,4 @@
-source: e18041b99b9f4722f4edeabf986e63972c49af6d tree-dirty: 0 files
+source: 0dd76b8e2ec84311343489584b797278d3023a46 tree-dirty: 0 files
 baseline [bb]: passed
   1 KILLED   [bb] src/footprint/backtest/bollinger.py: a close ON the band counts as outside
   2 KILLED   [bb] src/footprint/backtest/bollinger.py: the squeeze bar can never be the lowest (tie with itself)
@@ -35,8 +35,20 @@ baseline [bb]: passed
  33 KILLED   [bb] src/footprint/backtest/bollinger.py: P9 short walk: close ON lower band not counted
  34 KILLED   [bb] src/footprint/backtest/bollinger.py: P10 slope compared one bar too recent
  35 KILLED   [bb] src/footprint/backtest/bollinger.py: P11 short bounce: close ON upper band counts as inside
- 36 KILLED   [bb] src/footprint/backtest/bollinger.py: R1 the old cancel scan (a later touch skips the break)
- 37 KILLED   [bb] src/footprint/backtest/bollinger.py: R2 the last walk close is never recorded
- 38 KILLED   [bb] src/footprint/backtest/settings.py: R3 exactly enough engine history refused
- 39 KILLED   [bb] src/footprint/backtest/settings.py: R4 engine history checked in bars, not minutes
-39 mutants, 0 survived or errored
+ 36 KILLED   [bb] src/footprint/backtest/bollinger.py: R2 the last walk close is never recorded
+ 37 KILLED   [bb] src/footprint/backtest/settings.py: R3 exactly enough engine history refused
+ 38 KILLED   [bb] src/footprint/backtest/settings.py: R4 engine history checked in bars, not minutes
+ 39 KILLED   [bb] src/footprint/backtest/bollinger.py: Q1 cancel scan starts after the FIRST walk close
+ 40 KILLED   [bb] src/footprint/backtest/bollinger.py: Q3 short walk: high exactly at the middle not a touch
+ 41 KILLED   [bb] src/footprint/backtest/bollinger.py: Q4 short bounce: high exactly at the upper band not a touch
+ 42 KILLED   [bb] src/footprint/backtest/bollinger.py: Q5 short squeeze: close ON the lower band counts as outside
+ 43 KILLED   [bb] src/footprint/backtest/bollinger.py: Q6 short bounce: a doji counts as a down candle
+ 44 KILLED   [bb] src/footprint/backtest/bollinger.py: Q7 short walk: close ON the middle confirms
+ 45 KILLED   [bb] src/footprint/backtest/bollinger.py: Q8 long walk: close ON the lower band cancels
+ 46 KILLED   [bb] src/footprint/backtest/bollinger.py: R5 a break inside the lookback does not reset the walk count
+ 47 KILLED   [bb] src/footprint/backtest/bollinger.py: R6 an entry bar arms a second walk entry
+ 48 KILLED   [bb] src/footprint/backtest/bollinger.py: R7 an entry bar arms a second bounce entry
+ 49 KILLED   [bb] src/footprint/backtest/bollinger.py: R8 any entry-looking touch is skipped in the walk
+ 50 KILLED   [bb] src/footprint/backtest/bollinger.py: R9 any hammer touch is skipped in the bounce
+ 51 KILLED   [bb] src/footprint/backtest/bollinger.py: R10 fast_minutes not below slow_minutes accepted
+51 mutants, 0 survived or errored

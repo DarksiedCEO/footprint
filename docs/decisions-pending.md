@@ -488,8 +488,8 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
 - **BB-5 for Andre:** iron condors / credit spreads parked: they sell option legs, which
   "never go short" forbids as written.
-- **BB-6 mutation evidence:** `qa/mutation/bb-rules.json` / `.out`: 39 mutants, 39 killed on
-  clean e18041b (round 1 was 24/24 on 961ab8e). Argued equivalent, not run: (a) S3 "the latest touch decides" replaced by
+- **BB-6 mutation evidence:** `qa/mutation/bb-rules.json` / `.out`: 51 mutants, 51 killed on
+  clean 0dd76b8 (round 1 was 24/24 on 961ab8e, round 2 39/39 on e18041b). Argued equivalent, not run: (a) S3 "the latest touch decides" replaced by
   scanning older touches: an older touch can only pass "first confirm since the touch" if
   no confirm lies after it, which also holds for the latest touch, so the answer is the
   same; (b) the one-minute fast path (no resample) gives the same bars as resampling at one
