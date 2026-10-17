@@ -455,3 +455,27 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
 - **N-OPEN-1 (D3 interaction, important):** D3 (open) says the effective prime entry window is **06:31–13:55 PT**: VWAP is anchored at the cash open, so the levels and VWAP checks fail closed before 06:30. While D3 stays as it is, **no entry can happen between 04:00 and 06:30 PT**, so the 05:32–05:45 news entry window, N4 and the 05:25 blackout change nothing in prime. A trade positioned before the open, which Andre asked about, would need D3 changed: anchor VWAP at the 04:00 prime start.
 - **N-OPEN-2:** if D3 changes, does the news time stop (10 minutes, +$250) apply to the 05:32–05:45 window every day under N1, or only on days with a real release?
 - **N-OPEN-3:** Andre named a flat window ending at 03:59 AM PT ("… to 3:59 AM"), but its start time did not come through. Today the code only requires an overnight position to be flat by 03:59 PT (`overnight_must_be_flat`); nothing blocks entries earlier in the overnight session.
+
+## Bollinger Band entries (branch bb-rules-v1, backtest only; Andre 2026-10-17)
+
+- **BB-0 APPROVED BY ANDRE 2026-10-17:** the rule sheet in docs/strategy-rules.md
+  ("Bollinger Band entries"), 3 setups x 2 timeframes x 2 scalp exits, old confirmers OFF.
+- **BB-1 built:** `src/footprint/backtest/bollinger.py` (detectors + trigger),
+  `src/footprint/backtest/rule_console.py` (prime-session and close-lead gates only;
+  direction from the rule), `Pipeline(profiles, trigger, console)` and
+  `Backtest(..., console=...)` take an optional console. With none named, the live console
+  is built exactly as before (test pins it); nothing outside footprint.backtest imports
+  the rule console.
+- **BB-2 for Andre (DEFAULTS):** every number under `rules: bollinger:` (period, width,
+  bar lengths, squeeze lookback/window, walk lookback/closes/window, slope bars, bounce
+  window).
+- **BB-3 for Andre (readings):** population standard deviation; a "touch" at or beyond the
+  line; a close "outside" strictly beyond; 5-minute rules answer once per completed bar
+  (a 5-minute bucket whose last minute never printed is skipped); bands continue across
+  session breaks; S2: a close beyond the far band on the touch bar cancels; S3: the
+  latest touch in the window decides.
+- **BB-4 test configs (Andre's Mac, never committed):** copies of config/ with
+  risk.profit_target/stop_loss/stop_min set to 500/400/400 (E1) or 700/500/500 (E2),
+  max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
+- **BB-5 for Andre:** iron condors / credit spreads parked: they sell option legs, which
+  "never go short" forbids as written.
