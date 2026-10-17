@@ -223,7 +223,8 @@ def test_bounce_fires_on_the_first_up_close_back_inside_after_a_lower_band_touch
 
 
 def test_bounce_needs_a_rising_middle_line() -> None:
-    bars = [bar(0, 100), bar(1, 101), bar(2, 93, lo=92), bar(3, 103, o=100)]
+    # a real touch of the lower band and an up close back inside: only the slope is missing
+    bars = [bar(0, 100), bar(1, 101), bar(2, 91, lo=89), bar(3, 103, o=100)]
     assert bounce_fires(bars, flat(4), S) is Score.NEUTRAL
 
 
