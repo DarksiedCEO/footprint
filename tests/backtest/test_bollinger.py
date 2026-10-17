@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import random
 import shutil
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -131,6 +132,12 @@ def test_the_second_close_outside_after_a_squeeze_does_not_fire() -> None:
     assert squeeze_fires(bars, bs, S) is Score.NEUTRAL
 
 
+def test_the_second_close_below_after_a_squeeze_does_not_fire() -> None:
+    bs = squeeze_bands([20, 20, 20, 10, 20, 20])
+    bars = [bar(i, 100) for i in range(4)] + [bar(4, 89), bar(5, 88)]
+    assert squeeze_fires(bars, bs, S) is Score.NEUTRAL
+
+
 def test_a_breakout_at_the_window_edge_fires_one_bar_later_does_not() -> None:
     edge = squeeze_bands([20, 20, 20, 10, 20, 20])  # squeeze at 3, breakout at 5 = 2 bars
     assert squeeze_fires([bar(i, 100) for i in range(5)] + [bar(5, 111)], edge, S) is (
@@ -200,6 +207,29 @@ def test_a_close_below_the_lower_band_cancels_the_walk() -> None:
     assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL
 
 
+def test_a_break_cannot_be_skipped_by_a_later_touch() -> None:
+    # bar 2 closes below the lower band; bar 3 dips to the middle after it (hostile review)
+    bars = [bar(0, 111), bar(1, 110), bar(2, 89), bar(3, 95, hi=96, lo=94), bar(4, 107)]
+    assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL
+
+
+def test_a_short_walk_is_cancelled_by_a_close_above_the_upper_band() -> None:
+    on_touch = [bar(0, 89), bar(1, 90), bar(2, 95, hi=100, lo=94), bar(3, 111), bar(4, 93)]
+    assert walk_fires(on_touch, flat(5), S) is Score.NEUTRAL
+    later = [bar(0, 89), bar(1, 90), bar(2, 111), bar(3, 105, hi=106, lo=104), bar(4, 93)]
+    assert walk_fires(later, flat(5), S) is Score.NEUTRAL
+
+
+def test_walk_closes_count_back_exactly_the_lookback() -> None:
+    # touch at bar 3; the lookback is bars 0..2, so the walk close on bar 0 counts
+    edge = [bar(0, 111), bar(1, 105), bar(2, 110), bar(3, 105, hi=106, lo=100), bar(4, 107)]
+    assert walk_fires(edge, flat(5), S) is Score.BULLISH
+    # one bar further back (touch at bar 4, walk close on bar 0) does not
+    late = [bar(0, 111), bar(1, 105), bar(2, 105), bar(3, 110)]
+    late += [bar(4, 105, hi=106, lo=100), bar(5, 107)]
+    assert walk_fires(late, flat(6), S) is Score.NEUTRAL
+
+
 def test_only_the_first_walk_entry_fires() -> None:
     bars = walk_bars(bar(3, 107), bar(4, 108))
     assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL
@@ -208,6 +238,19 @@ def test_only_the_first_walk_entry_fires() -> None:
 def test_walk_short_is_the_mirror() -> None:
     bars = [bar(0, 89), bar(1, 90), bar(2, 95, hi=100, lo=94), bar(3, 93)]
     assert walk_fires(bars, flat(len(bars)), S) is Score.BEARISH
+
+
+def test_walk_short_needs_a_close_below_the_prior_low() -> None:
+    bars = [bar(0, 89), bar(1, 90), bar(2, 95, hi=100, lo=94), bar(3, 95)]
+    assert walk_fires(bars, flat(len(bars)), S) is Score.NEUTRAL
+
+
+def test_walk_can_fire_on_two_bars_in_a_row_for_andre_to_confirm() -> None:
+    # bar 3 confirms and also dips to the middle, which arms a new pullback for bar 4
+    bars = walk_bars(bar(3, 107, hi=107, lo=100))
+    assert walk_fires(bars, flat(len(bars)), S) is Score.BULLISH
+    again = [*bars, bar(4, 108)]
+    assert walk_fires(again, flat(len(again)), S) is Score.BULLISH
 
 
 # --- band bounce ----------------------------------------------------------------------
@@ -254,6 +297,33 @@ def test_bounce_short_is_the_mirror() -> None:
     assert bounce_fires(bars, falling, S) is Score.BEARISH
 
 
+def test_a_short_bounce_closing_on_the_upper_band_is_not_back_inside() -> None:
+    bars = [bar(0, 100), bar(1, 99), bar(2, 107, hi=108), bar(3, 107, o=109)]
+    falling = [Band(D(90 - i), D(100 - i), D(110 - i)) for i in range(4)]
+    assert bounce_fires(bars, falling, S) is Score.NEUTRAL  # upper band at bar 3 is 107
+
+
+def test_a_touch_at_the_window_edge_counts() -> None:
+    # touch on bar 2, entry on bar 4: two bars back, the edge of a two-bar window
+    bars = [bar(0, 100), bar(1, 101), bar(2, 93, lo=92), bar(3, 99, o=100), bar(4, 104, o=102)]
+    assert bounce_fires(bars, rising_bands(5), S) is Score.BULLISH
+
+
+def test_the_slope_is_measured_exactly_slope_bars_back() -> None:
+    # the middle is 100 two bars back and now, 99 one bar back: flat, so no bounce
+    bs: list[Band | None] = [Band(D(m - 10), D(m), D(m + 10)) for m in (100, 100, 99, 100)]
+    bars = [bar(0, 100), bar(1, 101), bar(2, 90, lo=88), bar(3, 103, o=100)]
+    assert bounce_fires(bars, bs, S) is Score.NEUTRAL
+
+
+def test_bounce_can_fire_on_two_bars_in_a_row_for_andre_to_confirm() -> None:
+    # bar 2 touches the lower band and closes back inside on an up candle
+    bars = [bar(0, 100), bar(1, 90, lo=90), bar(2, 95, o=93, lo=91)]
+    assert bounce_fires(bars, rising_bands(3), S) is Score.BULLISH
+    again = [*bars, bar(3, 104, o=102)]
+    assert bounce_fires(again, rising_bands(4), S) is Score.BULLISH
+
+
 # --- the trigger ----------------------------------------------------------------------
 
 
@@ -281,6 +351,18 @@ def test_the_slow_trigger_answers_only_when_its_bar_just_completed(
     assert [b.ts for b in seen[-1]][-1] == T0 + 10 * MIN
     assert all(b.ts.minute % 5 == 0 for b in seen[-1])
     assert len(seen[-1]) <= S.history
+    full = trigger.read(minutes(S.history * S.slow_minutes + 20))
+    assert full.score is Score.BULLISH
+    assert len(seen[-1]) == S.history  # history five-minute bars, not one-minute ones
+
+
+def test_history_reaches_back_the_longest_setup() -> None:
+    squeeze = replace(S, squeeze_lookback=50)
+    assert squeeze.history == S.period + S.squeeze_window + 50 + 1
+    walk = replace(S, walk_lookback=50)
+    assert walk.history == S.period + S.walk_window + 50 + 1
+    assert replace(S, bounce_window=70).history == S.period + 70 + 1
+    assert replace(S, slope_bars=70).history == S.period + 70 + 1
 
 
 def test_the_fast_trigger_answers_every_minute(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -325,6 +407,51 @@ def test_settings_refuse_impossible_numbers() -> None:
         replace(S, bounce_window=0)
 
 
+def random_walk(count: int, seed: int) -> list[Bar]:
+    """Calm and wild stretches in turn, so bands squeeze, walk and get touched."""
+    rng = random.Random(seed)
+    out: list[Bar] = []
+    price = 20000.0
+    for i in range(count):
+        vol = 2.0 if (i // 150) % 2 else 12.0
+        o = price
+        price += rng.gauss(0, vol)
+        hi = max(o, price) + abs(rng.gauss(0, vol / 2))
+        lo = min(o, price) - abs(rng.gauss(0, vol / 2))
+        out.append(
+            Bar(
+                symbol="NQ",
+                ts=T0 + i * MIN,
+                open=D(f"{o:.2f}"),
+                high=D(f"{hi:.2f}"),
+                low=D(f"{lo:.2f}"),
+                close=D(f"{price:.2f}"),
+                volume=100,
+            )
+        )
+    return out
+
+
+WALK = random_walk(3000, seed=7)
+
+
+@pytest.mark.parametrize("setup", ["squeeze", "walk", "bounce"])
+@pytest.mark.parametrize("slow", [False, True])
+def test_each_setup_fires_long_and_short_on_the_config_numbers(
+    setup: str, slow: bool, settings: BacktestSettings
+) -> None:
+    b = settings.rules.bollinger
+    span = b.slow_minutes if slow else b.fast_minutes
+    trigger = BollingerTrigger(b, setup, span)
+    need = b.history * span
+    seen: set[Score] = set()
+    for end in range(need, len(WALK) + 1, span):  # each completed bar of the timeframe
+        seen.add(trigger.read(WALK[end - need : end]).score)
+        if {Score.BULLISH, Score.BEARISH} <= seen:
+            break
+    assert {Score.BULLISH, Score.BEARISH} <= seen
+
+
 # --- config and registry --------------------------------------------------------------
 
 
@@ -340,6 +467,21 @@ def test_a_bad_bollinger_number_is_a_config_error(tmp_path: Path) -> None:
     text = (REPO_ROOT / "config" / "backtest.yaml").read_text()
     path.write_text(text.replace("walk_min_closes: 3", "walk_min_closes: 99"))
     with pytest.raises(ConfigError, match="rules: bollinger: "):
+        load_backtest(path)
+
+
+def test_an_engine_history_too_short_for_the_rules_is_a_config_error(
+    tmp_path: Path, settings: BacktestSettings
+) -> None:
+    b = settings.rules.bollinger
+    need = b.history * b.slow_minutes
+    path = tmp_path / "backtest.yaml"
+    text = (REPO_ROOT / "config" / "backtest.yaml").read_text()
+    assert "history_minutes: 43200" in text
+    path.write_text(text.replace("history_minutes: 43200", f"history_minutes: {need}"))
+    assert load_backtest(path).engine.history_minutes == need  # exactly enough is fine
+    path.write_text(text.replace("history_minutes: 43200", f"history_minutes: {need - 1}"))
+    with pytest.raises(ConfigError, match="history_minutes must cover the bollinger rules"):
         load_backtest(path)
 
 
@@ -430,6 +572,35 @@ def test_the_rule_console_keeps_the_session_gate(profiles: Profiles) -> None:
     )
     assert not verdict.go
     assert "prime_session" in [g.name for g in verdict.failed]
+
+
+def test_the_rule_console_keeps_the_close_lead_gate(profiles: Profiles) -> None:
+    from footprint.agents.zero_day import ZeroDayCheck
+    from footprint.core.calendar import entry_cutoff
+    from footprint.decision.console.desmond import ConsoleInputs
+
+    console = RuleConsole(profiles.strategy.console, profiles.instrument)
+    lead = profiles.strategy.console.close_lead_minutes
+    cutoff = entry_cutoff(DECISION_TIME, profiles.instrument, lead).astimezone(UTC)
+
+    def failed(when: datetime) -> list[str]:
+        read = Read("momentum", when, Score.BULLISH, "stub")
+        verdict = console.evaluate(
+            ConsoleInputs(
+                as_of=when,
+                trend=read,
+                momentum=read,
+                volume=read,
+                zero_day=ZeroDayCheck(when, False, ()),
+                levels=None,  # type: ignore[arg-type]
+                range_days=None,
+                n_points=D(1),
+            )
+        )
+        return [g.name for g in verdict.failed]
+
+    assert failed(cutoff - MIN) == []
+    assert failed(cutoff) == ["before_close_lead"]
 
 
 def test_with_no_console_named_the_pipeline_builds_the_live_console(profiles: Profiles) -> None:

@@ -292,6 +292,9 @@ How the words are read in code (src/footprint/backtest/bollinger.py, for Andre t
 standard deviation is the population one; a touch counts at or beyond the line, a close
 outside is strictly beyond the band; on 5-minute bars a rule answers only on the minute a
 5-minute bar completes; bands run across session breaks as a chart draws them; in S2 a
-close below the lower band on the touch bar itself also cancels (that is a break, not a
-pullback); in S3 the latest touch in the window decides. Synthetic test bars say nothing
+close below the lower band on any bar after the last walk close cancels, the touch bar
+included (that is a break, not a pullback), and a bar wholly below the middle line still
+counts as a touch; in S3 the latest touch in the window decides, the slope is measured
+at the signal bar, and "closes up" means close above open; in S2 and S3 a confirming bar
+that is also a touch arms a new setup, so a rule can fire on two bars in a row. Synthetic test bars say nothing
 about profitability.

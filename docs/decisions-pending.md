@@ -472,8 +472,14 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
 - **BB-3 for Andre (readings):** population standard deviation; a "touch" at or beyond the
   line; a close "outside" strictly beyond; 5-minute rules answer once per completed bar
   (a 5-minute bucket whose last minute never printed is skipped); bands continue across
-  session breaks; S2: a close beyond the far band on the touch bar cancels; S3: the
-  latest touch in the window decides.
+  session breaks; S2: a close beyond the far band on ANY bar after the last walk close
+  cancels (the touch bar included, and a later "touch" cannot restart the pullback after
+  a break; fixed 2026-10-17 after the hostile review, so bb_walk_* runs made before this
+  fix are void); S2: a touch bar may lie wholly beyond the middle line; S3: the latest
+  touch in the window decides; S3: the slope is measured at the signal bar, not the touch
+  bar; "closes up" = close above open; S2 and S3: a confirming bar that is also a touch
+  arms a new setup, so the rule can fire on two bars in a row (one position at a time
+  still applies; Andre to say whether a second fire should be blocked).
 - **BB-4 test configs (Andre's Mac, never committed):** copies of config/ with
   risk.profit_target/stop_loss/stop_min set to 500/400/400 (E1) or 700/500/500 (E2),
   max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
@@ -487,3 +493,7 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   minute (speed only); (c) the rule console's `rule_has_direction` gate: a verdict with no
   direction is never a go anyway (it is there for the journal's reason); (d) the `+ 1` in
   `BollingerSettings.history`: one spare bar of look-back, never read by any setup.
+  Round 2 (hostile review of 82b2b5a, NOT_CERTIFIED): the reviewer's 11 probes P1-P11 are
+  folded into the spec; see `bb-rules.out` for the re-run. Argued equivalent: (e) the S2
+  cancel scan starting at the last walk close instead of the bar after it: a walk close
+  is at or beyond the near band, so it can never be beyond the far band.

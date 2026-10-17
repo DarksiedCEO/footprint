@@ -106,9 +106,14 @@ def load_backtest(path: Path) -> BacktestSettings:
     for name in ("min_win_rate_pct", "max_drawdown_pct", "out_of_sample_pct"):
         if getattr(gates, name) >= _PERCENT_MAX:
             raise ConfigError(f"{g_where}: {name} must be below {_PERCENT_MAX}")
-    return BacktestSettings(
-        option_model=option_model, engine=engine, gates=gates, rules=_rules(raw["rules"], where)
-    )
+    rules = _rules(raw["rules"], where)
+    b = rules.bollinger
+    need = b.history * max(b.fast_minutes, b.slow_minutes)
+    if engine.history_minutes < need:
+        raise ConfigError(
+            f"{e_where}: history_minutes must cover the bollinger rules ({need} minutes)"
+        )
+    return BacktestSettings(option_model=option_model, engine=engine, gates=gates, rules=rules)
 
 
 def _rules(raw: object, where: str) -> RuleSettings:

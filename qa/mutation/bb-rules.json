@@ -71,9 +71,9 @@
   [
    "bb",
    "src/footprint/backtest/bollinger.py",
-   "if any(cancels(k) for k in range(t, n + 1)):",
-   "if any(cancels(k) for k in range(t + 1, n + 1)):",
-   "a break on the touch bar does not cancel"
+   "if any(cancels(k) for k in range(last_walk + 1, n + 1)):",
+   "if any(cancels(k) for k in range(last_walk + 2, n + 1)):",
+   "a break on the first bar after the walk does not cancel"
   ],
   [
    "bb",
@@ -172,6 +172,111 @@
    "    except ValueError as exc:\n        raise ConfigError(f\"{b_where}: {exc}\") from exc",
    "    except TypeError as exc:\n        raise ConfigError(f\"{b_where}: {exc}\") from exc",
    "a bad bollinger number escapes as ValueError"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "need = self._s.history * self._minutes",
+   "need = self._s.history",
+   "P1 slow rules handed history ONE-minute bars (starved)"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "self.squeeze_window + self.squeeze_lookback,",
+   "self.squeeze_window,",
+   "P2 history ignores squeeze_lookback (default squeeze can never fire)"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "for k in range(t - s.walk_lookback, t):",
+   "for k in range(t - s.walk_lookback + 1, t):",
+   "P3 walk lookback one bar shorter"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "for t in range(n - 1, max(n - s.bounce_window, 0) - 1, -1):",
+   "for t in range(n - 1, max(n - s.bounce_window + 1, 0) - 1, -1):",
+   "P4 bounce window one bar shorter"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close > b.upper if rising else bars[k].close < b.lower",
+   "return bars[k].close > b.upper if rising else False",
+   "P5 short squeeze: a second close below fires again"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/rule_console.py",
+   "                local < cutoff,",
+   "                True,",
+   "P6 rule console drops the close-lead gate"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close < b.middle and bars[k].close < bars[k - 1].low",
+   "return bars[k].close < b.middle",
+   "P7 short walk without the prior-low condition"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "return bars[k].close < b.lower if rising else bars[k].close > b.upper",
+   "return bars[k].close < b.lower if rising else False",
+   "P8 short walk never cancelled"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if (bars[k].close >= kb.upper) if rising else (bars[k].close <= kb.lower):",
+   "if (bars[k].close >= kb.upper) if rising else (bars[k].close < kb.lower):",
+   "P9 short walk: close ON lower band not counted"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "now, before = _band(bs, n), _band(bs, n - s.slope_bars)",
+   "now, before = _band(bs, n), _band(bs, n - s.slope_bars + 1)",
+   "P10 slope compared one bar too recent"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "inside = b.lower < bar.close < b.upper",
+   "inside = b.lower < bar.close <= b.upper",
+   "P11 short bounce: close ON upper band counts as inside"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "if any(cancels(k) for k in range(last_walk + 1, n + 1)):",
+   "if any(cancels(k) for k in range(t, n + 1)):",
+   "R1 the old cancel scan (a later touch skips the break)"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/bollinger.py",
+   "walked, last_walk = walked + 1, k",
+   "walked, last_walk = walked + 1, last_walk",
+   "R2 the last walk close is never recorded"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/settings.py",
+   "if engine.history_minutes < need:",
+   "if engine.history_minutes <= need:",
+   "R3 exactly enough engine history refused"
+  ],
+  [
+   "bb",
+   "src/footprint/backtest/settings.py",
+   "need = b.history * max(b.fast_minutes, b.slow_minutes)",
+   "need = b.history",
+   "R4 engine history checked in bars, not minutes"
   ]
  ]
 }

@@ -21,12 +21,16 @@ How each word is read here (for Andre to confirm):
   least `walk_min_closes` closes at or above the upper band in the `walk_lookback` bars
   before it. Long: the first later bar, within `walk_window` bars of the touch, that
   closes above the middle line and above the prior bar's high. A close below the lower
-  band on the touch bar or after it cancels it (such a bar is a break, not a pullback).
-  Short: the mirror.
+  band on any bar after the last walk close cancels it (such a bar is a break, not a
+  pullback), so a later bar cannot start a fresh pullback after the break. A touch bar
+  may lie wholly below the middle line. Short: the mirror.
 - Band bounce: long when the middle line is higher than `slope_bars` bars ago, a bar
   within the last `bounce_window` bars touched the lower band, and this bar is the first
   since that touch to close back inside the bands on an up candle (close above open).
-  Short: the mirror (falling middle, upper band, down candle).
+  The slope is measured at the signal bar. Short: the mirror (falling middle, upper
+  band, down candle).
+- A confirming bar that is also a touch arms a new setup, so the walk and the bounce
+  can fire on two bars in a row (for Andre to confirm; one position at a time applies).
 
 Pure and stateless: the same bars give the same answer however often it is asked.
 """
@@ -185,16 +189,17 @@ def walk_fires(bars: Sequence[Bar], bs: Sequence[Band | None], s: BollingerSetti
             touched = bars[t].low <= b.middle if rising else bars[t].high >= b.middle
             if not touched:
                 continue
-            walked = 0
+            walked, last_walk = 0, t
             for k in range(t - s.walk_lookback, t):
                 kb = _band(bs, k)
                 if kb is None:
                     continue
                 if (bars[k].close >= kb.upper) if rising else (bars[k].close <= kb.lower):
-                    walked += 1
+                    walked, last_walk = walked + 1, k
             if walked < s.walk_min_closes:
                 continue
-            if any(cancels(k) for k in range(t, n + 1)):
+            # a break anywhere after the walk cancels, before the touch bar included
+            if any(cancels(k) for k in range(last_walk + 1, n + 1)):
                 continue
             if _first_since(t, n, confirms):
                 return Score.BULLISH if rising else Score.BEARISH
