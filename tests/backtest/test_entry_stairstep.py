@@ -44,7 +44,10 @@ def test_the_stair_rules_are_registered_and_built_from_the_backtest_file(
 
 
 def test_the_registered_rules_are_exactly_the_built_ones() -> None:
-    assert sorted(rules.ENTRY_RULES) == ["breakout", "pullback", "stairstep", "stairstep_vol"]
+    bollinger = [f"bb_{s}_{v}" for s in ("bounce", "squeeze", "walk") for v in ("fast", "slow")]
+    assert sorted(rules.ENTRY_RULES) == sorted(
+        ["breakout", "pullback", "stairstep", "stairstep_vol", *bollinger]
+    )
     assert sorted(rules.EXIT_RULES) == ["target", "time", "trail"]
 
 

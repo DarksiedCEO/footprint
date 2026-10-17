@@ -18,9 +18,11 @@ from pathlib import Path
 
 from footprint.backtest.engine import Backtest
 from footprint.backtest.readout import read_out, to_json, to_markdown
+from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.rules import (
     ENTRY_RULES,
     EXIT_RULES,
+    GATELESS_ENTRY_RULES,
     entry_rule_numbers,
     exit_rule_numbers,
 )
@@ -69,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         trade_from=args.trade_from,
         trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles, settings.rules),
         exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles, settings.rules),
+        console=(
+            RuleConsole(profiles.strategy.console, profiles.instrument)
+            if args.entry in GATELESS_ENTRY_RULES
+            else None
+        ),
     ).run()
     assumptions = {
         "option prices": "MODELLED from the futures price (no options history)",
@@ -85,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.entry is not None:
         assumptions["entry rule"] = args.entry
+        if args.entry in GATELESS_ENTRY_RULES:
+            assumptions["confirmers"] = (
+                "OFF (rule console: prime session and close lead only; no trend, zero-day, "
+                "levels, VWAP or score gate)"
+            )
         assumptions.update(entry_rule_numbers(args.entry, settings.rules))
     if args.exit is not None:
         assumptions["exit rule"] = args.exit

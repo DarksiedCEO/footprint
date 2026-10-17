@@ -252,3 +252,50 @@ position's entry time; the judgment is made once, on the first fresh quote trade
 management asks the rule about at or after the mark; "less than" is strict, so exactly
 +$250.00 at 10:00 keeps the trade; a keep is final (the baseline trail carries on); an
 out is held until the position is gone.
+
+## Bollinger Band entries (`bb-rules-v1`): APPROVED BY ANDRE 2026-10-17
+
+Why: on 4 months of real NQ 1-minute bars (2026-06-18 to 2026-10-16) the Q5 entries barely
+fire (about 88 raw signals, all blocked by the confirmers); with the confirmers loosened,
+breakout lost 8 of 8, stairstep never fired, pullback made 3 trades. Andre's direction: a
+chart agent reading Bollinger Bands decides the entry, quick scalps, up to about 8 trades a day.
+
+Rule sheet as approved ("looks good let's do it", 2026-10-17; also project doc
+`claude/bb-entry-rules-draft.md`):
+
+- Bands: 20-bar simple moving average of the close (middle) +/- 2 standard deviations.
+- Long = buy calls, short = buy puts. Never sell options. One position at a time.
+- Enter at the close of the signal bar (the existing entry path).
+- Kept: hard stop, kill switch, $2,000 daily loss cap, weekly cap. The old confirmers
+  (15-min trend, levels/VWAP, range score, zero-day guard) are OFF for these rules.
+- Test-only: up to 8 trades/day (live config stays at 4 until Andre changes it).
+- **S1 Squeeze breakout:** bandwidth = (upper - lower) / middle; a squeeze bar has the
+  lowest bandwidth of the last 120 bars. Long: within 10 bars after a squeeze bar, the
+  first bar that closes above the upper band. Short: mirror.
+- **S2 Band-walk pullback:** walk up = at least 3 closes at or above the upper band within
+  the last 10 bars; then a bar's low touches or crosses the middle line. Long: the first
+  later bar that closes above the middle line AND above the prior bar's high, within 10
+  bars of the touch. A close below the lower band cancels. Short: mirror.
+- **S3 Band bounce (with the trend):** uptrend = middle line higher than 5 bars ago; a
+  bar's low touches or goes below the lower band. Long: the first later bar, within 5
+  bars, that closes back inside the bands and closes up. Short: mirror.
+- Exits for the test: E1 +$500 / -$400, E2 +$700 / -$500, whole position, no trail
+  (the existing `target` exit with risk.profit_target and risk.stop_loss set in a test
+  config).
+- Timeframes: each setup on 1-minute (`_fast`) and 5-minute (`_slow`) bars.
+
+Every number above is a DEFAULT in config/backtest.yaml `rules: bollinger:` for Andre to
+confirm after real-data runs. Rule names: `bb_squeeze_fast`, `bb_squeeze_slow`,
+`bb_walk_fast`, `bb_walk_slow`, `bb_bounce_fast`, `bb_bounce_slow`.
+
+How the words are read in code (src/footprint/backtest/bollinger.py, for Andre to confirm):
+standard deviation is the population one; a touch counts at or beyond the line, a close
+outside is strictly beyond the band; on 5-minute bars a rule answers only on the minute a
+5-minute bar completes; bands run across session breaks as a chart draws them; in S2 a
+close below the lower band on any bar after the last walk close cancels, the touch bar
+included (that is a break, not a pullback), and a bar wholly below the middle line still
+counts as a touch; in S3 the latest touch in the window decides, the slope is measured
+at the signal bar, and "closes up" means close above open. Decided by Andre 2026-10-17:
+in S2 a close below the lower band inside the lookback resets the walk count; in S2 and
+S3 one setup gives one entry (a bar that fired cannot be the touch for a second entry). Synthetic test bars say nothing
+about profitability.
