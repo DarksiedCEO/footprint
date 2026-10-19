@@ -191,6 +191,20 @@ class QuoteField(Enum):
     OPEN_INTEREST = "OPEN_INTEREST"
 
 
+@dataclass(frozen=True, slots=True)
+class IbGreeks:
+    """IBKR's model computation for one option (MODEL_OPTION), exactly as sent. None: IBKR
+    did not compute that value, or sent something that is not a number. Nothing here is
+    checked against what an option can be: MarketData does that (core.options)."""
+
+    implied_vol: Decimal | None
+    delta: Decimal | None
+    gamma: Decimal | None
+    vega: Decimal | None
+    theta: Decimal | None
+    underlying_price: Decimal | None
+
+
 class IbMarketGateway(Protocol):
     """Every request id is >= MARKET_REQUEST_BASE and used once per session (ValueError
     otherwise): a cancelled request's late data must never pass for a new one's.
@@ -256,6 +270,10 @@ class IbMarketEvents(Protocol):
     def on_quote(self, req_id: int, field: QuoteField, value: Decimal | None) -> None:
         """None: IBKR says there is no such price now (no bid, no ask). Each call is a
         fresh tick; nothing is ever repeated, so a silent stream means stale data."""
+
+    def on_greeks(self, req_id: int, greeks: IbGreeks) -> None:
+        """IBKR's model computation for a streamed option (real-time only). Each call is a
+        fresh reading that replaces the one before it."""
 
     def on_bar(self, req_id: int, bar: IbBar) -> None:
         """A completed bar from history."""

@@ -1,0 +1,31 @@
+source: 49a02163db7869ccb9c9f315548884d3e6443822 tree-dirty: 9 files
+baseline [binding]: passed
+baseline [config]: passed
+baseline [core]: passed
+baseline [market]: passed
+  1 KILLED   [core] src/footprint/core/options.py: a call delta above 1 accepted
+  2 KILLED   [core] src/footprint/core/options.py: a put with a positive delta accepted
+  3 KILLED   [core] src/footprint/core/options.py: the lower delta bound made exclusive
+  4 KILLED   [core] src/footprint/core/options.py: a volatility of 0 accepted
+  5 KILLED   [core] src/footprint/core/options.py: a small negative gamma or vega accepted
+  6 KILLED   [core] src/footprint/core/options.py: an underlying of 0 accepted
+  7 KILLED   [core] src/footprint/core/options.py: NaN and infinity accepted
+  8 KILLED   [core] src/footprint/core/options.py: a reading with nothing computed is kept
+  9 KILLED   [core] src/footprint/core/options.py: a caller's wrong type swallowed as None
+ 10 KILLED   [core] src/footprint/core/options.py: a bad time turned into None
+ 11 KILLED   [core] src/footprint/core/options.py: right not type-checked
+ 12 KILLED   [binding] src/footprint/brokers/ibkr/binding.py: bid/ask/last and delayed computations forwarded
+ 13 KILLED   [binding] src/footprint/brokers/ibkr/binding.py: Greeks forwarded on a request announced as not real-time
+ 14 KILLED   [binding] src/footprint/brokers/ibkr/binding.py: a negative unset value read as a number
+ 15 KILLED   [binding] src/footprint/brokers/ibkr/binding.py: vega read from the gamma field
+ 16 KILLED   [binding] src/footprint/brokers/ibkr/binding.py: the option's price read as the underlying's
+ 17 KILLED   [market] src/footprint/brokers/ibkr/market.py: a reading exactly at its age limit refused
+ 18 KILLED   [market] src/footprint/brokers/ibkr/market.py: a future-stamped reading offered
+ 19 KILLED   [market] src/footprint/brokers/ibkr/market.py: Greeks aged on the quote limit
+ 20 KILLED   [market] src/footprint/brokers/ibkr/market.py: the future's line takes a reading
+ 21 KILLED   [market] src/footprint/brokers/ibkr/market.py: an impossible reading leaves the old one in place
+ 22 KILLED   [market] src/footprint/brokers/ibkr/market.py: a reading with nothing computed counted as rejected
+ 23 KILLED   [market] src/footprint/brokers/ibkr/market.py: rejections not counted
+ 24 KILLED   [market] src/footprint/brokers/ibkr/market.py: option_greeks skips every freshness check
+ 25 KILLED   [config] src/footprint/core/config.py: a Greeks age limit of 0 accepted
+25 mutants, 0 survived or errored

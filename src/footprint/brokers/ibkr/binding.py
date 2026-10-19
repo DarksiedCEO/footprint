@@ -60,6 +60,7 @@ from footprint.brokers.ibkr.gateway import (
     IbBar,
     IbContract,
     IbEvents,
+    IbGreeks,
     IbMarketEvents,
     IbOrderRequest,
     QuoteField,
@@ -104,6 +105,14 @@ def to_price(value: float) -> Decimal | None:
     if value == UNSET_DOUBLE or math.isnan(value) or math.isinf(value):
         return None
     return Decimal(repr(float(value)))
+
+
+def to_greek(value: float | None) -> Decimal | None:
+    """One value of IBKR's option computation as an exact Decimal; None when ibapi says
+    "not computed" (it sends None), or the value is unset (either sign) or not finite."""
+    if value is None or abs(value) == UNSET_DOUBLE:
+        return None
+    return to_price(value)
 
 
 def to_quantity(value: Decimal | float | int) -> int:
@@ -923,6 +932,34 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             "open interest",
             lambda m: m.on_quote(reqId, QuoteField.OPEN_INTEREST, Decimal(to_quantity(size))),
         )
+
+    def tickOptionComputation(
+        self,
+        reqId: int,
+        tickType: int,
+        tickAttrib: int,
+        impliedVol: float | None,
+        delta: float | None,
+        optPrice: float | None,
+        pvDividend: float | None,
+        gamma: float | None,
+        vega: float | None,
+        theta: float | None,
+        undPrice: float | None,
+    ) -> None:
+        """Only IBKR's real-time model computation: the bid/ask/last ones are volatility
+        implied by one side's price, and delayed data is never used."""
+        if tickType != TickTypeEnum.MODEL_OPTION or not self._is_live(reqId):
+            return
+        greeks = IbGreeks(
+            implied_vol=to_greek(impliedVol),
+            delta=to_greek(delta),
+            gamma=to_greek(gamma),
+            vega=to_greek(vega),
+            theta=to_greek(theta),
+            underlying_price=to_greek(undPrice),
+        )
+        self._market_guard(reqId, "greeks", lambda m: m.on_greeks(reqId, greeks))
 
     def historicalData(self, reqId: int, bar: BarData) -> None:
         self._market_guard(reqId, "bar", lambda m: m.on_bar(reqId, to_bar(bar)))

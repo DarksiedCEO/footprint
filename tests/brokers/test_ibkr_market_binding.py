@@ -12,6 +12,7 @@ if not os.environ.get("FOOTPRINT_REQUIRE_IBAPI"):
     pytest.importorskip("ibapi", reason="ibapi not installed: scripts/install_ibapi.py")
 
 from ibapi.common import BarData, TickAttrib
+from ibapi.const import UNSET_DOUBLE
 from ibapi.contract import Contract, ContractDetails
 from ibapi.ticktype import TickTypeEnum
 
@@ -23,6 +24,7 @@ from footprint.brokers.ibkr.gateway import (
     ContractQuery,
     IbBar,
     IbContract,
+    IbGreeks,
     QuoteField,
 )
 from tests.brokers.test_ibkr_binding import ACCOUNT, Events, bound, opened
@@ -597,3 +599,137 @@ def test_the_supervisor_survives_any_exception_and_reconnects() -> None:
     assert any("session failed unexpectedly" in a for a in alarms)
     connections = [args[0] for name, args in events.got if name == "on_connection"]
     assert connections == [Connection.CONNECTED, Connection.LOST] * 2
+
+
+# --- model Greeks (PR 35, greeks-quotes-v1) -------------------------------------------------
+# ibapi 10.50.02, wrapper.tickOptionComputation(reqId, tickType, tickAttrib, impliedVol,
+# delta, optPrice, pvDividend, gamma, vega, theta, undPrice); its decoder already turns
+# IBKR's "not computed" markers (-1, -2) into None. Only the model computation (tick type
+# 13, MODEL_OPTION) is forwarded: the bid/ask/last computations are IBKR's volatility
+# implied by one side's price, and delayed ones are never used.
+
+
+def computation(w: Any, req: int, tick_type: int, **values: Any) -> None:
+    v: dict[str, Any] = {
+        "impliedVol": 0.1834,
+        "delta": 0.512,
+        "optPrice": 151.5,
+        "pvDividend": 0.0,
+        "gamma": 0.0009,
+        "vega": 6.1,
+        "theta": -11.4,
+        "undPrice": 25012.25,
+        **values,
+    }
+    w.tickOptionComputation(
+        req,
+        tick_type,
+        0,
+        v["impliedVol"],
+        v["delta"],
+        v["optPrice"],
+        v["pvDividend"],
+        v["gamma"],
+        v["vega"],
+        v["theta"],
+        v["undPrice"],
+    )
+
+
+def test_the_model_computation_arrives_exactly() -> None:
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION)
+    assert market.got == [
+        (
+            "on_greeks",
+            (
+                REQ,
+                IbGreeks(
+                    implied_vol=D("0.1834"),
+                    delta=D("0.512"),
+                    gamma=D("0.0009"),
+                    vega=D("6.1"),
+                    theta=D("-11.4"),
+                    underlying_price=D("25012.25"),
+                ),
+            ),
+        )
+    ]
+
+
+def test_values_ibkr_did_not_compute_arrive_as_none() -> None:
+    binding, _, _, market = with_market()
+    computation(
+        binding._wrapper,
+        REQ,
+        TickTypeEnum.MODEL_OPTION,
+        impliedVol=None,
+        delta=None,
+        gamma=None,
+        vega=None,
+        theta=None,
+        undPrice=None,
+    )
+    assert market.got == [("on_greeks", (REQ, IbGreeks(None, None, None, None, None, None)))]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), UNSET_DOUBLE])
+def test_a_non_number_or_unset_value_arrives_as_none(bad: float) -> None:
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, gamma=bad, theta=-bad)
+    ((name, (req, greeks)),) = market.got
+    assert (name, req) == ("on_greeks", REQ)
+    assert (greeks.gamma, greeks.theta) == (None, None)
+    assert greeks.delta == D("0.512")  # the rest of the reading is untouched
+
+
+@pytest.mark.parametrize(
+    "tick_type",
+    [
+        TickTypeEnum.BID_OPTION_COMPUTATION,
+        TickTypeEnum.ASK_OPTION_COMPUTATION,
+        TickTypeEnum.LAST_OPTION_COMPUTATION,
+        TickTypeEnum.DELAYED_MODEL_OPTION,
+        TickTypeEnum.DELAYED_BID_OPTION,
+        TickTypeEnum.CUST_OPTION_COMPUTATION,
+    ],
+)
+def test_only_the_real_time_model_computation_gets_through(tick_type: int) -> None:
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, tick_type)
+    assert market.got == []
+
+
+def test_a_request_announced_as_not_real_time_gets_no_greeks() -> None:
+    binding, _, market, _ = with_market_and_alarms()
+    w = binding._wrapper
+    w.marketDataType(REQ, 2)
+    computation(w, REQ, TickTypeEnum.MODEL_OPTION)
+    computation(w, REQ + 1, TickTypeEnum.MODEL_OPTION)  # another request: live
+    assert [name for name, _ in market.got] == ["on_market_error", "on_greeks"]
+    assert market.got[1][1][0] == REQ + 1
+
+
+class RaisingOnGreeks(Events):
+    def on_greeks(self, *args: Any) -> None:
+        self.got.append(("on_greeks", args))
+        raise RuntimeError("service bug")
+
+
+def test_a_failing_greeks_handler_voids_only_its_request() -> None:
+    binding, client, _, alarms = opened()
+    market = RaisingOnGreeks()
+    binding.attach_market(market)
+    w = binding._wrapper
+    computation(w, REQ, TickTypeEnum.MODEL_OPTION)
+    computation(w, REQ, TickTypeEnum.MODEL_OPTION)  # void now: dropped
+    assert [name for name, _ in market.got] == ["on_greeks", "on_market_error"]
+    assert market.got[1][1][:2] == (REQ, MARKET_DATA_UNREADABLE)
+    assert "greeks" in market.got[1][1][2]
+    assert client.connected
+    assert sum("is void" in a for a in alarms) == 1
+
+
+def test_greeks_without_a_market_attached_are_dropped() -> None:
+    binding, _, _, _ = opened()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION)  # nothing raises

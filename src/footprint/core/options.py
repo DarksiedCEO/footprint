@@ -92,3 +92,77 @@ class OptionChain:
             if quote.contract_id in seen:
                 raise ValueError(f"OptionChain has duplicate contract {quote.contract_id!r}")
             seen.add(quote.contract_id)
+
+
+_GREEK_FIELDS = ("implied_vol", "delta", "gamma", "vega", "theta", "underlying_price")
+
+
+@dataclass(frozen=True, slots=True)
+class OptionGreeks:
+    """One option's model Greeks (IBKR's model computation), stamped when they arrived.
+
+    None is a value IBKR did not compute. A reading impossible for an option can never
+    be built: an implied volatility at or below 0, a call delta outside 0..1 or a put
+    delta outside -1..0, a negative gamma or vega, an underlying price at or below 0,
+    or any value that is not finite. Theta has no sign rule (a deep in-the-money
+    European option can gain value with time)."""
+
+    right: Right
+    implied_vol: Decimal | None
+    delta: Decimal | None
+    gamma: Decimal | None
+    vega: Decimal | None
+    theta: Decimal | None
+    underlying_price: Decimal | None
+    ts: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.right, Right):
+            raise TypeError("OptionGreeks.right must be a Right")
+        require_utc(self.ts, "OptionGreeks.ts")
+        for name in _GREEK_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if not isinstance(value, Decimal):
+                raise TypeError(f"OptionGreeks.{name} must be a Decimal or None")
+            if not value.is_finite():
+                raise ValueError(f"OptionGreeks.{name} must be finite, got {value}")
+        low, high = (
+            (Decimal(0), Decimal(1)) if self.right is Right.CALL else (-Decimal(1), Decimal(0))
+        )
+        if self.delta is not None and not low <= self.delta <= high:
+            raise ValueError(f"OptionGreeks.delta {self.delta} is impossible for a {self.right}")
+        if self.implied_vol is not None and self.implied_vol <= 0:
+            raise ValueError(f"OptionGreeks.implied_vol must be > 0, got {self.implied_vol}")
+        for name in ("gamma", "vega"):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"OptionGreeks.{name} must be >= 0, got {value}")
+        if self.underlying_price is not None and self.underlying_price <= 0:
+            raise ValueError(
+                f"OptionGreeks.underlying_price must be > 0, got {self.underlying_price}"
+            )
+
+
+def checked_greeks(
+    right: Right,
+    ts: datetime,
+    *,
+    implied_vol: Decimal | None,
+    delta: Decimal | None,
+    gamma: Decimal | None,
+    vega: Decimal | None,
+    theta: Decimal | None,
+    underlying_price: Decimal | None,
+) -> OptionGreeks | None:
+    """The reading as OptionGreeks, or None when nothing was computed or it is impossible
+    (see OptionGreeks). A value of the wrong type is a caller's bug and still raises."""
+    require_utc(ts, "checked_greeks ts")  # a bad time is a caller's bug, never a None
+    values = (implied_vol, delta, gamma, vega, theta, underlying_price)
+    if all(v is None for v in values):
+        return None
+    try:
+        return OptionGreeks(right, *values, ts=ts)
+    except ValueError:
+        return None

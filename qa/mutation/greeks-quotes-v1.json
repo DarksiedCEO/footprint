@@ -1,0 +1,193 @@
+{
+ "groups": {
+  "core": [
+   "tests/test_option_greeks.py"
+  ],
+  "binding": [
+   "tests/brokers/test_ibkr_market_binding.py"
+  ],
+  "market": [
+   "tests/brokers/test_ibkr_market_greeks.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "(Decimal(0), Decimal(1)) if self.right is Right.CALL else (-Decimal(1), Decimal(0))",
+   "(Decimal(0), Decimal(2)) if self.right is Right.CALL else (-Decimal(1), Decimal(0))",
+   "a call delta above 1 accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "(Decimal(0), Decimal(1)) if self.right is Right.CALL else (-Decimal(1), Decimal(0))",
+   "(Decimal(0), Decimal(1)) if self.right is Right.CALL else (-Decimal(1), Decimal(1))",
+   "a put with a positive delta accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "if self.delta is not None and not low <= self.delta <= high:",
+   "if self.delta is not None and not low < self.delta <= high:",
+   "the lower delta bound made exclusive"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "if self.implied_vol is not None and self.implied_vol <= 0:",
+   "if self.implied_vol is not None and self.implied_vol < 0:",
+   "a volatility of 0 accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "            if value is not None and value < 0:\n                raise ValueError(f\"OptionGreeks.{name} must be >= 0, got {value}\")",
+   "            if value is not None and value < -1:\n                raise ValueError(f\"OptionGreeks.{name} must be >= 0, got {value}\")",
+   "a small negative gamma or vega accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "if self.underlying_price is not None and self.underlying_price <= 0:",
+   "if self.underlying_price is not None and self.underlying_price < 0:",
+   "an underlying of 0 accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "            if not value.is_finite():",
+   "            if False:",
+   "NaN and infinity accepted"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "    if all(v is None for v in values):\n        return None",
+   "    if False:\n        return None",
+   "a reading with nothing computed is kept"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "    except ValueError:\n        return None",
+   "    except (ValueError, TypeError):\n        return None",
+   "a caller's wrong type swallowed as None"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "    require_utc(ts, \"checked_greeks ts\")  # a bad time is a caller's bug, never a None",
+   "    pass",
+   "a bad time turned into None"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "        if not isinstance(self.right, Right):\n            raise TypeError(\"OptionGreeks.right must be a Right\")",
+   "        pass",
+   "right not type-checked"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "        if tickType != TickTypeEnum.MODEL_OPTION or not self._is_live(reqId):",
+   "        if not self._is_live(reqId):",
+   "bid/ask/last and delayed computations forwarded"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "        if tickType != TickTypeEnum.MODEL_OPTION or not self._is_live(reqId):",
+   "        if tickType != TickTypeEnum.MODEL_OPTION:",
+   "Greeks forwarded on a request announced as not real-time"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "    if value is None or abs(value) == UNSET_DOUBLE:",
+   "    if value is None or value == UNSET_DOUBLE:",
+   "a negative unset value read as a number"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            vega=to_greek(vega),",
+   "            vega=to_greek(gamma),",
+   "vega read from the gamma field"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            underlying_price=to_greek(undPrice),",
+   "            underlying_price=to_greek(optPrice),",
+   "the option's price read as the underlying's"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "                    if g is None or g.ts > now or now - g.ts > self._max_greeks_age:",
+   "                    if g is None or g.ts > now or now - g.ts >= self._max_greeks_age:",
+   "a reading exactly at its age limit refused"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "                    if g is None or g.ts > now or now - g.ts > self._max_greeks_age:",
+   "                    if g is None or now - g.ts > self._max_greeks_age:",
+   "a future-stamped reading offered"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "        self._max_greeks_age = timedelta(seconds=execution.quotes.greeks_max_age_seconds)",
+   "        self._max_greeks_age = timedelta(seconds=execution.quotes.max_age_seconds)",
+   "Greeks aged on the quote limit"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if line is None or req_id == self._underlying:\n                return  # a cancelled or older stream's late reading, or the future",
+   "            if line is None:\n                return  # a cancelled or older stream's late reading, or the future",
+   "the future's line takes a reading"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            line.greeks = checked\n",
+   "            line.greeks = checked if checked is not None else line.greeks\n",
+   "an impossible reading leaves the old one in place"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if checked is None and computed:",
+   "            if checked is None:",
+   "a reading with nothing computed counted as rejected"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if checked is None and computed:\n                self._greeks_rejected += 1",
+   "            if checked is None and computed:\n                self._greeks_rejected += 0",
+   "rejections not counted"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "                    g = line.greeks\n",
+   "                    g = line.greeks\n                    return g\n",
+   "option_greeks skips every freshness check"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        greeks_max_age_seconds=_integer(q, \"greeks_max_age_seconds\", q_where, minimum=1),",
+   "        greeks_max_age_seconds=_integer(q, \"greeks_max_age_seconds\", q_where, minimum=0),",
+   "a Greeks age limit of 0 accepted"
+  ]
+ ]
+}
