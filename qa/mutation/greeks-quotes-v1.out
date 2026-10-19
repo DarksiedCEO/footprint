@@ -1,4 +1,4 @@
-source: 4ba1a89bf5c227c1f61b692e23120d1beb12b198 tree-dirty: 0 files
+source: db0eb7f60ccd1f672b817bc1735f23cca45e5071 tree-dirty: 0 files
 baseline [binding]: passed
 baseline [config]: passed
 baseline [core]: passed
@@ -32,7 +32,10 @@ baseline [market]: passed
  27 KILLED   [market] src/footprint/brokers/ibkr/market.py: rejections not counted
  28 KILLED   [market] src/footprint/brokers/ibkr/market.py: incomplete readings not counted
  29 KILLED   [market] src/footprint/brokers/ibkr/market.py: incomplete and not-computed swapped in the counters
- 30 KILLED   [market] src/footprint/brokers/ibkr/market.py: every dropped reading logged (log flood)
- 31 KILLED   [market] src/footprint/brokers/ibkr/market.py: option_greeks skips every freshness check
- 32 KILLED   [config] src/footprint/core/config.py: a Greeks age limit of 0 accepted
-32 mutants, 0 survived or errored
+ 30 KILLED   [market] src/footprint/brokers/ibkr/market.py: option_greeks skips every freshness check
+ 31 KILLED   [config] src/footprint/core/config.py: a Greeks age limit of 0 accepted
+ 32 KILLED   [market] src/footprint/brokers/ibkr/market.py: every dropped reading logged (log flood)
+ 33 KILLED   [market] src/footprint/brokers/ibkr/market.py: one log per contract only: a later kind hidden (reviewer round 2 finding 1)
+ 34 KILLED   [market] src/footprint/brokers/ibkr/market.py: incomplete readings never logged (reviewer R9)
+ 35 KILLED   [market] src/footprint/brokers/ibkr/market.py: the log set kept across sessions (reviewer R2)
+35 mutants, 0 survived or errored
