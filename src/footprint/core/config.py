@@ -677,6 +677,7 @@ def load_strategy(path: Path) -> StrategyProfile:
 @dataclass(frozen=True, slots=True)
 class QuoteSettings:
     max_age_seconds: int
+    greeks_max_age_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -781,7 +782,10 @@ def load_execution(path: Path) -> ExecutionProfile:
 
     q_where = f"{where}: quotes"
     q = _check_keys(raw["quotes"], {f.name for f in fields(QuoteSettings)}, q_where)
-    quotes = QuoteSettings(max_age_seconds=_integer(q, "max_age_seconds", q_where, minimum=1))
+    quotes = QuoteSettings(
+        max_age_seconds=_integer(q, "max_age_seconds", q_where, minimum=1),
+        greeks_max_age_seconds=_integer(q, "greeks_max_age_seconds", q_where, minimum=1),
+    )
 
     c_where = f"{where}: contract"
     c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)

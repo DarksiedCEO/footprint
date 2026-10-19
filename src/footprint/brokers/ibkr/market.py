@@ -53,13 +53,21 @@ from footprint.brokers.ibkr.gateway import (
     ContractQuery,
     IbBar,
     IbContract,
+    IbGreeks,
     IbMarketGateway,
     QuoteField,
 )
 from footprint.core.calendar import trading_day_at
 from footprint.core.config import ExecutionProfile, InstrumentProfile
 from footprint.core.models import Bar, require_utc
-from footprint.core.options import OptionChain, OptionQuote, Right
+from footprint.core.options import (
+    GreeksVerdict,
+    OptionChain,
+    OptionGreeks,
+    OptionQuote,
+    Right,
+    judge_greeks,
+)
 from footprint.execution.orders import Quote
 
 log = logging.getLogger("footprint.ibkr.market")
@@ -151,6 +159,7 @@ class _Line:
     bid_ts: datetime | None = None
     ask_ts: datetime | None = None
     open_interest: int | None = None
+    greeks: OptionGreeks | None = None  # IBKR's newest model computation, checked
 
     @property
     def ts(self) -> datetime | None:
@@ -218,6 +227,7 @@ class MarketData:
         self._s = execution.market_data
         self._option_type = execution.ibkr.option_security_type
         self._max_quote_age = timedelta(seconds=execution.quotes.max_age_seconds)
+        self._max_greeks_age = timedelta(seconds=execution.quotes.greeks_max_age_seconds)
         self._alarm_line = alarm
         self._clock = clock
         # Re-entrant: ibapi answers some requests on the caller's own thread (an error
@@ -234,6 +244,8 @@ class MarketData:
         self._history_ready = False
         self._complete_until: datetime | None = None
         self._revisions = 0
+        self._greeks_rejected = 0
+        self._greeks_incomplete = 0
         # Looked up again each trading day: new expiries and strikes are listed daily.
         self._params: dict[tuple[int, date], list[_Params]] = {}
         self._expiry_contracts: dict[tuple[str, str, date], tuple[IbContract, ...]] = {}
@@ -256,6 +268,8 @@ class MarketData:
         self._last_history_at: datetime | None = None
         self._polled_for: datetime | None = None
         self._outbox: list[Quote] = []
+        # (contract, verdict) pairs already logged this session
+        self._greeks_warned: set[tuple[str, GreeksVerdict]] = set()
 
     # --- what the runner reads -------------------------------------------------------------
 
@@ -364,6 +378,22 @@ class MarketData:
                     return self._fresh(line, now)
             return None
 
+    def option_greeks(self, contract_id: str, now: datetime) -> OptionGreeks | None:
+        """One streamed option's newest usable model Greeks (complete and possible: every
+        value present) while no older than `quotes.greeks_max_age_seconds`, or None. Greeks
+        age on their own clock: a fresh quote does not refresh an old reading."""
+        require_utc(now, "now")
+        with self._lock:
+            if not self._connected:
+                return None
+            for req, line in self._lines.items():
+                if req != self._underlying and line.contract_id == contract_id:
+                    g = line.greeks
+                    if g is None or g.ts > now or now - g.ts > self._max_greeks_age:
+                        return None
+                    return g
+            return None
+
     def _in_chain(self, contract: IbContract) -> bool:
         return self._chosen is not None and (contract.expiry, contract.trading_class) == (
             self._chosen
@@ -385,6 +415,20 @@ class MarketData:
         """Bars IBKR changed after a poll had already counted them complete."""
         with self._lock:
             return self._revisions
+
+    @property
+    def greeks_rejected(self) -> int:
+        """Model readings IBKR sent that are unreadable or impossible for the option (each
+        cleared the reading before it)."""
+        with self._lock:
+            return self._greeks_rejected
+
+    @property
+    def greeks_incomplete(self) -> int:
+        """Model readings with some values computed and some not (each cleared the
+        reading before it: only a complete reading is usable)."""
+        with self._lock:
+            return self._greeks_incomplete
 
     # --- IbMarketEvents (IBKR's message thread) ------------------------------------------
 
@@ -454,6 +498,47 @@ class MarketData:
                 quote = line.quote()
                 if quote is not None:
                     self._outbox.append(quote)
+
+    def on_greeks(self, req_id: int, greeks: IbGreeks) -> None:
+        """Keep the reading only if it is usable (complete and possible); otherwise clear
+        the one before it (it is no longer the market's). An unreadable, impossible or
+        incomplete reading is counted; a "nothing computed yet" one is not. The future's
+        line takes none."""
+        stamp = self._clock()
+        with self._lock:
+            line = self._lines.get(req_id)
+            if line is None or req_id == self._underlying:
+                return  # a cancelled or older stream's late reading, or the future
+            right = _RIGHTS.get(line.contract.right)
+            if greeks.unreadable or right is None:
+                verdict, checked = GreeksVerdict.IMPOSSIBLE, None
+            else:
+                verdict, checked = judge_greeks(
+                    right,
+                    stamp,
+                    implied_vol=greeks.implied_vol,
+                    delta=greeks.delta,
+                    gamma=greeks.gamma,
+                    vega=greeks.vega,
+                    theta=greeks.theta,
+                    underlying_price=greeks.underlying_price,
+                )
+            line.greeks = checked
+            if verdict is GreeksVerdict.IMPOSSIBLE:
+                self._greeks_rejected += 1
+            elif verdict is GreeksVerdict.INCOMPLETE:
+                self._greeks_incomplete += 1
+            else:
+                return
+            key = (line.contract_id, verdict)
+            if key not in self._greeks_warned:  # once per contract and kind per session
+                self._greeks_warned.add(key)
+                log.warning(
+                    "%s Greeks for %s dropped (only the first is logged this session): %s",
+                    verdict.value.lower(),
+                    line.contract_id,
+                    greeks,
+                )
 
     def on_bar(self, req_id: int, bar: IbBar) -> None:
         with self._lock:
