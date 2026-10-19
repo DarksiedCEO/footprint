@@ -109,7 +109,8 @@ def to_price(value: float) -> Decimal | None:
 
 def to_greek(value: float | None) -> Decimal | None:
     """One value of IBKR's option computation as an exact Decimal; None when ibapi says
-    "not computed" (it sends None), or the value is unset (either sign) or not finite."""
+    "not computed" (it sends None), or the value is unset (either sign) or not finite.
+    The caller tells the two apart: only None from ibapi is "not computed"."""
     if value is None or abs(value) == UNSET_DOUBLE:
         return None
     return to_price(value)
@@ -951,14 +952,13 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         implied by one side's price, and delayed data is never used."""
         if tickType != TickTypeEnum.MODEL_OPTION or not self._is_live(reqId):
             return
-        greeks = IbGreeks(
-            implied_vol=to_greek(impliedVol),
-            delta=to_greek(delta),
-            gamma=to_greek(gamma),
-            vega=to_greek(vega),
-            theta=to_greek(theta),
-            underlying_price=to_greek(undPrice),
-        )
+        raw = (impliedVol, delta, gamma, vega, theta, undPrice)
+        values = tuple(to_greek(v) for v in raw)
+        if any(r is not None and v is None for r, v in zip(raw, values, strict=True)):
+            greeks = IbGreeks(None, None, None, None, None, None, unreadable=True)
+        else:
+            iv, dlt, gam, veg, the, und = values
+            greeks = IbGreeks(iv, dlt, gam, veg, the, und)
         self._market_guard(reqId, "greeks", lambda m: m.on_greeks(reqId, greeks))
 
     def historicalData(self, reqId: int, bar: BarData) -> None:

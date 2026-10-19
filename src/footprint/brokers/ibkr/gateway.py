@@ -194,8 +194,10 @@ class QuoteField(Enum):
 @dataclass(frozen=True, slots=True)
 class IbGreeks:
     """IBKR's model computation for one option (MODEL_OPTION), exactly as sent. None: IBKR
-    did not compute that value, or sent something that is not a number. Nothing here is
-    checked against what an option can be: MarketData does that (core.options)."""
+    said it did not compute that value. `unreadable`: IBKR sent at least one value that is
+    not a number (NaN, infinity, or the unset marker); such a reading is never used, and
+    its values are then None. Nothing here is checked against what an option can be:
+    MarketData does that (core.options)."""
 
     implied_vol: Decimal | None
     delta: Decimal | None
@@ -203,6 +205,7 @@ class IbGreeks:
     vega: Decimal | None
     theta: Decimal | None
     underlying_price: Decimal | None
+    unreadable: bool = False
 
 
 class IbMarketGateway(Protocol):

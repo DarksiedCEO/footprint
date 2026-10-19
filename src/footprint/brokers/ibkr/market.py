@@ -60,7 +60,14 @@ from footprint.brokers.ibkr.gateway import (
 from footprint.core.calendar import trading_day_at
 from footprint.core.config import ExecutionProfile, InstrumentProfile
 from footprint.core.models import Bar, require_utc
-from footprint.core.options import OptionChain, OptionGreeks, OptionQuote, Right, checked_greeks
+from footprint.core.options import (
+    GreeksVerdict,
+    OptionChain,
+    OptionGreeks,
+    OptionQuote,
+    Right,
+    judge_greeks,
+)
 from footprint.execution.orders import Quote
 
 log = logging.getLogger("footprint.ibkr.market")
@@ -238,6 +245,7 @@ class MarketData:
         self._complete_until: datetime | None = None
         self._revisions = 0
         self._greeks_rejected = 0
+        self._greeks_incomplete = 0
         # Looked up again each trading day: new expiries and strikes are listed daily.
         self._params: dict[tuple[int, date], list[_Params]] = {}
         self._expiry_contracts: dict[tuple[str, str, date], tuple[IbContract, ...]] = {}
@@ -260,6 +268,7 @@ class MarketData:
         self._last_history_at: datetime | None = None
         self._polled_for: datetime | None = None
         self._outbox: list[Quote] = []
+        self._greeks_warned: set[str] = set()  # contracts warned about this session
 
     # --- what the runner reads -------------------------------------------------------------
 
@@ -369,9 +378,9 @@ class MarketData:
             return None
 
     def option_greeks(self, contract_id: str, now: datetime) -> OptionGreeks | None:
-        """One streamed option's newest model Greeks (checked: never an impossible reading)
-        while no older than `quotes.greeks_max_age_seconds`, or None. Greeks age on their
-        own clock: a fresh quote does not refresh an old reading."""
+        """One streamed option's newest usable model Greeks (complete and possible: every
+        value present) while no older than `quotes.greeks_max_age_seconds`, or None. Greeks
+        age on their own clock: a fresh quote does not refresh an old reading."""
         require_utc(now, "now")
         with self._lock:
             if not self._connected:
@@ -408,10 +417,17 @@ class MarketData:
 
     @property
     def greeks_rejected(self) -> int:
-        """Model readings IBKR sent that are impossible for the option (each cleared the
-        reading before it)."""
+        """Model readings IBKR sent that are unreadable or impossible for the option (each
+        cleared the reading before it)."""
         with self._lock:
             return self._greeks_rejected
+
+    @property
+    def greeks_incomplete(self) -> int:
+        """Model readings with some values computed and some not (each cleared the
+        reading before it: only a complete reading is usable)."""
+        with self._lock:
+            return self._greeks_incomplete
 
     # --- IbMarketEvents (IBKR's message thread) ------------------------------------------
 
@@ -483,18 +499,20 @@ class MarketData:
                     self._outbox.append(quote)
 
     def on_greeks(self, req_id: int, greeks: IbGreeks) -> None:
-        """Keep the reading if it could be real; otherwise clear the one before it (it is
-        no longer the market's). The future's line takes none."""
+        """Keep the reading only if it is usable (complete and possible); otherwise clear
+        the one before it (it is no longer the market's). An unreadable, impossible or
+        incomplete reading is counted; a "nothing computed yet" one is not. The future's
+        line takes none."""
         stamp = self._clock()
         with self._lock:
             line = self._lines.get(req_id)
             if line is None or req_id == self._underlying:
                 return  # a cancelled or older stream's late reading, or the future
             right = _RIGHTS.get(line.contract.right)
-            checked = (
-                None
-                if right is None
-                else checked_greeks(
+            if greeks.unreadable or right is None:
+                verdict, checked = GreeksVerdict.IMPOSSIBLE, None
+            else:
+                verdict, checked = judge_greeks(
                     right,
                     stamp,
                     implied_vol=greeks.implied_vol,
@@ -504,22 +522,21 @@ class MarketData:
                     theta=greeks.theta,
                     underlying_price=greeks.underlying_price,
                 )
-            )
-            computed = any(
-                v is not None
-                for v in (
-                    greeks.implied_vol,
-                    greeks.delta,
-                    greeks.gamma,
-                    greeks.vega,
-                    greeks.theta,
-                    greeks.underlying_price,
-                )
-            )
-            if checked is None and computed:
-                self._greeks_rejected += 1
-                log.warning("impossible Greeks for %s dropped: %s", line.contract_id, greeks)
             line.greeks = checked
+            if verdict is GreeksVerdict.IMPOSSIBLE:
+                self._greeks_rejected += 1
+            elif verdict is GreeksVerdict.INCOMPLETE:
+                self._greeks_incomplete += 1
+            else:
+                return
+            if line.contract_id not in self._greeks_warned:  # once per contract per session
+                self._greeks_warned.add(line.contract_id)
+                log.warning(
+                    "%s Greeks for %s dropped (only the first is logged this session): %s",
+                    verdict.value.lower(),
+                    line.contract_id,
+                    greeks,
+                )
 
     def on_bar(self, req_id: int, bar: IbBar) -> None:
         with self._lock:

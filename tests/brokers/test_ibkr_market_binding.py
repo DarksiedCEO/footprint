@@ -674,13 +674,37 @@ def test_values_ibkr_did_not_compute_arrive_as_none() -> None:
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), UNSET_DOUBLE])
-def test_a_non_number_or_unset_value_arrives_as_none(bad: float) -> None:
+@pytest.mark.parametrize("field", ["impliedVol", "delta", "gamma", "vega", "theta", "undPrice"])
+def test_one_value_that_is_not_a_number_makes_the_whole_reading_unreadable(
+    bad: float, field: str
+) -> None:
     binding, _, _, market = with_market()
-    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, gamma=bad, theta=-bad)
-    ((name, (req, greeks)),) = market.got
-    assert (name, req) == ("on_greeks", REQ)
-    assert (greeks.gamma, greeks.theta) == (None, None)
-    assert greeks.delta == D("0.512")  # the rest of the reading is untouched
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, **{field: bad})
+    unreadable = IbGreeks(None, None, None, None, None, None, unreadable=True)
+    assert market.got == [("on_greeks", (REQ, unreadable))]
+
+
+def test_a_negative_unset_value_is_unreadable_too() -> None:
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, theta=-UNSET_DOUBLE)
+    assert market.got[0][1][1].unreadable
+
+
+def test_zeros_arrive_as_zeros_not_as_missing() -> None:
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, delta=0.0, gamma=0.0, theta=0.0)
+    ((_, (_, greeks)),) = market.got
+    assert (greeks.delta, greeks.gamma, greeks.theta) == (D(0), D(0), D(0))
+    assert not greeks.unreadable
+
+
+def test_a_value_ibkr_did_not_compute_beside_others_is_not_unreadable() -> None:
+    """ibapi's None means "not computed": passed on as None, the reading as readable
+    (MarketData then finds it incomplete)."""
+    binding, _, _, market = with_market()
+    computation(binding._wrapper, REQ, TickTypeEnum.MODEL_OPTION, gamma=None)
+    ((_, (_, greeks)),) = market.got
+    assert (greeks.gamma, greeks.delta, greeks.unreadable) == (None, D("0.512"), False)
 
 
 @pytest.mark.parametrize(

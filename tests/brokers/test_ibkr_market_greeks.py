@@ -8,8 +8,12 @@ readings; nothing here says anything about real Greeks."""
 
 from __future__ import annotations
 
+import logging
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+
+import pytest
 
 from footprint.brokers.ibkr.gateway import Connection, IbGreeks
 from footprint.brokers.ibkr.market import option_contract_id
@@ -132,7 +136,7 @@ def test_a_reading_with_nothing_computed_clears_but_is_not_counted_as_rejected(
     w.md.on_greeks(req, READING)
     w.md.on_greeks(req, IbGreeks(None, None, None, None, None, None))
     assert w.md.option_greeks(cid, w.clock.now) is None
-    assert w.md.greeks_rejected == 0
+    assert (w.md.greeks_rejected, w.md.greeks_incomplete) == (0, 0)
 
 
 def test_the_future_never_carries_greeks(
@@ -169,3 +173,72 @@ def test_an_unknown_contract_has_no_greeks(
 ) -> None:
     w = chain_world(execution, instrument)
     assert w.md.option_greeks("NQ-no-such-contract", w.clock.now) is None
+
+
+def test_an_incomplete_reading_clears_the_good_one_and_is_counted_as_incomplete(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    """Only a complete reading is usable: an agent must never find a None Greek."""
+    w = chain_world(execution, instrument)
+    req, cid = _call(w)
+    w.md.on_greeks(req, READING)
+    w.md.on_greeks(req, replace(READING, gamma=None))
+    assert w.md.option_greeks(cid, w.clock.now) is None
+    assert (w.md.greeks_incomplete, w.md.greeks_rejected) == (1, 0)
+
+
+def test_an_incomplete_reading_with_an_impossible_value_is_incomplete(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    req, _ = _call(w)
+    w.md.on_greeks(req, replace(READING, implied_vol=None, delta=D("1.5")))
+    assert (w.md.greeks_incomplete, w.md.greeks_rejected) == (1, 0)
+
+
+def test_an_unreadable_reading_clears_the_good_one_and_is_counted_as_rejected(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    req, cid = _call(w)
+    w.md.on_greeks(req, READING)
+    w.md.on_greeks(req, IbGreeks(None, None, None, None, None, None, unreadable=True))
+    assert w.md.option_greeks(cid, w.clock.now) is None
+    assert (w.md.greeks_rejected, w.md.greeks_incomplete) == (1, 0)
+
+
+def test_an_unreadable_flag_wins_over_values(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    """A reading marked unreadable is never used, whatever values it carries."""
+    w = chain_world(execution, instrument)
+    req, cid = _call(w)
+    w.md.on_greeks(req, replace(READING, unreadable=True))
+    assert w.md.option_greeks(cid, w.clock.now) is None
+    assert w.md.greeks_rejected == 1
+
+
+def test_an_impossible_delta_is_rejected_whatever_the_volatility(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    w = chain_world(execution, instrument)
+    req, _ = _call(w)
+    w.md.on_greeks(req, replace(READING, delta=D("1.5")))
+    assert (w.md.greeks_rejected, w.md.greeks_incomplete) == (1, 0)
+
+
+def test_a_dropped_reading_is_logged_once_per_contract_per_session(
+    execution: ExecutionProfile, instrument: InstrumentProfile, caplog: pytest.LogCaptureFixture
+) -> None:
+    w = chain_world(execution, instrument)
+    req, _ = _call(w)
+    put_req, _ = _put(w)
+    with caplog.at_level(logging.WARNING, logger="footprint"):
+        for _ in range(3):
+            w.md.on_greeks(req, replace(READING, gamma=D(-1)))
+            w.md.on_greeks(req, replace(READING, vega=None))
+        w.md.on_greeks(put_req, replace(PUT_READING, gamma=D(-1)))
+    dropped = [r for r in caplog.records if "Greeks for" in r.getMessage()]
+    assert len(dropped) == 2  # one for the call, one for the put
+    assert w.md.greeks_rejected == 4
+    assert w.md.greeks_incomplete == 3

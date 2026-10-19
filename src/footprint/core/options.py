@@ -99,21 +99,22 @@ _GREEK_FIELDS = ("implied_vol", "delta", "gamma", "vega", "theta", "underlying_p
 
 @dataclass(frozen=True, slots=True)
 class OptionGreeks:
-    """One option's model Greeks (IBKR's model computation), stamped when they arrived.
+    """One option's complete model Greeks (IBKR's model computation), stamped when they
+    arrived. Every value is present: a reading with any value missing is not usable
+    (see `checked_greeks`).
 
-    None is a value IBKR did not compute. A reading impossible for an option can never
-    be built: an implied volatility at or below 0, a call delta outside 0..1 or a put
-    delta outside -1..0, a negative gamma or vega, an underlying price at or below 0,
-    or any value that is not finite. Theta has no sign rule (a deep in-the-money
-    European option can gain value with time)."""
+    A reading impossible for an option can never be built: an implied volatility at or
+    below 0, a call delta outside 0..1 or a put delta outside -1..0, a negative gamma or
+    vega, an underlying price at or below 0, or any value that is not finite. Theta has
+    no sign rule (a deep in-the-money European option can gain value with time)."""
 
     right: Right
-    implied_vol: Decimal | None
-    delta: Decimal | None
-    gamma: Decimal | None
-    vega: Decimal | None
-    theta: Decimal | None
-    underlying_price: Decimal | None
+    implied_vol: Decimal
+    delta: Decimal
+    gamma: Decimal
+    vega: Decimal
+    theta: Decimal
+    underlying_price: Decimal
     ts: datetime
 
     def __post_init__(self) -> None:
@@ -122,27 +123,70 @@ class OptionGreeks:
         require_utc(self.ts, "OptionGreeks.ts")
         for name in _GREEK_FIELDS:
             value = getattr(self, name)
-            if value is None:
-                continue
             if not isinstance(value, Decimal):
-                raise TypeError(f"OptionGreeks.{name} must be a Decimal or None")
+                raise TypeError(f"OptionGreeks.{name} must be a Decimal")
             if not value.is_finite():
                 raise ValueError(f"OptionGreeks.{name} must be finite, got {value}")
         low, high = (
             (Decimal(0), Decimal(1)) if self.right is Right.CALL else (-Decimal(1), Decimal(0))
         )
-        if self.delta is not None and not low <= self.delta <= high:
+        if not low <= self.delta <= high:
             raise ValueError(f"OptionGreeks.delta {self.delta} is impossible for a {self.right}")
-        if self.implied_vol is not None and self.implied_vol <= 0:
+        if self.implied_vol <= 0:
             raise ValueError(f"OptionGreeks.implied_vol must be > 0, got {self.implied_vol}")
         for name in ("gamma", "vega"):
-            value = getattr(self, name)
-            if value is not None and value < 0:
-                raise ValueError(f"OptionGreeks.{name} must be >= 0, got {value}")
-        if self.underlying_price is not None and self.underlying_price <= 0:
+            if getattr(self, name) < 0:
+                raise ValueError(f"OptionGreeks.{name} must be >= 0, got {getattr(self, name)}")
+        if self.underlying_price <= 0:
             raise ValueError(
                 f"OptionGreeks.underlying_price must be > 0, got {self.underlying_price}"
             )
+
+
+class GreeksVerdict(Enum):
+    """What `judge_greeks` made of one reading."""
+
+    USABLE = "USABLE"  # complete and possible: an OptionGreeks
+    NOT_COMPUTED = "NOT_COMPUTED"  # IBKR computed nothing (yet)
+    INCOMPLETE = "INCOMPLETE"  # some values computed, some not: not usable
+    IMPOSSIBLE = "IMPOSSIBLE"  # complete, but impossible for an option
+
+
+def judge_greeks(
+    right: Right,
+    ts: datetime,
+    *,
+    implied_vol: Decimal | None,
+    delta: Decimal | None,
+    gamma: Decimal | None,
+    vega: Decimal | None,
+    theta: Decimal | None,
+    underlying_price: Decimal | None,
+) -> tuple[GreeksVerdict, OptionGreeks | None]:
+    """The verdict on a reading, with its OptionGreeks exactly when USABLE. Only a usable
+    reading is ever returned: one value missing makes the whole reading unusable. A value
+    of the wrong type, or a time that is not UTC, is a caller's bug and raises."""
+    require_utc(ts, "judge_greeks ts")  # a bad time is a caller's bug, never a verdict
+    values = (implied_vol, delta, gamma, vega, theta, underlying_price)
+    for name, value in zip(_GREEK_FIELDS, values, strict=True):
+        if value is not None and not isinstance(value, Decimal):
+            raise TypeError(f"judge_greeks {name} must be a Decimal or None")
+    if all(v is None for v in values):
+        return GreeksVerdict.NOT_COMPUTED, None
+    if (
+        implied_vol is None
+        or delta is None
+        or gamma is None
+        or vega is None
+        or theta is None
+        or underlying_price is None
+    ):
+        return GreeksVerdict.INCOMPLETE, None
+    try:
+        greeks = OptionGreeks(right, implied_vol, delta, gamma, vega, theta, underlying_price, ts)
+    except ValueError:
+        return GreeksVerdict.IMPOSSIBLE, None
+    return GreeksVerdict.USABLE, greeks
 
 
 def checked_greeks(
@@ -156,13 +200,15 @@ def checked_greeks(
     theta: Decimal | None,
     underlying_price: Decimal | None,
 ) -> OptionGreeks | None:
-    """The reading as OptionGreeks, or None when nothing was computed or it is impossible
-    (see OptionGreeks). A value of the wrong type is a caller's bug and still raises."""
-    require_utc(ts, "checked_greeks ts")  # a bad time is a caller's bug, never a None
-    values = (implied_vol, delta, gamma, vega, theta, underlying_price)
-    if all(v is None for v in values):
-        return None
-    try:
-        return OptionGreeks(right, *values, ts=ts)
-    except ValueError:
-        return None
+    """The reading as OptionGreeks when usable (complete and possible), else None."""
+    _, greeks = judge_greeks(
+        right,
+        ts,
+        implied_vol=implied_vol,
+        delta=delta,
+        gamma=gamma,
+        vega=vega,
+        theta=theta,
+        underlying_price=underlying_price,
+    )
+    return greeks

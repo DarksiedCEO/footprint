@@ -31,29 +31,29 @@
   [
    "core",
    "src/footprint/core/options.py",
-   "if self.delta is not None and not low <= self.delta <= high:",
-   "if self.delta is not None and not low < self.delta <= high:",
+   "        if not low <= self.delta <= high:",
+   "        if not low < self.delta <= high:",
    "the lower delta bound made exclusive"
   ],
   [
    "core",
    "src/footprint/core/options.py",
-   "if self.implied_vol is not None and self.implied_vol <= 0:",
-   "if self.implied_vol is not None and self.implied_vol < 0:",
+   "        if self.implied_vol <= 0:",
+   "        if self.implied_vol < 0:",
    "a volatility of 0 accepted"
   ],
   [
    "core",
    "src/footprint/core/options.py",
-   "            if value is not None and value < 0:\n                raise ValueError(f\"OptionGreeks.{name} must be >= 0, got {value}\")",
-   "            if value is not None and value < -1:\n                raise ValueError(f\"OptionGreeks.{name} must be >= 0, got {value}\")",
+   "            if getattr(self, name) < 0:",
+   "            if getattr(self, name) < -1:",
    "a small negative gamma or vega accepted"
   ],
   [
    "core",
    "src/footprint/core/options.py",
-   "if self.underlying_price is not None and self.underlying_price <= 0:",
-   "if self.underlying_price is not None and self.underlying_price < 0:",
+   "        if self.underlying_price <= 0:",
+   "        if self.underlying_price < 0:",
    "an underlying of 0 accepted"
   ],
   [
@@ -66,23 +66,44 @@
   [
    "core",
    "src/footprint/core/options.py",
-   "    if all(v is None for v in values):\n        return None",
-   "    if False:\n        return None",
-   "a reading with nothing computed is kept"
+   "    if all(v is None for v in values):\n        return GreeksVerdict.NOT_COMPUTED, None",
+   "    if False:\n        return GreeksVerdict.NOT_COMPUTED, None",
+   "nothing computed judged incomplete"
   ],
   [
    "core",
    "src/footprint/core/options.py",
-   "    except ValueError:\n        return None",
-   "    except (ValueError, TypeError):\n        return None",
-   "a caller's wrong type swallowed as None"
+   "        implied_vol is None\n        or delta is None",
+   "        False\n        or delta is None",
+   "a reading without volatility not judged incomplete"
   ],
   [
    "core",
    "src/footprint/core/options.py",
-   "    require_utc(ts, \"checked_greeks ts\")  # a bad time is a caller's bug, never a None",
+   "        or underlying_price is None\n    ):",
+   "        or False\n    ):",
+   "a reading without the underlying not judged incomplete"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "    except ValueError:\n        return GreeksVerdict.IMPOSSIBLE, None",
+   "    except (ValueError, TypeError):\n        return GreeksVerdict.IMPOSSIBLE, None",
+   "a caller's wrong type swallowed as impossible"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "    require_utc(ts, \"judge_greeks ts\")  # a bad time is a caller's bug, never a verdict",
    "    pass",
-   "a bad time turned into None"
+   "a bad time turned into a verdict"
+  ],
+  [
+   "core",
+   "src/footprint/core/options.py",
+   "        if value is not None and not isinstance(value, Decimal):",
+   "        if False:",
+   "a wrong type in an incomplete reading not raised"
   ],
   [
    "core",
@@ -115,16 +136,23 @@
   [
    "binding",
    "src/footprint/brokers/ibkr/binding.py",
-   "            vega=to_greek(vega),",
-   "            vega=to_greek(gamma),",
-   "vega read from the gamma field"
+   "    if value is None or abs(value) == UNSET_DOUBLE:",
+   "    if value is None or abs(value) == UNSET_DOUBLE or value == 0:",
+   "a real 0 read as missing (reviewer P6)"
   ],
   [
    "binding",
    "src/footprint/brokers/ibkr/binding.py",
-   "            underlying_price=to_greek(undPrice),",
-   "            underlying_price=to_greek(optPrice),",
-   "the option's price read as the underlying's"
+   "        if any(r is not None and v is None for r, v in zip(raw, values, strict=True)):",
+   "        if False:",
+   "a non-number left as 'not computed' (reviewer finding 1)"
+  ],
+  [
+   "binding",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            greeks = IbGreeks(iv, dlt, gam, veg, the, und)",
+   "            greeks = IbGreeks(iv, dlt, veg, gam, the, und)",
+   "gamma and vega swapped"
   ],
   [
    "market",
@@ -159,21 +187,42 @@
    "src/footprint/brokers/ibkr/market.py",
    "            line.greeks = checked\n",
    "            line.greeks = checked if checked is not None else line.greeks\n",
-   "an impossible reading leaves the old one in place"
+   "a reading that is not usable leaves the old one in place"
   ],
   [
    "market",
    "src/footprint/brokers/ibkr/market.py",
-   "            if checked is None and computed:",
-   "            if checked is None:",
-   "a reading with nothing computed counted as rejected"
+   "            if greeks.unreadable or right is None:",
+   "            if right is None:",
+   "an unreadable reading judged on its values"
   ],
   [
    "market",
    "src/footprint/brokers/ibkr/market.py",
-   "            if checked is None and computed:\n                self._greeks_rejected += 1",
-   "            if checked is None and computed:\n                self._greeks_rejected += 0",
+   "                self._greeks_rejected += 1",
+   "                self._greeks_rejected += 0",
    "rejections not counted"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "                self._greeks_incomplete += 1",
+   "                self._greeks_incomplete += 0",
+   "incomplete readings not counted"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            elif verdict is GreeksVerdict.INCOMPLETE:",
+   "            elif verdict is GreeksVerdict.NOT_COMPUTED:",
+   "incomplete and not-computed swapped in the counters"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if line.contract_id not in self._greeks_warned:  # once per contract per session",
+   "            if True:  # once per contract per session",
+   "every dropped reading logged (log flood)"
   ],
   [
    "market",
