@@ -238,7 +238,38 @@ def test_a_dropped_reading_is_logged_once_per_contract_per_session(
             w.md.on_greeks(req, replace(READING, gamma=D(-1)))
             w.md.on_greeks(req, replace(READING, vega=None))
         w.md.on_greeks(put_req, replace(PUT_READING, gamma=D(-1)))
-    dropped = [r for r in caplog.records if "Greeks for" in r.getMessage()]
-    assert len(dropped) == 2  # one for the call, one for the put
+    dropped = [r.getMessage() for r in caplog.records if "Greeks for" in r.getMessage()]
+    assert len(dropped) == 3  # the call: one impossible, one incomplete; the put: one
+    assert sum(m.startswith("incomplete") for m in dropped) == 1
     assert w.md.greeks_rejected == 4
     assert w.md.greeks_incomplete == 3
+
+
+def test_an_incomplete_first_drop_does_not_hide_a_later_impossible_one(
+    execution: ExecutionProfile, instrument: InstrumentProfile, caplog: pytest.LogCaptureFixture
+) -> None:
+    w = chain_world(execution, instrument)
+    req, _ = _call(w)
+    with caplog.at_level(logging.WARNING, logger="footprint"):
+        w.md.on_greeks(req, replace(READING, vega=None))
+        w.md.on_greeks(req, replace(READING, gamma=D(-1)))
+    dropped = [r.getMessage() for r in caplog.records if "Greeks for" in r.getMessage()]
+    assert [m.split()[0] for m in dropped] == ["incomplete", "impossible"]
+
+
+def test_a_new_session_logs_a_dropped_reading_again(
+    execution: ExecutionProfile, instrument: InstrumentProfile, caplog: pytest.LogCaptureFixture
+) -> None:
+    w = chain_world(execution, instrument)
+    req, _ = _call(w)
+    with caplog.at_level(logging.WARNING, logger="footprint"):
+        w.md.on_greeks(req, replace(READING, gamma=D(-1)))
+        w.md.on_market_connection(Connection.LOST)
+        w.md.on_market_connection(Connection.CONNECTED)
+        w.run(3)
+        w.tick(DEC, D("20025.00"), D("20025.50"))
+        w.run(2)
+        req2, _ = _call(w)
+        w.md.on_greeks(req2, replace(READING, gamma=D(-1)))
+    dropped = [r for r in caplog.records if "Greeks for" in r.getMessage()]
+    assert len(dropped) == 2

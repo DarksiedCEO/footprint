@@ -220,13 +220,6 @@
   [
    "market",
    "src/footprint/brokers/ibkr/market.py",
-   "            if line.contract_id not in self._greeks_warned:  # once per contract per session",
-   "            if True:  # once per contract per session",
-   "every dropped reading logged (log flood)"
-  ],
-  [
-   "market",
-   "src/footprint/brokers/ibkr/market.py",
    "                    g = line.greeks\n",
    "                    g = line.greeks\n                    return g\n",
    "option_greeks skips every freshness check"
@@ -237,6 +230,34 @@
    "        greeks_max_age_seconds=_integer(q, \"greeks_max_age_seconds\", q_where, minimum=1),",
    "        greeks_max_age_seconds=_integer(q, \"greeks_max_age_seconds\", q_where, minimum=0),",
    "a Greeks age limit of 0 accepted"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if key not in self._greeks_warned:  # once per contract and kind per session",
+   "            if True:  # once per contract and kind per session",
+   "every dropped reading logged (log flood)"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            key = (line.contract_id, verdict)",
+   "            key = (line.contract_id, GreeksVerdict.IMPOSSIBLE)",
+   "one log per contract only: a later kind hidden (reviewer round 2 finding 1)"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            elif verdict is GreeksVerdict.INCOMPLETE:\n                self._greeks_incomplete += 1\n            else:\n                return",
+   "            elif verdict is GreeksVerdict.INCOMPLETE:\n                self._greeks_incomplete += 1\n                return\n            else:\n                return",
+   "incomplete readings never logged (reviewer R9)"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "        self._greeks_warned: set[tuple[str, GreeksVerdict]] = set()\n",
+   "        self._greeks_warned: set[tuple[str, GreeksVerdict]] = getattr(self, '_greeks_warned', set())\n",
+   "the log set kept across sessions (reviewer R2)"
   ]
  ]
 }

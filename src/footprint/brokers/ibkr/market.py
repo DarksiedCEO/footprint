@@ -268,7 +268,8 @@ class MarketData:
         self._last_history_at: datetime | None = None
         self._polled_for: datetime | None = None
         self._outbox: list[Quote] = []
-        self._greeks_warned: set[str] = set()  # contracts warned about this session
+        # (contract, verdict) pairs already logged this session
+        self._greeks_warned: set[tuple[str, GreeksVerdict]] = set()
 
     # --- what the runner reads -------------------------------------------------------------
 
@@ -529,8 +530,9 @@ class MarketData:
                 self._greeks_incomplete += 1
             else:
                 return
-            if line.contract_id not in self._greeks_warned:  # once per contract per session
-                self._greeks_warned.add(line.contract_id)
+            key = (line.contract_id, verdict)
+            if key not in self._greeks_warned:  # once per contract and kind per session
+                self._greeks_warned.add(key)
                 log.warning(
                     "%s Greeks for %s dropped (only the first is logged this session): %s",
                     verdict.value.lower(),
