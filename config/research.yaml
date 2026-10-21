@@ -1,0 +1,37 @@
+# Research harness settings (src/footprint/research). Research only: nothing on the
+# trading path reads this file (a test enforces that the trading path never imports
+# footprint.research). Every number used to value a research trade lives here or in
+# the profile it is taken from (risk.yaml: the exits; backtest.yaml: gates and strike
+# step; instruments/*.yaml: the point value). Values marked UNVERIFIED are modelled.
+timezone: America/New_York    # every clock time below is New York wall-clock time
+session_day:
+  roll: "18:00"               # a bar at or after this time belongs to the NEXT session day
+sessions:                     # [start, end); a window may wrap midnight; minutes in no
+                              #   window are labelled "other"
+  asia: {start: "18:00", end: "03:00"}
+  london: {start: "03:00", end: "08:25"}   # Andre: flat before the US releases
+  new_york: {start: "09:30", end: "16:00"}
+vol:                          # daily volatility index (Cboe VXN / VIX history CSV)
+  divisor: 100                # the index is in percent; divided by this -> a fraction
+  max_age_days: 5             # a value older than this (calendar days before the trade's
+                              #   session day) is stale: the trade is skipped, never guessed
+option:                       # UNVERIFIED: the index level is used as the option's IV
+  moneyness_points: 0         # strike offset in futures points; positive = in the money
+  days_to_expiry: 1           # calendar days to expiry at entry (CLI default)
+  days_per_year: 365          # calendar days per year for Black-76's time
+  rate: 0                     # UNVERIFIED: continuously compounded rate (immaterial for
+                              #   options held minutes to hours)
+  reference_price: 20000      # every forward and strike is rescaled to this futures level
+                              #   so fixed dollar costs mean the same thing in every year;
+                              #   null turns the rescaling off
+costs:
+  round_trip_per_contract: 170  # UNVERIFIED: measured NQ overnight round trip (spread,
+                                #   slippage, fees) in dollars per contract
+exits:                        # numbers come from risk.yaml (stop_loss, profit_target,
+                              #   trail_keep_pct); only the contract counts live here
+  booker: {contracts: 1}
+  scale_out: {contracts: 2}
+judging:
+  time_parts: 3               # trades split by order into this many parts
+  min_positive_parts: 2       # ... at least this many must be net positive to pass
+rules: {}                     # per-rule settings, read by each rule (none in the harness)
