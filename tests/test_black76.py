@@ -372,3 +372,44 @@ def test_a_tiny_but_nonzero_volatility_far_from_the_strike_is_the_zero_vol_answe
     assert got.price == pytest.approx(math.exp(-0.01) * 5.0, rel=1e-15)
     assert got.delta == pytest.approx(math.exp(-0.01), rel=1e-15)
     assert got.theta == pytest.approx(0.01 * got.price, rel=1e-12)
+
+
+# --- review round 2 (N1, N2) --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"forward": 1e-10, "strike": 2e-10, "years": 1.0, "vol": 1e-320},  # f * s == 0
+        {"forward": 20.0, "strike": 20.0, "years": 1.0, "vol": 1e-320},  # gamma infinite
+        {"rate": -1e308, "years": 10.0},  # exp returns inf without raising
+        {"forward": 1.7e308, "strike": 20.0, "rate": -0.5},  # price and theta overflow
+    ],
+)
+def test_absurd_inputs_never_return_a_non_finite_record(kw: dict[str, float]) -> None:
+    with pytest.raises(ValueError, match="Black-76"):
+        greeks(Right76.CALL, **{**HULL, **kw})
+
+
+@pytest.mark.parametrize(("right", "f", "k", "t", "v", "r"), CASES)
+def test_theta_identity(right: Right76, f: float, k: float, t: float, v: float, r: float) -> None:
+    # Black-76: theta = -vega * vol / (2 * T) + rate * price, exactly.
+    g = greeks(right, forward=f, strike=k, years=t, vol=v, rate=r)
+    assert g.theta == pytest.approx(-g.vega * v / (2 * t) + r * g.price, rel=1e-12)
+
+
+def test_an_infinite_rate_is_refused_even_at_expiry() -> None:
+    with pytest.raises(ValueError, match="Black-76"):
+        greeks(Right76.CALL, **{**HULL, "years": 0.0, "rate": math.inf})
+
+
+def test_an_overflowing_discount_is_refused_with_no_volatility() -> None:
+    # exp(1e309) is inf without raising; with vol 0 no later check would see it.
+    with pytest.raises(ValueError, match="discount"):
+        greeks(Right76.CALL, **{**HULL, "vol": 0.0, "rate": -1e308, "years": 10.0})
+
+
+def test_vega_overflow_alone_is_refused() -> None:
+    # Price, delta, gamma and theta are finite here; only vega (F * n(d1) * sqrt(T)) is not.
+    with pytest.raises(ValueError, match="out of float range"):
+        greeks(Right76.CALL, forward=1e308, strike=1e308, years=100.0, vol=0.01, rate=0.0)

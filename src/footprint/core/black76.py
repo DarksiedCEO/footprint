@@ -142,6 +142,8 @@ def greeks(
         discount = math.exp(-r * t)
     except OverflowError as exc:
         raise ValueError(f"Black-76: the discount exp({-r * t!r}) is out of float range") from exc
+    if not math.isfinite(discount):
+        raise ValueError(f"Black-76: the discount exp({-r * t!r}) is out of float range")
 
     def no_volatility() -> Black76:
         value = discount * intrinsic
@@ -168,10 +170,16 @@ def greeks(
         delta = -discount * _cdf(-d1)
     value = max(value, 0.0)
     density = _pdf(d1)
-    gamma = discount * density / (f * s)
+    scale = f * s
+    if scale == 0:
+        raise ValueError(f"Black-76: forward {forward!r} times vol is below float range")
+    gamma = discount * density / scale
     vega = discount * f * density * root_t
     theta = -discount * f * density * v / (2 * root_t) + r * value
-    return result(value, delta, gamma, vega, theta)
+    outputs = (value, delta, gamma, vega, theta)
+    if not all(math.isfinite(x) for x in outputs):
+        raise ValueError(f"Black-76: a result is out of float range: {outputs!r}")
+    return result(*outputs)
 
 
 def price(
