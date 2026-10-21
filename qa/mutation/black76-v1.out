@@ -1,4 +1,4 @@
-source: ab189897f614374ef841e0b5d5bf39c10480b7fe tree-dirty: 0 files
+source: 3a4a675ef0efa329bb2809511b0b7694016b2fe7 tree-dirty: 0 files
 baseline [b76]: passed
   1 KILLED   [b76] src/footprint/core/black76.py: cdf without the root-2 scaling
   2 KILLED   [b76] src/footprint/core/black76.py: density exponent not halved
@@ -49,4 +49,9 @@ baseline [b76]: passed
  47 KILLED   [b76] src/footprint/core/black76.py: F5: exp overflow leaks
  48 KILLED   [b76] src/footprint/core/black76.py: F6: overflowing vol not refused
  49 KILLED   [b76] src/footprint/core/black76.py: F5: s == 0 raises instead of the zero-vol answer
-49 mutants, 0 survived or errored
+ 50 KILLED   [b76] src/footprint/core/black76.py: N1: infinite discount not refused
+ 51 KILLED   [b76] src/footprint/core/black76.py: N1: zero forward*vol not refused
+ 52 KILLED   [b76] src/footprint/core/black76.py: N1: non-finite result returned
+ 53 KILLED   [b76] src/footprint/core/black76.py: N1: vega/theta not checked
+ 54 KILLED   [b76] src/footprint/core/black76.py: N2: theta decay term 1e-7 off
+54 mutants, 0 survived or errored
