@@ -1,0 +1,268 @@
+{
+ "groups": {
+  "b76": [
+   "tests/test_black76.py"
+  ]
+ },
+ "mutants": [
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return (1 + math.erf(x / _ROOT_TWO)) / 2",
+   "return (1 + math.erf(x)) / 2",
+   "cdf without the root-2 scaling"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return math.exp(-x * x / 2) / _ROOT_TWO_PI",
+   "return math.exp(-x * x) / _ROOT_TWO_PI",
+   "density exponent not halved"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return math.exp(-x * x / 2) / _ROOT_TWO_PI",
+   "return math.exp(-x * x / 2)",
+   "density not normalised"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if isinstance(value, bool) or not isinstance(value, int | float):",
+   "if not isinstance(value, int | float):",
+   "bool accepted as a number"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if not math.isfinite(as_float):",
+   "if math.isnan(as_float):",
+   "infinity accepted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if not isinstance(right, Right76):",
+   "if False:",
+   "right not checked"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if f <= 0:",
+   "if f < 0:",
+   "zero forward accepted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if k <= 0:",
+   "if k < 0:",
+   "zero strike accepted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if t < 0:",
+   "if t < -1:",
+   "negative time accepted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "if v < 0:",
+   "if v < -1:",
+   "negative vol accepted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "raise ValueError(f\"Black-76: forward must be > 0, got {forward!r}\")",
+   "pass",
+   "forward check removed"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "intrinsic = max(f - k, 0.0) if call else max(k - f, 0.0)",
+   "intrinsic = max(f - k, 0.0) if call else max(f - k, 0.0)",
+   "put intrinsic wrong sign"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "in_the_money = f > k if call else f < k",
+   "in_the_money = f >= k if call else f < k",
+   "at-the-money call counted in the money"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "in_the_money = f > k if call else f < k",
+   "in_the_money = f > k if call else f <= k",
+   "at-the-money put counted in the money"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "sign = 1.0 if call else -1.0",
+   "sign = 1.0",
+   "put delta sign lost"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "    if t == 0:\n",
+   "    if t < 0:\n",
+   "expiry branch skipped"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return result(intrinsic, sign if in_the_money else 0.0, 0.0, 0.0, 0.0)",
+   "return result(intrinsic, sign, 0.0, 0.0, 0.0)",
+   "expiry delta not a step"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "discount = math.exp(-r * t)",
+   "discount = math.exp(r * t)",
+   "discount sign"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "discount = math.exp(-r * t)",
+   "discount = 1.0",
+   "no discount"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "    if v == 0:\n",
+   "    if v < 0:\n",
+   "zero-vol branch skipped"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "value = discount * intrinsic",
+   "value = intrinsic",
+   "zero-vol value not discounted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "delta = sign * discount if in_the_money else 0.0",
+   "delta = sign if in_the_money else 0.0",
+   "zero-vol delta not discounted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return result(value, delta, 0.0, 0.0, r * value)",
+   "return result(value, delta, 0.0, 0.0, 0.0)",
+   "zero-vol theta loses the discount"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "s = v * root_t",
+   "s = v * t",
+   "vol scaled by time not root time"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "d1 = (math.log(f / k) + s * s / 2) / s",
+   "d1 = (math.log(f / k) + s * s) / s",
+   "d1 drift not halved"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "d1 = (math.log(f / k) + s * s / 2) / s",
+   "d1 = (math.log(k / f) + s * s / 2) / s",
+   "d1 log inverted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "\n    d2 = d1 - s\n",
+   "\n    d2 = d1 + s\n",
+   "d2 sign"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "value = discount * (f * _cdf(d1) - k * _cdf(d2))",
+   "value = discount * (f * _cdf(d1) - k * _cdf(d1))",
+   "call uses d1 twice"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "value = discount * (k * _cdf(-d2) - f * _cdf(-d1))",
+   "value = discount * (k * _cdf(d2) - f * _cdf(d1))",
+   "put cdf signs"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "delta = discount * _cdf(d1)",
+   "delta = _cdf(d1)",
+   "call delta not discounted"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "delta = -discount * _cdf(-d1)",
+   "delta = discount * _cdf(-d1)",
+   "put delta positive"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "gamma = discount * density / (f * s)",
+   "gamma = discount * density / s",
+   "gamma not divided by forward"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "vega = discount * f * density * root_t",
+   "vega = discount * f * density",
+   "vega missing root time"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "theta = -discount * f * density * v / (2 * root_t) + r * value",
+   "theta = -discount * f * density * v / (2 * root_t)",
+   "theta missing rate term"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "theta = -discount * f * density * v / (2 * root_t) + r * value",
+   "theta = -discount * f * density * v / root_t + r * value",
+   "theta not halved"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return result(max(value, 0.0), delta, gamma, vega, theta)",
+   "return result(value, delta, gamma, vega, theta)",
+   "negative rounding residue not floored"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return greeks(right, forward=forward, strike=strike, years=years, vol=vol, rate=rate).price",
+   "return greeks(right, forward=strike, strike=forward, years=years, vol=vol, rate=rate).price",
+   "price swaps forward and strike"
+  ]
+ ]
+}
