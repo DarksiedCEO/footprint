@@ -78,7 +78,9 @@ def settings_lines(settings: ResearchSettings, args: argparse.Namespace) -> list
     o = settings.option
     e = settings.exits
     return [
-        f"rule: {args.rule}   exit: {args.exit}   bars: {args.bars}   vol: {args.vol}",
+        f"rule: {args.rule}"
+        + ("" if args.variant is None else f" (variant {args.variant})")
+        + f"   exit: {args.exit}   bars: {args.bars}   vol: {args.vol}",
         f"timezone: {settings.timezone}   session day rolls at {settings.roll:%H:%M}",
         "sessions: "
         + ", ".join(f"{n} {w.start:%H:%M}-{w.end:%H:%M}" for n, w in settings.sessions),
@@ -102,6 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--bars", type=Path, required=True, help="continuous 1-minute CSV")
     parser.add_argument("--vol", type=Path, required=True, help="Cboe volatility index CSV")
     parser.add_argument("--rule", required=True, choices=sorted(RULES))
+    parser.add_argument("--variant", default=None, help="the rule's pre-registered variant")
     parser.add_argument("--exit", default=KINDS[0], choices=KINDS)
     parser.add_argument("--days-to-expiry", type=float, default=None)
     parser.add_argument("--config", type=Path, default=Path("config"))
@@ -114,9 +117,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = replace(
             settings, option=replace(settings.option, days_to_expiry=args.days_to_expiry)
         )
+    registered = RULES[args.rule]
+    variants = registered.variants(settings)
+    if (args.variant is None) != (not variants) or (
+        args.variant is not None and args.variant not in variants
+    ):
+        parser.error(
+            f"--variant must be one of {variants} for {args.rule}"
+            if variants
+            else f"{args.rule} has no variants"
+        )
+    rule = registered.build(settings, args.variant)
     days = load_days(args.bars, settings.symbol, settings.zone, settings.roll)
     vols = load_vol(args.vol, settings.vol_divisor, settings.vol_max_age_days)
-    trades, skipped = run(days, RULES[args.rule](settings), vols, settings, args.exit)
+    trades, skipped = run(days, rule, vols, settings, args.exit)
     print(report(trades, skipped, settings, settings_lines(settings, args)))
     return 0
 

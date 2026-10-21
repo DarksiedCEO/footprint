@@ -1,0 +1,213 @@
+{
+ "groups": {
+  "orb": [
+   "tests/research/test_london_orb.py",
+   "tests/research/test_cli_settings_isolation.py"
+  ]
+ },
+ "mutants": [
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        inside = [k for k in range(i) if s.range_start <= day.clock[k] < s.range_end]",
+   "        inside = [k for k in range(i) if s.range_start <= day.clock[k] <= s.range_end]",
+   "range end inclusive"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        inside = [k for k in range(i) if s.range_start <= day.clock[k] < s.range_end]",
+   "        inside = [k for k in range(i) if day.clock[k] < s.range_end]",
+   "range start ignored"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if len({day.clock[k] for k in inside}) != self._range_minutes:",
+   "        if not inside:",
+   "partial range accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        return max(day.high[k] for k in inside), min(day.low[k] for k in inside)",
+   "        return max(day.close[k] for k in inside), min(day.close[k] for k in inside)",
+   "range from closes"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if not s.entry_start <= day.clock[i] < s.entry_end:",
+   "        if not s.entry_start <= day.clock[i] <= s.entry_end:",
+   "entry end inclusive"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if not s.entry_start <= day.clock[i] < s.entry_end:",
+   "        if not s.entry_start < day.clock[i] < s.entry_end:",
+   "entry start exclusive"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if not s.entry_start <= day.clock[i] < s.entry_end:",
+   "        if not day.clock[i] < s.entry_end:",
+   "entry start ignored"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if state.trades >= s.max_trades_per_session or state.realized >= self.green_stop:",
+   "        if state.trades > s.max_trades_per_session or state.realized >= self.green_stop:",
+   "one trade too many"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if state.trades >= s.max_trades_per_session or state.realized >= self.green_stop:",
+   "        if state.trades >= s.max_trades_per_session or state.realized > self.green_stop:",
+   "green stop exclusive"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if state.trades >= s.max_trades_per_session or state.realized >= self.green_stop:",
+   "        if state.trades >= s.max_trades_per_session:",
+   "no green stop"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if state.trades >= s.max_trades_per_session or state.realized >= self.green_stop:",
+   "        if state.realized >= self.green_stop:",
+   "no trade limit"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if close > high:",
+   "        if close >= high:",
+   "close on the high enters"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if close < low:",
+   "        if close <= low:",
+   "close on the low enters"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            return Signal(1, flat_by, low)",
+   "            return Signal(1, flat_by, high)",
+   "call stop at the high"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            return Signal(1, flat_by, low)",
+   "            return Signal(1, flat_by, None)",
+   "call without the setup stop"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            return Signal(-1, flat_by, high)",
+   "            return Signal(-1, flat_by, low)",
+   "put stop at the low"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            return Signal(-1, flat_by, high)",
+   "            return Signal(1, flat_by, low)",
+   "break down buys a call"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        flat_by = datetime.combine(day.day, s.flat, tzinfo=self._zone)",
+   "        flat_by = datetime.combine(day.day, s.entry_end, tzinfo=self._zone)",
+   "flat at the entry end"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        flat_by = datetime.combine(day.day, s.flat, tzinfo=self._zone)",
+   "        flat_by = datetime.combine(day.day, s.flat, tzinfo=UTC)",
+   "flat time in UTC"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if variant == _label(value):",
+   "        if variant is not None:",
+   "any variant accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            return LondonOrb(orb, value, settings.zone)",
+   "            return LondonOrb(orb, orb.green_stop_dollars[0], settings.zone)",
+   "variant ignored"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        same_allowed = (earlier, later) == (\"range_end\", \"entry_start\")",
+   "        same_allowed = True",
+   "equal clocks accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if clocks[later] < clocks[earlier] or (",
+   "        if False or (",
+   "clock order not checked"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "    if len(set(values)) != len(values):",
+   "    if False:",
+   "duplicate grid accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if isinstance(item, bool) or not isinstance(item, int | float) or not item > 0:",
+   "        if isinstance(item, bool) or not isinstance(item, int | float):",
+   "zero green stop accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        max_trades_per_session=_integer(raw, \"max_trades_per_session\", where, minimum=1),",
+   "        max_trades_per_session=_integer(raw, \"max_trades_per_session\", where, minimum=0),",
+   "zero trade limit accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "    if not isinstance(grid, list) or not grid:",
+   "    if not isinstance(grid, list):",
+   "empty grid accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/__main__.py",
+   "    if (args.variant is None) != (not variants) or (",
+   "    if False or (",
+   "missing variant accepted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/__main__.py",
+   "        args.variant is not None and args.variant not in variants",
+   "        False",
+   "unknown variant reaches the builder"
+  ]
+ ]
+}

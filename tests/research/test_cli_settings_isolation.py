@@ -9,7 +9,7 @@ from footprint.core.config import ConfigError
 from footprint.research import __main__ as cli
 from footprint.research.bars import Day
 from footprint.research.engine import DayState, Signal
-from footprint.research.rules import RULES
+from footprint.research.rules import RULES, Registered
 from footprint.research.settings import OTHER, ResearchSettings, load_research
 from tests.conftest import REPO_ROOT
 from tests.research.conftest import NY
@@ -117,7 +117,7 @@ def _copy(tmp_path: Path) -> Path:
         ("booker: {contracts: 1}", "booker: {contracts: 0}", "contracts"),
         ("min_positive_parts: 2", "min_positive_parts: 4", "min_positive_parts"),
         ("time_parts: 3", "time_parts: 0", "time_parts"),
-        ("rules: {}", "rules: []", "rules"),
+        ("rules:                        #", "rules: []\nunused:          #", "rules|unknown"),
         ("sessions:", "sessions: {}\nunused:", "sessions|unknown"),
     ],
 )
@@ -197,7 +197,7 @@ class _Probe:
 def test_cli_prints_the_report_and_the_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setitem(RULES, "probe", lambda s: _Probe())
+    monkeypatch.setitem(RULES, "probe", Registered(lambda s: (), lambda s, v: _Probe()))
     rows = []
     for d in (4, 5):
         for m in range(15):
@@ -239,9 +239,17 @@ def test_cli_prints_the_report_and_the_settings(
 
 
 def test_cli_refuses_a_bad_days_to_expiry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(RULES, "probe", lambda s: _Probe())
+    monkeypatch.setitem(RULES, "probe", Registered(lambda s: (), lambda s, v: _Probe()))
     with pytest.raises(SystemExit):
         cli.main(["--bars", "x", "--vol", "y", "--rule", "probe", "--days-to-expiry", "0"])
+
+
+def test_cli_refuses_a_variant_for_a_rule_without_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(RULES, "probe", Registered(lambda s: (), lambda s, v: _Probe()))
+    with pytest.raises(SystemExit):
+        cli.main(["--bars", "x", "--vol", "y", "--rule", "probe", "--variant", "1"])
 
 
 def test_cli_refuses_an_unknown_rule() -> None:

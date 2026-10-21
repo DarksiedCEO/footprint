@@ -34,4 +34,13 @@ exits:                        # numbers come from risk.yaml (stop_loss, profit_t
 judging:
   time_parts: 3               # trades split by order into this many parts
   min_positive_parts: 2       # ... at least this many must be net positive to pass
-rules: {}                     # per-rule settings, read by each rule (none in the harness)
+rules:                        # per-rule settings, read by each rule
+  london_orb:                 # PRE-REGISTERED (docs/research/london-v1.md); New York time
+    range_start: "03:00"      # range = high/low of the bars opening in [start, end)
+    range_end: "03:15"
+    entry_start: "03:15"      # trigger bars open in [start, end); entry at their close
+    entry_end: "07:00"
+    flat: "08:25"             # hard flat: everything closed at the first bar from here
+    max_trades_per_session: 2
+    green_stop_dollars: [500, 1000]  # grid: no new entry once the session's realized
+                              #   net is at or above the chosen value; both are reported
