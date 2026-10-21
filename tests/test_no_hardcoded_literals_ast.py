@@ -311,6 +311,12 @@ REVIEWED: dict[str, dict[str, int]] = {
         "code 5": 1,
         "code 6": 2,
     },
+    # black76.py: the Black-76 formula's own constants (the square root of 2 in the normal
+    # distribution, halving s squared, the normal cdf's erfc(...) / 2, the density's
+    # exp(-x * x / 2), theta's 2 * sqrt(T)). Mathematics, not a trading value.
+    "footprint/core/black76.py": {
+        "code 2": 5,
+    },
     "footprint/core/calendar.py": {
         "text 7": 1,
         "word weekend": 1,
