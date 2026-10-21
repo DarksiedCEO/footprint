@@ -1,0 +1,401 @@
+{
+ "groups": {
+  "regime": [
+   "tests/agents/test_regime_reader.py"
+  ]
+ },
+ "mutants": [
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "if today is None or session_at(as_of, self._instrument) is not SessionKind.PRIME:",
+   "if today is None:",
+   "prime-session check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if as_of < decision:\n",
+   "        if as_of < decision - _MINUTE:\n",
+   "decision one minute early"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if as_of < decision:\n",
+   "        if as_of <= decision:\n",
+   "decision minute itself refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if kept is not None:\n",
+   "        if False:\n",
+   "kept label ignored"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if sound:\n",
+   "        if True:\n",
+   "data failures kept for the day"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            self._decided = {today: result}",
+   "            self._decided = {}",
+   "label never kept"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        kept = self._decided.get(today)",
+   "        kept = next(iter(self._decided.values()), None)",
+   "yesterday's label reused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            return replace(kept, ts=as_of)",
+   "            return kept",
+   "kept label keeps its old ts"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "if any(later <= earlier for earlier, later in pairwise(starts)):",
+   "if any(later < earlier for earlier, later in pairwise(starts)):",
+   "duplicates accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if efficiency is None:\n            return aside(\"today's opening did not move: no efficiency\", overnight_range=night)\n",
+   "",
+   "flat opening not refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "for count in range(self.history_sessions - 1):",
+   "for count in range(self.history_sessions - 2):",
+   "one history day short"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return max(self._s.efficiency_lookback_sessions, self._s.overnight_lookback_sessions) + 1",
+   "return min(self._s.efficiency_lookback_sessions, self._s.overnight_lookback_sessions) + 1",
+   "history min not max"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                if count < self._s.efficiency_lookback_sessions:\n",
+   "                if count <= self._s.efficiency_lookback_sessions:\n",
+   "efficiency history one day too long"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                if count < self._s.overnight_lookback_sessions:\n",
+   "                if count <= self._s.overnight_lookback_sessions:\n",
+   "overnight history one day too long"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                        raise _Unusable(\"the opening did not move: no efficiency\")\n",
+   "                        continue\n",
+   "flat history day skipped"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            except ValueError as exc:\n                return aside(f\"history: {exc}\"",
+   "            except KeyError as exc:\n                return aside(f\"history: {exc}\"",
+   "calendar end raises"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "lower = sum(1 for value in past_efficiencies if value < efficiency)",
+   "lower = sum(1 for value in past_efficiencies if value <= efficiency)",
+   "ties counted as lower"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "lower = sum(1 for value in past_efficiencies if value < efficiency)",
+   "lower = sum(1 for value in past_efficiencies[1:] if value < efficiency)",
+   "one history day left out of the rank"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "rank = _PERCENT_MAX * lower / len(past_efficiencies)",
+   "rank = _PERCENT_MAX * lower / (len(past_efficiencies) + 1)",
+   "rank denominator"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "median = statistics.median(past_overnight_ranges)",
+   "median = statistics.mean(past_overnight_ranges)",
+   "mean not median"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "    if rank >= settings.trend_rank_pct:\n",
+   "    if rank > settings.trend_rank_pct:\n",
+   "trend threshold exclusive"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if overnight_range >= median:\n",
+   "        if overnight_range > median:\n",
+   "overnight at median not enough"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if overnight_range >= median:\n",
+   "        if True:\n",
+   "overnight condition removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "    if rank < settings.chop_rank_pct:\n",
+   "    if rank <= settings.chop_rank_pct:\n",
+   "chop threshold inclusive"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        return Classification(Regime.CHOP, rank, median, \"back-and-forth opening\")",
+   "        return Classification(Regime.STAND_ASIDE, rank, median, \"x\")",
+   "chop never called"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "    if not past_efficiencies or not past_overnight_ranges:\n",
+   "    if not past_efficiencies:\n",
+   "empty overnight history accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "path = abs(window[0].close - window[0].open)",
+   "path = abs(window[0].close - window[0].open) * 0",
+   "first move dropped"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "path += abs(later.close - earlier.close)",
+   "path += later.close - earlier.close",
+   "path not absolute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "    if path == 0:\n        return None\n",
+   "",
+   "zero path not handled"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return abs(window[-1].close - window[0].open) / path",
+   "return (window[-1].close - window[0].open) / path",
+   "net move not absolute (down days)"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return abs(window[-1].close - window[0].open) / path",
+   "return abs(window[-1].close - window[0].close) / path",
+   "net from first close"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "    if not window:\n        raise ValueError",
+   "    if False:\n        raise ValueError",
+   "empty opening_efficiency accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "start_day = day - timedelta(days=1) if night.start > night.end else day",
+   "start_day = day - timedelta(days=1)",
+   "overnight always starts the day before"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "start_day = day - timedelta(days=1) if night.start > night.end else day",
+   "start_day = day",
+   "overnight starts the same day"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "self._night_zone = ZoneInfo(instrument.overnight_session.timezone)",
+   "self._night_zone = ZoneInfo(cash.timezone)",
+   "overnight zone from cash session"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return self._window(bars, starts, begin, end, need_last=True)",
+   "return self._window(bars, starts, begin, end, need_last=False)",
+   "opening last minute not required"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "window = self._window(bars, starts, begin, self._cash_open(day), need_last=False)",
+   "window = self._window(bars, starts, begin, self._cash_open(day), need_last=True)",
+   "overnight last minute required"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return max(bar.high for bar in window) - min(bar.low for bar in window)",
+   "return max(bar.close for bar in window) - min(bar.close for bar in window)",
+   "overnight range from closes"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return max(bar.high for bar in window) - min(bar.low for bar in window)",
+   "return max(bar.high for bar in window[1:] or window) - min(bar.low for bar in window[1:] or window)",
+   "overnight range drops the first minute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return max(bar.high for bar in window) - min(bar.low for bar in window)",
+   "return max(bar.high for bar in window[:-1] or window) - min(bar.low for bar in window[:-1] or window)",
+   "overnight range drops the last minute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "window = bars[bisect_left(starts, begin) : bisect_left(starts, end)]",
+   "window = bars[bisect_left(starts, begin) : bisect_left(starts, end) + 1]",
+   "window includes the end minute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if any(bar.ts.second or bar.ts.microsecond for bar in window):\n",
+   "        if False:\n",
+   "off-minute bars accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if Decimal(len(window)) < need:\n",
+   "        if False:\n",
+   "coverage check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if Decimal(len(window)) < need:\n",
+   "        if Decimal(len(window)) <= need:\n",
+   "coverage exactly at the minimum refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if max(gaps) > limit:\n",
+   "        if False:\n",
+   "gap check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if max(gaps) > limit:\n",
+   "        if max(gaps) >= limit:\n",
+   "gap exactly at the limit refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "gaps = [window[0].ts - begin, end - (window[-1].ts + _MINUTE)]",
+   "gaps = [end - (window[-1].ts + _MINUTE)]",
+   "start gap ignored"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "gaps = [window[0].ts - begin, end - (window[-1].ts + _MINUTE)]",
+   "gaps = [window[0].ts - begin]",
+   "end gap ignored"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if need_last and window[-1].ts + _MINUTE != end:\n",
+   "        if False:\n",
+   "last-minute check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if cash.end <= cash.start or settings.decision_minutes >= cash_minutes:\n",
+   "        if cash.end <= cash.start or settings.decision_minutes > cash_minutes:\n",
+   "decision may end at the cash close"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if cash.end <= cash.start or settings.decision_minutes >= cash_minutes:\n",
+   "        if False:\n",
+   "decision bound removed"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "    if settings.chop_rank_pct >= settings.trend_rank_pct:\n",
+   "    if settings.chop_rank_pct > settings.trend_rank_pct:\n",
+   "equal thresholds accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "    if settings.trend_rank_pct > _PERCENT_MAX:\n",
+   "    if False:\n",
+   "rank above 100 accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "    if settings.trend_rank_pct > _PERCENT_MAX:\n",
+   "    if settings.trend_rank_pct >= _PERCENT_MAX:\n",
+   "trend 100 refused"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "decision_minutes=_integer(raw, \"decision_minutes\", where, minimum=1)",
+   "decision_minutes=_integer(raw, \"decision_minutes\", where, minimum=0)",
+   "zero decision minutes accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            if day < self._instrument.calendar_from:\n",
+   "            if False:\n",
+   "history before the calendar accepted"
+  ]
+ ]
+}
