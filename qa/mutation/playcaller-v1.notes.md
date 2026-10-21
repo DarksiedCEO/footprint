@@ -36,3 +36,7 @@ code), plus mutants for every new check.
   with the same message ("0 of N minutes").
 - **CHOP guarded by `night >= 0`** (reviewer's mutant 11): always true, a range is a max
   high minus a min low and `Bar` enforces high >= low.
+- **A kept label looked up without the day** (`next(iter(...))`, reviewer round 2): the
+  kept entry is reused only when its key equals today's overnight and opening bars, and
+  another day's key holds that day's bars (different timestamps), so it can never match
+  today's: the lookup by day changes nothing observable.
