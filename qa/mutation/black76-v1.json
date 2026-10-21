@@ -365,15 +365,15 @@
   [
    "b76",
    "src/footprint/core/black76.py",
-   "    if not all(math.isfinite(x) for x in outputs):\n",
-   "    if False:\n",
+   "        if not all(math.isfinite(x) for x in outputs):\n",
+   "        if False:\n",
    "N1: non-finite result returned"
   ],
   [
    "b76",
    "src/footprint/core/black76.py",
-   "    if not all(math.isfinite(x) for x in outputs):\n",
-   "    if not all(math.isfinite(x) for x in outputs[:3]):\n",
+   "        if not all(math.isfinite(x) for x in outputs):\n",
+   "        if not all(math.isfinite(x) for x in outputs[:3]):\n",
    "N1: vega/theta not checked"
   ],
   [

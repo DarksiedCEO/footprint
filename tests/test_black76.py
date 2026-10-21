@@ -413,3 +413,9 @@ def test_vega_overflow_alone_is_refused() -> None:
     # Price, delta, gamma and theta are finite here; only vega (F * n(d1) * sqrt(T)) is not.
     with pytest.raises(ValueError, match="out of float range"):
         greeks(Right76.CALL, forward=1e308, strike=1e308, years=100.0, vol=0.01, rate=0.0)
+
+
+def test_the_zero_volatility_answer_is_checked_for_range_too() -> None:
+    # Review round 2, R3-1: price inf and theta -inf with no volatility.
+    with pytest.raises(ValueError, match="out of float range"):
+        greeks(Right76.CALL, forward=1.7e308, strike=1.0, years=1.0, vol=0.0, rate=-0.5)

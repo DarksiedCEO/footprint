@@ -134,6 +134,9 @@ def greeks(
     sign = 1.0 if call else -1.0
 
     def result(price: float, delta: float, gamma: float, vega: float, theta: float) -> Black76:
+        outputs = (price, delta, gamma, vega, theta)
+        if not all(math.isfinite(x) for x in outputs):
+            raise ValueError(f"Black-76: a result is out of float range: {outputs!r}")
         return Black76(right, f, k, t, v, r, price, delta, gamma, vega, theta)
 
     if t == 0:
@@ -176,10 +179,7 @@ def greeks(
     gamma = discount * density / scale
     vega = discount * f * density * root_t
     theta = -discount * f * density * v / (2 * root_t) + r * value
-    outputs = (value, delta, gamma, vega, theta)
-    if not all(math.isfinite(x) for x in outputs):
-        raise ValueError(f"Black-76: a result is out of float range: {outputs!r}")
-    return result(*outputs)
+    return result(value, delta, gamma, vega, theta)
 
 
 def price(
