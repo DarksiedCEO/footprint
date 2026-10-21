@@ -1,4 +1,4 @@
-source: a313501abcf278039ccc0f8dfacd9cd76df08740 tree-dirty: 0 files
+source: ab189897f614374ef841e0b5d5bf39c10480b7fe tree-dirty: 0 files
 baseline [b76]: passed
   1 KILLED   [b76] src/footprint/core/black76.py: cdf without the root-2 scaling
   2 KILLED   [b76] src/footprint/core/black76.py: density exponent not halved
@@ -37,4 +37,16 @@ baseline [b76]: passed
  35 KILLED   [b76] src/footprint/core/black76.py: theta not halved
  36 KILLED   [b76] src/footprint/core/black76.py: negative rounding residue not floored
  37 KILLED   [b76] src/footprint/core/black76.py: price swaps forward and strike
-37 mutants, 0 survived or errored
+ 38 KILLED   [b76] src/footprint/core/black76.py: F1: theta rate term abs (main)
+ 39 KILLED   [b76] src/footprint/core/black76.py: F1: theta rate term abs (zero vol)
+ 40 KILLED   [b76] src/footprint/core/black76.py: F2: zero-vol delta sign dropped
+ 41 KILLED   [b76] src/footprint/core/black76.py: F2: at the money counted in the money
+ 42 KILLED   [b76] src/footprint/core/black76.py: F3: gamma 0.05% off
+ 43 KILLED   [b76] src/footprint/core/black76.py: F4: vol and rate swapped in the record
+ 44 KILLED   [b76] src/footprint/core/black76.py: F4: forward and strike swapped in the record
+ 45 KILLED   [b76] src/footprint/core/black76.py: F4: years recorded as 0
+ 46 KILLED   [b76] src/footprint/core/black76.py: F5: int overflow leaks OverflowError
+ 47 KILLED   [b76] src/footprint/core/black76.py: F5: exp overflow leaks
+ 48 KILLED   [b76] src/footprint/core/black76.py: F6: overflowing vol not refused
+ 49 KILLED   [b76] src/footprint/core/black76.py: F5: s == 0 raises instead of the zero-vol answer
+49 mutants, 0 survived or errored
