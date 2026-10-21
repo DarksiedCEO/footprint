@@ -14,4 +14,7 @@ The trial ran 60 mutants on the uncommitted tree: 55 killed, 3 survived, 2 error
 | 44 skipped day retried (`break` -> `continue`) | ERROR | `continue` without advancing `i` asks the same bar again forever (same failure mode as 43). Rewritten to advance (`i += 1; continue`): the day is then retried on later bars and counted skipped more than once. Killed by `test_day_without_usable_vol_is_skipped_and_counted`. |
 | 50 t-stat with one trade (`n > 1` -> `n > 0`) | SURVIVED | Equivalent: with one trade the population stdev is 0, and the `sd > 0` check already returns None. The guard was simplified to `if pnls:` (the stdev check alone decides), and the mutant was dropped from the spec. Mutant 49 (`sd > 0` -> `sd >= 0`) pins the remaining check. |
 
-The evidence run therefore has 59 mutants.
+The evidence run has 62 mutants: the 59 above plus three on the gate reader added when
+research stopped importing footprint.backtest (a 100% gate accepted, zero min_trades
+accepted, profit factor read from the payoff key). Result: 62 killed, 0 survived or
+errored, on ed493a1 with a clean tree.
