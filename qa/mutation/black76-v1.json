@@ -8,8 +8,8 @@
   [
    "b76",
    "src/footprint/core/black76.py",
-   "return (1 + math.erf(x / _ROOT_TWO)) / 2",
-   "return (1 + math.erf(x)) / 2",
+   "return math.erfc(-x / _ROOT_TWO) / 2",
+   "return math.erfc(-x) / 2",
    "cdf without the root-2 scaling"
   ],
   [
@@ -141,8 +141,8 @@
   [
    "b76",
    "src/footprint/core/black76.py",
-   "    if v == 0:\n",
-   "    if v < 0:\n",
+   "    if s == 0:\n",
+   "    if s < 0:\n",
    "zero-vol branch skipped"
   ],
   [
@@ -176,15 +176,15 @@
   [
    "b76",
    "src/footprint/core/black76.py",
-   "d1 = (math.log(f / k) + s * s / 2) / s",
-   "d1 = (math.log(f / k) + s * s) / s",
+   "drift = s * s / 2",
+   "drift = s * s",
    "d1 drift not halved"
   ],
   [
    "b76",
    "src/footprint/core/black76.py",
-   "d1 = (math.log(f / k) + s * s / 2) / s",
-   "d1 = (math.log(k / f) + s * s / 2) / s",
+   "d1 = (math.log(f) - math.log(k) + drift) / s",
+   "d1 = (math.log(k) - math.log(f) + drift) / s",
    "d1 log inverted"
   ],
   [
@@ -253,8 +253,8 @@
   [
    "b76",
    "src/footprint/core/black76.py",
-   "return result(max(value, 0.0), delta, gamma, vega, theta)",
-   "return result(value, delta, gamma, vega, theta)",
+   "    value = max(value, 0.0)\n",
+   "    value = value\n",
    "negative rounding residue not floored"
   ],
   [
@@ -263,6 +263,90 @@
    "return greeks(right, forward=forward, strike=strike, years=years, vol=vol, rate=rate).price",
    "return greeks(right, forward=strike, strike=forward, years=years, vol=vol, rate=rate).price",
    "price swaps forward and strike"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "theta = -discount * f * density * v / (2 * root_t) + r * value",
+   "theta = -discount * f * density * v / (2 * root_t) + abs(r) * value",
+   "F1: theta rate term abs (main)"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return result(value, delta, 0.0, 0.0, r * value)",
+   "return result(value, delta, 0.0, 0.0, abs(r) * value)",
+   "F1: theta rate term abs (zero vol)"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "delta = sign * discount if in_the_money else 0.0",
+   "delta = discount if in_the_money else 0.0",
+   "F2: zero-vol delta sign dropped"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "in_the_money = f > k if call else f < k",
+   "in_the_money = f >= k if call else f <= k",
+   "F2: at the money counted in the money"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "gamma = discount * density / (f * s)",
+   "gamma = 1.0005 * discount * density / (f * s)",
+   "F3: gamma 0.05% off"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return Black76(right, f, k, t, v, r, price, delta, gamma, vega, theta)",
+   "return Black76(right, f, k, t, r, v, price, delta, gamma, vega, theta)",
+   "F4: vol and rate swapped in the record"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return Black76(right, f, k, t, v, r, price, delta, gamma, vega, theta)",
+   "return Black76(right, k, f, t, v, r, price, delta, gamma, vega, theta)",
+   "F4: forward and strike swapped in the record"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "return Black76(right, f, k, t, v, r, price, delta, gamma, vega, theta)",
+   "return Black76(right, f, k, 0.0, v, r, price, delta, gamma, vega, theta)",
+   "F4: years recorded as 0"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "    except OverflowError as exc:\n        raise ValueError(f\"Black-76: {name} is too large for a float\") from exc\n",
+   "    except OverflowError:\n        raise\n",
+   "F5: int overflow leaks OverflowError"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "        discount = math.exp(-r * t)\n    except OverflowError",
+   "        discount = math.exp(-r * t)\n    except ZeroDivisionError",
+   "F5: exp overflow leaks"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "    if not math.isfinite(drift):\n",
+   "    if False:\n",
+   "F6: overflowing vol not refused"
+  ],
+  [
+   "b76",
+   "src/footprint/core/black76.py",
+   "        return no_volatility()\n\n    drift",
+   "        raise ValueError(\"Black-76: x\")\n\n    drift",
+   "F5: s == 0 raises instead of the zero-vol answer"
   ]
  ]
 }
