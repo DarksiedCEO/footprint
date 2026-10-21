@@ -11,3 +11,5 @@ Evidence: `london-v1.out` (spec `london-v1.json`), run on the PR's own commit.
 | 4 range reads the whole day (`range(i)` -> `range(len(day))`) | Argued equivalent, dropped from the spec. A session day runs from the roll (18:00) to the next roll, so its wall clocks rise after midnight and each of the 03:00-03:14 minutes occurs at most once. The loader orders range_start < range_end <= entry_start, and bar i opens at or after entry_start, so every bar after i opens after range_end and none of them is in the range. The no-lookahead property itself is pinned by `test_no_lookahead_the_answer_at_a_bar_ignores_every_later_bar` (each answer equals the answer on the day cut after that bar) and `test_no_lookahead_after_a_cached_range`. `range(i)` is kept so the rule never reads a later bar even if a future config breaks that ordering (which the loader refuses today). Caveat, not verified on data: a daylight-saving fall-back repeats 01:00-01:59 New York, not 03:00-03:14, so it does not reach the range window. |
 
 The evidence run therefore has 29 mutants.
+
+Result: 29 killed, 0 survived or errored, on c363d9f with a clean tree.

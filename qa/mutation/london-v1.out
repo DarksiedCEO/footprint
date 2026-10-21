@@ -1,0 +1,32 @@
+source: c363d9f07548327beac490b6f29ee9cc9d4ff3c9 tree-dirty: 0 files
+baseline [orb]: passed
+  1 KILLED   [orb] src/footprint/research/rules/london_orb.py: range end inclusive
+  2 KILLED   [orb] src/footprint/research/rules/london_orb.py: range start ignored
+  3 KILLED   [orb] src/footprint/research/rules/london_orb.py: partial range accepted
+  4 KILLED   [orb] src/footprint/research/rules/london_orb.py: range from closes
+  5 KILLED   [orb] src/footprint/research/rules/london_orb.py: entry end inclusive
+  6 KILLED   [orb] src/footprint/research/rules/london_orb.py: entry start exclusive
+  7 KILLED   [orb] src/footprint/research/rules/london_orb.py: entry start ignored
+  8 KILLED   [orb] src/footprint/research/rules/london_orb.py: one trade too many
+  9 KILLED   [orb] src/footprint/research/rules/london_orb.py: green stop exclusive
+ 10 KILLED   [orb] src/footprint/research/rules/london_orb.py: no green stop
+ 11 KILLED   [orb] src/footprint/research/rules/london_orb.py: no trade limit
+ 12 KILLED   [orb] src/footprint/research/rules/london_orb.py: close on the high enters
+ 13 KILLED   [orb] src/footprint/research/rules/london_orb.py: close on the low enters
+ 14 KILLED   [orb] src/footprint/research/rules/london_orb.py: call stop at the high
+ 15 KILLED   [orb] src/footprint/research/rules/london_orb.py: call without the setup stop
+ 16 KILLED   [orb] src/footprint/research/rules/london_orb.py: put stop at the low
+ 17 KILLED   [orb] src/footprint/research/rules/london_orb.py: break down buys a call
+ 18 KILLED   [orb] src/footprint/research/rules/london_orb.py: flat at the entry end
+ 19 KILLED   [orb] src/footprint/research/rules/london_orb.py: flat time in UTC
+ 20 KILLED   [orb] src/footprint/research/rules/london_orb.py: any variant accepted
+ 21 KILLED   [orb] src/footprint/research/rules/london_orb.py: variant ignored
+ 22 KILLED   [orb] src/footprint/research/rules/london_orb.py: equal clocks accepted
+ 23 KILLED   [orb] src/footprint/research/rules/london_orb.py: clock order not checked
+ 24 KILLED   [orb] src/footprint/research/rules/london_orb.py: duplicate grid accepted
+ 25 KILLED   [orb] src/footprint/research/rules/london_orb.py: zero green stop accepted
+ 26 KILLED   [orb] src/footprint/research/rules/london_orb.py: zero trade limit accepted
+ 27 KILLED   [orb] src/footprint/research/rules/london_orb.py: empty grid accepted
+ 28 KILLED   [orb] src/footprint/research/__main__.py: missing variant accepted
+ 29 KILLED   [orb] src/footprint/research/__main__.py: unknown variant reaches the builder
+29 mutants, 0 survived or errored
