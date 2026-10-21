@@ -545,7 +545,9 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   and check it at start-up. Not done here: nothing calls the reader yet. Also: a day that
   fails closed is recomputed on every call (about 20 ms each); with too little history
   that is several seconds per simulated day. Labels are kept per reader, keyed on today's
-  bars: one reader per run (a replay of corrected history needs a new reader).
+  bars: one reader per run (a replay of corrected history needs a new reader). A kept
+  label costs a bisect of the input per call (review round 3 measured a full scan at
+  6-16 ms per call before this; now only today's slice is copied).
 - **PC-3 (research): the calendar.** The reader refuses history before the maintained
   calendar (`calendar_from`, 2026-01-01), so in live/paper it cannot label a day until
   about 60 sessions into the calendar (warm-up), and it cannot run on 2010-2024 data.

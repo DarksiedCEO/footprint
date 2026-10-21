@@ -421,9 +421,37 @@
   [
    "regime",
    "src/footprint/agents/regime_reader.py",
-   "return tuple(bars[bisect_left(starts, self._night_open(today)) : bisect_left(starts, end)])",
-   "return tuple(bars[bisect_left(starts, end) - 1 : bisect_left(starts, end)])",
-   "cache key only the last opening bar"
+   "        first = bisect_left(minute_bars, self._night_open(today), key=_start)\n",
+   "        first = bisect_left(minute_bars, self._cash_open(today), key=_start)\n",
+   "R3: key = opening only"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        return tuple(minute_bars[first : bisect_left(minute_bars, end, key=_start)])\n",
+   "        return tuple(minute_bars[first : bisect_left(minute_bars, self._cash_open(today), key=_start)])\n",
+   "R3: key = overnight only"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        return tuple(minute_bars[first : bisect_left(minute_bars, end, key=_start)])\n",
+   "        return tuple(minute_bars[first:])\n",
+   "R3: key runs to the end (post-decision bars)"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        first = bisect_left(minute_bars, self._night_open(today), key=_start)\n",
+   "        first = bisect_left(minute_bars, self._night_open(today), key=_start) + 1\n",
+   "R3: key drops the night's first bar"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        return tuple(minute_bars[first : bisect_left(minute_bars, end, key=_start)])\n",
+   "        return tuple(minute_bars[first : bisect_left(minute_bars, end, key=_start) - 1])\n",
+   "R3: key drops the opening's last bar"
   ]
  ]
 }
