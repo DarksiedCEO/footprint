@@ -607,14 +607,19 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   days of bars (61 with the defaults). The backtest hands decisions
   `history_minutes: 43200` (about 30 sessions), so wired as is the reader would always
   stand aside. Wiring must raise the history (or feed the reader its own longer series)
-  and check it at start-up. Not done here: nothing calls the reader yet.
+  and check it at start-up. Not done here: nothing calls the reader yet. Also: a day that
+  fails closed is recomputed on every call (about 20 ms each); with too little history
+  that is several seconds per simulated day. Labels are kept per reader, keyed on today's
+  bars: one reader per run (a replay of corrected history needs a new reader).
 - **PC-3 (research): the calendar.** The reader refuses history before the maintained
   calendar (`calendar_from`, 2026-01-01), so in live/paper it cannot label a day until
   about 60 sessions into the calendar (warm-up), and it cannot run on 2010-2024 data.
   Research labels days with the pure `opening_efficiency` and `classify` functions on its
   own session days, so both use exactly the same rules.
 - **PC-4 (Andre to confirm):** CHOP does not use the overnight, but an unusable overnight
-  still stands aside (fail-closed on every input).
+  still stands aside (fail-closed on every input). And: data failures are not kept, so a
+  day can first be labelled after the decision time once late bars arrive (no lookahead);
+  should the console act on a late label, or only on one made at the decision minute?
 - Independent review of e83e96d (branch regime-v1): NOT CERTIFIED. Reworked here: label
   kept for the day once made from sound data (data failures are not kept); bars out of
   order, duplicated or off the whole minute refused; history before the calendar refused;

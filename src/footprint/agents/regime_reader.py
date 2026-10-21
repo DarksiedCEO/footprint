@@ -27,9 +27,13 @@ session calendar with exactly the same rules.
 
 History: a call reads `history_sessions` trading days of bars (today plus the longer
 lookback), so the bars handed to it must reach back that far. A label made from sound
-data is kept for the rest of its trading day, so later calls (with the oldest history
-day sliding out of a fixed-length window) give the same answer; a STAND_ASIDE caused by
-missing or unusable data is NOT kept, so a late-arriving minute can still be read.
+data is kept for the rest of its trading day while today's own bars (overnight and
+opening) are unchanged, so later calls (with the oldest history day sliding out of a
+fixed-length window) give the same answer; different bars for today mean a new label.
+A STAND_ASIDE caused by missing or unusable data is NOT kept, so a late-arriving minute
+can still be read (the label can then come later than the decision time; PC-4).
+Corrected HISTORY bars with today's bars unchanged are not noticed: replaying a whole
+corrected data set needs a new reader (one reader per run).
 
 The reader only labels. Which play runs on which label is the console's job (not wired).
 """
@@ -153,7 +157,7 @@ class RegimeReader:
         self._instrument = instrument
         self._zone = ZoneInfo(cash.timezone)
         self._night_zone = ZoneInfo(instrument.overnight_session.timezone)
-        self._decided: dict[date, RegimeCall] = {}
+        self._decided: dict[date, tuple[tuple[Bar, ...], RegimeCall]] = {}
 
     @property
     def agent_id(self) -> str:
@@ -174,13 +178,27 @@ class RegimeReader:
             return RegimeCall(
                 Regime.STAND_ASIDE, today, as_of, f"before the decision time {decision}"
             )
+        today_bars = self._today_bars(minute_bars, as_of, today)
         kept = self._decided.get(today)
-        if kept is not None:
-            return replace(kept, ts=as_of)
+        if kept is not None and kept[0] == today_bars:
+            return replace(kept[1], ts=as_of)
         result, sound = self._label(minute_bars, as_of, today)
         if sound:
-            self._decided = {today: result}  # only today's label is ever needed again
+            # Only today's label is ever needed again, and only while today's own bars
+            # (overnight and opening) are the ones it was made from.
+            self._decided = {today: (today_bars, result)}
         return result
+
+    def _today_bars(
+        self, minute_bars: Sequence[Bar], as_of: datetime, today: date
+    ) -> tuple[Bar, ...]:
+        """Today's overnight and opening bars as given (unchecked): the key a kept label
+        is valid for. Different bars for today (another data set, a corrected feed)
+        mean a new label; history days sliding out of a fixed window do not."""
+        bars = completed(minute_bars, as_of, 1)
+        starts = [bar.ts for bar in bars]
+        end = self._cash_open(today) + _MINUTE * self._s.decision_minutes
+        return tuple(bars[bisect_left(starts, self._night_open(today)) : bisect_left(starts, end)])
 
     # --- the label -----------------------------------------------------------------
 
@@ -258,6 +276,11 @@ class RegimeReader:
         start = self._instrument.cash_session.start
         return datetime.combine(day, start, self._zone).astimezone(UTC)
 
+    def _night_open(self, day: date) -> datetime:
+        night = self._instrument.overnight_session
+        start_day = day - timedelta(days=1) if night.start > night.end else day
+        return datetime.combine(start_day, night.start, self._night_zone).astimezone(UTC)
+
     def _opening(self, bars: Sequence[Bar], starts: Sequence[datetime], day: date) -> Sequence[Bar]:
         begin = self._cash_open(day)
         end = begin + _MINUTE * self._s.decision_minutes
@@ -266,10 +289,9 @@ class RegimeReader:
     def _overnight_range(
         self, bars: Sequence[Bar], starts: Sequence[datetime], day: date
     ) -> Decimal:
-        night = self._instrument.overnight_session
-        start_day = day - timedelta(days=1) if night.start > night.end else day
-        begin = datetime.combine(start_day, night.start, self._night_zone).astimezone(UTC)
-        window = self._window(bars, starts, begin, self._cash_open(day), need_last=False)
+        window = self._window(
+            bars, starts, self._night_open(day), self._cash_open(day), need_last=False
+        )
         return max(bar.high for bar in window) - min(bar.low for bar in window)
 
     def _window(

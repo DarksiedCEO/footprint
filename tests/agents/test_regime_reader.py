@@ -818,3 +818,84 @@ def test_the_overnight_session_is_not_a_place_to_label(
     assert call.regime is Regime.STAND_ASIDE
     assert call.day is None
     assert call.reason == "outside the prime session"
+
+
+# --- review round 2 (C1, C2) --------------------------------------------------------
+
+
+def test_a_kept_label_is_not_served_for_different_bars(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    reader = _reader(instrument, data)
+    chop = _build(instrument, today_closes=_closes_for("chop"), today_night=20.0)
+    clean = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    assert reader.call(chop, _decision(instrument)).regime is Regime.CHOP
+    # Same reader, same day, a different data set: a new label, not the kept CHOP.
+    again = reader.call(clean, _decision(instrument) + MINUTE)
+    assert again.regime is Regime.TREND
+    assert again.efficiency == Decimal(1)
+
+
+def test_a_rule_based_stand_aside_is_kept_too(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    # Clean opening after a narrow night: STAND_ASIDE by the rule, from sound data.
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=5.0)
+    reader = _reader(instrument, data)
+    first = reader.call(bars, _decision(instrument))
+    assert first.regime is Regime.STAND_ASIDE
+    assert first.efficiency_rank_pct is not None  # made by the rule, not a data failure
+    oldest = _history(SMALL.efficiency_lookback_sessions, instrument)[0]
+    slid = [b for b in bars if b.ts >= _cash_open(oldest, instrument) + timedelta(days=1)]
+    later = reader.call(slid, _decision(instrument) + timedelta(hours=2))
+    assert later.reason == first.reason
+    assert later.efficiency_rank_pct == first.efficiency_rank_pct
+
+
+def test_the_first_day_of_the_calendar_may_be_history(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    oldest = _history(SMALL.efficiency_lookback_sessions, instrument)[0]
+    starts_there = replace(instrument, calendar_from=oldest)
+    bars = _build(starts_there, today_closes=_closes_for("clean"), today_night=20.0)
+    call = _reader(starts_there, data).call(bars, _decision(starts_there))
+    assert call.regime is Regime.TREND, call.reason
+    one_later = replace(instrument, calendar_from=oldest + timedelta(days=1))
+    call = _reader(one_later, data).call(bars, _decision(one_later))
+    assert call.regime is Regime.STAND_ASIDE
+    assert "before the maintained calendar" in call.reason
+
+
+def test_a_bar_a_microsecond_off_the_minute_stands_aside(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    b = bars[-10]
+    bars[-10] = bar(b.ts + timedelta(microseconds=1), 100.0, 200.0, 99.0, 150.0)
+    call = _reader(instrument, data).call(bars, _decision(instrument))
+    assert call.regime is Regime.STAND_ASIDE
+    assert "whole minute" in call.reason
+
+
+def test_a_corrected_overnight_for_today_makes_a_new_label(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    reader = _reader(instrument, data)
+    wide = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    narrow = _build(instrument, today_closes=_closes_for("clean"), today_night=5.0)
+    assert reader.call(wide, _decision(instrument)).regime is Regime.TREND
+    # Same opening bars, a different overnight: the kept TREND must not be served.
+    assert reader.call(narrow, _decision(instrument) + MINUTE).regime is Regime.STAND_ASIDE
+
+
+def test_a_history_data_failure_is_not_kept(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    bad = _history(SMALL.efficiency_lookback_sessions, instrument)[2]
+    open_ = _cash_open(bad, instrument)
+    holed = [b for b in bars if not open_ <= b.ts < open_ + MINUTE * 30]
+    reader = _reader(instrument, data)
+    assert reader.call(holed, _decision(instrument)).regime is Regime.STAND_ASIDE
+    # Today's bars are the same; the history arrived: the failure was not kept.
+    assert reader.call(bars, _decision(instrument) + MINUTE).regime is Regime.TREND

@@ -29,7 +29,7 @@
   [
    "regime",
    "src/footprint/agents/regime_reader.py",
-   "        if kept is not None:\n",
+   "        if kept is not None and kept[0] == today_bars:\n",
    "        if False:\n",
    "kept label ignored"
   ],
@@ -43,22 +43,15 @@
   [
    "regime",
    "src/footprint/agents/regime_reader.py",
-   "            self._decided = {today: result}",
+   "            self._decided = {today: (today_bars, result)}",
    "            self._decided = {}",
    "label never kept"
   ],
   [
    "regime",
    "src/footprint/agents/regime_reader.py",
-   "        kept = self._decided.get(today)",
-   "        kept = next(iter(self._decided.values()), None)",
-   "yesterday's label reused"
-  ],
-  [
-   "regime",
-   "src/footprint/agents/regime_reader.py",
-   "            return replace(kept, ts=as_of)",
-   "            return kept",
+   "            return replace(kept[1], ts=as_of)",
+   "            return kept[1]",
    "kept label keeps its old ts"
   ],
   [
@@ -260,8 +253,8 @@
   [
    "regime",
    "src/footprint/agents/regime_reader.py",
-   "window = self._window(bars, starts, begin, self._cash_open(day), need_last=False)",
-   "window = self._window(bars, starts, begin, self._cash_open(day), need_last=True)",
+   "bars, starts, self._night_open(day), self._cash_open(day), need_last=False",
+   "bars, starts, self._night_open(day), self._cash_open(day), need_last=True",
    "overnight last minute required"
   ],
   [
@@ -396,6 +389,41 @@
    "            if day < self._instrument.calendar_from:\n",
    "            if False:\n",
    "history before the calendar accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if kept is not None and kept[0] == today_bars:\n",
+   "        if kept is not None:\n",
+   "C1: kept label served for different bars"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            if day < self._instrument.calendar_from:\n",
+   "            if day <= self._instrument.calendar_from:\n",
+   "C2: calendar's first day refused as history"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if any(bar.ts.second or bar.ts.microsecond for bar in window):\n",
+   "        if any(bar.ts.second for bar in window):\n",
+   "C2: microseconds ignored"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if sound:\n",
+   "        if sound and result.regime is not Regime.STAND_ASIDE:\n",
+   "C2: rule-based stand-aside not kept"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return tuple(bars[bisect_left(starts, self._night_open(today)) : bisect_left(starts, end)])",
+   "return tuple(bars[bisect_left(starts, end) - 1 : bisect_left(starts, end)])",
+   "cache key only the last opening bar"
   ]
  ]
 }
