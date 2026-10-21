@@ -675,6 +675,36 @@ def load_strategy(path: Path) -> StrategyProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class RegimeSettings:
+    """The play caller's regime reader (config/regime.yaml)."""
+
+    decision_minutes: int
+    efficiency_lookback_sessions: int
+    trend_rank_pct: Decimal
+    chop_rank_pct: Decimal
+    overnight_lookback_sessions: int
+
+
+def load_regime(path: Path) -> RegimeSettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(RegimeSettings)})
+    settings = RegimeSettings(
+        decision_minutes=_integer(raw, "decision_minutes", where, minimum=1),
+        efficiency_lookback_sessions=_integer(
+            raw, "efficiency_lookback_sessions", where, minimum=1
+        ),
+        trend_rank_pct=_positive_decimal(raw, "trend_rank_pct", where),
+        chop_rank_pct=_positive_decimal(raw, "chop_rank_pct", where),
+        overnight_lookback_sessions=_integer(raw, "overnight_lookback_sessions", where, minimum=1),
+    )
+    if settings.trend_rank_pct > _PERCENT_MAX:
+        raise ConfigError(f"{where}: trend_rank_pct must be <= {_PERCENT_MAX}")
+    if settings.chop_rank_pct >= settings.trend_rank_pct:
+        raise ConfigError(f"{where}: chop_rank_pct must be < trend_rank_pct")
+    return settings
+
+
+@dataclass(frozen=True, slots=True)
 class QuoteSettings:
     max_age_seconds: int
     greeks_max_age_seconds: int

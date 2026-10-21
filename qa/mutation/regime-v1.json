@@ -1,0 +1,219 @@
+{
+ "groups": {
+  "regime": [
+   "tests/agents/test_regime_reader.py"
+  ]
+ },
+ "mutants": [
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "if session_at(as_of, self._instrument) is not SessionKind.PRIME:",
+   "if False:",
+   "prime-session check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if as_of < decision:\n",
+   "        if as_of < decision - _MINUTE:\n",
+   "decision one minute early"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            return aside(\"today's opening did not move: no efficiency\", overnight_range=night)\n",
+   "            pass\n",
+   "flat opening not refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "for count in range(lookback):",
+   "for count in range(lookback - 1):",
+   "one history day short"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                if count < self._s.efficiency_lookback_sessions:\n",
+   "                if count <= self._s.efficiency_lookback_sessions:\n",
+   "efficiency history one day too long"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                if count < self._s.overnight_lookback_sessions:\n",
+   "                if True:\n",
+   "overnight median over the whole lookback"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "                        raise _Unusable(\"the opening did not move: no efficiency\")\n",
+   "                        continue\n",
+   "flat history day skipped instead of refused"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "lower = sum(1 for value in past_eff if value < efficiency)",
+   "lower = sum(1 for value in past_eff if value <= efficiency)",
+   "ties counted as lower"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "rank = _PERCENT_MAX * lower / len(past_eff)",
+   "rank = _PERCENT_MAX * lower / (len(past_eff) + 1)",
+   "rank denominator"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "median = statistics.median(past_night)",
+   "median = statistics.mean(past_night)",
+   "mean not median"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "if rank >= self._s.trend_rank_pct:",
+   "if rank > self._s.trend_rank_pct:",
+   "trend threshold exclusive"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            if night >= median:\n",
+   "            if night > median:\n",
+   "overnight at median not enough"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "            if night >= median:\n",
+   "            if True:\n",
+   "overnight condition removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "if rank < self._s.chop_rank_pct:",
+   "if rank <= self._s.chop_rank_pct:",
+   "chop threshold inclusive"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return RegimeCall(Regime.CHOP, today, as_of, \"back-and-forth opening\", **known)",
+   "return aside(\"x\", **known)",
+   "chop never called"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "path = abs(window[0].close - window[0].open)",
+   "path = Decimal(0)",
+   "first move left out of the path"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "path += abs(later.close - earlier.close)",
+   "path += later.close - earlier.close",
+   "path not absolute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if path == 0:\n            return None\n",
+   "",
+   "zero path not handled"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return abs(window[-1].close - window[0].open) / path",
+   "return abs(window[-1].close - window[0].close) / path",
+   "net from first close"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "start_day = day - timedelta(days=1) if night.start > night.end else day",
+   "start_day = day",
+   "overnight starts the same day"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "window = self._window(bars, starts, begin, end, need_last=True)",
+   "window = self._window(bars, starts, begin, end, need_last=False)",
+   "opening last minute not required"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "return max(bar.high for bar in window) - min(bar.low for bar in window)",
+   "return max(bar.close for bar in window) - min(bar.close for bar in window)",
+   "overnight range from closes"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "window = bars[bisect_left(starts, begin) : bisect_left(starts, end)]",
+   "window = bars[bisect_left(starts, begin) : bisect_left(starts, end) + 1]",
+   "window includes the end minute"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if Decimal(len(window)) < need:\n",
+   "        if False:\n",
+   "coverage check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if max(gaps) > limit:\n",
+   "        if False:\n",
+   "gap check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "gaps = [window[0].ts - begin, end - (window[-1].ts + _MINUTE)]",
+   "gaps = [end - (window[-1].ts + _MINUTE)]",
+   "start gap ignored"
+  ],
+  [
+   "regime",
+   "src/footprint/agents/regime_reader.py",
+   "        if need_last and window[-1].ts + _MINUTE != end:\n",
+   "        if False:\n",
+   "last-minute check removed"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "    if settings.chop_rank_pct >= settings.trend_rank_pct:\n",
+   "    if settings.chop_rank_pct > settings.trend_rank_pct:\n",
+   "equal thresholds accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "    if settings.trend_rank_pct > _PERCENT_MAX:\n",
+   "    if False:\n",
+   "rank above 100 accepted"
+  ],
+  [
+   "regime",
+   "src/footprint/core/config.py",
+   "decision_minutes=_integer(raw, \"decision_minutes\", where, minimum=1)",
+   "decision_minutes=_integer(raw, \"decision_minutes\", where, minimum=0)",
+   "zero decision minutes accepted"
+  ]
+ ]
+}
