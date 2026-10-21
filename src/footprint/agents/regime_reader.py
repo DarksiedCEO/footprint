@@ -63,6 +63,10 @@ from footprint.data.aggregate import completed
 _MINUTE = timedelta(minutes=1)
 
 
+def _start(bar: Bar) -> datetime:
+    return bar.ts
+
+
 class Regime(Enum):
     TREND = "trend"
     CHOP = "chop"
@@ -178,7 +182,7 @@ class RegimeReader:
             return RegimeCall(
                 Regime.STAND_ASIDE, today, as_of, f"before the decision time {decision}"
             )
-        today_bars = self._today_bars(minute_bars, as_of, today)
+        today_bars = self._today_bars(minute_bars, today)
         kept = self._decided.get(today)
         if kept is not None and kept[0] == today_bars:
             return replace(kept[1], ts=as_of)
@@ -189,16 +193,18 @@ class RegimeReader:
             self._decided = {today: (today_bars, result)}
         return result
 
-    def _today_bars(
-        self, minute_bars: Sequence[Bar], as_of: datetime, today: date
-    ) -> tuple[Bar, ...]:
+    def _today_bars(self, minute_bars: Sequence[Bar], today: date) -> tuple[Bar, ...]:
         """Today's overnight and opening bars as given (unchecked): the key a kept label
         is valid for. Different bars for today (another data set, a corrected feed)
         mean a new label; history days sliding out of a fixed window do not."""
-        bars = completed(minute_bars, as_of, 1)
-        starts = [bar.ts for bar in bars]
+        # Every bar in [night open, decision) has closed by the time a label is asked for
+        # (the call returns earlier before the decision time),
+        # so no completeness filter is needed, and bisecting the input directly keeps a
+        # cached call cheap. Unordered input gives some slice here, but such data is
+        # refused when labelling, so it can never have produced a kept label.
         end = self._cash_open(today) + _MINUTE * self._s.decision_minutes
-        return tuple(bars[bisect_left(starts, self._night_open(today)) : bisect_left(starts, end)])
+        first = bisect_left(minute_bars, self._night_open(today), key=_start)
+        return tuple(minute_bars[first : bisect_left(minute_bars, end, key=_start)])
 
     # --- the label -----------------------------------------------------------------
 

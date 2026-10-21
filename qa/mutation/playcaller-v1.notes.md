@@ -40,3 +40,23 @@ code), plus mutants for every new check.
   kept entry is reused only when its key equals today's overnight and opening bars, and
   another day's key holds that day's bars (different timestamps), so it can never match
   today's: the lookup by day changes nothing observable.
+- **Cache key one bar earlier than the night open** (reviewer round 3): the bar before
+  the overnight open belongs to the previous trading day's session and changes only with
+  a different data set, which also changes today's bars; on its own it can only cause a
+  recompute (never a stale label), and the recompute gives the same answer.
+- **Cache key built from all bars instead of completed ones** (reviewer round 3, and the
+  current code): the key window ends at the decision time and a label is asked for only
+  at or after it, so every bar in the window has closed; the completed filter would drop
+  nothing. The code now bisects the input directly for speed (round-3 MEDIUM-R3-2).
+- **Reviewer round 2's four equivalents:**
+  - `cash.end <= cash.start` dropped from the decision bound: then the session length is
+    <= 0 and `decision_minutes >= 1` (loader), so the second clause already raises.
+  - `today is None` dropped: PRIME is only ever returned with a trading day.
+  - The kept-label dict growing to every day instead of one entry: memory only; a lookup
+    is by today's date and key, so older entries are never served.
+  - An extra `as_of >= decision` guard on the lookup: the call already returned above
+    when `as_of < decision`.
+- **Reviewer round 2's contrived survivor:** an order check over only the last 30,000
+  bars survives because the test history is about 10,000 bars; the swap test already
+  disorders an early day. Kept out of the spec (it would need a 30,000-bar fixture to
+  kill a change nobody would make).

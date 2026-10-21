@@ -899,3 +899,51 @@ def test_a_history_data_failure_is_not_kept(
     assert reader.call(holed, _decision(instrument)).regime is Regime.STAND_ASIDE
     # Today's bars are the same; the history arrived: the failure was not kept.
     assert reader.call(bars, _decision(instrument) + MINUTE).regime is Regime.TREND
+
+
+# --- review round 3 (cache key edges) -------------------------------------------------
+
+
+def test_bars_after_the_decision_do_not_unsettle_a_kept_label(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    after = _decision(instrument)
+    reader = _reader(instrument, data)
+    first = reader.call(
+        bars + [bar(after + MINUTE * i, 130.0, 131.0, 129.0, 130.0) for i in range(5)],
+        after + MINUTE * 5,
+    )
+    assert first.regime is Regime.TREND
+    oldest = _history(SMALL.efficiency_lookback_sessions, instrument)[0]
+    slid = [b for b in bars if b.ts >= _cash_open(oldest, instrument) + timedelta(days=1)]
+    slid += [bar(after + MINUTE * i, 130.0, 131.0, 129.0, 130.0) for i in range(120)]
+    later = reader.call(slid, after + timedelta(hours=2))
+    assert later.regime is Regime.TREND
+
+
+def test_a_correction_to_only_the_first_overnight_minute_relabels(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    narrow = _build(instrument, today_closes=_closes_for("clean"), today_night=5.0)
+    reader = _reader(instrument, data)
+    assert reader.call(narrow, _decision(instrument)).regime is Regime.STAND_ASIDE
+    first = _night_open(TODAY, instrument)
+    fixed = [bar(b.ts, 100.0, 140.0, 97.5, 100.0) if b.ts == first else b for b in narrow]
+    call = reader.call(fixed, _decision(instrument) + MINUTE)
+    assert call.overnight_range == Decimal("42.5")
+    assert call.regime is Regime.TREND
+
+
+def test_a_correction_to_only_the_last_opening_minute_relabels(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    reader = _reader(instrument, data)
+    assert reader.call(bars, _decision(instrument)).regime is Regime.TREND
+    last = _cash_open(TODAY, instrument) + MINUTE * (SMALL.decision_minutes - 1)
+    # The last minute falls back to the open: no net move, efficiency 0.
+    fixed = [bar(b.ts, 129.0, 129.0, 100.0, 100.0) if b.ts == last else b for b in bars]
+    call = reader.call(fixed, _decision(instrument) + MINUTE)
+    assert call.efficiency == Decimal(0)
+    assert call.regime is Regime.CHOP
