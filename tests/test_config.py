@@ -460,6 +460,10 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.zeroday.spike_bar_trip_multiple == Decimal(8)
     assert (s.console.levels_weight, s.console.range_weight) == (2, 1)
     assert (s.console.fire_threshold, s.console.close_lead_minutes) == (3, 5)
+    assert s.theta.planned_hold_minutes == 60
+    assert s.theta.max_decay_pct_of_target == Decimal(25)
+    assert s.theta.rate == Decimal("0.04")
+    assert (s.theta.min_implied_vol, s.theta.max_implied_vol) == (Decimal("0.05"), Decimal("1.5"))
 
 
 @pytest.mark.parametrize(
@@ -490,6 +494,18 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("console", {"fire_threshold": 2}),  # levels alone could fire
         ("console", {"levels_weight": 0}),
         ("console", {"close_lead_minutes": -1}),
+        ("theta", {"planned_hold_minutes": 0}),
+        ("theta", {"planned_hold_minutes": 1.5}),
+        ("theta", {"max_decay_pct_of_target": 0}),
+        ("theta", {"max_decay_pct_of_target": 101}),
+        ("theta", {"rate": "0.04"}),
+        ("theta", {"rate": True}),
+        ("theta", {"rate": float("inf")}),
+        ("theta", {"rate": float("nan")}),
+        ("theta", {"min_implied_vol": 0}),
+        ("theta", {"max_implied_vol": 0.05}),  # == min_implied_vol
+        ("theta", {"max_implied_vol": 0.01}),  # below min_implied_vol
+        ("theta", {"extra": 1}),
     ],
 )
 def test_bad_strategy_values_are_rejected(
@@ -647,3 +663,68 @@ def test_a_top_level_key_given_twice_is_refused_in_any_profile(
     target.write_text(execution_path.read_text() + "\nquotes:\n  max_age_seconds: 60\n")
     with pytest.raises(ConfigError, match="duplicate key"):
         load_execution(target)
+
+
+def test_theta_accepts_a_negative_rate_and_a_full_budget(
+    strategy_path: Path, tmp_path: Path
+) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    data["theta"].update({"rate": -0.01, "max_decay_pct_of_target": 100})
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    theta = load_strategy(target).theta
+    assert (theta.rate, theta.max_decay_pct_of_target) == (Decimal("-0.01"), Decimal(100))
+
+
+def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
+    rules = load_instrument(instrument_path).option_expiry
+    assert rules.time == time(13, 0)
+    assert rules.timezone == "America/Los_Angeles"
+    assert rules.american_months == frozenset({3, 6, 9, 12})
+    assert rules.american_weekday == 4  # Friday, as date.weekday() counts
+    assert rules.american_week_of_month == 3
+
+
+def expiry(**changes: Any) -> dict[str, Any]:
+    return {
+        "time": "13:00",
+        "timezone": "America/Los_Angeles",
+        "american_months": [3, 6, 9, 12],
+        "american_weekday": "FRI",
+        "american_week_of_month": 3,
+    } | changes
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        expiry(time="13:00:30"),
+        expiry(time="1pm"),
+        expiry(timezone="Mars/Olympus"),
+        expiry(american_months=[]),
+        expiry(american_months=[0]),
+        expiry(american_months=[13]),
+        expiry(american_months=[3, 3]),
+        expiry(american_months=["MAR"]),
+        expiry(american_months=[True]),
+        expiry(american_weekday="FRIDAY"),
+        expiry(american_week_of_month=0),
+        expiry(american_week_of_month=6),
+        expiry(extra=1),
+        {k: v for k, v in expiry().items() if k != "time"},
+    ],
+)
+def test_bad_option_expiry_rules_are_rejected(
+    instrument_path: Path, tmp_path: Path, rules: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError, match="option_expiry"):
+        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+
+
+def test_week_five_is_a_valid_week_of_month(instrument_path: Path, tmp_path: Path) -> None:
+    profile = load_instrument(
+        rewrite(instrument_path, tmp_path, option_expiry=expiry(american_week_of_month=5))
+    )
+    assert profile.option_expiry.american_week_of_month == 5

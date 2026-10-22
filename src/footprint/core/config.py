@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, datetime, time
@@ -52,6 +53,23 @@ class Session:
 
 
 @dataclass(frozen=True, slots=True)
+class OptionExpiry:
+    """When the traded options stop trading, and which expiries are American (the
+    exchange rulebook, chapter 359A).
+
+    An option expires at `time` (in `timezone`) on its expiry date, or at the day's
+    early close when the date is in `early_closes`. An expiry on the
+    `american_week_of_month`-th `american_weekday` of a month in `american_months` is a
+    quarterly (American-style) one."""
+
+    time: time
+    timezone: str
+    american_months: frozenset[int]
+    american_weekday: int  # as date.weekday() counts: Monday is 0
+    american_week_of_month: int
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentProfile:
     symbol: str
     exchange: str
@@ -65,6 +83,7 @@ class InstrumentProfile:
     option_tick_size: Decimal
     dte_min: int
     dte_max: int
+    option_expiry: OptionExpiry
     trading_days: frozenset[int]
     holidays: frozenset[date]
     early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
@@ -334,6 +353,63 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
     return tuple(rules)
 
 
+def _clock(body: Mapping[str, object], key: str, where: str) -> time:
+    text = _text(body, key, where)
+    try:
+        parsed = time.fromisoformat(text)
+    except ValueError as exc:
+        raise ConfigError(f"{where}: {key} must be HH:MM, got {text!r}") from exc
+    if parsed.second or parsed.microsecond or parsed.tzinfo is not None:
+        raise ConfigError(f"{where}: {key} must be HH:MM with no seconds, got {text!r}")
+    return parsed
+
+
+def _timezone(body: Mapping[str, object], key: str, where: str) -> str:
+    zone = _text(body, key, where)
+    try:
+        ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ConfigError(f"{where}: unknown timezone {zone!r}") from exc
+    return zone
+
+
+_MONTHS = range(1, len(calendar.month_name))  # 1 (January) to December
+# The most weeks a month can touch a weekday in: its longest length, in whole weeks.
+_LONGEST_MONTH = max(calendar.monthrange(date.min.year, month)[1] for month in _MONTHS)
+_MAX_WEEK_OF_MONTH = (_LONGEST_MONTH - 1) // len(_WEEKDAYS) + 1
+
+
+def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExpiry:
+    where = f"{where}: {key}"
+    body = _check_keys(raw[key], {f.name for f in fields(OptionExpiry)}, where)
+    months = body["american_months"]
+    if not isinstance(months, list) or not months:
+        raise ConfigError(f"{where}: american_months must be a non-empty list of month numbers")
+    for month in months:
+        if isinstance(month, bool) or not isinstance(month, int) or month not in _MONTHS:
+            raise ConfigError(
+                f"{where}: american_months entries must be month numbers (January is 1), "
+                f"got {month!r}"
+            )
+    if len(set(months)) != len(months):
+        raise ConfigError(f"{where}: american_months has duplicate months")
+    weekday = body["american_weekday"]
+    if not isinstance(weekday, str) or weekday not in _WEEKDAYS:
+        raise ConfigError(f"{where}: american_weekday must be one of {_WEEKDAYS}, got {weekday!r}")
+    week = _integer(body, "american_week_of_month", where, minimum=1)
+    if week > _MAX_WEEK_OF_MONTH:
+        raise ConfigError(
+            f"{where}: american_week_of_month must be <= {_MAX_WEEK_OF_MONTH}, got {week}"
+        )
+    return OptionExpiry(
+        time=_clock(body, "time", where),
+        timezone=_timezone(body, "timezone", where),
+        american_months=frozenset(months),
+        american_weekday=_WEEKDAYS.index(weekday),
+        american_week_of_month=week,
+    )
+
+
 def _date(raw: Mapping[str, object], key: str, where: str) -> date:
     value = raw[key]
     if not isinstance(value, date) or isinstance(value, datetime):
@@ -357,6 +433,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
         option_tick_size=_positive_decimal(raw, "option_tick_size", where),
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
+        option_expiry=_option_expiry(raw, "option_expiry", where),
         trading_days=_trading_days(raw, "trading_days", where),
         holidays=_holidays(raw, "holidays", where),
         early_closes=_early_closes(raw, "early_closes", where),
@@ -536,6 +613,15 @@ class OptionsSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class ThetaSettings:
+    planned_hold_minutes: int
+    max_decay_pct_of_target: Decimal
+    rate: Decimal
+    min_implied_vol: Decimal
+    max_implied_vol: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class ZeroDaySettings:
     lookback_sessions: int
     trip_multiple: Decimal
@@ -560,6 +646,7 @@ class StrategyProfile:
     data: DataSettings
     levels: LevelsSettings
     options: OptionsSettings
+    theta: ThetaSettings
     zeroday: ZeroDaySettings
     console: ConsoleSettings
 
@@ -633,6 +720,25 @@ def load_strategy(path: Path) -> StrategyProfile:
     if options.assumed_delta >= 1:
         raise ConfigError(f"{o_where}: assumed_delta must be < 1")
 
+    th_where = f"{where}: theta"
+    th = _check_keys(raw["theta"], {f.name for f in fields(ThetaSettings)}, th_where)
+    rate = th["rate"]
+    if isinstance(rate, bool) or not isinstance(rate, int | float):
+        raise ConfigError(f"{th_where}: rate must be a number, got {rate!r}")
+    theta = ThetaSettings(
+        planned_hold_minutes=_integer(th, "planned_hold_minutes", th_where, minimum=1),
+        max_decay_pct_of_target=_positive_decimal(th, "max_decay_pct_of_target", th_where),
+        rate=Decimal(str(rate)),
+        min_implied_vol=_positive_decimal(th, "min_implied_vol", th_where),
+        max_implied_vol=_positive_decimal(th, "max_implied_vol", th_where),
+    )
+    if not theta.rate.is_finite():
+        raise ConfigError(f"{th_where}: rate must be finite, got {rate!r}")
+    if theta.max_decay_pct_of_target > _PERCENT_MAX:
+        raise ConfigError(f"{th_where}: max_decay_pct_of_target must be <= {_PERCENT_MAX}")
+    if theta.max_implied_vol <= theta.min_implied_vol:
+        raise ConfigError(f"{th_where}: max_implied_vol must be > min_implied_vol")
+
     z_where = f"{where}: zeroday"
     z = _check_keys(raw["zeroday"], {f.name for f in fields(ZeroDaySettings)}, z_where)
     zeroday = ZeroDaySettings(
@@ -669,6 +775,7 @@ def load_strategy(path: Path) -> StrategyProfile:
         data=data,
         levels=levels,
         options=options,
+        theta=theta,
         zeroday=zeroday,
         console=console,
     )

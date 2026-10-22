@@ -23,6 +23,7 @@ System ids are permanent. Names are display labels only and may change.
 | `stop`       | Booker    | Hard stop placement and the trail |
 | `execution`  | Diego     | Limit-only order placement |
 | `zeroday`    | Nia       | Flags markets that match no known pattern; tells risk to stand down |
+| `theta`      | (unnamed) | Decay veto: modelled Black-76 decay over the planned hold vs its budget |
 | `console`    | Desmond   | Scores reads, rules only, emits Signals |
 | `risk`       | Dolores   | Final veto, daily/weekly limits, kill switch |
 | `trade_mgmt` | Malik     | Manages the open trade |
@@ -36,3 +37,4 @@ System ids are permanent. Names are display labels only and may change.
 - Readers that score a trade (`levels`, `range` via `assess`) return +1 when they
   support it, 0 when neutral and -1 when against; a -1 from `levels` is a veto.
 - `zeroday` returns a `ZeroDayCheck`; tripped means no new entries.
+- `theta` returns a `ThetaCheck` on a sized entry; not allowed means no entry.

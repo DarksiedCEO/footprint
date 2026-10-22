@@ -217,7 +217,14 @@ def test_only_the_pipeline_can_approve_an_entry(profiles: Profiles, up_market: l
     approved = decide(profiles, up_market).approved
     assert approved is not None
     with pytest.raises(PermissionError, match="only the decision pipeline"):
-        ApprovedEntry(approved.signal, approved.plan, approved.entry, approved.risk, object())
+        ApprovedEntry(
+            approved.signal,
+            approved.plan,
+            approved.entry,
+            approved.risk,
+            approved.theta,
+            object(),
+        )
 
 
 # --- console unit tests ---------------------------------------------------------

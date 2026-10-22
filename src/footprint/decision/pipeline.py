@@ -6,7 +6,8 @@ Order (one-way, nothing loops back):
 1. crew reads on completed bars only: trend (Mateo), momentum (Darius), volume
    (Rafael), zero-day (Nia), levels (Grant), daily range (Nadia);
 2. console gates and score (Desmond);
-3. contract (Felix) -> size (Ezra) -> full risk veto with the sized cost (Dolores);
+3. contract (Felix) -> size (Ezra) -> decay veto (Theta) -> full risk veto with the
+   sized cost (Dolores);
 4. an ApprovedEntry only when every step passes.
 Every step's result is kept on the Decision so the journal can record why the
 system did or did not trade. Malformed input (wrong symbol, out-of-order bars)
@@ -26,6 +27,7 @@ from footprint.agents.contract_picker import ContractChoice, ContractPicker, NoC
 from footprint.agents.levels import LevelsReader, points_for_target
 from footprint.agents.momentum_reader import MomentumReader
 from footprint.agents.range_reader import RangeReader
+from footprint.agents.theta import ThetaAgent, ThetaCheck
 from footprint.agents.trend_reader import TrendReader
 from footprint.agents.volume_reader import VolumeReader
 from footprint.agents.zero_day import ZeroDayAgent
@@ -59,6 +61,7 @@ class ApprovedEntry:
     plan: EntryPlan
     entry: EntryRequest
     risk: RiskDecision
+    theta: ThetaCheck
     _token: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -74,6 +77,13 @@ class ApprovedEntry:
             raise PermissionError("approval and signal are from different moments")
         if self.plan.choice.quote.right is not Right.for_direction(self.signal.direction):
             raise PermissionError("the contract's right does not match the direction")
+        if not self.theta.allowed:
+            raise PermissionError("an entry theta vetoed cannot be approved")
+        if (self.theta.contract_id, self.theta.contracts) != (
+            self.plan.choice.quote.contract_id,
+            self.plan.contracts,
+        ):
+            raise PermissionError("theta judged a different contract or size")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +97,7 @@ class Decision:
     entry: EntryRequest | None
     risk: RiskDecision | None
     approved: ApprovedEntry | None
+    theta: ThetaCheck | None = None
 
     @property
     def fired(self) -> bool:
@@ -109,6 +120,8 @@ class Decision:
             out.append(f"contract: {self.contract.reason}")
         if isinstance(self.plan, NoSize):
             out.append(f"sizing: {self.plan.reason}")
+        if self.theta is not None and not self.theta.allowed:
+            out.append(f"theta: {self.theta.reason}")
         if self.risk is not None:
             out += ["risk: " + v.value for v in self.risk.vetoes if v not in self.precheck.vetoes]
         return out
@@ -151,6 +164,7 @@ class Pipeline:
             Console(s.console, inst, self._levels, self._range) if console is None else console
         )
         self._contract = ContractPicker(profiles.execution, inst)
+        self._theta = ThetaAgent(s.theta, inst, profiles.risk)
         self._issued: dict[int, ApprovedEntry] = {}
         self._n_points = points_for_target(
             profiles.risk.profit_target,
@@ -180,8 +194,11 @@ class Pipeline:
             entry: EntryRequest | None = None,
             risk: RiskDecision | None = None,
             approved: ApprovedEntry | None = None,
+            theta: ThetaCheck | None = None,
         ) -> Decision:
-            return Decision(as_of, pre, verdict, data_error, contract, plan, entry, risk, approved)
+            return Decision(
+                as_of, pre, verdict, data_error, contract, plan, entry, risk, approved, theta
+            )
 
         try:
             verdict = self._verdict(minute_bars, as_of)
@@ -191,25 +208,34 @@ class Pipeline:
             return stop(verdict=verdict)
 
         direction = verdict.direction
-        choice = (
-            self._contract.choose(chain, direction, as_of)
-            if chain is not None
-            else NoContract("no option chain")
-        )
+        if chain is None:
+            return stop(verdict=verdict, contract=NoContract("no option chain"))
+        choice = self._contract.choose(chain, direction, as_of)
         if isinstance(choice, NoContract):
             return stop(verdict=verdict, contract=choice)
         plan = size(choice, verdict.session, p.risk, p.instrument, p.execution)
         if isinstance(plan, NoSize):
             return stop(verdict=verdict, contract=choice, plan=plan)
+        theta = self._theta.assess(plan, chain.underlying_price, as_of)
+        if not theta.allowed:
+            return stop(verdict=verdict, contract=choice, plan=plan, theta=theta)
         entry = EntryRequest(as_of, direction, plan.cost)
         risk = evaluate(p.risk, p.instrument, blackouts, account, entry)
         if not risk.allowed:
-            return stop(verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk)
+            return stop(
+                verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, theta=theta
+            )
         signal = Signal(ts=as_of, direction=direction, reads=verdict.reads)
-        approved = ApprovedEntry(signal, plan, entry, risk, _APPROVAL)
+        approved = ApprovedEntry(signal, plan, entry, risk, theta, _APPROVAL)
         self._issued[id(approved)] = approved
         return stop(
-            verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, approved=approved
+            verdict=verdict,
+            contract=choice,
+            plan=plan,
+            entry=entry,
+            risk=risk,
+            approved=approved,
+            theta=theta,
         )
 
     def issued(self, approved: ApprovedEntry) -> bool:

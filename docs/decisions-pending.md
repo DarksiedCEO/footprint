@@ -121,6 +121,11 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 26. Disconnect (D35): with a position held in paper, stop IB Gateway for a minute: confirm no order is sent while down, the stop stays at IBKR, "IBKR connection lost" rings, and after the restart the reconcile agrees before any entry.
 27. Brackets (D38), in paper: an entry with its stop attached shows the stop as held (PreSubmitted, or Inactive) until the entry fills; the stop activates on the fill even with the program stopped (stop it right after sending an entry); a held stop can be modified (the price steps); cancelling the entry cancels the stop; a child with parentId can also carry the OCA group of the exits. Also: whether IBKR accepts a modify of an Inactive or PendingCancel order (J-2), how long a cancel stays PendingCancel (I-5), and whether status messages can arrive out of order after an Inactive (I-2), and how IBKR answers a cancel it refuses (does the order go back to Submitted, with which error code?) (L2-2, L2-3).
 28. Model Greeks (D42): IBKR sends the model option computation for the streamed NQ options without any extra generic tick, with implied volatility, delta, gamma, vega, theta and the future's price all filled in (`MarketData.greeks_incomplete` and `greeks_rejected` should stay 0); how often a complete reading arrives for an at-the-money 1-3 day option (against `quotes.greeks_max_age_seconds`); the units of theta and vega (per calendar day? per 1 volatility point? in option points?), UNVERIFIED and needed before the Theta and Vega agents; which future the model's underlying price is in roll week (D27); and whether IBKR ever sends an empty field (ibapi decodes an empty field as 0, which would read as a real 0: reviewer finding, PR 35).
+29. Option expiries (theta-v1): the option_expiry rules in `instruments/nq.yaml` (CME
+    359A): weeklies and end-of-month stop trading at 3:00 PM CT (13:00 PT), noon CT on an
+    early close. Confirm in IBKR's contract details for a streamed weekly. UNVERIFIED: that
+    on a quarterly-expiry Friday (third Friday of Mar/Jun/Sep/Dec) IBKR lists only the
+    quarterly (American) option, so refusing that date refuses only quarterlies.
 
 ## Known open items (not fixed; recorded so nothing is hidden)
 
@@ -526,9 +531,36 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   quarterly (the early-exercise premium), so implied volatility read from a quarterly is
   biased. Proposal: research and the Greeks agents prefer European expiries; a quarterly
   is flagged as model-biased.
+- **DECIDED by Andre, 2026-10-22 (Q&A, about 3:25 AM PT):**
+  - B76-1: decay is the Black-76 price difference over the planned hold, price(T) minus
+    price(T - hold), never theta times the hold; time is CALENDAR time.
+  - B76-2: European expiries only (weeklies and end-of-month). Quarterly (American)
+    expiries are not traded.
+  - Also decided that night (recorded here; built in later PRs): research uses the raw,
+    unadjusted bars (R-1); costs at $170 with $120 and $220 checks (R-2); VXN as the
+    research volatility (R-2); the play-caller rules signed off as written (PC-1); a bad
+    overnight or a late label means stand aside (PC-4); the 8 London scenarios run once
+    each (L-1); no ES download for now.
 - Hostile review round 1 (db48fa3): NOT CERTIFIED, findings F1-F11. Fixed: F1-F4 (tests;
   the reviewer's 7 surviving mutants are in the spec), F5-F6 (out-of-range inputs raise
   ValueError; a volatility too small to register is the zero-volatility answer), F9 (erfc
   normal cdf), F10 (docstring). F7 and F8: B76-1 and B76-2 above. Argued equivalent and
   dropped: a `d1 not finite -> zero-volatility answer` branch (IEEE saturation of the cdf
   and density already gives the same numbers).
+
+## Theta decay veto (branch theta-v1, PR 40; 2026-10-22)
+
+- Built from B76-1 and B76-2. After Felix and Ezra, and before Dolores' full check, Theta
+  values the chosen option with Black-76 at the implied volatility of its mid (calendar
+  time to its expiry moment) now and at the end of `theta.planned_hold_minutes`. Modelled
+  decay above `theta.max_decay_pct_of_target` of `profit_target`, for the sized contracts,
+  means no entry. Also no entry on: a quarterly (American) expiry, an option expiring
+  within the hold, or an implied volatility outside [min_implied_vol, max_implied_vol]
+  (including a quote under its intrinsic value).
+- **For Andre (TH-1): every theta number is a DRAFT default, untested on any data:**
+  hold 60 minutes, budget 25% of the target (250 dollars at today's target), rate 0.04,
+  implied volatility bounds 0.05 to 1.5. Confirm or change before paper trading.
+- **TH-2:** the veto runs in the backtest too (the backtest uses the same pipeline), on the
+  backtest's modelled option prices. Results of earlier backtest runs are not comparable
+  with runs from this PR on.
+- Not built here (separate PRs): the decay exit in Malik, and Theta choosing the expiry.

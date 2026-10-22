@@ -66,6 +66,7 @@ class Journal:
                 "reads": verdict.reads if verdict else (),
                 "contract": decision.contract,
                 "plan": decision.plan,
+                "theta": decision.theta,
                 "risk": decision.risk,
             },
         )

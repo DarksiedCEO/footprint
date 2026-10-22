@@ -30,6 +30,17 @@ levels:
   swing_lookback_bars: 96    # DEFAULT: trend-timeframe bars searched for swing levels
 options:
   assumed_delta: 0.45        # G4: fixed, pessimistic delta until a greeks agent exists
+# Theta (decay veto, decision B76-1): before an entry, the chosen option is valued with
+# Black-76 at its implied volatility (solved from the quote's mid) now and at the end of
+# the planned hold, in CALENDAR time; the difference is the modelled decay. Every value
+# is a DRAFT default, untested on any data; Andre to confirm.
+theta:
+  planned_hold_minutes: 60      # DRAFT: decay is charged over this expected hold
+  max_decay_pct_of_target: 25   # DRAFT: no entry when modelled decay over the hold, for
+                                #   the sized contracts, is above this % of profit_target
+  rate: 0.04                    # UNVERIFIED: annual rate for Black-76 discounting
+  min_implied_vol: 0.05         # DRAFT hard danger: below this the quote is not believable
+  max_implied_vol: 1.5          # DRAFT hard danger: extreme implied volatility, no entry
 zeroday:
   lookback_sessions: 20      # G9: "typical" = average of the same metric on these sessions
   trip_multiple: 4           # G9: range, volatility and price-jump tripwires

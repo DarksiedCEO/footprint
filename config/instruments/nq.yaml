@@ -23,6 +23,20 @@ cash_session:
 option_tick_size: 0.25
 dte_min: 1
 dte_max: 3
+# When an option stops trading (the moment its value is counted to), CME rulebook
+# chapter 359A: weekly (Mon-Fri) and end-of-month options terminate at 3:00 p.m.
+# Chicago time, or at noon Chicago on an early scheduled close. Here in PT: `time` on a
+# normal day; on a date listed in early_closes, that early close (noon CT = 10:00 PT).
+# Quarterly options are AMERICAN (359A01.G.1) and expire with the futures; Footprint
+# does not trade them (Andre, decision B76-2): an expiry on the `american_week_of_month`
+# `american_weekday` of an `american_months` month is refused. UNVERIFIED: that IBKR
+# lists only the quarterly option on those Fridays (paper checklist).
+option_expiry:
+  time: "13:00"
+  timezone: America/Los_Angeles
+  american_months: [3, 6, 9, 12]
+  american_weekday: FRI
+  american_week_of_month: 3
 # Days the PRIME session trades. Each OVERNIGHT session belongs to the next
 # trading day (it opens the evening before), so Friday evening and weekends
 # are closed.
