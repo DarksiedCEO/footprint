@@ -38,3 +38,20 @@
 77 mutants (the reviewer's surviving R6-R12 and R15 added, adapted to the new expiry
 code, plus the new early-close checks): 76 killed, 1 survived. The survivor is #38,
 argued equivalent above.
+
+## Fourth run, after review round 2 (source 63157b1, clean tree)
+
+84 mutants (the round-2 fixes added option early-close completeness and the futures-halt
+cap): 82 killed, 2 survived.
+
+- **#38:** argued equivalent above.
+- **#45 futures halt read in the option-expiry timezone:** a real gap. Both zones are
+  Pacific in config, and the one test with a Chicago option zone used 2026-11-27, where
+  the option's own early close is earlier than the halt anyway. Fixed in 6a81ea7 by
+  test_the_futures_halt_is_read_in_the_prime_session_timezone: Chicago option zone on
+  Labor Day 2026-09-07 (futures halt 10:00 PT, not an option half day). Right answer
+  10:00 PT; the mutant reads 10:00 as Chicago time, which is 08:00 PT.
+
+## Fifth run (source 6a81ea7, clean tree)
+
+84 mutants: 83 killed, 1 survived. The survivor is #38, argued equivalent above.
