@@ -1,0 +1,85 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+source: 89b5274f2238ace40b6cf931ffdcce25abf0a12b tree-dirty: 0 files
+baseline [config]: passed
+baseline [expiry]: passed
+baseline [iv]: passed
+baseline [pipeline]: passed
+baseline [theta]: passed
+  1 KILLED   [theta] src/footprint/agents/theta.py: American expiry not refused
+  2 KILLED   [theta] src/footprint/agents/theta.py: expiry exactly at the end of the hold accepted
+  3 KILLED   [theta] src/footprint/agents/theta.py: expiry within the hold accepted
+  4 KILLED   [theta] src/footprint/agents/theta.py: wrong year length
+  5 KILLED   [theta] src/footprint/agents/theta.py: years mis-scaled
+  6 KILLED   [theta] src/footprint/agents/theta.py: puts valued as calls
+  7 KILLED   [theta] src/footprint/agents/theta.py: strike used as the forward
+  8 KILLED   [theta] src/footprint/agents/theta.py: configured rate ignored
+  9 KILLED   [theta] src/footprint/agents/theta.py: ask used instead of mid
+ 10 KILLED   [theta] src/footprint/agents/theta.py: lower vol bound loosened
+ 11 KILLED   [theta] src/footprint/agents/theta.py: upper vol bound loosened
+ 12 KILLED   [theta] src/footprint/agents/theta.py: wrong bound named
+ 13 KILLED   [theta] src/footprint/agents/theta.py: unvaluable inputs raise
+ 14 KILLED   [theta] src/footprint/agents/theta.py: half the hold charged
+ 15 KILLED   [theta] src/footprint/agents/theta.py: decay measured backwards in time
+ 16 KILLED   [theta] src/footprint/agents/theta.py: contracts ignored
+ 17 KILLED   [theta] src/footprint/agents/theta.py: point value ignored
+ 18 KILLED   [theta] src/footprint/agents/theta.py: decay at the budget refused
+ 19 KILLED   [theta] src/footprint/agents/theta.py: budget doubled
+ 20 KILLED   [theta] src/footprint/agents/theta.py: percent not divided
+ 21 KILLED   [theta] src/footprint/agents/theta.py: over-budget allowed
+ 22 KILLED   [theta] src/footprint/agents/theta.py: contract id not recorded
+ 23 KILLED   [theta] src/footprint/agents/theta.py: contracts not recorded
+ 24 KILLED   [theta] src/footprint/agents/theta.py: time not checked for UTC
+ 25 KILLED   [theta] src/footprint/agents/theta.py: vol not recorded
+ 26 KILLED   [theta] src/footprint/agents/theta.py: years not recorded
+ 27 KILLED   [theta] src/footprint/agents/theta.py: expiry not recorded
+ 28 KILLED   [iv] src/footprint/core/implied_vol.py: zero price accepted
+ 29 KILLED   [iv] src/footprint/core/implied_vol.py: zero low bound accepted
+ 30 KILLED   [iv] src/footprint/core/implied_vol.py: equal bounds accepted
+ 31 KILLED   [iv] src/footprint/core/implied_vol.py: zero time accepted
+ 32 KILLED   [iv] src/footprint/core/implied_vol.py: below-range price not refused
+ 33 KILLED   [iv] src/footprint/core/implied_vol.py: above-range price not refused
+ 34 KILLED   [iv] src/footprint/core/implied_vol.py: below reported as above
+ 35 KILLED   [iv] src/footprint/core/implied_vol.py: bisection goes the wrong way
+ 36 KILLED   [iv] src/footprint/core/implied_vol.py: infinite input accepted
+ 37 KILLED   [iv] src/footprint/core/implied_vol.py: bool accepted
+ 38 SURVIVED [iv] src/footprint/core/implied_vol.py: bisection off-centre
+ 39 KILLED   [expiry] src/footprint/core/expiry.py: early close ignored
+ 40 KILLED   [expiry] src/footprint/core/expiry.py: early close can make expiry later
+ 41 KILLED   [expiry] src/footprint/core/expiry.py: rule timezone ignored (R8)
+ 42 KILLED   [expiry] src/footprint/core/expiry.py: moment not converted to UTC (R9)
+ 43 KILLED   [expiry] src/footprint/core/expiry.py: months ignored
+ 44 KILLED   [expiry] src/footprint/core/expiry.py: weekday ignored
+ 45 KILLED   [expiry] src/footprint/core/expiry.py: week counted off by one day
+ 46 KILLED   [expiry] src/footprint/core/expiry.py: later weeks counted
+ 47 KILLED   [expiry] src/footprint/core/expiry.py: datetime accepted as an expiry
+ 48 KILLED   [config] src/footprint/core/config.py: equal vol bounds accepted
+ 49 KILLED   [config] src/footprint/core/config.py: 100% budget refused
+ 50 KILLED   [config] src/footprint/core/config.py: over 100% budget accepted
+ 51 KILLED   [config] src/footprint/core/config.py: infinite rate accepted
+ 52 KILLED   [config] src/footprint/core/config.py: zero hold accepted
+ 53 KILLED   [config] src/footprint/core/config.py: bool rate accepted
+ 54 KILLED   [config] src/footprint/core/config.py: month range unchecked
+ 55 KILLED   [config] src/footprint/core/config.py: duplicate months accepted
+ 56 KILLED   [config] src/footprint/core/config.py: week five refused
+ 57 KILLED   [config] src/footprint/core/config.py: week six accepted
+ 58 KILLED   [config] src/footprint/core/config.py: week zero accepted
+ 59 KILLED   [config] src/footprint/core/config.py: weekday shifted
+ 60 KILLED   [config] src/footprint/core/config.py: bad weekday name accepted
+ 61 KILLED   [config] src/footprint/core/config.py: empty month list accepted
+ 62 KILLED   [pipeline] src/footprint/decision/pipeline.py: theta veto ignored
+ 63 KILLED   [pipeline] src/footprint/decision/pipeline.py: approval with a vetoed theta
+ 64 KILLED   [pipeline] src/footprint/decision/pipeline.py: approval with another plan's theta
+ 65 KILLED   [theta] src/footprint/agents/theta.py: negative decay made positive (R6)
+ 66 KILLED   [theta] src/footprint/agents/theta.py: negative decay floored (R7)
+ 67 KILLED   [theta] src/footprint/agents/theta.py: within-hold veto drops expires_at (R12)
+ 68 KILLED   [config] src/footprint/core/config.py: clock with a UTC offset accepted (R10)
+ 69 KILLED   [config] src/footprint/core/config.py: malformed zone escapes as ValueError (R11)
+ 70 KILLED   [config] src/footprint/core/config.py: early close at the normal time accepted
+ 71 KILLED   [config] src/footprint/core/config.py: weekend early-close date accepted
+ 72 KILLED   [pipeline] src/footprint/decision/pipeline.py: size half of the cross-check removed (R15)
+ 73 KILLED   [pipeline] src/footprint/decision/pipeline.py: allowed theta listed as a reason
+ 74 KILLED   [pipeline] src/footprint/decision/pipeline.py: strike passed as the underlying
+ 75 KILLED   [pipeline] src/footprint/decision/pipeline.py: theta dropped on a risk veto
+ 76 KILLED   [pipeline] src/footprint/decision/pipeline.py: theta dropped on a fired decision
+ 77 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: journal drops theta
+77 mutants, 1 survived or errored

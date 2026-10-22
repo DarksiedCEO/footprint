@@ -32,3 +32,9 @@
 ## Second run (source 95b6a02, clean tree)
 
 67 mutants: 66 killed, 1 survived. The survivor is #38, argued equivalent above.
+
+## Third run, after review round 1 (source 89b5274, clean tree)
+
+77 mutants (the reviewer's surviving R6-R12 and R15 added, adapted to the new expiry
+code, plus the new early-close checks): 76 killed, 1 survived. The survivor is #38,
+argued equivalent above.
