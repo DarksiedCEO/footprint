@@ -1,4 +1,4 @@
-source: 0ccb7fec42dc00d5deef945e6a6840001dbbf518 tree-dirty: 0 files
+source: 28eac4b9fda4809d9b7cd83f764d7c046f533aa4 tree-dirty: 0 files
 baseline [orb]: passed
   1 KILLED   [orb] src/footprint/research/rules/london_orb.py: range end inclusive
   2 KILLED   [orb] src/footprint/research/rules/london_orb.py: range start ignored
@@ -29,4 +29,10 @@ baseline [orb]: passed
  27 KILLED   [orb] src/footprint/research/rules/london_orb.py: empty grid accepted
  28 KILLED   [orb] src/footprint/research/__main__.py: missing variant accepted
  29 KILLED   [orb] src/footprint/research/__main__.py: unknown variant reaches the builder
-29 mutants, 0 survived or errored
+ 30 KILLED   [orb] src/footprint/research/rules/london_orb.py: 38-M1: a wick above the high enters
+ 31 KILLED   [orb] src/footprint/research/rules/london_orb.py: a wick below the low enters
+ 32 KILLED   [orb] src/footprint/research/rules/london_orb.py: 38-M2: complete sessions counted as missing
+ 33 KILLED   [orb] src/footprint/research/rules/london_orb.py: 38-M2: sessions not counted
+ 34 KILLED   [orb] src/footprint/research/rules/london_orb.py: 38-M2: no per-year lines
+ 35 KILLED   [orb] src/footprint/research/__main__.py: rule notes not printed
+35 mutants, 0 survived or errored

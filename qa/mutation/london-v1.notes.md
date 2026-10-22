@@ -25,3 +25,5 @@ Result: 29 killed, 0 survived or errored, on c363d9f with a clean tree.
 - 38-I1: the clock-change caveat is in the same notes.
 - PR 37's fixes (18491d5) were cherry-picked here as 68867c7 (one import conflict in
   tests/research/test_cli_settings_isolation.py, resolved by keeping both sides).
+
+Evidence after review round 1: 35 mutants, 35 killed, 0 survived or errored, on 28eac4b with a clean tree. The research-v1 spec (78 mutants) was also re-run on 28eac4b: 78 killed.
