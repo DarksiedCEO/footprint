@@ -93,16 +93,55 @@ def test_without_reference_price_nothing_is_rescaled() -> None:
     )
 
 
-def test_reference_price_rescales_forward_and_strike_by_the_entry_ratio() -> None:
+def test_reference_price_rescales_forward_and_chooses_the_strike_at_that_level() -> None:
+    """37-H1: the strike is chosen and rounded AFTER rescaling, at the reference level,
+    so the rounding error is at most half a step there whatever the data's level."""
     opt = replace(OPT, reference_price=20000.0)
     c = choose(1, 5010.0, T0, opt)  # a 2015-ish price level
-    assert c.strike == 5000.0
-    assert c.scale == pytest.approx(20000.0 / 5010.0)
-    got = value(c, 5020.0, T0, 0.2, opt)
     s = 20000.0 / 5010.0
+    assert c.scale == pytest.approx(s)
+    assert c.strike == 20000.0  # 5010 * s = 20000 exactly: at the money there
+    got = value(c, 5020.0, T0, 0.2, opt)
     assert got == pytest.approx(
-        price(Right76.CALL, forward=5020.0 * s, strike=5000.0 * s, years=1 / 365, vol=0.2, rate=0.0)
+        price(Right76.CALL, forward=5020.0 * s, strike=20000.0, years=1 / 365, vol=0.2, rate=0.0)
     )
+
+
+@pytest.mark.parametrize("entry", [1800.0, 1806.0, 1812.4, 1993.7, 5010.0, 18013.0])
+@pytest.mark.parametrize("direction", [1, -1])
+@pytest.mark.parametrize("moneyness", [0.0, 50.0, -50.0])
+def test_moneyness_at_the_reference_level_is_within_half_a_step(
+    entry: float, direction: int, moneyness: float
+) -> None:
+    opt = replace(OPT, reference_price=20000.0, moneyness_points=moneyness)
+    c = choose(direction, entry, T0, opt)
+    assert c.strike % opt.strike_step == 0
+    in_the_money = direction * (20000.0 - c.strike)
+    assert abs(in_the_money - moneyness) <= opt.strike_step / 2
+
+
+def _path_dollars(level: float, opt: OptionSettings) -> float:
+    """One trade on a fixed percentage path, scaled to a price level."""
+    c = choose(1, 1.0 * level, T0, opt)
+    entry = value(c, 1.0 * level, T0, 0.2, opt)
+    out = value(c, 1.004 * level, T0 + timedelta(minutes=30), 0.2, opt)
+    return dollars(entry, out, 1, opt.point_value, 170.0)
+
+
+def test_same_percentage_path_at_two_levels_gives_equal_dollars_with_rounding_on() -> None:
+    opt = replace(OPT, reference_price=20000.0)
+    at_full = _path_dollars(20000.0, opt)
+    for level in (2000.0, 2006.0, 2012.0, 18013.0):
+        assert _path_dollars(level, opt) == pytest.approx(at_full, rel=1e-9), level
+
+
+def test_the_reviewers_level_case() -> None:
+    """The review's 0.1x / 0.1003x / 0.1006x levels: once flipping sign, now equal."""
+    opt = replace(OPT, reference_price=20000.0)
+    base = 18137.0
+    results = [_path_dollars(base * k, opt) for k in (0.1, 0.1003, 0.1006, 1.0)]
+    for r in results:
+        assert r == pytest.approx(results[-1], rel=1e-9)
 
 
 @pytest.mark.parametrize("right", [Right76.CALL, Right76.PUT])

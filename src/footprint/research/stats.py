@@ -14,8 +14,12 @@
 The verdict reads the gates from config/backtest.yaml (`gates`) with the backtest
 readout's rules: the last out_of_sample_pct of the trades (rounded half to even) are
 held out and the win rate, payoff, profit factor and drawdown gates must hold on them as
-well (their drawdown measured from the equity at the split). Pass also needs at least
-`min_positive_parts` of the `time_parts` parts with positive net.
+well (their drawdown measured from the equity at the split). As the readout, the whole
+run's drawdown gate takes the worse of the realized curve and the curve marked inside
+every trade (here: marked to the model value at every path point, not to a bid).
+Pass also needs at least `min_positive_parts` of the `time_parts` parts with positive
+net, and no ruin: equity must never reach zero or below (the run is not stopped there;
+the verdict fails and the report says at which trade).
 """
 
 from __future__ import annotations
@@ -80,6 +84,36 @@ def summarize(pnls: Sequence[float], start_equity: float) -> Summary:
     )
 
 
+def marked_drawdown(marks: Sequence[Sequence[float]], start_equity: float) -> tuple[float, float]:
+    """(dollars, percent) of the worst fall of equity MARKED inside trades (37-M3, the
+    backtest readout's marked curve). Each trade's marks are its open profit at every
+    path point, entry first and its final net last; equity at a mark is the equity
+    before the trade plus that mark. The percent is from the running peak while the
+    peak is positive (as `summarize`)."""
+    equity = peak = start_equity
+    worst = worst_pct = 0.0
+    for trade in marks:
+        for mark in trade:
+            point = equity + mark
+            peak = max(peak, point)
+            worst = max(worst, peak - point)
+            if peak > 0:
+                worst_pct = max(worst_pct, (peak - point) / peak * _PCT)
+        if trade:
+            equity += trade[-1]
+    return worst, worst_pct
+
+
+def ruined_at(pnls: Sequence[float], start_equity: float) -> int | None:
+    """The 1-based number of the first trade after which equity is zero or below."""
+    equity = start_equity
+    for number, pnl in enumerate(pnls, start=1):
+        equity += pnl
+        if equity <= 0:
+            return number
+    return None
+
+
 def thirds(pnls: Sequence[float], parts: int) -> list[float]:
     """Net of each of `parts` consecutive groups of trades (by order)."""
     edges = [k * len(pnls) // parts for k in range(parts)] + [len(pnls)]
@@ -104,15 +138,25 @@ def judge(
     gates: GateSettings,
     time_parts: int,
     min_positive_parts: int,
+    *,
+    marks: Sequence[Sequence[float]] | None = None,
 ) -> Verdict:
+    """`marks`: each trade's marked open profit (see `marked_drawdown`); when given, the
+    whole run's drawdown gate uses the worse of the realized and marked curves."""
     n = len(pnls)
+    if marks is not None and (
+        len(marks) != n or any(not m or m[-1] != p for m, p in zip(marks, pnls, strict=False))
+    ):
+        raise ValueError("marks must hold one list per trade, ending at that trade's net")
     held = int(
         (Decimal(n) * gates.out_of_sample_pct / _PERCENT_MAX).to_integral_value(ROUND_HALF_EVEN)
     )
     split = n - held
     whole = summarize(pnls, start_equity)
     oos = summarize(pnls[split:], start_equity + sum(pnls[:split]))
+    ruin = ruined_at(pnls, start_equity)
     checks: list[tuple[str, str, bool]] = [
+        ("not ruined", "never" if ruin is None else f"ruined at trade {ruin}", ruin is None),
         ("trades", f"{n} vs >= {gates.min_trades}", n >= gates.min_trades),
         (
             "out-of-sample trades",
@@ -128,11 +172,20 @@ def judge(
         ):
             text, ok = _at_least(value, floor)
             checks.append((prefix + name, text, ok))
+        drawdown = s.max_drawdown_pct
+        text = f"{drawdown:.4g} vs <= {gates.max_drawdown_pct}"
+        if not prefix and marks is not None:
+            marked = marked_drawdown(marks, start_equity)[1]
+            text = (
+                f"{max(drawdown, marked):.4g} vs <= {gates.max_drawdown_pct} "
+                f"(worse of realized {drawdown:.4g} and marked {marked:.4g})"
+            )
+            drawdown = max(drawdown, marked)
         checks.append(
             (
                 prefix + "max drawdown %",
-                f"{s.max_drawdown_pct:.4g} vs <= {gates.max_drawdown_pct}",
-                s.max_drawdown_pct <= float(gates.max_drawdown_pct),
+                text,
+                drawdown <= float(gates.max_drawdown_pct),
             )
         )
     positive = sum(1 for part in thirds(pnls, time_parts) if part > 0)

@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from footprint.research.settings import GateSettings
-from footprint.research.stats import judge, summarize, thirds
+from footprint.research.stats import judge, marked_drawdown, ruined_at, summarize, thirds
 
 GATES = GateSettings(
     min_trades=4,
@@ -100,6 +100,7 @@ def test_judge_passes_when_every_gate_and_the_thirds_hold() -> None:
     assert all(ok for _, _, ok in v.checks)
     names = [name for name, _, _ in v.checks]
     assert names == [
+        "not ruined",
         "trades",
         "out-of-sample trades",
         "win rate %",
@@ -183,3 +184,80 @@ def test_positive_thirds_rule() -> None:
 def test_judge_with_no_trades_fails() -> None:
     v = judge([], 25000.0, GATES, time_parts=3, min_positive_parts=2)
     assert not v.passed
+
+
+# --- review round 1 (37-M3, 37-L2) --------------------------------------------------------
+
+
+def test_marked_drawdown_counts_losses_inside_a_trade() -> None:
+    """37-M3: equity marked at every point inside each trade; the worst fall from any
+    earlier marked peak. Trade 1 ends +100 but was -400 inside it."""
+    marks = [[0.0, -400.0, 100.0], [0.0, 300.0, -50.0]]
+    dd, pct = marked_drawdown(marks, 1000.0)
+    # curve: 1000, 600, 1100 | 1100, 1400, 1050 -> worst 400 from 1000 vs 350 from 1400
+    assert dd == pytest.approx(400.0)
+    assert pct == pytest.approx(40.0)
+    dd2, pct2 = marked_drawdown([[0.0, 300.0, -50.0]], 1000.0)
+    assert dd2 == pytest.approx(350.0)
+    assert pct2 == pytest.approx(350 / 1300 * 100)
+
+
+def test_marked_drawdown_of_nothing_is_zero() -> None:
+    assert marked_drawdown([], 1000.0) == (0.0, 0.0)
+
+
+def test_marked_drawdown_pct_stops_at_a_non_positive_peak() -> None:
+    dd, pct = marked_drawdown([[-2000.0, -2500.0]], 1000.0)
+    assert dd == pytest.approx(2500.0)  # 1,000 -> -1,500 (marks are open profit)
+    assert pct == pytest.approx(250.0)  # from the last positive peak
+    later_dd, later_pct = marked_drawdown([[-2000.0], [500.0, -100.0]], -100.0)
+    assert later_dd == pytest.approx(2100.0)  # -100 -> -2,200; the peak is never > 0
+    assert later_pct == 0.0
+
+
+def test_the_drawdown_gate_uses_the_worse_of_realized_and_marked() -> None:
+    pnls = _passing()
+    marks = [[0.0, p] for p in pnls]
+    clean = judge(pnls, 25000.0, GATES, 3, 2, marks=marks)
+    assert clean.passed
+    deep = [list(m) for m in marks]
+    deep[0] = [0.0, -5000.0, pnls[0]]  # 20% down inside the first trade, then +1,000
+    v = judge(pnls, 25000.0, GATES, 3, 2, marks=deep)
+    failing = {name for name, _, ok in v.checks if not ok}
+    assert failing == {"max drawdown %"}
+    assert "marked" in dict((n, t) for n, t, _ in v.checks)["max drawdown %"]
+
+
+def test_marks_must_match_the_trades() -> None:
+    with pytest.raises(ValueError, match="marks"):
+        judge([1.0, 2.0], 25000.0, GATES, 3, 2, marks=[[0.0, 1.0]])
+    with pytest.raises(ValueError, match="marks"):
+        judge([1.0], 25000.0, GATES, 3, 2, marks=[[0.0, 2.0]])
+
+
+def test_ruin_is_the_first_trade_that_takes_equity_to_zero_or_below() -> None:
+    """37-L2."""
+    assert ruined_at([-400.0, -600.0, 500.0], 1000.0) == 2
+    assert ruined_at([-400.0, -599.0, 500.0], 1000.0) is None
+    assert ruined_at([-1500.0], 1000.0) == 1
+    assert ruined_at([], 1000.0) is None
+
+
+def test_ruin_fails_the_verdict() -> None:
+    pnls = [*_passing(), -40000.0, *([3000.0] * 20)]
+    v = judge(pnls, 25000.0, replace(GATES, max_drawdown_pct=Decimal(99)), 3, 2)
+    checks = {name: (text, ok) for name, text, ok in v.checks}
+    assert checks["not ruined"] == ("ruined at trade 11", False)
+    assert not v.passed
+    fine = judge(_passing(), 25000.0, GATES, 3, 2)
+    assert dict((n, (t, ok)) for n, t, ok in fine.checks)["not ruined"] == ("never", True)
+
+
+def test_drawdown_pct_after_equity_falls_below_zero() -> None:
+    """The negative-peak branch: once the peak itself is not positive, percentages are
+    not computed from it (they stay at the worst from a positive peak)."""
+    s = summarize([-1500.0, -100.0, 50.0], 1000.0)
+    assert s.max_drawdown == pytest.approx(1600.0)
+    assert s.max_drawdown_pct == pytest.approx(160.0)
+    t = summarize([-1500.0, 400.0], -100.0)
+    assert t.max_drawdown_pct == 0.0

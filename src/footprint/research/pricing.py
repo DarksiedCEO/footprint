@@ -3,15 +3,23 @@
 The option is chosen at entry from config (config/research.yaml `option`):
 - direction +1 buys a call, -1 buys a put. Nothing is ever sold short: the harness only
   ever buys an option and later sells that same option.
-- strike = entry futures price - direction * moneyness_points (positive moneyness = in
-  the money for the trade's direction), rounded to the nearest `strike_step`
-  (backtest.yaml option_model.strike_step; a tie goes to the even multiple).
+- the strike is chosen at the REFERENCE price level (37-H1): entry futures price * scale
+  - direction * moneyness_points (positive moneyness = in the money for the trade's
+  direction), rounded to the nearest `strike_step` (backtest.yaml
+  option_model.strike_step; a tie goes to the even multiple). Rounding at the data's own
+  level and then rescaling would magnify the rounding error by the scale (at the 2010
+  price level, up to about 125 points at the reference level).
 - years to expiry = (days_to_expiry - calendar days elapsed since entry) / days_per_year.
   An option valued after its expiry is an error, never a guess.
-- price-level scaling: with `reference_price` set, every forward and strike of the trade
-  is multiplied by reference_price / entry futures price. Black-76 is homogeneous of
-  degree one in forward and strike, so this rescales the option exactly (a test pins it)
-  and fixed dollar amounts (costs, stops) mean the same in every year of the data.
+- price-level scaling: with `reference_price` set, every futures price of the trade is
+  multiplied by scale = reference_price / entry futures price, and the option is that
+  of a future trading at the reference level (strike chosen there, above). A trade's
+  dollars then depend only on the PERCENTAGE path of the future (a test pins it at
+  several levels, rounding on), so fixed dollar amounts (costs, stops) mean the same in
+  every year of the data. Black-76 is homogeneous of degree one in forward and strike.
+- The bars must be UNADJUSTED (raw contract prices): the scale is taken from the entry
+  price, and a difference (Panama) back-adjusted series shifts that level and so the
+  percentage moves. A ratio-adjusted series keeps percentage moves and is also fine.
 
 UNVERIFIED: the volatility used (a daily index level, research/vol.py) and the rate.
 Black-76 theta is an instantaneous per-year rate; decay over a holding period is taken
@@ -31,8 +39,8 @@ _DAY = timedelta(days=1)
 
 @dataclass(frozen=True, slots=True)
 class Choice:
-    """The option bought: its right, strike (in the data's own price level), and the
-    factor that rescales forward and strike to the reference price level."""
+    """The option bought: its right, its strike AT THE REFERENCE LEVEL (the data's own
+    level when no reference is set), and the factor that rescales futures prices there."""
 
     right: Right76
     direction: int
@@ -44,9 +52,9 @@ class Choice:
 def choose(direction: int, entry_price: float, entry_ts: datetime, opt: OptionSettings) -> Choice:
     if direction not in (1, -1):
         raise ValueError(f"direction must be +1 (call) or -1 (put), got {direction!r}")
-    target = entry_price - direction * opt.moneyness_points
-    strike = round(target / opt.strike_step) * opt.strike_step
     scale = 1.0 if opt.reference_price is None else opt.reference_price / entry_price
+    target = entry_price * scale - direction * opt.moneyness_points
+    strike = round(target / opt.strike_step) * opt.strike_step
     right = Right76.CALL if direction == 1 else Right76.PUT
     expiry = entry_ts + opt.days_to_expiry * _DAY
     return Choice(right, direction, strike, scale, expiry)
@@ -65,7 +73,7 @@ def value(choice: Choice, futures: float, at: datetime, vol: float, opt: OptionS
     return price(
         choice.right,
         forward=futures * choice.scale,
-        strike=choice.strike * choice.scale,
+        strike=choice.strike,
         years=years_left(choice, at, opt),
         vol=vol,
         rate=opt.rate,

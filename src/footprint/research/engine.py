@@ -74,6 +74,9 @@ class Trade:
     entry_value: float  # option points, at the reference price level
     net: float  # dollars, all contracts, costs included
     reasons: tuple[str, ...]  # one per fill, in order
+    # Open profit (net dollars, all contracts) at entry and at every path point valued,
+    # ending at `net`: the curve marked inside the trade (37-M3).
+    marks: tuple[float, ...] = ()
 
 
 def _walk(
@@ -84,8 +87,10 @@ def _walk(
     vol: float,
     exit_: OptionExit,
     settings: ResearchSettings,
+    marks: list[float],
 ) -> tuple[list[Fill], datetime, int]:
-    """Fills, the time of the last one, and the index of the bar it happened in."""
+    """Fills, the time of the last one, and the index of the bar it happened in. Appends
+    the marked open profit at every path point with no fill to `marks`."""
     opt = settings.option
     fills: list[Fill] = []
 
@@ -93,9 +98,11 @@ def _walk(
         level = None
         if signal.futures_stop is not None:
             level = value(choice, signal.futures_stop, ts, vol, opt)
-        fills.extend(
-            exit_.check(value(choice, futures, ts, vol, opt), gap=gap, futures_level=level)
-        )
+        now = value(choice, futures, ts, vol, opt)
+        held = exit_.open
+        fills.extend(exit_.check(now, gap=gap, futures_level=level))
+        if exit_.open == held:  # no fill here: mark at this point
+            marks.append(exit_.marked(now))
 
     for j in range(start + 1, len(day)):
         opened = day.ts[j]
@@ -161,8 +168,10 @@ def run(
                 point_value=opt.point_value,
                 cost=settings.round_trip_per_contract,
             )
-            fills, exit_ts, closed_in = _walk(day, i, choice, signal, vol, exit_, settings)
+            marks = [exit_.marked(entry_value)]
+            fills, exit_ts, closed_in = _walk(day, i, choice, signal, vol, exit_, settings, marks)
             net = exit_.net(fills)
+            marks.append(net)
             trades.append(
                 Trade(
                     day=day.day,
@@ -174,6 +183,7 @@ def run(
                     entry_value=entry_value,
                     net=net,
                     reasons=tuple(f.reason for f in fills),
+                    marks=tuple(marks),
                 )
             )
             taken += 1
