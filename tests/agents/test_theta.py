@@ -196,6 +196,12 @@ def test_american_goes_by_the_trading_class(
     assert is_american(quote(trading_class=trading_class), instrument) is american
 
 
+@pytest.mark.parametrize("bad", ["NQ", None, date(2026, 12, 18)])
+def test_is_american_takes_an_option_quote_only(instrument: InstrumentProfile, bad: object) -> None:
+    with pytest.raises(TypeError, match="quote must be an OptionQuote"):
+        is_american(bad, instrument)  # type: ignore[arg-type]
+
+
 def test_the_date_does_not_make_an_option_american(instrument: InstrumentProfile) -> None:
     # IBKR lists a weekly (QN3, on the next quarterly future) beside the quarterly on a
     # quarterly Friday (checked 2026-10-22: 2026-12-18 lists classes NQ and QN3).
