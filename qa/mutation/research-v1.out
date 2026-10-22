@@ -1,4 +1,4 @@
-source: 18491d5007aabb08183545a6e5778190c7e99b2a tree-dirty: 0 files
+source: 8f30bc29cabd414960737d11b98b1f05ebb1c980 tree-dirty: 0 files
 baseline [bars]: passed
 baseline [cli]: passed
 baseline [engine]: passed
@@ -83,4 +83,6 @@ baseline [stats]: passed
  76 KILLED   [pricing] src/footprint/research/pricing.py: forward not rescaled
  77 KILLED   [exits] src/footprint/research/exits.py: target gap fills at the level
  78 KILLED   [stats] src/footprint/research/stats.py: drawdown pct never computed
-78 mutants, 0 survived or errored
+ 79 KILLED   [stats] src/footprint/research/stats.py: 37-R2-M1: marked curve carries the first mark
+ 80 KILLED   [engine] src/footprint/research/engine.py: 37-R2-L1: a mark recorded at a fill point
+80 mutants, 0 survived or errored

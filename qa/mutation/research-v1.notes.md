@@ -63,3 +63,5 @@ Evidence after review round 1: 78 mutants, 78 killed, 0 survived or errored, on 
 - 37-R2-I1 (info, documented here): ruin is judged on realized equity; marked equity can
   go below zero inside a trade without a RUIN line. The marked drawdown gate fails long
   before that, so the verdict is unaffected.
+
+Evidence after review round 2: 80 mutants, 80 killed, 0 survived or errored, on 8f30bc2 with a clean tree.
