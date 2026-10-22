@@ -10,6 +10,8 @@ option_model:
   strikes_each_side: 6        # strikes listed above and below the money
   open_interest: 500          # every modelled strike passes Felix's open-interest minimum
   expiries_listed: 5          # daily expiries listed ahead (Felix takes 1-3 days out)
+  trading_class: MODEL        # the class modelled quotes carry: not a real exchange class,
+                              #   and never one of the instrument's American classes
 engine:
   substep_seconds: 5          # the runner steps this often inside a minute while an entry
                               #   or a position is live (the minute's path is modelled

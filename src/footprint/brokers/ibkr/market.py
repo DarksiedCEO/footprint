@@ -295,9 +295,10 @@ class MarketData:
         require_utc(now, "now")
         with self._lock:
             offered = self._offered(now)
-            if offered is None:
+            if offered is None or self._chosen is None:
                 return None
             under, options = offered
+            trading_class = self._chosen[1]  # every offered option is on the chosen chain
             quotes = [
                 OptionQuote(
                     contract_id=o.quote.contract_id,
@@ -307,6 +308,7 @@ class MarketData:
                     bid=o.quote.bid,
                     ask=o.quote.ask,
                     open_interest=o.open_interest or 0,  # unknown: fails the OI check
+                    trading_class=trading_class,
                 )
                 for o in options
             ]

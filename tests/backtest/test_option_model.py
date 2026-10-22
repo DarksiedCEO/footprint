@@ -1,15 +1,21 @@
 """G4 modelled option quotes."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
+from pathlib import Path
 
 import pytest
+import yaml
 
 from footprint.backtest.options_model import OptionModel
-from footprint.backtest.settings import BacktestSettings
-from footprint.core.config import Profiles
+from footprint.backtest.settings import BacktestSettings, load_backtest
+from footprint.core.config import ConfigError, Profiles
 from footprint.core.options import Right
+from tests.conftest import REPO_ROOT
+
+CONFIG = REPO_ROOT / "config" / "backtest.yaml"
 
 D = Decimal
 T = datetime(2026, 9, 15, 14, 1, tzinfo=UTC)  # Tuesday 07:01 PT
@@ -109,3 +115,43 @@ def test_a_delta_outside_zero_to_one_is_refused(
 ) -> None:
     with pytest.raises(ValueError, match="delta"):
         OptionModel(settings.option_model, profiles.instrument, D(1))
+
+
+# --- trading class (trading-class-v1) -----------------------------------------------
+
+
+def test_modelled_quotes_carry_the_configured_trading_class(
+    profiles: Profiles, settings: BacktestSettings
+) -> None:
+    chain = model(profiles, settings).chain(T, D("23712"))
+    assert {q.trading_class for q in chain.quotes} == {settings.option_model.trading_class}
+
+
+def test_the_model_refuses_to_model_an_american_class(
+    profiles: Profiles, settings: BacktestSettings
+) -> None:
+    # The model prices every option the same European way: it must never claim to be
+    # quoting the quarterly (American) class.
+    (american,) = profiles.instrument.option_expiry.american_trading_classes
+    bad = replace(settings.option_model, trading_class=american)
+    with pytest.raises(ValueError, match="American"):
+        OptionModel(bad, profiles.instrument, profiles.strategy.options.assumed_delta)
+
+
+def _with_option_model(tmp_path: Path, **changes: object) -> Path:
+    raw = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    raw["option_model"] = raw["option_model"] | changes
+    path = tmp_path / "backtest.yaml"
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    return path
+
+
+def test_the_trading_class_loads(tmp_path: Path) -> None:
+    loaded = load_backtest(_with_option_model(tmp_path, trading_class="QX9"))
+    assert loaded.option_model.trading_class == "QX9"
+
+
+@pytest.mark.parametrize("bad", ["", " ", "Q 3", 3, None, True, ["Q3C"]])
+def test_a_bad_trading_class_is_refused(tmp_path: Path, bad: object) -> None:
+    with pytest.raises(ConfigError, match="trading_class"):
+        load_backtest(_with_option_model(tmp_path, trading_class=bad))

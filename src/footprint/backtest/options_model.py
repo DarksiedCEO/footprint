@@ -44,6 +44,11 @@ class OptionModel:
     ) -> None:
         if not Decimal(0) < delta < Decimal(1):
             raise ValueError("delta must be between 0 and 1")
+        if model.trading_class in instrument.option_expiry.american_trading_classes:
+            raise ValueError(
+                f"option_model trading_class {model.trading_class!r} is an American class: "
+                "the model prices European options only"
+            )
         self._m = model
         self._instrument = instrument
         self._delta = delta
@@ -70,7 +75,14 @@ class OptionModel:
                     bid, ask = self._prices(right, strike, expiry, now, underlying_price)
                     quotes.append(
                         OptionQuote(
-                            contract_id, expiry, strike, right, bid, ask, self._m.open_interest
+                            contract_id,
+                            expiry,
+                            strike,
+                            right,
+                            bid,
+                            ask,
+                            self._m.open_interest,
+                            self._m.trading_class,
                         )
                     )
         return OptionChain(self._instrument.symbol, now, underlying_price, tuple(quotes))

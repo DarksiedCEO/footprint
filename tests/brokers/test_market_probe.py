@@ -156,7 +156,7 @@ def test_an_option_quote_is_read_by_contract_id_only_while_fresh(
 
 
 def oq(cid: str, strike: int, right: Right, bid: str, ask: str) -> OptionQuote:
-    return OptionQuote(cid, date(2026, 10, 15), D(strike), right, D(bid), D(ask), 0)
+    return OptionQuote(cid, date(2026, 10, 15), D(strike), right, D(bid), D(ask), 0, "Q3D")
 
 
 @dataclass

@@ -46,6 +46,7 @@ def q(
         bid=D(str(bid)),
         ask=D(str(ask)),
         open_interest=oi,
+        trading_class="Q3C",
     )
 
 
@@ -75,6 +76,12 @@ def test_quotes_validate() -> None:
         q(TUE, 20000, oi=-1)
     with pytest.raises(ValueError, match="duplicate"):
         chain(q(TUE, 20000), q(TUE, 20000))
+    good = q(TUE, 20000)
+    for bad in ("", "   "):
+        with pytest.raises(ValueError, match="trading_class"):
+            replace(good, trading_class=bad)
+    with pytest.raises(ValueError, match="trading_class"):
+        replace(good, trading_class=None)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="UTC"):
         chain(q(TUE, 20000), ts=datetime(2026, 9, 15, 7, 0, tzinfo=PT))
     assert Right.for_direction(Direction.LONG) is Right.CALL

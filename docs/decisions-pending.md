@@ -123,13 +123,16 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 28. Model Greeks (D42): IBKR sends the model option computation for the streamed NQ options without any extra generic tick, with implied volatility, delta, gamma, vega, theta and the future's price all filled in (`MarketData.greeks_incomplete` and `greeks_rejected` should stay 0); how often a complete reading arrives for an at-the-money 1-3 day option (against `quotes.greeks_max_age_seconds`); the units of theta and vega (per calendar day? per 1 volatility point? in option points?), UNVERIFIED and needed before the Theta and Vega agents; which future the model's underlying price is in roll week (D27); and whether IBKR ever sends an empty field (ibapi decodes an empty field as 0, which would read as a real 0: reviewer finding, PR 35).
 29. Option expiries (theta-v1): the option_expiry rules in `instruments/nq.yaml` (CME
     359A): weeklies and end-of-month stop trading at 3:00 PM CT (13:00 PT), noon CT on an
-    early close. Confirm in IBKR's contract details for a streamed weekly. UNVERIFIED: that
-    on a quarterly-expiry Friday (third Friday of Mar/Jun/Sep/Dec) IBKR lists only the
-    quarterly (American) option, so refusing that date refuses only quarterlies. The rule
-    goes by date only: a quarterly moved by a holiday (Juneteenth falls on the June
-    quarterly Friday in 2037, 2043, ...) would be valued as European. Unreachable live
-    under D27 and dte_max 3; the better fix is IBKR's exercise style or trading class from
-    the contract details. Also check `option_expiry.early_close_dates` (the stock market's
+    early close. Confirm in IBKR's contract details for a streamed weekly (Andre: TWS,
+    right-click the Nov 27 QN4 weekly, Financial Instrument Info, Description). Which
+    options are American goes by TRADING CLASS (`american_trading_classes: [NQ]`,
+    trading-class-v1), not by date. CHECKED 2026-10-22 (IBKR option listing and Andre's
+    thinkorswim chain): on a quarterly Friday two series share the date, the quarterly
+    (class NQ, on the expiring future, AM settled) and a weekly (class QN3, on the NEXT
+    quarterly future, e.g. 2026-12-18 /NQH27 Wk3); ES lists ES and EW3 the same way. The
+    old date rule would have refused that weekly in every roll week. UNVERIFIED: that the
+    QN3 weekly on a quarterly Friday is European (359A says weeklies are; not seen on a
+    contract). Also check `option_expiry.early_close_dates` (the stock market's
     half days) against the NYSE/Nasdaq calendars before each one; the loader now refuses a
     list missing a "Day after Thanksgiving" or "Christmas Eve" rule day up to
     calendar_through. NYSE also closes early on 2028-07-03, which no rule covers yet: add
@@ -546,7 +549,8 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   - B76-1: decay is the Black-76 price difference over the planned hold, price(T) minus
     price(T - hold), never theta times the hold; time is CALENDAR time.
   - B76-2: European expiries only (weeklies and end-of-month). Quarterly (American)
-    expiries are not traded.
+    expiries are not traded. Applied by trading class since trading-class-v1 (a weekly
+    class is also listed on quarterly Fridays, on the next future; checklist 29).
   - Also decided that night (recorded here; built in later PRs): research uses the raw,
     unadjusted bars (R-1); costs at $170 with $120 and $220 checks (R-2); VXN as the
     research volatility (R-2); the play-caller rules signed off as written (PC-1); a bad

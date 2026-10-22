@@ -128,6 +128,7 @@ def chain_for(price: Decimal, ts: datetime = DECISION_TIME) -> OptionChain:
                     bid=D(150),
                     ask=D(152),
                     open_interest=500,
+                    trading_class="Q3C",
                 )
             )
     return OptionChain("NQ", ts, price, tuple(quotes))

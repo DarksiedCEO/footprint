@@ -714,6 +714,8 @@ def test_the_chain_holds_only_fresh_quotes_and_is_as_old_as_its_oldest(
     )
     assert q.open_interest == 1234
     assert by_id[option_contract_id(put)].open_interest == 0  # unknown: fails the OI rule
+    # each quote carries the chosen chain's trading class (theta's American check)
+    assert {x.trading_class for x in chain.quotes} == {"Q2C"}
     max_age = timedelta(seconds=w.execution.quotes.max_age_seconds)
     later = now + max_age - timedelta(seconds=1)
     chain = w.md.chain(later)  # the call is now too old; the put is not

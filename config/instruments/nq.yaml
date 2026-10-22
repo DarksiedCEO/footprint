@@ -32,18 +32,17 @@ dte_max: 3
 # UNVERIFIED: the stock market's 2026-27 half days (NYSE/Nasdaq calendars; check before
 # each, paper checklist 29).
 # Quarterly options are AMERICAN (359A01.G.1) and expire with the futures; Footprint
-# does not trade them (Andre, decision B76-2): an expiry on the `american_week_of_month`
-# `american_weekday` of an `american_months` month is refused. The rule is by date only:
-# a quarterly moved by a holiday is not recognised (paper checklist 29).
+# does not trade them (Andre, decision B76-2): an option whose IBKR trading class is in
+# `american_trading_classes` is refused. By class, not date: on a quarterly Friday IBKR
+# also lists a weekly class (QN3, on the next quarterly future) beside the quarterly
+# (NQ), seen in IBKR's NQ and ES option listings on 2026-10-22 (paper checklist 29).
 option_expiry:
   time: "13:00"
   early_close_time: "10:00"     # noon CT
   # Stock market half days: the day after Thanksgiving, and Christmas Eve.
   early_close_dates: [2026-11-27, 2026-12-24]
   timezone: America/Los_Angeles
-  american_months: [3, 6, 9, 12]
-  american_weekday: FRI
-  american_week_of_month: 3
+  american_trading_classes: [NQ]
 # Days the PRIME session trades. Each OVERNIGHT session belongs to the next
 # trading day (it opens the evening before), so Friday evening and weekends
 # are closed.
