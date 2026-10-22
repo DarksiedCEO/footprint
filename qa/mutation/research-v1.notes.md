@@ -44,3 +44,22 @@ dropped:
 The reviewer's other equivalent survivors (37-I2: peak `>=`, default Decimal rounding,
 the session filter rewrite, `bars._day` UTC conversion) are accepted as equivalent and
 not in the spec.
+
+Evidence after review round 1 (on branch research-v1): 78 mutants, 78 killed, 0 survived or errored, on 18491d5 with a clean tree.
+
+## Review round 2 (b78e80b, CERTIFIED WITH CONDITIONS)
+
+- 37-R2-M1: the reviewer's N5 (`equity += trade[-1]` -> `trade[0]`) is in the spec, killed
+  by `test_marked_drawdown_carries_each_trades_final_net_not_its_first_mark` (marks
+  starting at -170, exact dollars and percent).
+- 37-R2-L1: the reviewer's N3 (a mark recorded at a fill point) is pinned rather than
+  argued: `test_no_mark_is_recorded_at_a_fill_point` fixes the marks of a stopped trade
+  (entry, the bar's open, the final net). The reviewer's observation stands that the
+  extra mark could not change a drawdown (at a full exit it equals the final net; at a
+  scale-out target it lies between its neighbours), so the test pins the documented
+  shape of `marks`, not a number the verdict reads.
+- 37-R2-L2: config/research.yaml's moneyness comment now says points at the reference
+  price level.
+- 37-R2-I1 (info, documented here): ruin is judged on realized equity; marked equity can
+  go below zero inside a trade without a RUIN line. The marked drawdown gate fails long
+  before that, so the verdict is unaffected.
