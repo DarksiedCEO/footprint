@@ -132,6 +132,15 @@ def test_a_futures_halt_caps_option_expiry(instrument: InstrumentProfile) -> Non
     assert moment.astimezone(PT).time() == instrument.early_closes[day]  # not 13:00
 
 
+def test_the_futures_halt_is_read_in_the_prime_session_timezone(
+    instrument: InstrumentProfile,
+) -> None:
+    day = date(2026, 9, 7)  # Labor Day halt, 10:00 in the prime session's zone (PT)
+    chicago = replace(instrument.option_expiry, timezone="America/Chicago")
+    moment = expiry_moment(day, replace(instrument, option_expiry=chicago))
+    assert moment.astimezone(PT) == datetime.combine(day, instrument.early_closes[day], PT)
+
+
 def test_a_later_futures_halt_never_makes_option_expiry_later(
     instrument: InstrumentProfile,
 ) -> None:
