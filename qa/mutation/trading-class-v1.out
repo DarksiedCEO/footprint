@@ -1,5 +1,5 @@
 warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
-source: 9c353b24687dc84333cc4a747f16e64a55b45c43 tree-dirty: 0 files
+source: 18dc0f9a086563b7a2ca3172aaa1376a6ec498ea tree-dirty: 0 files
 baseline [backtest]: passed
 baseline [config]: passed
 baseline [expiry]: passed
@@ -8,7 +8,7 @@ baseline [quote]: passed
 baseline [theta]: passed
   1 KILLED   [expiry] src/footprint/core/expiry.py: nothing is American
   2 KILLED   [expiry] src/footprint/core/expiry.py: American test inverted
-  3 SURVIVED [expiry] src/footprint/core/expiry.py: non-quote accepted
+  3 KILLED   [expiry] src/footprint/core/expiry.py: non-quote accepted
   4 KILLED   [theta] src/footprint/agents/theta.py: American option not refused
   5 KILLED   [quote] src/footprint/core/options.py: spaces in a class accepted
   6 KILLED   [quote] src/footprint/core/options.py: empty class accepted
@@ -20,6 +20,17 @@ baseline [theta]: passed
  12 KILLED   [config] src/footprint/core/config.py: only the first class kept
  13 KILLED   [market] src/footprint/brokers/ibkr/market.py: expiry text sent as the class
  14 KILLED   [backtest] src/footprint/backtest/settings.py: bad modelled class accepted
- 15 KILLED   [backtest] src/footprint/backtest/options_model.py: model may claim an American class
- 16 KILLED   [backtest] src/footprint/backtest/options_model.py: modelled class ignored
-16 mutants, 1 survived or errored
+ 15 KILLED   [backtest] src/footprint/backtest/options_model.py: model may claim a non-European class
+ 16 SURVIVED [expiry] src/footprint/core/expiry.py: American class not excluded from European
+ 17 KILLED   [expiry] src/footprint/core/expiry.py: prefix match accepted
+ 18 KILLED   [expiry] src/footprint/core/expiry.py: must match every pattern
+ 19 KILLED   [theta] src/footprint/agents/theta.py: unknown class valued
+ 20 KILLED   [market] src/footprint/brokers/ibkr/market.py: chooser takes any class
+ 21 KILLED   [config] src/footprint/core/config.py: empty pattern list accepted
+ 22 SURVIVED [config] src/footprint/core/config.py: a string accepted as the pattern list
+ 23 KILLED   [config] src/footprint/core/config.py: blank or spaced pattern accepted
+ 24 KILLED   [config] src/footprint/core/config.py: pattern overlapping American accepted
+ 25 KILLED   [config] src/footprint/core/config.py: duplicate patterns accepted
+ 26 KILLED   [config] src/footprint/core/config.py: only the first pattern kept
+ 27 SURVIVED [backtest] src/footprint/backtest/options_model.py: modelled class ignored
+27 mutants, 3 survived or errored

@@ -120,11 +120,15 @@ def test_a_delta_outside_zero_to_one_is_refused(
 # --- trading class (trading-class-v1) -----------------------------------------------
 
 
+@pytest.mark.parametrize("trading_class", ["config", "QN2"])
 def test_modelled_quotes_carry_the_configured_trading_class(
-    profiles: Profiles, settings: BacktestSettings
+    profiles: Profiles, settings: BacktestSettings, trading_class: str
 ) -> None:
-    chain = model(profiles, settings).chain(T, D("23712"))
-    assert {q.trading_class for q in chain.quotes} == {settings.option_model.trading_class}
+    o = settings.option_model
+    o = o if trading_class == "config" else replace(o, trading_class=trading_class)
+    m = OptionModel(o, profiles.instrument, profiles.strategy.options.assumed_delta)
+    chain = m.chain(T, D("23712"))
+    assert {q.trading_class for q in chain.quotes} == {o.trading_class}
 
 
 @pytest.mark.parametrize("bad", ["NQ", "MODEL"])

@@ -135,7 +135,8 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     QNE) are valued or chosen as the chain; an American or unknown class is never chosen
     and is vetoed if seen. UNVERIFIED: that the API sends these same class names (check
     with the read-only check script before go-live), and that the QN3 weekly on a
-    quarterly Friday is European (359A says weeklies are; not seen on a contract). Also check `option_expiry.early_close_dates` (the stock market's
+    quarterly Friday is European (359A says weeklies are; not seen on a contract).
+    Also check `option_expiry.early_close_dates` (the stock market's
     half days) against the NYSE/Nasdaq calendars before each one; the loader now refuses a
     list missing a "Day after Thanksgiving" or "Christmas Eve" rule day up to
     calendar_through. NYSE also closes early on 2028-07-03, which no rule covers yet: add
@@ -591,3 +592,8 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   - The backtest model expires options at the prime close (14:00 PT); Theta counts to
     13:00 PT. This is harmless with dte_min 1.
 - Not built here (separate PRs): the decay exit in Malik, and Theta choosing the expiry.
+
+- **TC-1 (trading-class-v1, open, not for now):** recorded chain rows
+  (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
+  the first PR that replays recorded chains must add the class, or on a quarterly
+  Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).

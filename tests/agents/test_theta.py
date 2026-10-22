@@ -226,6 +226,16 @@ def test_only_listed_european_classes_are_european(
     assert is_european_class(name, instrument) is european
 
 
+def test_an_american_class_is_never_european_even_if_a_pattern_matches(
+    instrument: InstrumentProfile,
+) -> None:
+    # The loader refuses such a config; the check holds on its own anyway.
+    rules = replace(instrument.option_expiry, european_trading_class_patterns=("N.", "QN[1-5]"))
+    overlapping = replace(instrument, option_expiry=rules)
+    assert not is_european_class("NQ", overlapping)
+    assert is_european_class("NX", overlapping)
+
+
 def test_an_unknown_class_is_vetoed_not_valued(theta: ThetaAgent) -> None:
     check = theta.assess(plan(quote(trading_class="ZZZ")), FORWARD, NOW)
     assert not check.allowed

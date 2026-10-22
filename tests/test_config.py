@@ -725,7 +725,7 @@ def expiry(**changes: Any) -> dict[str, Any]:
         expiry(american_trading_classes=[True]),
         expiry(american_trading_classes=None),
         expiry(european_trading_class_patterns=[]),
-        expiry(european_trading_class_patterns="QN[1-5]"),  # a list, not a string
+        expiry(european_trading_class_patterns="QNE"),  # a list, not a string
         expiry(european_trading_class_patterns=[""]),
         expiry(european_trading_class_patterns=["QN[1-5"]),  # not a valid pattern
         expiry(european_trading_class_patterns=["QN[1-5]", "QN[1-5]"]),
