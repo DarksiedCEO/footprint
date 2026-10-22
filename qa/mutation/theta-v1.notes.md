@@ -27,3 +27,7 @@
     estimate.
   - Where the price is flat in volatility (no time value), many volatilities share the
     price, so any of them is an equally valid answer (documented in the module).
+
+## Second run (source 95b6a02, clean tree)
+
+67 mutants: 66 killed, 1 survived. The survivor is #38, argued equivalent above.
