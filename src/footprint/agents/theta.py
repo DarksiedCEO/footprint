@@ -33,7 +33,7 @@ from decimal import Decimal
 from footprint.core import black76
 from footprint.core.black76 import Right76
 from footprint.core.config import _PERCENT_MAX, InstrumentProfile, RiskProfile, ThetaSettings
-from footprint.core.expiry import expiry_moment, is_american
+from footprint.core.expiry import expiry_moment, is_american, is_european_class
 from footprint.core.implied_vol import ImpliedVolOutOfRange, implied_vol
 from footprint.core.models import require_utc
 from footprint.core.options import Right
@@ -104,6 +104,12 @@ class ThetaAgent:
                 False,
                 f"{quote.contract_id}: trading class {quote.trading_class} is a quarterly "
                 "(American) option; Black-76 does not value it (B76-2)",
+            )
+        if not is_european_class(quote.trading_class, self._instrument):
+            return verdict(
+                False,
+                f"{quote.contract_id}: trading class {quote.trading_class} is not a known "
+                "European class (option_expiry.european_trading_class_patterns); not valued",
             )
         expires_at = expiry_moment(quote.expiry, self._instrument)
         left = expires_at - as_of

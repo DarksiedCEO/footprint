@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, datetime, time
@@ -61,13 +62,16 @@ class OptionExpiry:
     `early_close_dates` (the stock market's early closes, not the futures halts), at the
     earlier of `early_close_time` and `time`. An option whose trading class is in
     `american_trading_classes` is a quarterly (American-style) one, whatever its date: a
-    weekly class is listed on the quarterly Fridays too."""
+    weekly class is listed on the quarterly Fridays too. Only a class matching one of
+    `european_trading_class_patterns` (whole name, regular expressions) is valued as
+    European; any other class is refused, never assumed European."""
 
     early_close_time: time  # (before `time`: that field name shadows the type below it)
     time: time
     early_close_dates: frozenset[date]
     timezone: str
     american_trading_classes: frozenset[str]
+    european_trading_class_patterns: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +394,32 @@ def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExp
             )
     if len(set(classes)) != len(classes):
         raise ConfigError(f"{where}: american_trading_classes has duplicates")
+    patterns = body["european_trading_class_patterns"]
+    if not isinstance(patterns, list) or not patterns:
+        raise ConfigError(
+            f"{where}: european_trading_class_patterns must be a non-empty list of patterns"
+        )
+    for pattern in patterns:
+        if not is_trading_class(pattern):
+            raise ConfigError(
+                f"{where}: european_trading_class_patterns entries must be non-empty "
+                f"patterns with no spaces, got {pattern!r}"
+            )
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            raise ConfigError(
+                f"{where}: european_trading_class_patterns {pattern!r} is not a valid "
+                f"pattern: {exc}"
+            ) from exc
+        for name in classes:
+            if compiled.fullmatch(name):
+                raise ConfigError(
+                    f"{where}: european_trading_class_patterns {pattern!r} matches the "
+                    f"American class {name!r}"
+                )
+    if len(set(patterns)) != len(patterns):
+        raise ConfigError(f"{where}: european_trading_class_patterns has duplicates")
     normal = _clock(body, "time", where)
     early = _clock(body, "early_close_time", where)
     if early >= normal:
@@ -400,6 +430,7 @@ def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExp
         early_close_dates=_holidays(body, "early_close_dates", where),
         timezone=_timezone(body, "timezone", where),
         american_trading_classes=frozenset(classes),
+        european_trading_class_patterns=tuple(patterns),
     )
 
 

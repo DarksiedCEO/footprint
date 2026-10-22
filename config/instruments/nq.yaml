@@ -43,6 +43,11 @@ option_expiry:
   early_close_dates: [2026-11-27, 2026-12-24]
   timezone: America/Los_Angeles
   american_trading_classes: [NQ]
+  # Only these classes are valued (whole-name match); any other class is refused, never
+  # assumed European. Seen 2026-10-22: dailies Q1A..Q5D (week 1-5, Mon A .. Thu D),
+  # Friday weeklies QN1..QN4, end of month QNE. UNVERIFIED: that the API sends these
+  # same names (check with the read-only check script before go-live).
+  european_trading_class_patterns: ["Q[1-5][A-D]", "QN[1-5]", "QNE"]
 # Days the PRIME session trades. Each OVERNIGHT session belongs to the next
 # trading day (it opens the evening before), so Friday evening and weekends
 # are closed.

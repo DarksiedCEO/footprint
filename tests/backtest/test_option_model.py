@@ -127,15 +127,15 @@ def test_modelled_quotes_carry_the_configured_trading_class(
     assert {q.trading_class for q in chain.quotes} == {settings.option_model.trading_class}
 
 
-def test_the_model_refuses_to_model_an_american_class(
-    profiles: Profiles, settings: BacktestSettings
+@pytest.mark.parametrize("bad", ["NQ", "MODEL"])
+def test_the_model_refuses_a_class_that_is_not_european(
+    profiles: Profiles, settings: BacktestSettings, bad: str
 ) -> None:
     # The model prices every option the same European way: it must never claim to be
-    # quoting the quarterly (American) class.
-    (american,) = profiles.instrument.option_expiry.american_trading_classes
-    bad = replace(settings.option_model, trading_class=american)
-    with pytest.raises(ValueError, match="American"):
-        OptionModel(bad, profiles.instrument, profiles.strategy.options.assumed_delta)
+    # quoting the quarterly (American) class, or a class theta would not value.
+    model = replace(settings.option_model, trading_class=bad)
+    with pytest.raises(ValueError, match="European"):
+        OptionModel(model, profiles.instrument, profiles.strategy.options.assumed_delta)
 
 
 def _with_option_model(tmp_path: Path, **changes: object) -> Path:

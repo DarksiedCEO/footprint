@@ -130,9 +130,12 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     thinkorswim chain): on a quarterly Friday two series share the date, the quarterly
     (class NQ, on the expiring future, AM settled) and a weekly (class QN3, on the NEXT
     quarterly future, e.g. 2026-12-18 /NQH27 Wk3); ES lists ES and EW3 the same way. The
-    old date rule would have refused that weekly in every roll week. UNVERIFIED: that the
-    QN3 weekly on a quarterly Friday is European (359A says weeklies are; not seen on a
-    contract). Also check `option_expiry.early_close_dates` (the stock market's
+    old date rule would have refused that weekly in every roll week. Fail closed (review
+    R1, H1): only classes matching `european_trading_class_patterns` (Q1A..Q5D, QN1..QN5,
+    QNE) are valued or chosen as the chain; an American or unknown class is never chosen
+    and is vetoed if seen. UNVERIFIED: that the API sends these same class names (check
+    with the read-only check script before go-live), and that the QN3 weekly on a
+    quarterly Friday is European (359A says weeklies are; not seen on a contract). Also check `option_expiry.early_close_dates` (the stock market's
     half days) against the NYSE/Nasdaq calendars before each one; the loader now refuses a
     list missing a "Day after Thanksgiving" or "Christmas Eve" rule day up to
     calendar_through. NYSE also closes early on 2028-07-03, which no rule covers yet: add

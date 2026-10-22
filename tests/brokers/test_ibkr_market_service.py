@@ -606,15 +606,44 @@ def test_two_classes_on_one_expiry_pick_the_fuller_one_every_time(
     execution: ExecutionProfile, instrument: InstrumentProfile
 ) -> None:
     params = [
-        ("AAA", "20", frozenset({"20261007"}), frozenset({D(20000)})),
-        ("ZZZ", "20", frozenset({"20261007"}), frozenset({D(20000), D(20010)})),
-        ("BAD", "2", frozenset({"20261007"}), frozenset({D(1), D(2), D(3)})),  # wrong size
+        ("Q1C", "20", frozenset({"20261007"}), frozenset({D(20000)})),
+        ("QNE", "20", frozenset({"20261007"}), frozenset({D(20000), D(20010)})),
+        ("QN1", "2", frozenset({"20261007"}), frozenset({D(1), D(2), D(3)})),  # wrong size
     ]
     w = World(execution, instrument, params=params)
     w.connect()
     w.run(3)
     lookups = [q for _r, q in w.gw.named("details") if q.sec_type == "FOP"]
-    assert [q.trading_class for q in lookups] == ["ZZZ"]
+    assert [q.trading_class for q in lookups] == ["QNE"]
+
+
+def test_an_american_class_is_never_chosen_even_with_more_strikes(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    # Review trading-class R1, M1: a quarterly listed on the same date as a weekly is
+    # never the chain, however full it is.
+    params = [
+        ("NQ", "20", frozenset({"20261007"}), frozenset({D(20000), D(20010), D(20020)})),
+        ("QN3", "20", frozenset({"20261007"}), frozenset({D(20000)})),
+    ]
+    w = World(execution, instrument, params=params)
+    w.connect()
+    w.run(3)
+    lookups = [q for _r, q in w.gw.named("details") if q.sec_type == "FOP"]
+    assert [q.trading_class for q in lookups] == ["QN3"]
+
+
+def test_only_unknown_or_american_classes_give_no_chain(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    params = [
+        ("NQ", "20", frozenset({"20261007"}), frozenset({D(20000)})),
+        ("ZZZ", "20", frozenset({"20261007"}), frozenset({D(20000)})),
+    ]
+    w = World(execution, instrument, params=params)
+    w.connect()
+    w.run(3)
+    assert [q for _r, q in w.gw.named("details") if q.sec_type == "FOP"] == []
 
 
 def test_no_expiry_in_range_is_alarmed_once_and_nothing_streams(

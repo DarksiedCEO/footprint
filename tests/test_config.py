@@ -685,6 +685,7 @@ def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
     assert rules.early_close_dates == frozenset({date(2026, 11, 27), date(2026, 12, 24)})
     assert rules.timezone == "America/Los_Angeles"
     assert rules.american_trading_classes == frozenset({"NQ"})
+    assert rules.european_trading_class_patterns == ("Q[1-5][A-D]", "QN[1-5]", "QNE")
 
 
 def expiry(**changes: Any) -> dict[str, Any]:
@@ -694,6 +695,7 @@ def expiry(**changes: Any) -> dict[str, Any]:
         "early_close_dates": [date(2026, 11, 27), date(2026, 12, 24)],
         "timezone": "America/Los_Angeles",
         "american_trading_classes": ["NQ"],
+        "european_trading_class_patterns": ["Q[1-5][A-D]", "QN[1-5]", "QNE"],
     } | changes
 
 
@@ -722,6 +724,14 @@ def expiry(**changes: Any) -> dict[str, Any]:
         expiry(american_trading_classes=[1]),
         expiry(american_trading_classes=[True]),
         expiry(american_trading_classes=None),
+        expiry(european_trading_class_patterns=[]),
+        expiry(european_trading_class_patterns="QN[1-5]"),  # a list, not a string
+        expiry(european_trading_class_patterns=[""]),
+        expiry(european_trading_class_patterns=["QN[1-5"]),  # not a valid pattern
+        expiry(european_trading_class_patterns=["QN[1-5]", "QN[1-5]"]),
+        expiry(european_trading_class_patterns=[3]),
+        expiry(european_trading_class_patterns=["N."]),  # matches the American NQ
+        expiry(european_trading_class_patterns=["Q N"]),
         expiry(extra=1),
         {k: v for k, v in expiry().items() if k != "time"},
     ],

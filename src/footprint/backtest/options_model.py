@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from footprint.backtest.settings import OptionModelSettings
 from footprint.core.calendar import is_trading_day, prime_close, trading_day_at
 from footprint.core.config import InstrumentProfile
+from footprint.core.expiry import is_european_class
 from footprint.core.models import require_utc
 from footprint.core.options import OptionChain, OptionQuote, Right
 from footprint.execution.orders import Quote
@@ -44,10 +45,10 @@ class OptionModel:
     ) -> None:
         if not Decimal(0) < delta < Decimal(1):
             raise ValueError("delta must be between 0 and 1")
-        if model.trading_class in instrument.option_expiry.american_trading_classes:
+        if not is_european_class(model.trading_class, instrument):
             raise ValueError(
-                f"option_model trading_class {model.trading_class!r} is an American class: "
-                "the model prices European options only"
+                f"option_model trading_class {model.trading_class!r} is not one of the "
+                "instrument's European classes: the model prices European options only"
             )
         self._m = model
         self._instrument = instrument

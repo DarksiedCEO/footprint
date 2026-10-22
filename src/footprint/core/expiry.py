@@ -11,6 +11,7 @@ weekly class (on the next future), as IBKR listed them on 2026-10-22.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
@@ -44,3 +45,13 @@ def is_american(quote: OptionQuote, instrument: InstrumentProfile) -> bool:
     if not isinstance(quote, OptionQuote):
         raise TypeError(f"quote must be an OptionQuote, got {quote!r}")
     return quote.trading_class in instrument.option_expiry.american_trading_classes
+
+
+def is_european_class(name: str, instrument: InstrumentProfile) -> bool:
+    """True only for a class that is not American and whose whole name matches one of
+    the instrument's European patterns. Anything else (a class never seen, a renamed
+    one) is not European: fail closed."""
+    rules = instrument.option_expiry
+    if name in rules.american_trading_classes:
+        return False
+    return any(re.fullmatch(p, name) for p in rules.european_trading_class_patterns)

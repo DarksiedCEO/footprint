@@ -22,7 +22,7 @@ from footprint.agents.contract_picker import ContractChoice
 from footprint.agents.theta import ThetaAgent, ThetaCheck
 from footprint.core.black76 import Right76, price
 from footprint.core.config import InstrumentProfile, RiskProfile, StrategyProfile, ThetaSettings
-from footprint.core.expiry import expiry_moment, is_american
+from footprint.core.expiry import expiry_moment, is_american, is_european_class
 from footprint.core.implied_vol import implied_vol
 from footprint.core.options import OptionQuote, Right
 from footprint.decision.sizing import EntryPlan
@@ -200,6 +200,39 @@ def test_american_goes_by_the_trading_class(
 def test_is_american_takes_an_option_quote_only(instrument: InstrumentProfile, bad: object) -> None:
     with pytest.raises(TypeError, match="quote must be an OptionQuote"):
         is_american(bad, instrument)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("name", "european"),
+    [
+        ("Q1A", True),  # Monday daily, week 1
+        ("Q4D", True),  # Thursday daily, week 4 (seen 2026-10-22)
+        ("Q5D", True),
+        ("QN1", True),  # Friday weeklies
+        ("QN3", True),
+        ("QNE", True),  # end of month
+        ("NQ", False),  # the quarterly: American
+        ("ZZZ", False),  # never seen: refused, not assumed European
+        ("Q6A", False),
+        ("Q1E", False),
+        ("QN3X", False),  # the whole name must match
+        ("XQN3", False),
+        ("q4d", False),
+    ],
+)
+def test_only_listed_european_classes_are_european(
+    instrument: InstrumentProfile, name: str, european: bool
+) -> None:
+    assert is_european_class(name, instrument) is european
+
+
+def test_an_unknown_class_is_vetoed_not_valued(theta: ThetaAgent) -> None:
+    check = theta.assess(plan(quote(trading_class="ZZZ")), FORWARD, NOW)
+    assert not check.allowed
+    assert "ZZZ" in check.reason
+    assert "not a known European class" in check.reason
+    assert check.expires_at is None
+    assert check.implied_vol is None
 
 
 def test_the_date_does_not_make_an_option_american(instrument: InstrumentProfile) -> None:
