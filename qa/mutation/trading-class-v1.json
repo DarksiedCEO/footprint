@@ -1,0 +1,136 @@
+{
+ "groups": {
+  "expiry": [
+   "tests/agents/test_theta.py"
+  ],
+  "theta": [
+   "tests/agents/test_theta.py"
+  ],
+  "quote": [
+   "tests/agents/test_contract_sizing_stop.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "market": [
+   "tests/brokers/test_ibkr_market_service.py"
+  ],
+  "backtest": [
+   "tests/backtest/test_option_model.py"
+  ]
+ },
+ "mutants": [
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    return quote.trading_class in instrument.option_expiry.american_trading_classes",
+   "    return False",
+   "nothing is American"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    return quote.trading_class in instrument.option_expiry.american_trading_classes",
+   "    return quote.trading_class not in instrument.option_expiry.american_trading_classes",
+   "American test inverted"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    if not isinstance(quote, OptionQuote):\n",
+   "    if False:\n",
+   "non-quote accepted"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "        if is_american(quote, self._instrument):",
+   "        if False:",
+   "American option not refused"
+  ],
+  [
+   "quote",
+   "src/footprint/core/options.py",
+   " and not any(c.isspace() for c in value)",
+   "",
+   "spaces in a class accepted"
+  ],
+  [
+   "quote",
+   "src/footprint/core/options.py",
+   "isinstance(value, str) and bool(value) and",
+   "isinstance(value, str) and",
+   "empty class accepted"
+  ],
+  [
+   "quote",
+   "src/footprint/core/options.py",
+   "        if not is_trading_class(self.trading_class):",
+   "        if False:",
+   "quote class unchecked"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if not isinstance(classes, list) or not classes:",
+   "    if not isinstance(classes, list):",
+   "empty class list accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if not isinstance(classes, list) or not classes:",
+   "    if not classes:",
+   "a string accepted as the list"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if len(set(classes)) != len(classes):",
+   "    if False:",
+   "duplicate classes accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        if not is_trading_class(name):",
+   "        if False:",
+   "bad class names accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        american_trading_classes=frozenset(classes),",
+   "        american_trading_classes=frozenset(classes[:1]),",
+   "only the first class kept"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            trading_class = self._chosen[1]",
+   "            trading_class = self._chosen[0]",
+   "expiry text sent as the class"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/settings.py",
+   "    if not is_trading_class(value):",
+   "    if False:",
+   "bad modelled class accepted"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/options_model.py",
+   "        if model.trading_class in instrument.option_expiry.american_trading_classes:",
+   "        if False:",
+   "model may claim an American class"
+  ],
+  [
+   "backtest",
+   "src/footprint/backtest/options_model.py",
+   "                            self._m.trading_class,\n",
+   "                            \"Q3C\",\n",
+   "modelled class ignored"
+  ]
+ ]
+}
