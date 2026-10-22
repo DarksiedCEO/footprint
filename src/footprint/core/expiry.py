@@ -20,14 +20,21 @@ from footprint.core.config import InstrumentProfile
 def expiry_moment(expiry: date, instrument: InstrumentProfile) -> datetime:
     """The UTC moment an option expiring on `expiry` stops trading: the rule's `time`,
     or on one of its early-close dates the earlier of `early_close_time` and `time`,
-    both in the rule's own timezone. The futures' own early closes play no part."""
+    both in the rule's own timezone. Nothing trades after the futures halt, so on a day
+    in the futures' `early_closes` the moment is never later than that halt (it can only
+    move the moment earlier)."""
     if not isinstance(expiry, date) or isinstance(expiry, datetime):
         raise TypeError(f"expiry must be a date, got {expiry!r}")
     rules = instrument.option_expiry
     stop = rules.time
     if expiry in rules.early_close_dates:
         stop = min(stop, rules.early_close_time)
-    return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)
+    moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)
+    halt = instrument.early_closes.get(expiry)
+    if halt is not None:
+        zone = ZoneInfo(instrument.prime_session.timezone)
+        moment = min(moment, datetime.combine(expiry, halt, zone).astimezone(UTC))
+    return moment
 
 
 def is_american_expiry(expiry: date, instrument: InstrumentProfile) -> bool:

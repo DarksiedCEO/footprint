@@ -302,16 +302,37 @@
   [
    "expiry",
    "src/footprint/core/expiry.py",
-   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
-   "return datetime.combine(expiry, stop, ZoneInfo(instrument.prime_session.timezone)).astimezone(UTC)",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(instrument.prime_session.timezone)).astimezone(UTC)",
    "rule timezone ignored (R8)"
   ],
   [
    "expiry",
    "src/footprint/core/expiry.py",
-   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
-   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone))",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone))",
    "moment not converted to UTC (R9)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "if halt is not None:",
+   "if False:",
+   "futures halt does not cap expiry (R2-2)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "moment = min(moment, datetime.combine(expiry, halt, zone).astimezone(UTC))",
+   "moment = datetime.combine(expiry, halt, zone).astimezone(UTC)",
+   "futures halt can make expiry later"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "zone = ZoneInfo(instrument.prime_session.timezone)\n        moment",
+   "zone = ZoneInfo(rules.timezone)\n        moment",
+   "halt read in the wrong timezone"
   ],
   [
    "expiry",
@@ -512,9 +533,37 @@
   [
    "config",
    "src/footprint/core/config.py",
-   "        *profile.option_expiry.early_close_dates,\n",
+   "        \"option_expiry early_close_dates\": profile.option_expiry.early_close_dates,\n",
    "",
    "weekend early-close date accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if not profile.calendar_from <= day <= profile.calendar_through:",
+   "if False:",
+   "early-close date outside the calendar accepted (R2-1)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if missing:\n        day, name = missing[0]\n        raise ConfigError(\n            f\"{where}: option_expiry: early_close_dates lacks",
+   "    if False:\n        day, name = missing[0]\n        raise ConfigError(\n            f\"{where}: option_expiry: early_close_dates lacks",
+   "incomplete early-close list accepted (R2-1)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "early_rules = [rule for rule in profile.holiday_rules if rule.kind == early_kind]",
+   "early_rules = [rule for rule in profile.holiday_rules if rule.kind != early_kind]",
+   "closure rules checked instead"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    _check_option_early_closes(profile, where)\n",
+   "",
+   "option early-close check never runs"
   ],
   [
    "pipeline",

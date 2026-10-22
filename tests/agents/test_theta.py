@@ -123,11 +123,22 @@ def test_on_a_stock_market_half_day_the_option_expires_early(
     assert moment.astimezone(PT) == datetime.combine(day, rules.early_close_time, PT)
 
 
-def test_a_futures_only_halt_does_not_move_option_expiry(instrument: InstrumentProfile) -> None:
+def test_a_futures_halt_caps_option_expiry(instrument: InstrumentProfile) -> None:
     day = date(2026, 9, 7)  # Labor Day: a futures early halt, not a stock half day
     assert day in instrument.early_closes
     assert day not in instrument.option_expiry.early_close_dates
-    assert expiry_moment(day, instrument).astimezone(PT).time() == instrument.option_expiry.time
+    moment = expiry_moment(day, instrument)
+    assert moment.tzinfo is UTC
+    assert moment.astimezone(PT).time() == instrument.early_closes[day]  # not 13:00
+
+
+def test_a_later_futures_halt_never_makes_option_expiry_later(
+    instrument: InstrumentProfile,
+) -> None:
+    day = date(2026, 11, 27)  # a half day: options stop at the rule's early close
+    later_halt = {**instrument.early_closes, day: time(10, 15)}  # e.g. 12:15 CT
+    moment = expiry_moment(day, replace(instrument, early_closes=later_halt))
+    assert moment.astimezone(PT).time() == instrument.option_expiry.early_close_time
 
 
 def test_an_early_close_after_the_normal_time_never_makes_expiry_later(
@@ -135,7 +146,8 @@ def test_an_early_close_after_the_normal_time_never_makes_expiry_later(
 ) -> None:
     day = date(2026, 11, 27)
     late = replace(instrument.option_expiry, early_close_time=time(14, 0))
-    moment = expiry_moment(day, replace(instrument, option_expiry=late))
+    no_halt = {d: t for d, t in instrument.early_closes.items() if d != day}
+    moment = expiry_moment(day, replace(instrument, option_expiry=late, early_closes=no_halt))
     assert moment.astimezone(PT).time() == instrument.option_expiry.time
 
 

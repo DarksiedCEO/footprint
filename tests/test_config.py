@@ -693,7 +693,7 @@ def expiry(**changes: Any) -> dict[str, Any]:
     return {
         "time": "13:00",
         "early_close_time": "10:00",
-        "early_close_dates": [date(2026, 11, 27)],
+        "early_close_dates": [date(2026, 11, 27), date(2026, 12, 24)],
         "timezone": "America/Los_Angeles",
         "american_months": [3, 6, 9, 12],
         "american_weekday": "FRI",
@@ -711,6 +711,9 @@ def expiry(**changes: Any) -> dict[str, Any]:
         expiry(early_close_time="14:00"),
         expiry(early_close_time="09:00-05:00"),
         expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 27)]),
+        expiry(early_close_dates=[]),  # the day after Thanksgiving is missing
+        expiry(early_close_dates=[date(2026, 11, 27)]),  # Christmas Eve is missing
+        expiry(early_close_dates=[date(2026, 11, 27), date(2026, 12, 24), date(2027, 11, 26)]),
         expiry(early_close_dates=["2026-11-27x"]),
         expiry(early_close_dates=[date(2026, 11, 28)]),  # a Saturday
         expiry(timezone="Mars/Olympus"),
@@ -731,7 +734,7 @@ def expiry(**changes: Any) -> dict[str, Any]:
 def test_bad_option_expiry_rules_are_rejected(
     instrument_path: Path, tmp_path: Path, rules: dict[str, Any]
 ) -> None:
-    with pytest.raises(ConfigError, match=r"option_expiry|not a trading day"):
+    with pytest.raises(ConfigError, match="option_expiry"):
         load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
 
 
@@ -740,3 +743,23 @@ def test_week_five_is_a_valid_week_of_month(instrument_path: Path, tmp_path: Pat
         rewrite(instrument_path, tmp_path, option_expiry=expiry(american_week_of_month=5))
     )
     assert profile.option_expiry.american_week_of_month == 5
+
+
+def test_an_option_early_close_outside_the_calendar_names_the_window(
+    instrument_path: Path, tmp_path: Path
+) -> None:
+    rules = expiry(early_close_dates=[date(2025, 12, 24), date(2026, 11, 27), date(2026, 12, 24)])
+    with pytest.raises(ConfigError, match="outside calendar_from"):
+        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+
+
+def test_a_missing_option_early_close_names_the_rule(instrument_path: Path, tmp_path: Path) -> None:
+    rules = expiry(early_close_dates=[date(2026, 12, 24)])
+    with pytest.raises(ConfigError, match=r"lacks 2026-11-27 \(Day after Thanksgiving"):
+        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+
+
+def test_a_weekend_date_error_names_its_list(instrument_path: Path, tmp_path: Path) -> None:
+    rules = expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 28), date(2026, 12, 24)])
+    with pytest.raises(ConfigError, match="option_expiry early_close_dates 2026-11-28"):
+        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))

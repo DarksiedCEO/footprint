@@ -130,7 +130,13 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     quarterly Friday in 2037, 2043, ...) would be valued as European. Unreachable live
     under D27 and dte_max 3; the better fix is IBKR's exercise style or trading class from
     the contract details. Also check `option_expiry.early_close_dates` (the stock market's
-    half days) against the NYSE/Nasdaq calendars before each one.
+    half days) against the NYSE/Nasdaq calendars before each one; the loader now refuses a
+    list missing a "Day after Thanksgiving" or "Christmas Eve" rule day up to
+    calendar_through. NYSE also closes early on 2028-07-03, which no rule covers yet: add
+    a July 3 rule before calendar_through reaches July 2028. Thanksgiving week 2026: read
+    IBKR's contract details for NQ options expiring 2026-11-26 and 2026-11-27 and confirm
+    the last trade times (noon CT on the 27th; on the 26th the futures halt at 12:00 CT,
+    and the model caps option expiry at any futures halt).
 
 ## Known open items (not fixed; recorded so nothing is hidden)
 

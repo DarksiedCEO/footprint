@@ -471,17 +471,20 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
-    for day in (
-        *profile.holidays,
-        *profile.early_closes,
-        *profile.no_trade_days,
-        *profile.option_expiry.early_close_dates,
-    ):
-        if day.weekday() not in profile.trading_days:
-            raise ConfigError(
-                f"{where}: {day} is a {day:%A}, not a trading day: a holiday or early close "
-                "goes on the weekday the exchange observes it (e.g. Friday for a Saturday)"
-            )
+    listed = {
+        "holidays": profile.holidays,
+        "early_closes": profile.early_closes,
+        "no_trade_days": profile.no_trade_days,
+        "option_expiry early_close_dates": profile.option_expiry.early_close_dates,
+    }
+    for source, days in listed.items():
+        for day in days:
+            if day.weekday() not in profile.trading_days:
+                raise ConfigError(
+                    f"{where}: {source} {day} is a {day:%A}, not a trading day: a holiday "
+                    "or early close goes on the weekday the exchange observes it (e.g. "
+                    "Friday for a Saturday)"
+                )
     for day, close in profile.early_closes.items():
         if day in profile.holidays:
             raise ConfigError(f"{where}: {day} is both a holiday and an early close")
@@ -539,7 +542,38 @@ def load_instrument(path: Path) -> InstrumentProfile:
             f"listed ({len(missing)} standard holiday(s) missing): list the exchange's "
             "holidays and early closes up to calendar_through"
         )
+    _check_option_early_closes(profile, where)
     return profile
+
+
+def _check_option_early_closes(profile: InstrumentProfile, where: str) -> None:
+    """The options' early-close dates (the stock market's half days) are held to the
+    same completeness rule as the futures calendar: inside calendar_from..through, and
+    carrying every early-close rule's day in that window that is not a full closure."""
+    rules = profile.option_expiry
+    for day in sorted(rules.early_close_dates):
+        if not profile.calendar_from <= day <= profile.calendar_through:
+            raise ConfigError(
+                f"{where}: option_expiry: early_close_dates {day} is outside "
+                f"calendar_from {profile.calendar_from} to calendar_through "
+                f"{profile.calendar_through}"
+            )
+    _, early_kind = KINDS  # holiday_rules.KINDS: (closed, early close)
+    early_rules = [rule for rule in profile.holiday_rules if rule.kind == early_kind]
+    missing = missing_days(
+        early_rules,
+        profile.easter_sundays,
+        {*profile.holidays, *profile.no_trade_days},
+        set(rules.early_close_dates),
+        profile.calendar_from,
+        profile.calendar_through,
+    )
+    if missing:
+        day, name = missing[0]
+        raise ConfigError(
+            f"{where}: option_expiry: early_close_dates lacks {day} ({name}): list the "
+            "stock market's early closes up to calendar_through"
+        )
 
 
 def load_risk(path: Path) -> RiskProfile:
