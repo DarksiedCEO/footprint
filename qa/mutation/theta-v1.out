@@ -1,5 +1,5 @@
 warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
-source: 6a81ea7ddfc16c8f3baf5904125e7ab4a965352d tree-dirty: 0 files
+source: ad7c3c1a61ac818d4c542380f342a79964f3be83 tree-dirty: 0 files
 baseline [config]: passed
 baseline [expiry]: passed
 baseline [iv]: passed
@@ -89,5 +89,5 @@ baseline [theta]: passed
  82 KILLED   [pipeline] src/footprint/decision/pipeline.py: theta dropped on a risk veto
  83 KILLED   [pipeline] src/footprint/decision/pipeline.py: theta dropped on a fired decision
  84 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: journal drops theta
-84 mutants, 1 survived or errored
-exit 1
+ 85 KILLED   [config] src/footprint/core/config.py: no-trade day excuses an option early close (R3-1)
+85 mutants, 1 survived or errored

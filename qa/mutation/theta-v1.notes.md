@@ -55,3 +55,14 @@ cap): 82 killed, 2 survived.
 ## Fifth run (source 6a81ea7, clean tree)
 
 84 mutants: 83 killed, 1 survived. The survivor is #38, argued equivalent above.
+
+## Sixth run, after review round 3 (source ad7c3c1, clean tree)
+
+85 mutants (#85 added for R3-1: a no-trade day excusing an option early close): 84
+killed, 1 survived. The survivor is #38, argued equivalent above.
+
+Round 3 reviewer survivors not taken as tests (reviewer's own mutants, R3-3): the
+option early-close window check made exclusive at either end (fails closed: a valid
+date on the boundary would be refused at load, never accepted wrongly), all holiday
+kinds applied (the futures calendar guard already requires those days), and reporting
+the last missing date instead of the first (message text only).
