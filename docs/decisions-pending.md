@@ -125,7 +125,12 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     359A): weeklies and end-of-month stop trading at 3:00 PM CT (13:00 PT), noon CT on an
     early close. Confirm in IBKR's contract details for a streamed weekly. UNVERIFIED: that
     on a quarterly-expiry Friday (third Friday of Mar/Jun/Sep/Dec) IBKR lists only the
-    quarterly (American) option, so refusing that date refuses only quarterlies.
+    quarterly (American) option, so refusing that date refuses only quarterlies. The rule
+    goes by date only: a quarterly moved by a holiday (Juneteenth falls on the June
+    quarterly Friday in 2037, 2043, ...) would be valued as European. Unreachable live
+    under D27 and dte_max 3; the better fix is IBKR's exercise style or trading class from
+    the contract details. Also check `option_expiry.early_close_dates` (the stock market's
+    half days) against the NYSE/Nasdaq calendars before each one.
 
 ## Known open items (not fixed; recorded so nothing is hidden)
 
@@ -562,5 +567,14 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   implied volatility bounds 0.05 to 1.5. Confirm or change before paper trading.
 - **TH-2:** the veto runs in the backtest too (the backtest uses the same pipeline), on the
   backtest's modelled option prices. Results of earlier backtest runs are not comparable
-  with runs from this PR on.
+  with runs from this PR on. Three effects (review round 1, T7):
+  - The backtest's option model lists an expiry on every trading day, and Felix takes the
+    nearest one with no fallback. So on each Thursday before a quarterly Friday, every
+    backtest entry is now vetoed as American: about 4 days a year. Live could not trade
+    those days anyway (D27). The fix belongs in "Theta choosing the expiry": skip an
+    American expiry rather than veto.
+  - The backtest's implied volatility is read from its own synthetic option prices, so
+    its decay is a model measured with another model, not a market fact.
+  - The backtest model expires options at the prime close (14:00 PT); Theta counts to
+    13:00 PT. This is harmless with dte_min 1.
 - Not built here (separate PRs): the decay exit in Malik, and Theta choosing the expiry.

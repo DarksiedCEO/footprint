@@ -12,7 +12,7 @@ Expected values are computed here from the certified Black-76 module, never copi
 the code under test."""
 
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -112,14 +112,40 @@ def test_an_option_expires_at_the_configured_time_on_its_day(instrument: Instrum
     assert moment.astimezone(PT) == datetime(2026, 9, 16, 13, 0, tzinfo=PT)
 
 
-def test_on_an_early_close_the_option_expires_at_the_early_close(
+def test_on_a_stock_market_half_day_the_option_expires_early(
     instrument: InstrumentProfile,
 ) -> None:
-    day = date(2026, 11, 27)  # the day after Thanksgiving: early close in nq.yaml
-    assert day in instrument.early_closes
+    day = date(2026, 11, 27)  # the day after Thanksgiving
+    rules = instrument.option_expiry
+    assert day in rules.early_close_dates
     moment = expiry_moment(day, instrument)
-    assert moment.astimezone(PT).time() == instrument.early_closes[day]
-    assert moment.astimezone(PT).date() == day
+    assert moment.tzinfo is UTC
+    assert moment.astimezone(PT) == datetime.combine(day, rules.early_close_time, PT)
+
+
+def test_a_futures_only_halt_does_not_move_option_expiry(instrument: InstrumentProfile) -> None:
+    day = date(2026, 9, 7)  # Labor Day: a futures early halt, not a stock half day
+    assert day in instrument.early_closes
+    assert day not in instrument.option_expiry.early_close_dates
+    assert expiry_moment(day, instrument).astimezone(PT).time() == instrument.option_expiry.time
+
+
+def test_an_early_close_after_the_normal_time_never_makes_expiry_later(
+    instrument: InstrumentProfile,
+) -> None:
+    day = date(2026, 11, 27)
+    late = replace(instrument.option_expiry, early_close_time=time(14, 0))
+    moment = expiry_moment(day, replace(instrument, option_expiry=late))
+    assert moment.astimezone(PT).time() == instrument.option_expiry.time
+
+
+def test_the_early_close_is_read_in_the_rules_timezone(instrument: InstrumentProfile) -> None:
+    day = date(2026, 11, 27)
+    chicago = replace(instrument.option_expiry, timezone="America/Chicago")
+    moment = expiry_moment(day, replace(instrument, option_expiry=chicago))
+    assert moment.tzinfo is UTC
+    local = moment.astimezone(ZoneInfo("America/Chicago"))
+    assert (local.date(), local.time()) == (day, instrument.option_expiry.early_close_time)
 
 
 def test_the_expiry_clock_uses_its_own_timezone(instrument: InstrumentProfile) -> None:
@@ -304,6 +330,7 @@ def test_an_option_expiring_within_the_hold_is_vetoed(
     assert "expires" in exactly.reason
     assert exactly.years is None
     assert exactly.implied_vol is None
+    assert exactly.expires_at == moment
     assert exactly.decay_dollars is None
     # One second more and it is valued (its decay over the hold is then nearly the
     # whole premium, which the budget judges separately).
@@ -319,9 +346,10 @@ def test_an_option_expiring_within_the_hold_is_vetoed(
 def test_the_early_close_shortens_the_time_left(
     theta: ThetaAgent, settings: ThetaSettings, instrument: InstrumentProfile
 ) -> None:
-    day = date(2026, 11, 27)  # early close 10:00 PT
+    day = date(2026, 11, 27)  # a stock market half day
     hold = timedelta(minutes=settings.planned_hold_minutes)
-    as_of = datetime.combine(day, instrument.early_closes[day], PT).astimezone(UTC) - hold
+    early = instrument.option_expiry.early_close_time
+    as_of = datetime.combine(day, early, PT).astimezone(UTC) - hold
     check = theta.assess(plan(quote(expiry=day)), FORWARD, as_of)
     assert not check.allowed  # it would pass against the normal 13:00 expiry
     assert "expires" in check.reason
@@ -378,6 +406,30 @@ def test_implied_volatility_above_the_maximum_is_vetoed(
     check = theta.assess(plan(q), FORWARD, NOW)
     assert not check.allowed
     assert str(settings.max_implied_vol) in check.reason
+
+
+def test_a_negative_modelled_decay_is_kept_and_allowed(
+    theta: ThetaAgent, settings: ThetaSettings, instrument: InstrumentProfile
+) -> None:
+    # A deep in-the-money European put with a positive rate GAINS value as time passes
+    # (its value is mostly the discounted intrinsic value): the decay is negative.
+    years = (expiry_moment(WED, instrument) - NOW) / YEAR
+    worth = price(
+        Right76.PUT,
+        forward=float(FORWARD),
+        strike=22000.0,  # about six standard deviations in the money: no time value left
+        years=years,
+        vol=0.3,
+        rate=float(settings.rate),
+    )
+    q = quote(strike=22000, right=Right.PUT, bid=worth, ask=worth)
+    check = theta.assess(plan(q), FORWARD, NOW)
+    _, _, decay = expected(q, NOW, settings, instrument)
+    assert decay < 0
+    assert check.decay_points == pytest.approx(decay, rel=1e-6)
+    assert check.decay_dollars is not None
+    assert check.decay_dollars < 0
+    assert check.allowed, check.reason
 
 
 def test_inputs_the_model_cannot_take_are_vetoed_not_raised(theta: ThetaAgent) -> None:

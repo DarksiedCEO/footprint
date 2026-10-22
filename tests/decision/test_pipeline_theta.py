@@ -177,6 +177,25 @@ def test_an_approval_cannot_carry_another_plans_theta(
         )
 
 
+def test_an_approval_cannot_carry_a_theta_for_another_size(
+    profiles: Profiles, up_market: list[Bar]
+) -> None:
+    from footprint.decision import pipeline
+
+    approved = decide(profiles, up_market).approved
+    assert approved is not None
+    other = replace(approved.theta, contracts=approved.plan.contracts + 1)
+    with pytest.raises(PermissionError, match="theta"):
+        ApprovedEntry(
+            approved.signal,
+            approved.plan,
+            approved.entry,
+            approved.risk,
+            other,
+            pipeline._APPROVAL,
+        )
+
+
 def test_the_journal_records_the_theta_check(
     profiles: Profiles, up_market: list[Bar], tmp_path: Path
 ) -> None:

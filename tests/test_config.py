@@ -681,6 +681,8 @@ def test_theta_accepts_a_negative_rate_and_a_full_budget(
 def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
     rules = load_instrument(instrument_path).option_expiry
     assert rules.time == time(13, 0)
+    assert rules.early_close_time == time(10, 0)
+    assert rules.early_close_dates == frozenset({date(2026, 11, 27), date(2026, 12, 24)})
     assert rules.timezone == "America/Los_Angeles"
     assert rules.american_months == frozenset({3, 6, 9, 12})
     assert rules.american_weekday == 4  # Friday, as date.weekday() counts
@@ -690,6 +692,8 @@ def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
 def expiry(**changes: Any) -> dict[str, Any]:
     return {
         "time": "13:00",
+        "early_close_time": "10:00",
+        "early_close_dates": [date(2026, 11, 27)],
         "timezone": "America/Los_Angeles",
         "american_months": [3, 6, 9, 12],
         "american_weekday": "FRI",
@@ -702,7 +706,15 @@ def expiry(**changes: Any) -> dict[str, Any]:
     [
         expiry(time="13:00:30"),
         expiry(time="1pm"),
+        expiry(time="13:00+05:00"),  # an offset would be silently dropped
+        expiry(early_close_time="13:00"),  # not before the normal time
+        expiry(early_close_time="14:00"),
+        expiry(early_close_time="09:00-05:00"),
+        expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 27)]),
+        expiry(early_close_dates=["2026-11-27x"]),
+        expiry(early_close_dates=[date(2026, 11, 28)]),  # a Saturday
         expiry(timezone="Mars/Olympus"),
+        expiry(timezone="/etc/localtime"),  # malformed key: ValueError inside zoneinfo
         expiry(american_months=[]),
         expiry(american_months=[0]),
         expiry(american_months=[13]),
@@ -719,7 +731,7 @@ def expiry(**changes: Any) -> dict[str, Any]:
 def test_bad_option_expiry_rules_are_rejected(
     instrument_path: Path, tmp_path: Path, rules: dict[str, Any]
 ) -> None:
-    with pytest.raises(ConfigError, match="option_expiry"):
+    with pytest.raises(ConfigError, match=r"option_expiry|not a trading day"):
         load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
 
 

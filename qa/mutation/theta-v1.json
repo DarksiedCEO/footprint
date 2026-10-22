@@ -288,16 +288,30 @@
   [
    "expiry",
    "src/footprint/core/expiry.py",
-   "if early is not None:",
+   "if expiry in rules.early_close_dates:",
    "if False:",
    "early close ignored"
   ],
   [
    "expiry",
    "src/footprint/core/expiry.py",
-   "return datetime.combine(expiry, rules.time, ZoneInfo(rules.timezone)).astimezone(UTC)",
-   "return datetime.combine(expiry, rules.time, ZoneInfo(instrument.prime_session.timezone)).astimezone(UTC)",
-   "rule timezone ignored"
+   "stop = min(stop, rules.early_close_time)",
+   "stop = rules.early_close_time",
+   "early close can make expiry later"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "return datetime.combine(expiry, stop, ZoneInfo(instrument.prime_session.timezone)).astimezone(UTC)",
+   "rule timezone ignored (R8)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "return datetime.combine(expiry, stop, ZoneInfo(rules.timezone))",
+   "moment not converted to UTC (R9)"
   ],
   [
    "expiry",
@@ -330,8 +344,8 @@
   [
    "expiry",
    "src/footprint/core/expiry.py",
-   "def expiry_moment(expiry: date, instrument: InstrumentProfile) -> datetime:\n    \"\"\"The UTC moment",
-   "def expiry_moment(expiry: date, instrument: InstrumentProfile) -> datetime:\n    return datetime.combine(expiry, instrument.option_expiry.time, ZoneInfo(instrument.option_expiry.timezone)).astimezone(UTC) if isinstance(expiry, datetime) else _real(expiry, instrument)\n\n\ndef _real(expiry: date, instrument: InstrumentProfile) -> datetime:\n    \"\"\"The UTC moment",
+   "    if not isinstance(expiry, date) or isinstance(expiry, datetime):\n        raise TypeError(f\"expiry must be a date, got {expiry!r}\")\n    rules = instrument.option_expiry\n    stop",
+   "    if not isinstance(expiry, date):\n        raise TypeError(f\"expiry must be a date, got {expiry!r}\")\n    rules = instrument.option_expiry\n    stop",
    "datetime accepted as an expiry"
   ],
   [
@@ -452,6 +466,62 @@
    "        if (self.theta.contract_id, self.theta.contracts) != (",
    "        if False and (self.theta.contract_id, self.theta.contracts) != (",
    "approval with another plan's theta"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = abs(value(years) - value(years - hold / _YEAR))",
+   "negative decay made positive (R6)"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = max(0.0, value(years) - value(years - hold / _YEAR))",
+   "negative decay floored (R7)"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "                f\"planned {s.planned_hold_minutes}-minute hold\",\n                expires_at=expires_at,",
+   "                f\"planned {s.planned_hold_minutes}-minute hold\",",
+   "within-hold veto drops expires_at (R12)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if parsed.second or parsed.microsecond or parsed.tzinfo is not None:\n        raise ConfigError(f\"{where}: {key} must be HH:MM with no seconds, got {text!r}\")\n    return parsed",
+   "    if parsed.second or parsed.microsecond:\n        raise ConfigError(f\"{where}: {key} must be HH:MM with no seconds, got {text!r}\")\n    return parsed",
+   "clock with a UTC offset accepted (R10)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        ZoneInfo(zone)\n    except (ZoneInfoNotFoundError, ValueError) as exc:",
+   "        ZoneInfo(zone)\n    except ZoneInfoNotFoundError as exc:",
+   "malformed zone escapes as ValueError (R11)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if early >= normal:",
+   "if early > normal:",
+   "early close at the normal time accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        *profile.option_expiry.early_close_dates,\n",
+   "",
+   "weekend early-close date accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if (self.theta.contract_id, self.theta.contracts) != (\n            self.plan.choice.quote.contract_id,\n            self.plan.contracts,\n        ):",
+   "        if self.theta.contract_id != self.plan.choice.quote.contract_id:",
+   "size half of the cross-check removed (R15)"
   ],
   [
    "pipeline",

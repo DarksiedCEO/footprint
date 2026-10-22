@@ -25,14 +25,21 @@ dte_min: 1
 dte_max: 3
 # When an option stops trading (the moment its value is counted to), CME rulebook
 # chapter 359A: weekly (Mon-Fri) and end-of-month options terminate at 3:00 p.m.
-# Chicago time, or at noon Chicago on an early scheduled close. Here in PT: `time` on a
-# normal day; on a date listed in early_closes, that early close (noon CT = 10:00 PT).
+# Chicago time, or at noon Chicago "in the case of an early scheduled close" of the
+# Primary Listing Exchange (the STOCK market's half days, not the futures halts listed
+# in early_closes below). In PT: `time` normally; on an `early_close_dates` date the
+# earlier of `early_close_time` and `time`.
+# UNVERIFIED: the stock market's 2026-27 half days (NYSE/Nasdaq calendars; check before
+# each, paper checklist 29).
 # Quarterly options are AMERICAN (359A01.G.1) and expire with the futures; Footprint
 # does not trade them (Andre, decision B76-2): an expiry on the `american_week_of_month`
-# `american_weekday` of an `american_months` month is refused. UNVERIFIED: that IBKR
-# lists only the quarterly option on those Fridays (paper checklist).
+# `american_weekday` of an `american_months` month is refused. The rule is by date only:
+# a quarterly moved by a holiday is not recognised (paper checklist 29).
 option_expiry:
   time: "13:00"
+  early_close_time: "10:00"     # noon CT
+  # Stock market half days: the day after Thanksgiving, and Christmas Eve.
+  early_close_dates: [2026-11-27, 2026-12-24]
   timezone: America/Los_Angeles
   american_months: [3, 6, 9, 12]
   american_weekday: FRI

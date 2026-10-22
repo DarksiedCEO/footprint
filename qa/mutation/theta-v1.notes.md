@@ -14,13 +14,14 @@
   (second Friday, not American).
 - **#38 bisection off-centre** (`fmean((lo, hi, hi))`): **argued equivalent.**
   - The answer depends only on the invariants, not on where in the bracket the trial
-    point falls. Those invariants are: value(lo) < quoted <= value(hi) after the range
+    point falls. Those invariants are: value(lo) <= quoted <= value(hi) after the range
     checks, and every step keeps one end on each side.
   - Any interior trial point shrinks the bracket, so the loop ends when the bracket's
     ends are adjacent floats. That happens when the trial point equals one of them.
-  - Black-76 price is strictly increasing in volatility while time is left. So the
-    final pair of adjacent floats straddling the solution is the same pair whichever
-    interior split is used.
+  - Black-76 price rises with volatility while time is left. In floats it is not
+    strictly monotone at the last-digit level (review round 1, T10), so the final pair
+    of adjacent floats can differ between splits. Any answer either split can return
+    reprices the quote to float noise, so the two are equivalent in effect.
   - The returned value is then the trial point that equals an end. With an off-centre
     split that can be the other end of the same adjacent pair: one float, about 1e-16
     relative, which is far below any test tolerance and has no meaning for a decay

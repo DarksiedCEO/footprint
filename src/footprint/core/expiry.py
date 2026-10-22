@@ -2,8 +2,10 @@
 
 Both come from the instrument's `option_expiry` rules (the exchange rulebook, chapter 359A; see
 config/instruments/nq.yaml): weekly and end-of-month options stop trading at the
-configured time on their expiry date, or at that date's early close; quarterly options
-are American and are not valued or traded by Footprint (decision B76-2).
+configured time on their expiry date, earlier on the stock market's early-close days;
+quarterly options are American and are not valued or traded by Footprint (decision
+B76-2). The quarterly rule goes by date only: a quarterly expiry moved by a holiday is
+not recognised.
 """
 
 from __future__ import annotations
@@ -16,18 +18,16 @@ from footprint.core.config import InstrumentProfile
 
 
 def expiry_moment(expiry: date, instrument: InstrumentProfile) -> datetime:
-    """The UTC moment an option expiring on `expiry` stops trading.
-
-    On a date listed in the instrument's early closes, that close (prime-session
-    timezone) is the moment; otherwise the rule's own time in the rule's own timezone."""
+    """The UTC moment an option expiring on `expiry` stops trading: the rule's `time`,
+    or on one of its early-close dates the earlier of `early_close_time` and `time`,
+    both in the rule's own timezone. The futures' own early closes play no part."""
     if not isinstance(expiry, date) or isinstance(expiry, datetime):
         raise TypeError(f"expiry must be a date, got {expiry!r}")
-    early = instrument.early_closes.get(expiry)
-    if early is not None:
-        zone = ZoneInfo(instrument.prime_session.timezone)
-        return datetime.combine(expiry, early, zone).astimezone(UTC)
     rules = instrument.option_expiry
-    return datetime.combine(expiry, rules.time, ZoneInfo(rules.timezone)).astimezone(UTC)
+    stop = rules.time
+    if expiry in rules.early_close_dates:
+        stop = min(stop, rules.early_close_time)
+    return datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)
 
 
 def is_american_expiry(expiry: date, instrument: InstrumentProfile) -> bool:

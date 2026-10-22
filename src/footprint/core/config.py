@@ -57,12 +57,15 @@ class OptionExpiry:
     """When the traded options stop trading, and which expiries are American (the
     exchange rulebook, chapter 359A).
 
-    An option expires at `time` (in `timezone`) on its expiry date, or at the day's
-    early close when the date is in `early_closes`. An expiry on the
+    An option expires at `time` (in `timezone`) on its expiry date; on a date in
+    `early_close_dates` (the stock market's early closes, not the futures halts), at the
+    earlier of `early_close_time` and `time`. An expiry on the
     `american_week_of_month`-th `american_weekday` of a month in `american_months` is a
     quarterly (American-style) one."""
 
+    early_close_time: time  # (before `time`: that field name shadows the type below it)
     time: time
+    early_close_dates: frozenset[date]
     timezone: str
     american_months: frozenset[int]
     american_weekday: int  # as date.weekday() counts: Monday is 0
@@ -401,8 +404,14 @@ def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExp
         raise ConfigError(
             f"{where}: american_week_of_month must be <= {_MAX_WEEK_OF_MONTH}, got {week}"
         )
+    normal = _clock(body, "time", where)
+    early = _clock(body, "early_close_time", where)
+    if early >= normal:
+        raise ConfigError(f"{where}: early_close_time must be before time")
     return OptionExpiry(
-        time=_clock(body, "time", where),
+        time=normal,
+        early_close_time=early,
+        early_close_dates=_holidays(body, "early_close_dates", where),
         timezone=_timezone(body, "timezone", where),
         american_months=frozenset(months),
         american_weekday=_WEEKDAYS.index(weekday),
@@ -462,7 +471,12 @@ def load_instrument(path: Path) -> InstrumentProfile:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
         raise ConfigError(f"{where}: dte_min must be <= dte_max")
-    for day in (*profile.holidays, *profile.early_closes, *profile.no_trade_days):
+    for day in (
+        *profile.holidays,
+        *profile.early_closes,
+        *profile.no_trade_days,
+        *profile.option_expiry.early_close_dates,
+    ):
         if day.weekday() not in profile.trading_days:
             raise ConfigError(
                 f"{where}: {day} is a {day:%A}, not a trading day: a holiday or early close "
