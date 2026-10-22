@@ -44,3 +44,5 @@ dropped:
 The reviewer's other equivalent survivors (37-I2: peak `>=`, default Decimal rounding,
 the session filter rewrite, `bars._day` UTC conversion) are accepted as equivalent and
 not in the spec.
+
+Evidence after review round 1: 78 mutants, 78 killed, 0 survived or errored, on 18491d5 with a clean tree.
