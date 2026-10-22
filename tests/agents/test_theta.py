@@ -144,6 +144,8 @@ def test_the_expiry_clock_uses_its_own_timezone(instrument: InstrumentProfile) -
         (date(2026, 9, 21), False),  # the Monday after
         (date(2026, 10, 16), False),  # third Friday of October
         (date(2026, 9, 30), False),  # end of month, quarterly month (European)
+        (date(2025, 3, 21), True),  # third Friday falling on the 21st (day 7 x 3)
+        (date(2025, 3, 14), False),  # second Friday falling on the 14th (day 7 x 2)
     ],
 )
 def test_quarterly_expiries_are_american(
@@ -174,6 +176,8 @@ def test_a_normal_entry_is_allowed_and_carries_its_numbers(
     years, vol, decay = expected(q, NOW, settings, instrument)
     assert isinstance(check, ThetaCheck)
     assert check.allowed, check.reason
+    assert check.contract_id == q.contract_id
+    assert check.contracts == 1
     assert check.expires_at == expiry_moment(WED, instrument)
     assert check.years == pytest.approx(years, rel=1e-12)
     assert check.implied_vol == pytest.approx(vol, rel=1e-12)
@@ -192,6 +196,7 @@ def test_decay_scales_with_the_contracts(theta: ThetaAgent, instrument: Instrume
     assert three.decay_dollars is not None
     assert three.decay_dollars == one.decay_dollars * 3
     assert three.decay_points == one.decay_points  # per option, not per position
+    assert (one.contracts, three.contracts) == (1, 3)
 
 
 def test_a_put_is_valued_as_a_put(
