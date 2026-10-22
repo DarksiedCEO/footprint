@@ -22,7 +22,7 @@ from footprint.agents.contract_picker import ContractChoice
 from footprint.agents.theta import ThetaAgent, ThetaCheck
 from footprint.core.black76 import Right76, price
 from footprint.core.config import InstrumentProfile, RiskProfile, StrategyProfile, ThetaSettings
-from footprint.core.expiry import expiry_moment, is_american_expiry
+from footprint.core.expiry import expiry_moment, is_american, is_european_class
 from footprint.core.implied_vol import implied_vol
 from footprint.core.options import OptionQuote, Right
 from footprint.decision.sizing import EntryPlan
@@ -42,6 +42,7 @@ def quote(
     right: Right = Right.CALL,
     bid: float = 150,
     ask: float = 152,
+    trading_class: str = "Q3C",  # a daily (European) class
 ) -> OptionQuote:
     return OptionQuote(
         contract_id=f"{right.value}-{expiry}-{strike}",
@@ -51,6 +52,7 @@ def quote(
         bid=D(str(bid)),
         ask=D(str(ask)),
         open_interest=500,
+        trading_class=trading_class,
     )
 
 
@@ -179,37 +181,84 @@ def test_the_expiry_clock_uses_its_own_timezone(instrument: InstrumentProfile) -
 
 
 @pytest.mark.parametrize(
-    ("day", "american"),
+    ("trading_class", "american"),
     [
-        (date(2026, 9, 18), True),  # third Friday of September
-        (date(2026, 12, 18), True),  # third Friday of December
-        (date(2027, 3, 19), True),  # third Friday of March
-        (date(2026, 9, 11), False),  # second Friday
-        (date(2026, 9, 25), False),  # fourth Friday
-        (date(2026, 11, 20), False),  # third Friday, not a quarterly month
-        (date(2026, 9, 17), False),  # Thursday of the quarterly week
-        (date(2026, 9, 21), False),  # the Monday after
-        (date(2026, 10, 16), False),  # third Friday of October
-        (date(2026, 9, 30), False),  # end of month, quarterly month (European)
-        (date(2025, 3, 21), True),  # third Friday falling on the 21st (day 7 x 3)
-        (date(2025, 3, 14), False),  # second Friday falling on the 14th (day 7 x 2)
+        ("NQ", True),  # the quarterly class: American (359A01.G.1)
+        ("QN3", False),  # the third-Friday weekly, also listed on quarterly Fridays
+        ("QNE", False),  # end of month
+        ("Q3C", False),  # a daily
+        ("nq", False),  # classes are matched exactly, as IBKR sends them
     ],
 )
-def test_quarterly_expiries_are_american(
-    instrument: InstrumentProfile, day: date, american: bool
+def test_american_goes_by_the_trading_class(
+    instrument: InstrumentProfile, trading_class: str, american: bool
 ) -> None:
-    assert is_american_expiry(day, instrument) is american
+    assert is_american(quote(trading_class=trading_class), instrument) is american
 
 
-def test_the_week_of_month_counts_from_the_first_of_the_month(
+@pytest.mark.parametrize("bad", ["NQ", None, date(2026, 12, 18)])
+def test_is_american_takes_an_option_quote_only(instrument: InstrumentProfile, bad: object) -> None:
+    with pytest.raises(TypeError, match="quote must be an OptionQuote"):
+        is_american(bad, instrument)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("name", "european"),
+    [
+        ("Q1A", True),  # Monday daily, week 1
+        ("Q4D", True),  # Thursday daily, week 4 (seen 2026-10-22)
+        ("Q5D", True),
+        ("QN1", True),  # Friday weeklies
+        ("QN3", True),
+        ("QNE", True),  # end of month
+        ("NQ", False),  # the quarterly: American
+        ("ZZZ", False),  # never seen: refused, not assumed European
+        ("Q6A", False),
+        ("Q1E", False),
+        ("QN3X", False),  # the whole name must match
+        ("XQN3", False),
+        ("q4d", False),
+    ],
+)
+def test_only_listed_european_classes_are_european(
+    instrument: InstrumentProfile, name: str, european: bool
+) -> None:
+    assert is_european_class(name, instrument) is european
+
+
+def test_an_american_class_is_never_european_even_if_a_pattern_matches(
     instrument: InstrumentProfile,
 ) -> None:
-    # October 2027 starts on a Friday: its third Friday is the 15th (days 1, 8, 15).
-    rules = replace(instrument.option_expiry, american_months=frozenset({10}))
-    october = replace(instrument, option_expiry=rules)
-    assert is_american_expiry(date(2027, 10, 15), october)
-    assert not is_american_expiry(date(2027, 10, 8), october)
-    assert not is_american_expiry(date(2027, 10, 22), october)
+    # The loader refuses such a config; the check holds on its own anyway.
+    rules = replace(instrument.option_expiry, european_trading_class_patterns=("N.", "QN[1-5]"))
+    overlapping = replace(instrument, option_expiry=rules)
+    assert not is_european_class("NQ", overlapping)
+    assert is_european_class("NX", overlapping)
+
+
+def test_an_unknown_class_is_vetoed_not_valued(theta: ThetaAgent) -> None:
+    check = theta.assess(plan(quote(trading_class="ZZZ")), FORWARD, NOW)
+    assert not check.allowed
+    assert "ZZZ" in check.reason
+    assert "not a known European class" in check.reason
+    assert check.expires_at is None
+    assert check.implied_vol is None
+
+
+def test_the_date_does_not_make_an_option_american(instrument: InstrumentProfile) -> None:
+    # IBKR lists a weekly (QN3, on the next quarterly future) beside the quarterly on a
+    # quarterly Friday (checked 2026-10-22: 2026-12-18 lists classes NQ and QN3).
+    quarterly_friday = date(2026, 12, 18)
+    assert not is_american(quote(expiry=quarterly_friday, trading_class="QN3"), instrument)
+    assert is_american(quote(expiry=quarterly_friday, trading_class="NQ"), instrument)
+
+
+def test_every_configured_american_class_is_american(instrument: InstrumentProfile) -> None:
+    rules = replace(instrument.option_expiry, american_trading_classes=frozenset({"NQ", "XQ"}))
+    two = replace(instrument, option_expiry=rules)
+    assert is_american(quote(trading_class="XQ"), two)
+    assert is_american(quote(trading_class="NQ"), two)
+    assert not is_american(quote(trading_class="QN3"), two)
 
 
 # --- a normal entry ---------------------------------------------------------------
@@ -383,17 +432,22 @@ def test_an_expired_option_is_vetoed(theta: ThetaAgent, instrument: InstrumentPr
     assert check.years is None
 
 
-def test_a_quarterly_american_expiry_is_vetoed(theta: ThetaAgent) -> None:
-    quarterly = date(2026, 9, 18)
-    check = theta.assess(plan(quote(expiry=quarterly)), FORWARD, NOW)
+def test_a_quarterly_american_option_is_vetoed(theta: ThetaAgent) -> None:
+    check = theta.assess(plan(quote(trading_class="NQ")), FORWARD, NOW)
     assert not check.allowed
     assert "American" in check.reason
+    assert "NQ" in check.reason
+    assert check.expires_at is None
     assert check.implied_vol is None
 
 
-def test_a_european_expiry_in_a_quarterly_month_is_allowed(theta: ThetaAgent) -> None:
-    check = theta.assess(plan(quote(expiry=date(2026, 9, 17))), FORWARD, NOW)
-    assert check.allowed, check.reason
+def test_a_weekly_on_a_quarterly_friday_is_valued_not_vetoed(theta: ThetaAgent) -> None:
+    friday = date(2026, 9, 18)  # third Friday of September
+    thursday = datetime(2026, 9, 17, 7, 0, tzinfo=PT).astimezone(UTC)
+    q = quote(expiry=friday, trading_class="QN3")
+    check = theta.assess(plan(q), FORWARD, thursday)
+    assert "American" not in check.reason
+    assert check.implied_vol is not None
 
 
 def test_a_quote_no_volatility_can_produce_is_vetoed(theta: ThetaAgent) -> None:
@@ -461,11 +515,9 @@ def test_inputs_the_model_cannot_take_are_vetoed_not_raised(theta: ThetaAgent) -
 
 
 @pytest.mark.parametrize("bad", [datetime(2026, 9, 16, 13, 0, tzinfo=PT), "2026-09-16"])
-def test_the_expiry_helpers_take_a_date_only(instrument: InstrumentProfile, bad: object) -> None:
+def test_the_expiry_moment_takes_a_date_only(instrument: InstrumentProfile, bad: object) -> None:
     with pytest.raises(TypeError, match="expiry must be a date"):
         expiry_moment(bad, instrument)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="expiry must be a date"):
-        is_american_expiry(bad, instrument)  # type: ignore[arg-type]
 
 
 def test_the_time_must_be_utc(theta: ThetaAgent) -> None:

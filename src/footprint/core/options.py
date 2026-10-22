@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import TypeGuard
 
 from footprint.core.models import Direction, require_utc
 
@@ -22,6 +23,11 @@ class Right(Enum):
     def for_direction(direction: Direction) -> Right:
         """Up = calls, down = puts. v1 only ever buys options."""
         return Right.CALL if direction is Direction.LONG else Right.PUT
+
+
+def is_trading_class(value: object) -> TypeGuard[str]:
+    """A trading class name as the exchange and IBKR write it: non-empty, no spaces."""
+    return isinstance(value, str) and bool(value) and not any(c.isspace() for c in value)
 
 
 def _require_price(value: Decimal, field: str, *, allow_zero: bool) -> None:
@@ -42,6 +48,7 @@ class OptionQuote:
     bid: Decimal
     ask: Decimal
     open_interest: int
+    trading_class: str  # the exchange's class, as IBKR sends it (e.g. a daily, a weekly)
 
     def __post_init__(self) -> None:
         if not isinstance(self.contract_id, str) or not self.contract_id.strip():
@@ -59,6 +66,11 @@ class OptionQuote:
             raise TypeError("OptionQuote.open_interest must be an int")
         if self.open_interest < 0:
             raise ValueError("OptionQuote.open_interest must be >= 0")
+        if not is_trading_class(self.trading_class):
+            raise ValueError(
+                "OptionQuote.trading_class must be a non-empty name with no spaces, "
+                f"got {self.trading_class!r}"
+            )
 
     @property
     def mid(self) -> Decimal:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import timedelta
 from decimal import Decimal
@@ -19,6 +20,7 @@ from footprint.core.config import (
     _positive_decimal,
     _read_mapping,
 )
+from footprint.core.options import is_trading_class
 
 _MINUTE_SECONDS = int(timedelta(minutes=1).total_seconds())
 
@@ -31,6 +33,7 @@ class OptionModelSettings:
     strikes_each_side: int
     open_interest: int
     expiries_listed: int
+    trading_class: str  # the class the modelled (European, daily) options carry
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +71,13 @@ class BacktestSettings:
     rules: RuleSettings
 
 
+def _trading_class(raw: Mapping[str, object], key: str, where: str) -> str:
+    value = raw[key]
+    if not is_trading_class(value):
+        raise ConfigError(f"{where}: {key} must be a non-empty name with no spaces, got {value!r}")
+    return value
+
+
 def load_backtest(path: Path) -> BacktestSettings:
     where = str(path)
     raw = _read_mapping(path, {f.name for f in fields(BacktestSettings)})
@@ -81,6 +91,7 @@ def load_backtest(path: Path) -> BacktestSettings:
         strikes_each_side=_integer(o, "strikes_each_side", o_where, minimum=1),
         open_interest=_integer(o, "open_interest", o_where, minimum=0),
         expiries_listed=_integer(o, "expiries_listed", o_where, minimum=1),
+        trading_class=_trading_class(o, "trading_class", o_where),
     )
 
     e_where = f"{where}: engine"

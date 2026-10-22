@@ -106,7 +106,7 @@ def test_nb17_no_premium_ever_sizes_over_the_cap(
             bid = D(bid_ticks) / 4
             for spread in (D(0), D("0.25"), D(2), D("12.5")):
                 quote = OptionQuote(
-                    "C", date(2026, 9, 16), D(20000), Right.CALL, bid, bid + spread, 999
+                    "C", date(2026, 9, 16), D(20000), Right.CALL, bid, bid + spread, 999, "Q3C"
                 )
                 plan = size(ContractChoice(quote, 1, ts), session, risk, instrument, execution)
                 if isinstance(plan, EntryPlan):

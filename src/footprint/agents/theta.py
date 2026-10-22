@@ -3,8 +3,8 @@
 Andre's decisions B76-1 and B76-2. After Felix has chosen the contract and Ezra has
 sized it, and before Dolores' full risk check:
 
-- The option's expiry moment is the instrument's rule (core/expiry.py). An expiry that
-  is a quarterly (American) one is refused: Black-76 does not value it (B76-2).
+- The option's expiry moment is the instrument's rule (core/expiry.py). An option of a
+  quarterly (American) trading class is refused: Black-76 does not value it (B76-2).
 - Time is calendar time to that moment (B76-1), in years of 365 days. An option that
   has expired, or that expires within `planned_hold_minutes`, is refused.
 - The implied volatility is the Black-76 volatility at which the option is worth its
@@ -33,7 +33,7 @@ from decimal import Decimal
 from footprint.core import black76
 from footprint.core.black76 import Right76
 from footprint.core.config import _PERCENT_MAX, InstrumentProfile, RiskProfile, ThetaSettings
-from footprint.core.expiry import expiry_moment, is_american_expiry
+from footprint.core.expiry import expiry_moment, is_american, is_european_class
 from footprint.core.implied_vol import ImpliedVolOutOfRange, implied_vol
 from footprint.core.models import require_utc
 from footprint.core.options import Right
@@ -99,11 +99,17 @@ class ThetaAgent:
                 budget_dollars=self._budget,
             )
 
-        if is_american_expiry(quote.expiry, self._instrument):
+        if is_american(quote, self._instrument):
             return verdict(
                 False,
-                f"{quote.contract_id}: {quote.expiry} is a quarterly (American) expiry; "
-                "Black-76 does not value it (B76-2)",
+                f"{quote.contract_id}: trading class {quote.trading_class} is a quarterly "
+                "(American) option; Black-76 does not value it (B76-2)",
+            )
+        if not is_european_class(quote.trading_class, self._instrument):
+            return verdict(
+                False,
+                f"{quote.contract_id}: trading class {quote.trading_class} is not a known "
+                "European class (option_expiry.european_trading_class_patterns); not valued",
             )
         expires_at = expiry_moment(quote.expiry, self._instrument)
         left = expires_at - as_of
