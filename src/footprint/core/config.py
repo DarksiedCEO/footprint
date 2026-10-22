@@ -549,7 +549,9 @@ def load_instrument(path: Path) -> InstrumentProfile:
 def _check_option_early_closes(profile: InstrumentProfile, where: str) -> None:
     """The options' early-close dates (the stock market's half days) are held to the
     same completeness rule as the futures calendar: inside calendar_from..through, and
-    carrying every early-close rule's day in that window that is not a full closure."""
+    carrying every early-close rule's day in that window that is not an exchange holiday.
+    A no-trade day does not excuse one: it is Footprint's own choice, and the stock
+    market (and so the options' last trading time) still closes early that day."""
     rules = profile.option_expiry
     for day in sorted(rules.early_close_dates):
         if not profile.calendar_from <= day <= profile.calendar_through:
@@ -563,7 +565,7 @@ def _check_option_early_closes(profile: InstrumentProfile, where: str) -> None:
     missing = missing_days(
         early_rules,
         profile.easter_sundays,
-        {*profile.holidays, *profile.no_trade_days},
+        set(profile.holidays),  # no_trade_days do not count: the stock market still opens
         set(rules.early_close_dates),
         profile.calendar_from,
         profile.calendar_through,

@@ -606,6 +606,13 @@
    "                \"theta\": decision.theta,\n",
    "",
    "journal drops theta"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        set(profile.holidays),  # no_trade_days do not count: the stock market still opens\n",
+   "        {*profile.holidays, *profile.no_trade_days},\n",
+   "no-trade day excuses an option early close (R3-1)"
   ]
  ]
 }

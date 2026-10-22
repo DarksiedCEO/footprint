@@ -759,6 +759,26 @@ def test_a_missing_option_early_close_names_the_rule(instrument_path: Path, tmp_
         load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
 
 
+def test_a_no_trade_day_does_not_excuse_a_missing_option_early_close(
+    instrument_path: Path, tmp_path: Path
+) -> None:
+    # No-trade days are Andre's own choice; the stock market still closes early on them,
+    # so the options still stop early (review round 3, R3-1).
+    data = yaml.safe_load(instrument_path.read_text())
+    no_trade = [*data["no_trade_days"], date(2026, 11, 27)]
+    early = {d: t for d, t in data["early_closes"].items() if d != date(2026, 11, 27)}
+    rules = expiry(early_close_dates=[date(2026, 12, 24)])
+    path = rewrite(
+        instrument_path,
+        tmp_path,
+        no_trade_days=no_trade,
+        early_closes=early,
+        option_expiry=rules,
+    )
+    with pytest.raises(ConfigError, match=r"option_expiry: early_close_dates lacks 2026-11-27"):
+        load_instrument(path)
+
+
 def test_a_weekend_date_error_names_its_list(instrument_path: Path, tmp_path: Path) -> None:
     rules = expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 28), date(2026, 12, 24)])
     with pytest.raises(ConfigError, match="option_expiry early_close_dates 2026-11-28"):
