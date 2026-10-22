@@ -1,10 +1,19 @@
 """Andre's exits, in OPTION dollars, judged on each modelled option value of a trade.
 
-All amounts are per contract. The basis follows the trading system (decision/stop.py):
+All amounts are per contract:
 - the stop is GROSS option value: out when the value has fallen `stop_dollars` below the
   entry value (risk.stop_loss);
 - open profit for the lock and the scale-out target is NET of the round-trip cost per
-  contract (D13 / G15: every figure the risk layer sees includes costs).
+  contract (costs.round_trip_per_contract).
+
+KNOWN DIFFERENCE from the live booker (decision/stop.py, D13/G15), 37-L4: live judges
+the stop on the BID after an ASK fill, and its lock is net of fees only
+(risk.fee_per_contract_per_side, both sides). Here there is one model value (a mid), and
+the lock is net of the whole modelled round trip (spread and slippage included). So the
+research lock starts later (gross: risk.profit_target plus the round trip), and the
+research stop sits about one spread wider than live's (live pays the ask and is stopped
+on the bid, so its mid need only fall the stop less one spread). The research basis is
+the more demanding one for the lock and the less demanding one for the stop.
 
 Kinds:
 - `booker` (`booker_contracts`): the stop; and once the peak net open profit reaches
@@ -56,6 +65,7 @@ class OptionExit:
         self.open = self.contracts
         self._target_taken = kind == "booker"
         self._peak_net: float | None = None
+        self._fills: list[Fill] = []
 
     @property
     def done(self) -> bool:
@@ -94,14 +104,24 @@ class OptionExit:
         if value <= level:
             sold = Fill(self.open, value if gap else level, reason)
             self.open = 0
+            self._fills.append(sold)
             return [sold]
         if not self._target_taken:
             target = self._value_at_net(self._ex.first_target_dollars)
             if value >= target:
                 self._target_taken = True
                 self.open -= 1
-                return [Fill(1, value if gap else target, "target")]
+                first = Fill(1, value if gap else target, "target")
+                self._fills.append(first)
+                return [first]
         return []
+
+    def marked(self, value: float) -> float:
+        """Open profit in net dollars if the option is worth `value` now: the contracts
+        already sold at their fills plus the open ones at `value` (costs included)."""
+        sold = self.net(self._fills)
+        held = ((value - self.entry_value) * self._pv - self._cost) * self.open
+        return sold + held
 
     def flat(self, value: float, reason: str) -> list[Fill]:
         """Sell whatever is still open at `value` (the rule's hard flat, end of data)."""
@@ -109,6 +129,7 @@ class OptionExit:
             return []
         sold = Fill(self.open, value, reason)
         self.open = 0
+        self._fills.append(sold)
         return [sold]
 
     def net(self, fills: list[Fill]) -> float:

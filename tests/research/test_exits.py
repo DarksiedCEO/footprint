@@ -166,3 +166,17 @@ def test_net_dollars_of_fills() -> None:
     x = scale()
     fills = x.check(160.0, gap=False) + x.check(130.0, gap=False)
     assert x.net(fills) == pytest.approx((158.5 - 100) * 20 - 170 + (134.25 - 100) * 20 - 170)
+
+
+def test_marked_open_profit_counts_sold_and_open_contracts() -> None:
+    """37-M3: the mark at a value = net of the contracts already sold + the open ones as
+    if sold at that value, each round trip cost included."""
+    x = scale()
+    assert x.marked(100.0) == pytest.approx(-2 * 170)
+    assert x.marked(90.0) == pytest.approx(2 * (-10 * 20 - 170))
+    x.check(160.0, gap=False)  # one sold at 158.5
+    sold = (158.5 - 100) * 20 - 170
+    assert x.marked(150.0) == pytest.approx(sold + (50 * 20 - 170))
+    x.check(130.0, gap=False)  # the other at 134.25
+    final = sold + (134.25 - 100) * 20 - 170
+    assert x.marked(10.0) == pytest.approx(final)

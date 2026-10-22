@@ -22,7 +22,7 @@ from footprint.research.exits import KINDS
 from footprint.research.rules import RULES
 from footprint.research.sessions import names
 from footprint.research.settings import ResearchSettings, load_research
-from footprint.research.stats import Summary, judge, summarize, thirds
+from footprint.research.stats import Summary, judge, marked_drawdown, ruined_at, summarize, thirds
 from footprint.research.vol import load_vol
 
 U = "UNVERIFIED"
@@ -59,6 +59,18 @@ def report(
     parts = thirds(pnls, j.time_parts)
     lines.append("")
     lines.append("time parts (by trade order): " + ", ".join(_num(p) for p in parts) + f" [{U}]")
+    marks = [t.marks for t in trades]
+    marked_dd, marked_pct = marked_drawdown(marks, settings.bankroll)
+    lines.append(
+        f"max drawdown marked to the model inside trades: {_num(marked_dd)} "
+        f"({_num(marked_pct, _PCT)}%) [{U}]"
+    )
+    ruin = ruined_at(pnls, settings.bankroll)
+    if ruin is not None:
+        lines.append(
+            f"RUIN: equity reached zero or below at trade {ruin} of {len(trades)} "
+            "(later trades are still listed; the verdict fails)"
+        )
     reasons: dict[str, int] = {}
     for t in trades:
         for r in t.reasons:
@@ -66,12 +78,28 @@ def report(
     lines.append(
         "exit fills: " + (", ".join(f"{k}={v}" for k, v in sorted(reasons.items())) or "none")
     )
-    verdict = judge(pnls, settings.bankroll, settings.gates, j.time_parts, j.min_positive_parts)
+    verdict = judge(
+        pnls, settings.bankroll, settings.gates, j.time_parts, j.min_positive_parts, marks=marks
+    )
     lines.append("")
     lines.append(f"verdict: {'PASS' if verdict.passed else 'FAIL'} [{U}: modelled option prices]")
     for name, text, ok in verdict.checks:
         lines.append(f"  {'ok  ' if ok else 'FAIL'} {name}: {text}")
+    lines.append("")
+    lines.extend(LIMITS)
     return "\n".join(lines)
+
+
+LIMITS = (
+    "known limits:",
+    "  - the bars must be UNADJUSTED (raw contract prices; ratio-adjusted is also fine):"
+    " option values are rescaled by the entry price, so a difference (Panama)"
+    " back-adjusted series distorts every result. Not checked by this program.",
+    "  - the stop and lock are judged on the model mid, net of the whole modelled round"
+    " trip; live judges the stop on the bid and its lock net of fees only"
+    " (research/exits.py).",
+    f"  - the option's implied vol is the index close; costs are a flat round trip [{U}].",
+)
 
 
 def settings_lines(settings: ResearchSettings, args: argparse.Namespace) -> list[str]:

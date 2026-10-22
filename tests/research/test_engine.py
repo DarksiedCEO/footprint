@@ -251,3 +251,81 @@ def test_trade_is_a_plain_record() -> None:
     assert t.net == -5.0
     assert t.exit_ts - t.entry_ts == MINUTE
     assert isinstance(t.exit_ts - t.entry_ts, timedelta)
+
+
+# --- review round 1 (37-M1, 37-L1, 37-L3, 37-M3) ----------------------------------------
+
+
+def test_the_vol_of_the_day_before_prices_the_trade(research: ResearchSettings) -> None:
+    """37-M1: the engine asks for the session day's vol, which is the close dated
+    strictly before it (never the session day's own close, never a later one)."""
+    s = _settings(research)
+    vols = VolIndex(
+        (date(2024, 3, 4), date(2024, 3, 5), date(2024, 3, 6)),
+        (20.0, 40.0, 80.0),
+        divisor=100.0,
+        max_age_days=5,
+    )
+    day = make_day(ny(2024, 3, 5, 4, 0), [18000, 18010, 18020])
+    (t,) = run([day], OneShot(at=0), vols, s, "booker")[0]
+    assert t.entry_value == pytest.approx(_value(Right76.CALL, 18000, 18000, 1 / 365))
+
+
+def test_green_stop_input_sums_every_closed_trade(research: ResearchSettings) -> None:
+    """37-L1: realized is the running SUM of the day's closed trades (three here)."""
+    s = _settings(research)
+    lows = [18000, 17700, 18000, 17700, 18000, 18000, 18000]
+    day = make_day(ny(2024, 3, 5, 4, 0), [18000] * 7, lows=lows)
+    rule = OneShot(at=0, again=True)
+    trades, _ = run([day], rule, VOL, s, "booker")
+    assert len(trades) == 3
+    states = dict(rule.seen)
+    assert states[2].trades == 1
+    assert states[4].trades == 2
+    assert states[4].realized == pytest.approx(trades[0].net + trades[1].net)
+    assert trades[0].net != 0
+
+
+def test_a_futures_stop_at_the_entry_price_is_refused(research: ResearchSettings) -> None:
+    """37-L3: a stop must be strictly on the losing side of the entry."""
+    s = _settings(research)
+    day = make_day(ny(2024, 3, 5, 4, 0), [18000, 18010, 18020])
+    with pytest.raises(ValueError, match="losing side"):
+        run([day], OneShot(at=0, stop=18000), VOL, s, "booker")
+    with pytest.raises(ValueError, match="losing side"):
+        run([day], OneShot(at=0, direction=-1, stop=18000), VOL, s, "booker")
+    with pytest.raises(ValueError, match="losing side"):
+        run([day], OneShot(at=0, stop=18001), VOL, s, "booker")
+
+
+def test_marks_follow_every_path_point(research: ResearchSettings) -> None:
+    """37-M3: the trade's open profit, marked at every path point (entry first, the
+    final net last), so drawdown inside a trade counts."""
+    s = _settings(research)
+    day = make_day(
+        ny(2024, 3, 5, 4, 0),
+        [18000, 18000, 18010],
+        opens=[18000, 18000, 18000],
+        highs=[18000, 18000, 18010],
+        lows=[18000, 17950, 18000],
+    )
+    (t,) = run([day], OneShot(at=0), VOL, s, "booker")[0]
+    # entry, bar 1 (open, low, high, close), bar 2 (open, low, high, close), end of day
+    assert len(t.marks) == 1 + 4 + 4 + 1
+    assert t.marks[0] == pytest.approx(-170)
+    assert t.marks[-1] == pytest.approx(t.net)
+    entry = _value(Right76.CALL, 18000, 18000, 1 / 365)
+    low = _value(Right76.CALL, 17950, 18000, 1 / 365 - 1 / (24 * 60 * 365))
+    assert t.marks[2] == pytest.approx((low - entry) * 20 - 170)
+    assert min(t.marks) == pytest.approx(t.marks[2])
+    assert min(t.marks) < t.net
+
+
+def test_marks_after_a_scale_out_sale_keep_the_sold_contract(
+    research: ResearchSettings,
+) -> None:
+    s = _settings(research)
+    up = [18000 + 40 * k for k in range(8)] + [18100]
+    (t,) = run([make_day(ny(2024, 3, 5, 4, 0), up)], OneShot(at=0), VOL, s, "scale_out")[0]
+    assert t.marks[0] == pytest.approx(-2 * 170)
+    assert t.marks[-1] == pytest.approx(t.net)

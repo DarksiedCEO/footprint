@@ -18,3 +18,29 @@ The evidence run has 62 mutants: the 59 above plus three on the gate reader adde
 research stopped importing footprint.backtest (a 100% gate accepted, zero min_trades
 accepted, profit factor read from the payoff key). Result: 62 killed, 0 survived or
 errored, on ed493a1 with a clean tree.
+
+## Review round 1 (24be374, NOT CERTIFIED) and what became of it
+
+The reviewer's surviving mutants are in the spec and now die:
+- 37-H1 strike chosen at the data's own level, and no strike rounding (pricing tests:
+  equal dollars on the same percentage path at several levels, rounding on);
+- 37-M1 next day's vol (`test_the_vol_of_the_day_before_prices_the_trade`);
+- 37-M2 verdict on sorted trades (`test_the_verdict_reads_trades_in_their_order_not_sorted`);
+- 37-L1 `realized = net` (`test_green_stop_input_sums_every_closed_trade`, 3 trades);
+- 37-L3 stop at the entry price accepted (`test_a_futures_stop_at_the_entry_price_is_refused`).
+New code (marked drawdown, ruin, marks) has its own mutants. Four old mutants were
+re-pointed at the moved code (moneyness sign, forward not rescaled, target gap fill,
+drawdown pct never computed); their intent is unchanged.
+
+Trial on the fix tree: 80 mutants, 78 killed, 2 survived, both argued equivalent and
+dropped:
+- **`peak > 0` -> `peak != 0`, in `summarize` and in `marked_drawdown`** (the reviewer's
+  37-L2 mutant). With a negative peak, (peak - x) / peak is <= 0 because peak - x >= 0,
+  so `max(worst_pct, ...)` never changes; a peak of exactly 0 is excluded by both. The
+  mutant is behaviourally identical. The negative-peak branch itself is pinned by the
+  killed `peak < 0` mutant and by `test_drawdown_pct_after_equity_falls_below_zero` and
+  `test_marked_drawdown_pct_stops_at_a_non_positive_peak`.
+
+The reviewer's other equivalent survivors (37-I2: peak `>=`, default Decimal rounding,
+the session filter rewrite, `bars._day` UTC conversion) are accepted as equivalent and
+not in the spec.

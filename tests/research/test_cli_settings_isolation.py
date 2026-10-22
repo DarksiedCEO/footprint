@@ -1,6 +1,6 @@
 import ast
 import shutil
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -8,7 +8,7 @@ import pytest
 from footprint.core.config import ConfigError
 from footprint.research import __main__ as cli
 from footprint.research.bars import Day
-from footprint.research.engine import DayState, Signal
+from footprint.research.engine import DayState, Signal, Trade
 from footprint.research.rules import RULES
 from footprint.research.settings import OTHER, ResearchSettings, load_research
 from tests.conftest import REPO_ROOT
@@ -255,3 +255,52 @@ def test_report_with_no_trades() -> None:
     assert "trades: 0   skipped (no usable vol): 3" in text
     assert "exit fills: none" in text
     assert date(2024, 1, 1).year == 2024
+
+
+# --- review round 1 (37-M2, 37-M3, 37-L2, 37-L4, data adjustment) ---------------------------
+
+
+def _trade(net: float, k: int, marks: tuple[float, ...] | None = None) -> Trade:
+    at = datetime(2024, 3, 5, 3, 16, tzinfo=NY) + k * timedelta(days=1)
+    return Trade(
+        day=at.date(),
+        session="london",
+        direction=1,
+        entry_ts=at,
+        exit_ts=at + timedelta(minutes=5),
+        contracts=1,
+        entry_value=80.0,
+        net=net,
+        reasons=("lock",),
+        marks=marks if marks is not None else (-170.0, net),
+    )
+
+
+def test_the_verdict_reads_trades_in_their_order_not_sorted() -> None:
+    """37-M2: thirds, the held-out share and drawdown depend on order. Sorted, these
+    trades would put every loss in the first third (1 of 3 positive, not 0 of 3)."""
+    s = load_research(REPO_ROOT / "config", "nq.yaml")
+    trades = [_trade(net, k) for k, net in enumerate([50.0, -100.0, 50.0, -100.0, 50.0, -100.0])]
+    text = cli.report(trades, 0, s, ["h"])
+    assert "positive thirds: 0 of 3 vs >= 2" in text
+    assert "time parts (by trade order): -50.00, -50.00, -50.00" in text
+
+
+def test_report_shows_the_marked_drawdown_and_ruin() -> None:
+    s = load_research(REPO_ROOT / "config", "nq.yaml")
+    trades = [_trade(100.0, 0, (-170.0, -6000.0, 100.0)), _trade(100.0, 1)]
+    text = cli.report(trades, 0, s, ["h"])
+    # 25,000 -> 19,000 inside the first trade, which still closes +100
+    assert "max drawdown marked to the model inside trades: 6,000.00 (24.0%)" in text
+    assert "FAIL max drawdown %: 24 vs <= 15 (worse of realized 0 and marked 24)" in text
+    ruined = [_trade(-30000.0, 0), _trade(500.0, 1)]
+    text = cli.report(ruined, 0, s, ["h"])
+    assert "RUIN: equity reached zero or below at trade 1 of 2" in text
+    assert "FAIL not ruined: ruined at trade 1" in text
+
+
+def test_report_states_the_known_model_limits() -> None:
+    s = load_research(REPO_ROOT / "config", "nq.yaml")
+    text = cli.report([], 0, s, ["h"])
+    assert "bars must be UNADJUSTED" in text
+    assert "stop and lock are judged on the model mid" in text
