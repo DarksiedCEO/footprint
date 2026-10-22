@@ -13,7 +13,8 @@
    "tests/test_config.py"
   ],
   "market": [
-   "tests/brokers/test_ibkr_market_service.py"
+   "tests/brokers/test_ibkr_market_service.py",
+   "tests/decision/test_pipeline_theta.py"
   ],
   "backtest": [
    "tests/backtest/test_option_model.py"
@@ -121,9 +122,86 @@
   [
    "backtest",
    "src/footprint/backtest/options_model.py",
-   "        if model.trading_class in instrument.option_expiry.american_trading_classes:",
+   "        if not is_european_class(model.trading_class, instrument):",
    "        if False:",
-   "model may claim an American class"
+   "model may claim a non-European class"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    if name in rules.american_trading_classes:\n        return False\n",
+   "",
+   "American class not excluded from European"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "re.fullmatch(p, name)",
+   "re.match(p, name)",
+   "prefix match accepted"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    return any(re.fullmatch",
+   "    return all(re.fullmatch",
+   "must match every pattern"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "        if not is_european_class(quote.trading_class, self._instrument):",
+   "        if False:",
+   "unknown class valued"
+  ],
+  [
+   "market",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if not is_european_class(trading_class, self._instrument):",
+   "            if False:",
+   "chooser takes any class"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if not isinstance(patterns, list) or not patterns:",
+   "    if not isinstance(patterns, list):",
+   "empty pattern list accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if not isinstance(patterns, list) or not patterns:",
+   "    if not patterns:",
+   "a string accepted as the pattern list"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        if not is_trading_class(pattern):",
+   "        if False:",
+   "blank or spaced pattern accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "            if compiled.fullmatch(name):",
+   "            if False:",
+   "pattern overlapping American accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if len(set(patterns)) != len(patterns):",
+   "    if False:",
+   "duplicate patterns accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        european_trading_class_patterns=tuple(patterns),",
+   "        european_trading_class_patterns=tuple(patterns[:1]),",
+   "only the first pattern kept"
   ],
   [
    "backtest",
