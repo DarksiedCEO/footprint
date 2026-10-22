@@ -329,3 +329,17 @@ def test_marks_after_a_scale_out_sale_keep_the_sold_contract(
     (t,) = run([make_day(ny(2024, 3, 5, 4, 0), up)], OneShot(at=0), VOL, s, "scale_out")[0]
     assert t.marks[0] == pytest.approx(-2 * 170)
     assert t.marks[-1] == pytest.approx(t.net)
+
+
+def test_no_mark_is_recorded_at_a_fill_point(research: ResearchSettings) -> None:
+    """37-R2-L1: marks are taken at the path points with no fill; the trade's final net
+    is appended once. A trade stopped at its first bar's low has three marks: entry,
+    that bar's open, and the final net (no extra mark at the stop itself)."""
+    s = _settings(research)
+    day = make_day(ny(2024, 3, 5, 4, 0), [18000, 18000], lows=[18000, 17700])
+    (t,) = run([day], OneShot(at=0), VOL, s, "booker")[0]
+    assert t.reasons == ("stop",)
+    assert len(t.marks) == 3
+    assert t.marks[0] == pytest.approx(-170)
+    assert t.marks[1] == pytest.approx(-170)  # the open, unchanged from the entry
+    assert t.marks[2] == pytest.approx(t.net)

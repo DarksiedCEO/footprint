@@ -16,7 +16,8 @@ vol:                          # daily volatility index (Cboe VXN / VIX history C
   max_age_days: 5             # a value older than this (calendar days before the trade's
                               #   session day) is stale: the trade is skipped, never guessed
 option:                       # UNVERIFIED: the index level is used as the option's IV
-  moneyness_points: 0         # strike offset in futures points; positive = in the money
+  moneyness_points: 0         # strike offset in points at the reference price level
+                              #   (below); positive = in the money
   days_to_expiry: 1           # calendar days to expiry at entry (CLI default)
   days_per_year: 365          # calendar days per year for Black-76's time
   rate: 0                     # UNVERIFIED: continuously compounded rate (immaterial for

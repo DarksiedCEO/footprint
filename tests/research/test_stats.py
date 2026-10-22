@@ -202,6 +202,15 @@ def test_marked_drawdown_counts_losses_inside_a_trade() -> None:
     assert pct2 == pytest.approx(350 / 1300 * 100)
 
 
+def test_marked_drawdown_carries_each_trades_final_net_not_its_first_mark() -> None:
+    """37-R2-M1: real marks start at -cost, not 0. From 25,000: trade 1 marks 24,830 and
+    26,000 and closes +1,000; trade 2 marks 25,830 and 24,500. Worst fall: 1,500 from
+    the 26,000 peak. Carrying the first mark (-170) instead would give 2,670."""
+    dd, pct = marked_drawdown([[-170.0, 1000.0], [-170.0, -1500.0]], 25000.0)
+    assert dd == pytest.approx(1500.0)
+    assert pct == pytest.approx(1500 / 26000 * 100)
+
+
 def test_marked_drawdown_of_nothing_is_zero() -> None:
     assert marked_drawdown([], 1000.0) == (0.0, 0.0)
 

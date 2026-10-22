@@ -565,6 +565,20 @@
    "        if peak > 0:\n            worst_pct = max(worst_pct, (peak - equity) / peak * _PCT)",
    "        if peak < 0:\n            worst_pct = max(worst_pct, (peak - equity) / peak * _PCT)",
    "drawdown pct never computed"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "            equity += trade[-1]",
+   "            equity += trade[0]",
+   "37-R2-M1: marked curve carries the first mark"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "        if exit_.open == held:  # no fill here: mark at this point",
+   "        if True:",
+   "37-R2-L1: a mark recorded at a fill point"
   ]
  ]
 }
