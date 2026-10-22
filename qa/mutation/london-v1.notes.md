@@ -27,3 +27,5 @@ Result: 29 killed, 0 survived or errored, on c363d9f with a clean tree.
   tests/research/test_cli_settings_isolation.py, resolved by keeping both sides).
 
 Evidence after review round 1: 35 mutants, 35 killed, 0 survived or errored, on 28eac4b with a clean tree. The research-v1 spec (78 mutants) was also re-run on 28eac4b: 78 killed.
+
+Evidence after review round 2: PR 37's round 2 fix cherry-picked here as 06c1014 (gate: ruff clean, 249 files formatted, mypy clean on 233 files, pytest 2459 passed, 17 skipped). On 06c1014 with a clean tree: london-v1 spec 35 of 35 killed; research-v1 spec 80 of 80 killed.
