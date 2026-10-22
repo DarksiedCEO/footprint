@@ -208,6 +208,48 @@
    "        args.variant is not None and args.variant not in variants",
    "        False",
    "unknown variant reaches the builder"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if close > high:",
+   "        if day.high[i] > high:",
+   "38-M1: a wick above the high enters"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "        if close < low:",
+   "        if day.low[i] < low:",
+   "a wick below the low enters"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            if self._range(day, len(day)) is None:",
+   "            if self._range(day, len(day)) is not None:",
+   "38-M2: complete sessions counted as missing"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            count[1] += 1\n",
+   "            count[1] += 0\n",
+   "38-M2: sessions not counted"
+  ],
+  [
+   "orb",
+   "src/footprint/research/rules/london_orb.py",
+   "            *(f\"  {year}: {c[0]} of {c[1]}\" for year, c in sorted(totals.items())),",
+   "            *(f\"  {year}: {c[0]} of {c[1]}\" for year, c in sorted(totals.items()) if False),",
+   "38-M2: no per-year lines"
+  ],
+  [
+   "orb",
+   "src/footprint/research/__main__.py",
+   "    if callable(extra):",
+   "    if False:",
+   "rule notes not printed"
   ]
  ]
 }

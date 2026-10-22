@@ -379,3 +379,88 @@ def test_flat_time_is_on_the_session_day(research: ResearchSettings) -> None:
     assert signal is not None
     assert signal.flat_by.tzinfo is not None
     assert signal.flat_by == datetime(2024, 3, 5, 8, 25, tzinfo=NY)
+
+
+# --- review round 1 (38-M1, 38-M2, 38-I1) ---------------------------------------------------
+
+
+def test_a_wick_above_the_range_that_closes_inside_is_no_entry(
+    research: ResearchSettings,
+) -> None:
+    """38-M1: only the CLOSE counts. A trigger bar poking above the high (or below the
+    low) and closing inside the range does not enter."""
+    up = london([18005.0])
+    up_high = list(up.high)
+    up_high[15] = 18030.0
+    poke_up = replace(up, high=tuple(up_high))
+    assert orb(research).entry(poke_up, 15, FRESH) is None
+    down = london([17995.0])
+    down_low = list(down.low)
+    down_low[15] = 17970.0
+    poke_down = replace(down, low=tuple(down_low))
+    assert orb(research).entry(poke_down, 15, FRESH) is None
+
+
+def _without(day: Day, drop: int) -> Day:
+    keep = [k for k in range(len(day)) if k != drop]
+
+    def pick(values: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(values[k] for k in keep)
+
+    return Day(
+        day.day,
+        pick(day.ts),
+        pick(day.clock),
+        pick(day.open),
+        pick(day.high),
+        pick(day.low),
+        pick(day.close),
+        pick(day.volume),
+    )
+
+
+def _on(day: Day, when: date) -> Day:
+    shift = datetime.combine(when, time()) - datetime.combine(day.day, time())
+    return replace(day, day=when, ts=tuple(t + shift for t in day.ts))
+
+
+def test_report_counts_sessions_without_a_full_range_per_year(
+    research: ResearchSettings,
+) -> None:
+    """38-M2: the sessions the rule cannot trade (a missing range minute) are counted,
+    per year, so the sample selection is visible."""
+    full = london([18011.0])
+    days = [
+        _on(full, date(2010, 3, 2)),
+        _on(_without(full, 3), date(2010, 3, 3)),
+        _on(_without(full, 14), date(2010, 3, 4)),
+        _on(full, date(2011, 3, 2)),
+        _on(make_day(ny(2011, 3, 3, 4, 0), [18000.0]), date(2011, 3, 3)),
+    ]
+    lines = orb(research).report(days)
+    assert "sessions without a full 03:00-03:15 range (not traded): 3 of 5" in lines
+    assert "  2010: 2 of 3" in lines
+    assert "  2011: 1 of 2" in lines
+
+
+def test_report_states_the_clock_change_caveat(research: ResearchSettings) -> None:
+    """38-I1."""
+    text = "\n".join(orb(research).report([]))
+    assert "US and UK clocks change on different dates" in text
+    assert "sessions without a full 03:00-03:15 range (not traded): 0 of 0" in text
+
+
+def test_cli_prints_the_rule_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rows = [
+        f"2024-03-05T03:{m:02d}:00-05:00,18000,18001,17999,18000,5" for m in range(15) if m != 4
+    ]
+    bars = tmp_path / "bars.csv"
+    bars.write_text("ts,open,high,low,close,volume\n" + "\n".join(rows) + "\n")
+    vol = tmp_path / "VXN_History.csv"
+    vol.write_text("DATE,OPEN,HIGH,LOW,CLOSE\n03/04/2024,1,1,1,20\n")
+    args = ["--bars", str(bars), "--vol", str(vol), "--rule", "london_orb", "--variant", "500"]
+    assert cli.main([*args, "--config", str(REPO_ROOT / "config")]) == 0
+    out = capsys.readouterr().out
+    assert "sessions without a full 03:00-03:15 range (not traded): 1 of 1" in out
+    assert "  2024: 1 of 1" in out
+    assert "US and UK clocks change on different dates" in out

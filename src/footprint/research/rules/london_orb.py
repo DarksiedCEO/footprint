@@ -20,7 +20,7 @@ the bars before i (all of which open before the entry window, so before bar i).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import pairwise
@@ -136,6 +136,27 @@ class LondonOrb:
         if len({day.clock[k] for k in inside}) != self._range_minutes:
             return None
         return max(day.high[k] for k in inside), min(day.low[k] for k in inside)
+
+    def report(self, days: Sequence[Day]) -> list[str]:
+        """Lines for the results: sessions the rule could not trade for want of a full
+        range (38-M2), per year, and the clock-change caveat (38-I1)."""
+        s = self.settings
+        window = f"{s.range_start:%H:%M}-{s.range_end:%H:%M}"
+        totals: dict[int, list[int]] = {}
+        for day in days:
+            count = totals.setdefault(day.day.year, [0, 0])
+            count[1] += 1
+            if self._range(day, len(day)) is None:
+                count[0] += 1
+        missing = sum(c[0] for c in totals.values())
+        lines = [
+            f"sessions without a full {window} range (not traded): {missing} of {len(days)}",
+            *(f"  {year}: {c[0]} of {c[1]}" for year, c in sorted(totals.items())),
+            "clock-change caveat: the times are New York time. In the weeks each year when "
+            "US and UK clocks change on different dates, the London open falls an hour "
+            "differently against them, so those weeks test a shifted window.",
+        ]
+        return lines
 
     def entry(self, day: Day, i: int, state: DayState) -> Signal | None:
         s = self.settings

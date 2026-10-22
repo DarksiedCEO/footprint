@@ -13,3 +13,15 @@ Evidence: `london-v1.out` (spec `london-v1.json`), run on the PR's own commit.
 The evidence run therefore has 29 mutants.
 
 Result: 29 killed, 0 survived or errored, on c363d9f with a clean tree.
+
+## Review round 1 (a2edcbb, CERTIFIED WITH CONDITIONS)
+
+- 38-M1: the reviewer's surviving mutant `close > high` -> `day.high[i] > high` is in the
+  spec, with its put-side twin; killed by
+  `test_a_wick_above_the_range_that_closes_inside_is_no_entry`.
+- 38-M2: the rule reports the sessions it could not trade for want of a full range,
+  per year (`LondonOrb.report`, printed by the CLI under "rule notes"); mutants on the
+  count, the per-year lines and the printing are in the spec.
+- 38-I1: the clock-change caveat is in the same notes.
+- PR 37's fixes (18491d5) were cherry-picked here as 68867c7 (one import conflict in
+  tests/research/test_cli_settings_isolation.py, resolved by keeping both sides).

@@ -569,3 +569,23 @@ For Andre:
   runs. The CLI prints this as a known limit; it cannot check it.
 - **R-2:** costs (170 per contract round trip) and the vol index as implied vol stay
   UNVERIFIED until checked against real quotes.
+
+## London session test (branch london-v1, PR 38; 2026-10-21)
+
+Pre-registered in `docs/research/london-v1.md` (committed before the rule). The rule is
+`research/rules/london_orb.py`, settings in `config/research.yaml` `rules.london_orb`.
+Not run on real data yet.
+
+Changed after hostile review round 1 (a2edcbb, CERTIFIED WITH CONDITIONS):
+- **38-M1 (fixed):** a test with a trigger bar whose high (or low) pokes outside the
+  range but closes inside it: no entry. The reviewer's mutant is in the spec.
+- **38-M2 (fixed):** the report prints the sessions not traded for want of a full
+  03:00-03:15 range, per year, so the sample selection (thin early years) is visible.
+- **38-I1 (documented):** the results state that in the weeks when US and UK clocks
+  change on different dates, the window sits an hour differently against London.
+- PR 37's fixes, including 37-H1 (strike chosen at the reference level), are in this
+  branch, so every L1 dollar figure now goes through the corrected strike.
+
+For Andre:
+- **L-1:** run the 8 pre-registered scenarios only after R-1 (unadjusted bars) is
+  settled; each is judged once.

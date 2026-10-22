@@ -159,7 +159,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     days = load_days(args.bars, settings.symbol, settings.zone, settings.roll)
     vols = load_vol(args.vol, settings.vol_divisor, settings.vol_max_age_days)
     trades, skipped = run(days, rule, vols, settings, args.exit)
-    print(report(trades, skipped, settings, settings_lines(settings, args)))
+    text = report(trades, skipped, settings, settings_lines(settings, args))
+    extra = getattr(rule, "report", None)
+    if callable(extra):
+        text += "\n\nrule notes:\n" + "\n".join(extra(days))
+    print(text)
     return 0
 
 
