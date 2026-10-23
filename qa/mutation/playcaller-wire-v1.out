@@ -1,4 +1,4 @@
-source: f4e08b60936ac209ef67673af23f06a0a56a8916 tree-dirty: 0 files
+source: 8860d7adc9ea22cf8869219edf9325d267f97434 tree-dirty: 0 files
 baseline [engine]: passed
 baseline [live]: passed
 baseline [pipeline]: passed
@@ -29,13 +29,13 @@ baseline [play]: passed
  24 KILLED   [play] src/footprint/decision/play.py: rule stand-asides counted as data
  25 KILLED   [play] src/footprint/decision/play.py: CHOP branch removed (falls to stand aside)
  26 KILLED   [play] src/footprint/decision/play.py: warm-up walks one session short
- 27 SURVIVED [play] src/footprint/decision/play.py: calendar_from itself counted as before it
+ 27 KILLED   [play] src/footprint/decision/play.py: calendar_from itself counted as before it
  28 KILLED   [play] src/footprint/decision/play.py: need misses the oldest opening
- 29 SURVIVED [play] src/footprint/decision/play.py: need misses the oldest night
+ 29 KILLED   [play] src/footprint/decision/play.py: need misses the oldest night
  30 KILLED   [play] src/footprint/decision/play.py: need counts the opening day's night
  31 KILLED   [play] src/footprint/decision/play.py: need is the last day, not the worst
  32 KILLED   [play] src/footprint/decision/play.py: warm-up days not skipped in the need
- 33 SURVIVED [play] src/footprint/decision/play.py: need: night opens the same day
+ 33 KILLED   [play] src/footprint/decision/play.py: need: night opens the same day
  34 KILLED   [play] src/footprint/decision/play.py: one day short accepted
  35 KILLED   [play] src/footprint/decision/play.py: no labellable day accepted
  36 KILLED   [play] src/footprint/core/config.py: zero window accepted
@@ -57,4 +57,4 @@ baseline [play]: passed
  52 KILLED   [engine] src/footprint/backtest/readout.py: play days missing from markdown
  53 KILLED   [live] src/footprint/live/app.py: live start does not check the history
  54 KILLED   [live] src/footprint/live/__main__.py: refusal exits 0
-54 mutants, 3 survived or errored
+54 mutants, 0 survived or errored
