@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -850,6 +850,15 @@ def load_strategy(path: Path) -> StrategyProfile:
         raise ConfigError(f"{dl_where}: max_abs_delta must be > min_abs_delta")
     if delta.max_abs_delta > 1:
         raise ConfigError(f"{dl_where}: max_abs_delta must be <= 1")
+    # Review M1, interim until Andre decides GV-5: N (the levels room check) assumes
+    # options.assumed_delta, which is pessimistic only while Delta lets no entry through
+    # with a smaller delta.
+    if delta.min_abs_delta < options.assumed_delta:
+        raise ConfigError(
+            f"{dl_where}: min_abs_delta {delta.min_abs_delta} must be >= "
+            f"options.assumed_delta {options.assumed_delta}: below it, N would understate "
+            "the move an allowed entry needs (GV-5)"
+        )
 
     gm_where = f"{where}: gamma"
     gm = _check_keys(raw["gamma"], {f.name for f in fields(GammaSettings)}, gm_where)
@@ -1179,4 +1188,20 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         execution=load_execution(config_dir / "execution.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
+    _check_gamma_reachable(
+        profiles.strategy.gamma, profiles.instrument, config_dir / "strategy.yaml"
+    )
     return profiles
+
+
+def _check_gamma_reachable(gamma: GammaSettings, instrument: InstrumentProfile, path: Path) -> None:
+    """Felix never takes an option expiring more than dte_max calendar days after the
+    trading day, so no option has (dte_max + 1) days left: a minimum that long refuses
+    every entry (and a huge one cannot even be held as a time span). Review L1."""
+    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)
+    if gamma.min_hours_to_expiry >= Decimal(str(longest)):
+        raise ConfigError(
+            f"{path}: gamma: min_hours_to_expiry {gamma.min_hours_to_expiry} must be under "
+            f"{longest:g} hours, one day past dte_max {instrument.dte_max}: no option Felix "
+            "may pick could meet it"
+        )

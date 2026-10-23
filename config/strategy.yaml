@@ -29,7 +29,9 @@ levels:
   wall_multiple: 1           # nearest opposing level closer than this many N: veto
   swing_lookback_bars: 96    # DEFAULT: trend-timeframe bars searched for swing levels
 options:
-  assumed_delta: 0.45        # G4: fixed, pessimistic delta until a greeks agent exists
+  assumed_delta: 0.45        # G4: the fixed delta in N (levels room) and in the backtest
+                             #   model; kept until Andre decides GV-2. Pessimistic only while
+                             #   delta.min_abs_delta >= this (the loader enforces it; GV-5)
 # Theta (decay veto, decision B76-1): before an entry, the chosen option is valued with
 # Black-76 at its implied volatility (solved from the quote's mid) now and at the end of
 # the planned hold, in CALENDAR time; the difference is the modelled decay. Every value
@@ -51,7 +53,8 @@ vega:
                                 #   believable; must sit inside theta's bounds
   max_implied_vol: 1.0          # DEFAULT (draft, Andre GV-1): extreme implied volatility
 delta:
-  min_abs_delta: 0.3            # DEFAULT (draft, Andre GV-1): a far out-of-the-money option
+  min_abs_delta: 0.45           # DEFAULT (draft, Andre GV-1, GV-5): a far out-of-the-money option;
+                                #   the loader requires >= options.assumed_delta (review M1)
   max_abs_delta: 0.7            # DEFAULT (draft, Andre GV-1): a deep in-the-money option
 gamma:
   min_hours_to_expiry: 6        # DEFAULT (draft, Andre GV-1): the danger zone near expiry;

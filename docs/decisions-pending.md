@@ -203,6 +203,7 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 | A-16 (independent audit) | `easter_sundays` is only checked to be Sundays: a wrong Easter (e.g. 2027-03-21) loads, and Good Friday would be expected on the wrong day | Computing Easter needs numeric constants in `src` (the literal guard forbids them; no allow-literal markers). Each Easter is checked by hand against CME's Good Friday closure (checklist 23) |
 | A-18 (independent audit) | The hard-coded-literal guard misses small integers (under 10), `25_000`, `.25`, `Decimal(1)/4`, `2.5e3`, dates and strings from the non-instrument YAMLs, and does not look inside YAML lists | **Closed (grind stage 2026-10-10 09:06 UTC).** New AST guard `tests/test_no_hardcoded_literals_ast.py`: forbidden values are every leaf (dicts and lists walked) of every `config/**/*.yaml`: numbers (all but 0 and +-1, small integers included), strings and dates. Each `src/**/*.py` is parsed: numeric constants (so `25_000`, `.25`, `2.5e3` are seen as their values), numeric strings (`Decimal("0.25")`), `date(y, m, d)` calls and ISO date strings, words in strings, and numbers, words and dates in comments and docstrings (via tokenize). Forbidden values that are ordinary code (halving by 2, `yyyymmdd` slicing, the nth-weekday range, cache sizes, `uuid4().hex[:8]`, the percent bound 100, holiday and weekday schema keys, item numbers in prose) are listed per file and per value with their count in `REVIEWED` inside the test, each kind explained there; any new occurrence fails, and so does a reviewed one that went away. **The one in-line marker (core/config.py:24, `_PERCENT_MAX = Decimal(100)`) is removed**; a test fails on any marker under src/ (the old guard's `EXPECTED_ALLOW_MARKERS` is now 0). The old line guard now scans only non-Python files under src/ (README); the AST guard owns `.py`. **Real literals found: none** (every hit reviewed; `backtest/path.py`'s `_MINUTE - 5`, the backtest price path closing 5 s before the minute ends, is a path-model constant, not a trading rule; Andre may want it in config). Test first: with `REVIEWED` empty, the src scan and the marker test failed (77 code hits in 42 file/value pairs before review). Mutation evidence `qa/mutation/grind-a18.out`. Not covered by design: arithmetic that builds a value from unforbidden parts (e.g. `16 * 1562.5`) **G18-1 / G18-2 (LOW, review of 66840e1..d616114) fixed with tests (grind stage 2026-10-10 09:40 UTC; test file only, no src change).** G18-1: a minus over a numeric constant (`-750`, `-(3)`) is now read as that negative value when the negative is itself a config value (before, only the positive was compared, so a value in config only as a negative passed); otherwise the constant is scanned as written, so `-X` is still caught whenever `X` is forbidden. The existing `-2` uses (`scaleb(-2)`, `bars[-2]`, IBKR's market data type -2) moved from `code 2` to `code -2` in `REVIEWED`, same totals. G18-2: prose numbers with thousands separators (`$1,800`, `25,000`) are also read whole (they were split at the commas). Also fixed: with no string leaves at all the word pattern was empty and matched everywhere (test harness only; the real config has strings). Test `test_scanner_sees_negative_only_values_and_grouped_prose_numbers` failed first. Mutation evidence `qa/mutation/grind-g18.out` **G19-1 and G19-2 closed (grind stage 2026-10-10 10:04 UTC, review of d616114..0ebaecd; test file only, no src change).** G19-1: a number with a leading minus in a comment or docstring (`-900`, `-1,800`) was never read (the prose patterns refuse a digit glued to `-`, to skip dates and ranges); now a minus not glued to a word, digit, `.`, `:`, `,` or another `-` is a sign, and the number counts as its negative when that is forbidden, else as its value (the G18-1 rule). `2026-04-03`, `2100-2199`, `x-900`, `--900` are still not signs. G19-2: a string spelling of a negative (`Decimal("-900")`) counts as the value when only the positive is in config, as `-900` in code already did. No new hit in src. Test `test_scanner_reads_a_leading_minus_in_prose_and_in_number_strings` failed first. Mutation evidence `qa/mutation/grind-g19.out` **G20-1 closed (grind stage 2026-10-10 10:29 UTC, review of 0ebaecd..59e0935; test file only, no src change).** Both ends of a hyphen range (`900-1000`, `900-1,000`, `$900-$1,000`, `1.5-4`) are read as plain values, in prose and in string literals; the hyphen is not a sign. An ISO date, a range glued to a word (`G6-5`, `x900-1000`) and a clock time stay unread as numbers; a `$` right end is read once. Two new src hits reviewed into `REVIEWED` (not trading values): `core/config.py` message "nth must be 1-5" (`text 5`) and `execution/channels.py` E.164 regex `[1-9]` (`text 9`). G19's test now also expects the range ends it holds (`1-4`, `750-900`). Test `test_scanner_reads_both_ends_of_a_hyphen_range` failed first. Mutation evidence `qa/mutation/grind-g20.out` **G21-1, G21-2 and G21-3 closed (grind stage 2026-10-10 10:51 UTC, review of 59e0935..2c70003; test file only, no src change).** The range pattern became a chain pattern: every number of a hyphen chain (`900-1000`, `750-900-1000`, `$900-$1000-$1,200`, `.25-.5`) is read once as a plain value, `$` ends included; only the exact ISO date shape (`\d{4}-\d{2}-\d{2}`) is skipped (the date check reads dates). The chain, `PROSE_NUMBER` and `GROUPED_NUMBER` are atomic, so `900.0-1000` reads 900 once and `900.5-1000` no longer reads a false 900; `PROSE_NUMBER`/`GROUPED_NUMBER` leave a `$` end after `digit-` to the chain. A chain glued to a word, a colon or a further `.digit` (`G6-5-3`, `x900-1000-1200`, `2026-04-03T09:00`, `0.25-0.5.1`) still reads nothing. No new hit in src. Test `test_scanner_reads_every_end_of_a_hyphen_chain_once` failed first. Mutation evidence `qa/mutation/grind-g21.out` (12 mutants): M7 (`PROSE_NUMBER` also reads an ungrouped `$` chain end) survived the first run and is killed by `900-$1200` added to the test; **M12 (the chain not atomic) is argued equivalent**: every point the chain could backtrack to sits just before a digit, `_`, `,digit`, `.digit` or `-number`, and the chain's lookahead `(?![\w:-]|[,.]\d)` refuses each of them, so a non-atomic chain matches exactly what the atomic one does **G22-1 closed (grind stage 2026-10-10 11:18 UTC, review of 2c70003..99f1e31; test file only, no src change).** G21 made `PROSE_NUMBER`/`GROUPED_NUMBER` refuse every `$` number after `digit-`, leaving it to the chain; when no chain matched (the hyphen glued to a word or a clock time) nothing read it. Now the prose patterns skip only a `$` end that a matched chain actually reads (its start offset), so `x6-$900`, `10:30-$900`, `G6-$1,000` are read again and a chain's `$` end is still read once; this also removes a double count G21 left (`7_-$1,200` read twice). A wider claim (the whole chain span) was rejected: it would drop `900` from `2026-04-03,900`, which the chain swallows without reading. A differential fuzz (80,000 strings) against 99f1e31 shows only gains, plus the double count removed. No new hit in src. Test `test_scanner_reads_a_dollar_amount_after_a_hyphen_no_chain_takes` failed first. Mutation evidence `qa/mutation/grind-g22.out` |
 | A-19..A-21 (independent audit, info) | `BROKER_HOST` is not checked to be loopback (the paper guarantee holds through the DU and account-list checks); the ledger's day rolls at 04:00 PT while the calendar gives the evening session to the next day (only matters if overnight trading is enabled); `place` releases the lock between the readiness check and the send (a microsecond window in which a loss still sends) | Recorded only |
+| BT-FRI (greeks-veto-v1 review round 1, I5; pre-existing, not from this branch) | The backtest cannot size an entry late on a Friday: the nearest modelled expiry is Monday (3 days), its modelled premium is about 150 x root(3), about 260 points, so one contract costs about 5,150-5,280 dollars at the ask, over the 5,000 cap; Ezra refuses every such entry. Reviewer tested only 13:50 PT; how early on Friday it starts is not verified | Backtest only (live prices come from the market). Separate ticket; it goes away or changes with GV-4 (a model priced in volatility terms) |
 
 ## Data-day prep queue (Andre's order, 2026-10-10 ~10:30 PT)
 
@@ -620,10 +621,14 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
     refuses first). With the defaults, a volatility in [0.05, 0.08) or (1.0, 1.5] now
     passes Theta and is refused by Vega.
   - Delta: no entry when |delta| (a put's delta is negative) is outside
-    [`delta.min_abs_delta`, `delta.max_abs_delta`] = [0.3, 0.7]: a far out-of-the-money
+    [`delta.min_abs_delta`, `delta.max_abs_delta`] = [0.45, 0.7]: a far out-of-the-money
     option, or a deep in-the-money one that is mostly intrinsic value. Edges are inside.
+    The floor was 0.3 in the first draft; it is 0.45 since review round 1 (M1, see GV-5).
   - Gamma: no entry with less than `gamma.min_hours_to_expiry` = 6 hours to the expiry
-    moment ("the danger zone near expiry"). **The builder chose time, not a gamma cap**,
+    moment ("the danger zone near expiry"). Since review round 1 (L1) `load_profiles`
+    refuses a minimum of (instrument `dte_max` + 1) days or more (96 hours today): no
+    option Felix may pick could meet it, and a huge value used to crash Pipeline
+    construction with an OverflowError instead of a config error. **The builder chose time, not a gamma cap**,
     and asks Andre to confirm: (1) Black-76 gamma per point is about 1 / (price x vol x
     root of time), so a fixed cap drifts with the index level and the volatility, while
     time to expiry is the cause of the danger at any level; (2) for a bought option a
@@ -652,19 +657,88 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
     delta (no entry if the live N finds a wall). One-sided: it can only remove trades
     the 0.45 let through, never add ones 0.45 refused, and the +2 score still uses 0.45.
   - (c) keep 0.45 until the option-history data exists.
+  - (d) (review round 1, I1) use IBKR's own delta for the contract Felix would pick. The
+    IBKR market layer already receives IBKR's computed Greeks, delta included
+    (`brokers/ibkr/market.py` `on_greeks`, checked by `core/options.py` `judge_greeks`),
+    but `OptionQuote` does not carry them, so nothing in the decision can read them
+    today. Needs the same "contract first" order as (a) or the re-check of (b), plus a
+    seam that hands a Greeks reading with the quote; live only (the backtest has no
+    IBKR Greeks).
+  Correction to (a) (review round 1, I2): the rule console (`backtest/rule_console.py`,
+  used by the gateless backtest entry rules) does not apply the levels gate at all, so N
+  is unused in those backtests and needs no seam there; only moving Felix before the
+  console would touch it.
   Until Andre picks, `options.assumed_delta` stays the only delta in N. The journal now
-  carries the live delta of every entry that reaches Delta, so the gap can be measured
-  (live N = profit_target / (|delta| x point_value x contracts)).
+  carries the live delta of every entry that reaches Delta, so the gap can be measured:
+  live N = profit_target / (|delta| x point_value x risk.max_contracts). (Review round 1,
+  I3: the pipeline computes N once, at start-up, with `risk.max_contracts`, not the
+  plan's contracts; the two are equal today because max_contracts is 1.)
 - Other uses of `options.assumed_delta`, left unchanged on purpose: the backtest's
   option model (`backtest/options_model.py`) uses it as the slope of its synthetic
   premium (a pricing assumption, G4, not a target distance), and the readout prints it.
-- **GV-3 (backtest effect, fact):** the backtest runs the same pipeline on its modelled
-  quotes, so the vetoes run there too. On the model's ordinary chains (150-point
-  at-the-money premium at 1 day; futures at 20,000 or 23,712) the contract Felix picks
-  passes all three (test_option_model.py). In the golden run (seam_default) the one
+- **GV-3 (backtest effect, fact; corrected after review round 1, H1):** the backtest runs
+  the same pipeline on its modelled quotes, so the vetoes run there too. The first text
+  said the contract Felix picks from the model's ordinary chains passes all three; it
+  had tested only 20,000 and 23,712, and it is true only over a band of prices. The
+  model prices the at-the-money option at a fixed `atm_premium_points` (150) x root(days
+  to expiry) whatever the futures price, so its implied volatility is about
+  150 x root(2 pi x 365) / price, roughly 7,200 / price. Measured with the draft numbers
+  (`model_problem` in `backtest/model_check.py`, in 25-point steps from 2,000 to
+  120,000, on a Tuesday at 04:01 and 13:50 PT and a Friday at 13:50 PT; the sweep test
+  in tests/backtest/test_model_vol_guard.py shows Felix's pick gets the same verdict
+  from the agents, long and short):
+  - below about 4,850-4,900 the volatility is above theta's 1.5: Theta vetoes every
+    entry (already so before this branch);
+  - from there to about 7,250-7,350 it is above vega's 1.0: Vega vetoes every entry
+    (new with this branch);
+  - from there to about 90,500-91,800 Felix's pick passes Theta and all three;
+  - above that it is below vega's 0.08: Vega vetoes every entry.
+  NQ traded below about 7,300 until 2019, so a backtest over 2010-2019 would trade
+  nothing there. That run is not possible today anyway (the exchange calendar starts at
+  `calendar_from` 2026-01-01 and the backtest refuses days before it), but it is the
+  research period. **Guard, built here:** before a backtest starts (`Backtest.__init__`,
+  so the command line and compare both get it), the model is checked at the lowest and
+  the highest price traded in the prime session; outside the band the run is refused
+  with an error naming that price, the contract, its volatility and the bound (exit 2,
+  INVALID, from the command line). The fix itself is GV-4. In the golden run (seam_default) the one
   fired entry read implied volatility 0.309, delta 0.495, 30.0 hours to expiry; its
   trades, ledger and readout did not change, and every existing field of its 11
   decision records is identical; each record only gained `vega`, `delta` and `gamma`
   (null on the 10 records that never reached them). The modelled volatility is read from the model's own synthetic
   prices: the backtest's Greeks are a model measured with another model, not market
   facts (as TH-2 says for Theta).
+- **GV-3, also (review round 1, L3): the model and the vetoes count to different expiry
+  moments.** The model's time value runs to the prime close (14:00 PT, or the futures'
+  early close) on the expiry day; Theta, the Greeks agents and the guard count to the
+  option's expiry moment (`option_expiry.time`, 13:00 PT, or 10:00 PT on a stock half
+  day). So a modelled quote holds about an hour more time value than the vetoes assume,
+  and its implied volatility reads slightly high (about 2% with one day left,
+  root(24/23)). Not fixed here: it is not golden-neutral. Aligning the model to
+  `expiry_moment` was tried and failed the golden byte-identity test
+  (test_rules_seam.py) and test_calendar_early_close.py, because every modelled quote
+  changes; and how the model prices options is GV-4. Do it with GV-4.
+- **GV-4 (for Andre; review round 1, H1): how the backtest's option model prices an
+  option.** Today: a fixed `atm_premium_points` x root(days), whatever the price (see
+  GV-3). Options:
+  - (a) price the model in volatility terms: for example the Black-76 price at a
+    configured volatility, or at the day's VXN (R-2 chose VXN as the research
+    volatility). The modelled volatility then no longer drifts with the price level and
+    the guard should always pass. Changes every modelled quote, so every backtest
+    golden; L3 (the expiry moment) should be aligned in the same change.
+  - (b) keep the model; the guard (GV-3) refuses any run whose prices fall outside the
+    band, so the 2010-2019 research period cannot be backtested.
+  Until Andre decides: (b), with the guard.
+- **GV-5 (for Andre; review round 1, M1): the floor of the Delta band.** N (the levels
+  room check) assumes `options.assumed_delta` 0.45, and G4 calls it pessimistic; that
+  holds only while every entry Delta lets through has |delta| of at least 0.45. With
+  the first draft floor of 0.3 it did not: Felix takes the strike nearest the price, up
+  to `max_strike_distance` away, and (reviewer's figures) a 1-day option 50 points out
+  of the money at 0.15 volatility has |delta| about 0.38, so its true N is about 18%
+  larger than the room check assumed. **Interim rule, built here:** the loader refuses
+  `delta.min_abs_delta` below `options.assumed_delta`, and the draft floor is now 0.45.
+  This narrows the band: entries with |delta| from 0.30 to 0.45 are now vetoed. The
+  golden run's one entry (|delta| 0.4952) still passes; the only golden change is the
+  band printed in its Delta reason ("[0.45, 0.7]" for "[0.3, 0.7]").
+  Options: (a) keep the floor at `assumed_delta` (the interim rule); (b) a lower floor,
+  with GV-2 deciding how N uses the live delta (then drop the loader rule); (c) another
+  number.

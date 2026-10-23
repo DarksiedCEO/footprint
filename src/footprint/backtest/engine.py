@@ -39,6 +39,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from footprint.backtest.model_check import check_model_vol
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
 from footprint.backtest.settings import BacktestSettings
@@ -123,6 +124,8 @@ class Backtest:
         self._model = OptionModel(
             settings.option_model, profiles.instrument, profiles.strategy.options.assumed_delta
         )
+        # Review H1 (GV-4 open): refuse, loudly, prices the model cannot be traded at.
+        check_model_vol(self._model, profiles, self._bars[self._first :])
         self._price = self._bars[0].open
         self._published: OptionChain | None = None
         self._window_end = -1
