@@ -1,11 +1,11 @@
-source: 2da062092a51afddbaa28488cc3f4787972bc14e tree-dirty: 0 files
+source: 6d9a4216cfbe8788cd8222cb6401a7db6ecb5c1e tree-dirty: 0 files
 baseline [agents]: passed
 baseline [config]: passed
 baseline [journal]: passed
 baseline [pipeline]: passed
   1 KILLED   [agents] src/footprint/agents/greeks.py: American class valued
   2 KILLED   [agents] src/footprint/agents/greeks.py: unknown class valued
-  3 SURVIVED [agents] src/footprint/agents/greeks.py: option at its expiry moment valued
+  3 KILLED   [agents] src/footprint/agents/greeks.py: option at its expiry moment valued
   4 KILLED   [agents] src/footprint/agents/greeks.py: expired option valued
   5 KILLED   [agents] src/footprint/agents/greeks.py: wrong year length
   6 KILLED   [agents] src/footprint/agents/greeks.py: years off
@@ -19,7 +19,7 @@ baseline [pipeline]: passed
  14 KILLED   [agents] src/footprint/agents/greeks.py: bad input raises
  15 KILLED   [agents] src/footprint/agents/greeks.py: non-UTC accepted
  16 KILLED   [agents] src/footprint/agents/greeks.py: before-valuing veto ignored
- 17 SURVIVED [agents] src/footprint/agents/greeks.py: vega refusal wording skipped
+ 17 KILLED   [agents] src/footprint/agents/greeks.py: vega refusal wording skipped
  18 KILLED   [agents] src/footprint/agents/greeks.py: contracts not carried
  19 KILLED   [agents] src/footprint/agents/greeks.py: delta sign flipped in record
  20 KILLED   [agents] src/footprint/agents/greeks.py: gamma recorded wrong
@@ -27,8 +27,8 @@ baseline [pipeline]: passed
  22 KILLED   [agents] src/footprint/agents/greeks.py: vol not recorded
  23 KILLED   [agents] src/footprint/agents/greeks.py: years not recorded
  24 KILLED   [agents] src/footprint/agents/greeks.py: vega names the wrong bound
- 25 SURVIVED [agents] src/footprint/agents/greeks.py: vega wording never used
- 26 SURVIVED [agents] src/footprint/agents/greeks.py: vega veto drops expiry
+ 25 KILLED   [agents] src/footprint/agents/greeks.py: vega wording never used
+ 26 KILLED   [agents] src/footprint/agents/greeks.py: vega veto drops expiry
  27 KILLED   [agents] src/footprint/agents/greeks.py: vega always vetoes
  28 KILLED   [agents] src/footprint/agents/greeks.py: min edge excluded
  29 KILLED   [agents] src/footprint/agents/greeks.py: max edge excluded
@@ -64,4 +64,4 @@ baseline [pipeline]: passed
  59 KILLED   [config] src/footprint/core/config.py: equal delta band accepted
  60 KILLED   [config] src/footprint/core/config.py: delta max 1 refused
  61 KILLED   [config] src/footprint/core/config.py: delta above 1 accepted
-61 mutants, 4 survived or errored
+61 mutants, 0 survived or errored
