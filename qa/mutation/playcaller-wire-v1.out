@@ -1,0 +1,60 @@
+source: f4e08b60936ac209ef67673af23f06a0a56a8916 tree-dirty: 0 files
+baseline [engine]: passed
+baseline [live]: passed
+baseline [pipeline]: passed
+baseline [play]: passed
+  1 KILLED   [play] src/footprint/decision/play.py: TREND cause/regime consistency check removed
+  2 KILLED   [play] src/footprint/decision/play.py: CHOP cause/regime consistency check removed
+  3 KILLED   [play] src/footprint/decision/play.py: entries allowed on any non-CHOP play
+  4 KILLED   [play] src/footprint/decision/play.py: prime-session check removed
+  5 KILLED   [play] src/footprint/decision/play.py: UTC check removed
+  6 KILLED   [play] src/footprint/decision/play.py: kept label not keyed on the day
+  7 KILLED   [play] src/footprint/decision/play.py: label never kept (reader asked every call)
+  8 KILLED   [play] src/footprint/decision/play.py: kept call still marked first (journaled twice)
+  9 KILLED   [play] src/footprint/decision/play.py: the decision minute itself counted as before the decision time
+ 10 KILLED   [play] src/footprint/decision/play.py: entries allowed one minute before the decision time
+ 11 KILLED   [play] src/footprint/decision/play.py: label never stored
+ 12 KILLED   [play] src/footprint/decision/play.py: decision time = the cash open
+ 13 KILLED   [play] src/footprint/decision/play.py: decision time a minute early
+ 14 KILLED   [play] src/footprint/decision/play.py: window edge inclusive
+ 15 KILLED   [play] src/footprint/decision/play.py: window doubled
+ 16 KILLED   [play] src/footprint/decision/play.py: late check removed
+ 17 KILLED   [play] src/footprint/decision/play.py: window in minutes, not seconds
+ 18 KILLED   [play] src/footprint/decision/play.py: warm-up check removed
+ 19 KILLED   [play] src/footprint/decision/play.py: own history source ignored
+ 20 KILLED   [play] src/footprint/decision/play.py: handed bars ignored without a source
+ 21 KILLED   [play] src/footprint/decision/play.py: TypeError from the reader not caught
+ 22 KILLED   [play] src/footprint/decision/play.py: every exception swallowed
+ 23 KILLED   [play] src/footprint/decision/play.py: data failures counted as rules
+ 24 KILLED   [play] src/footprint/decision/play.py: rule stand-asides counted as data
+ 25 KILLED   [play] src/footprint/decision/play.py: CHOP branch removed (falls to stand aside)
+ 26 KILLED   [play] src/footprint/decision/play.py: warm-up walks one session short
+ 27 SURVIVED [play] src/footprint/decision/play.py: calendar_from itself counted as before it
+ 28 KILLED   [play] src/footprint/decision/play.py: need misses the oldest opening
+ 29 SURVIVED [play] src/footprint/decision/play.py: need misses the oldest night
+ 30 KILLED   [play] src/footprint/decision/play.py: need counts the opening day's night
+ 31 KILLED   [play] src/footprint/decision/play.py: need is the last day, not the worst
+ 32 KILLED   [play] src/footprint/decision/play.py: warm-up days not skipped in the need
+ 33 SURVIVED [play] src/footprint/decision/play.py: need: night opens the same day
+ 34 KILLED   [play] src/footprint/decision/play.py: one day short accepted
+ 35 KILLED   [play] src/footprint/decision/play.py: no labellable day accepted
+ 36 KILLED   [play] src/footprint/core/config.py: zero window accepted
+ 37 KILLED   [pipeline] src/footprint/decision/pipeline.py: pipeline ignores the play
+ 38 KILLED   [pipeline] src/footprint/decision/pipeline.py: approval does not check the play
+ 39 KILLED   [pipeline] src/footprint/decision/pipeline.py: play reason missing from the record
+ 40 KILLED   [pipeline] src/footprint/decision/pipeline.py: decision does not carry the play
+ 41 KILLED   [pipeline] src/footprint/decision/pipeline.py: injected play caller ignored
+ 42 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: play journaled every decision
+ 43 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: journal says entries allowed
+ 44 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: journal drops the reader's label
+ 45 KILLED   [engine] src/footprint/backtest/engine.py: play history sees the forming bar
+ 46 KILLED   [engine] src/footprint/backtest/engine.py: play history is the crew window
+ 47 KILLED   [engine] src/footprint/backtest/engine.py: backtest play reads the crew window
+ 48 KILLED   [engine] src/footprint/backtest/engine.py: run does not carry the plays
+ 49 KILLED   [engine] src/footprint/backtest/readout.py: warning also with no labels
+ 50 KILLED   [engine] src/footprint/backtest/readout.py: no-TREND warning removed
+ 51 KILLED   [engine] src/footprint/backtest/readout.py: warm-up note removed
+ 52 KILLED   [engine] src/footprint/backtest/readout.py: play days missing from markdown
+ 53 KILLED   [live] src/footprint/live/app.py: live start does not check the history
+ 54 KILLED   [live] src/footprint/live/__main__.py: refusal exits 0
+54 mutants, 3 survived or errored
