@@ -597,3 +597,28 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
+
+## Position cap raised to $10,000 (branch cap10k-v1; Andre, 2026-10-23)
+
+- **CAP-1 (Andre, decided 2026-10-23 08:38 PT): `risk.position_cap` 5000 -> 10000.** This is a
+  config change only; no code changes. Ezra still buys one contract (`max_contracts: 1`) and
+  refuses any contract whose worst allowed fill plus the entry fee is over the cap.
+  `overnight_position_cap` (2500) is unchanged; v1 does not trade overnight anyway.
+  - **Why:** in the London shadow test of 2026-10-23, live IBKR quotes put an at-the-money
+    NQ option at about 178 points (~$3,570) with 1 day left. The 2- and 3-day prices are
+    ESTIMATED at roughly $5,000 and $6,200 (scaled by the square root of time; not checked
+    against real quotes). Under the $5,000 cap Ezra skipped most 2-3 day at-the-money entries.
+  - **Unchanged:** the $750 hard stop, `stop_min`/`stop_max`, the $1,000 target, the daily
+    ($2,000) and weekly ($3,500) loss limits and the kill switch. The planned loss per trade
+    in dollars is the same.
+  - **What does change (for Andre to weigh):**
+    - Up to 40% of the $25,000 bankroll can sit in one option, up from 20%. A gap through the
+      resting stop can lose more than $750, up to the premium paid.
+    - $750 is a smaller share of a pricier option (7-12% of $6,000-$10,000), so ordinary
+      noise reaches the stop more often. The real-data backtest is what measures this.
+    - Line 12 of this file (the withdrawal policy) says position size steps up toward $10,000
+      "only at the same percent-of-bankroll risk". The dollar risk per trade is unchanged;
+      the premium held is not. Andre's call that this is consistent with that policy.
+  - **Tests:** `tests/test_config.py` pins 10000; the cap boundary in
+    `tests/agents/test_contract_sizing_stop.py` moved to 9,997.50 (fits) / 10,002.50 (refused),
+    and 5,002.50 now fits.

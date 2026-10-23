@@ -267,7 +267,9 @@ def test_ezra_cost_includes_the_entry_fee(
     ("bid", "ask", "fits"),
     [
         (249.75, 249.75, True),  # 249.75 x 20 + 2.50 = 4997.50
-        (250, 250, False),  # 5002.50: over the 5000 cap
+        (250, 250, True),  # 5002.50: over the old 5000 cap, inside CAP-1's 10000
+        (499.75, 499.75, True),  # 499.75 x 20 + 2.50 = 9997.50
+        (500, 500, False),  # 10002.50: over the 10000 cap (CAP-1)
     ],
 )
 def test_ezra_never_exceeds_the_position_cap(

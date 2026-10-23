@@ -1,6 +1,8 @@
 # Money model. Amounts are in account currency.
 bankroll: 25000
-position_cap: 5000
+position_cap: 10000            # CAP-1 (Andre, 2026-10-23): was 5000. Lets Ezra buy
+                               # 2-3 day at-the-money NQ options; the dollar stop and
+                               # loss limits are unchanged. See docs/decisions-pending.md.
 overnight_position_cap: 2500
 profit_target: 1000
 stop_min: 750
