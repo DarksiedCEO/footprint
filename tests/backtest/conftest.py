@@ -16,6 +16,29 @@ MINUTE = timedelta(minutes=1)
 TRADE_FROM = DECISION_TIME - MINUTE  # earlier bars are the readers' look-back only
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "real_play: run the backtest with the real play caller (no stand-in)"
+    )
+
+
+@pytest.fixture(autouse=True)
+def trend_every_day(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The backtest tests written before the play caller was wired check the crew, the
+    console, the exits, the CLI and the readout on a 26-session synthetic market that
+    the real regime reader can never label (it needs ~61 sessions). For them the
+    backtest builds a stand-in play caller that says TREND every day, so they keep
+    testing what they were written for. Tests marked `real_play` (and every test that
+    hands Backtest its own `play`) run with the real one; tests/backtest/
+    test_engine_play.py covers the real play caller in the backtest."""
+    if request.node.get_closest_marker("real_play") is not None:
+        return
+    from footprint.backtest import engine
+    from tests.decision.plays import open_play
+
+    monkeypatch.setattr(engine, "PlayCaller", lambda *args, **kwargs: open_play())
+
+
 @pytest.fixture(scope="session")
 def profiles() -> Profiles:
     return load_profiles(REPO_ROOT / "config", "nq.yaml")

@@ -18,6 +18,9 @@ Safety, in order of what can go wrong:
   every step.
 - A failing market data step leaves bars and chains missing (nothing is decided on
   them) and is alarmed; it never stops the runner, which manages what is open.
+- The play caller's regime reader reads market data's whole history; a configured
+  history too short for it on any day of the calendar refuses the start
+  (PlayHistoryTooShort, PC-2) before anything is built or connected.
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
+from footprint.decision.play import check_live_history
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.channels import (
@@ -147,6 +151,7 @@ def build(
     p = profiles
     ibkr = p.execution.ibkr
     check_paper(settings.account, settings.port)  # LiveAccountRefused
+    check_live_history(p)  # PlayHistoryTooShort: the regime reader needs this history
     state_dir.mkdir(parents=True, exist_ok=True)
     alarms = alarm_hub(sink, p.execution.alarms, channels, post, clock)  # D20
 

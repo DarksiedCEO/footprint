@@ -877,6 +877,19 @@ def load_regime(path: Path) -> RegimeSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class PlaySettings:
+    """The play caller (config/play.yaml): which play runs on the day's label (PC-5)."""
+
+    on_time_seconds: int
+
+
+def load_play(path: Path) -> PlaySettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(PlaySettings)})
+    return PlaySettings(on_time_seconds=_integer(raw, "on_time_seconds", where, minimum=1))
+
+
+@dataclass(frozen=True, slots=True)
 class QuoteSettings:
     max_age_seconds: int
     greeks_max_age_seconds: int
@@ -1142,6 +1155,8 @@ class Profiles:
     risk: RiskProfile
     strategy: StrategyProfile
     execution: ExecutionProfile
+    regime: RegimeSettings
+    play: PlaySettings
 
 
 def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
@@ -1151,6 +1166,8 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         risk=load_risk(config_dir / "risk.yaml"),
         strategy=load_strategy(config_dir / "strategy.yaml"),
         execution=load_execution(config_dir / "execution.yaml"),
+        regime=load_regime(config_dir / "regime.yaml"),
+        play=load_play(config_dir / "play.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
     return profiles

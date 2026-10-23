@@ -20,6 +20,7 @@ from footprint.core.models import Score
 from footprint.decision.pipeline import Pipeline
 from tests.backtest.test_rules_seam import _normalised, _run
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 from tests.decision.test_console_pipeline import clean
 
@@ -58,8 +59,10 @@ def test_breakout_reads_the_scenario_exactly_as_the_live_reader(
 def test_breakout_reaches_the_same_decision_as_the_default_pipeline(profiles: Profiles) -> None:
     bars = market()
     chain = chain_for(bars[-1].close)
-    default = Pipeline(profiles).decide(bars, chain, clean(profiles), (), DECISION_TIME)
-    named = Pipeline(profiles, ENTRY_RULES["breakout"](profiles, RULES)).decide(
+    default = Pipeline(profiles, play=open_play()).decide(
+        bars, chain, clean(profiles), (), DECISION_TIME
+    )
+    named = Pipeline(profiles, ENTRY_RULES["breakout"](profiles, RULES), play=open_play()).decide(
         bars, chain, clean(profiles), (), DECISION_TIME
     )
     assert default.fired

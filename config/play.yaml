@@ -1,0 +1,11 @@
+# Play caller: which play runs on the regime reader's label (config/regime.yaml).
+# Andre, PC-5 (2026-10-22): a TREND day runs the existing breakout entry (the live
+# momentum entry, unchanged); a CHOP day and a STAND ASIDE day take no new entries.
+# No new entries before the label is made (the decision time, regime.decision_minutes
+# after the cash open). Exits on an open position never depend on the label.
+# Andre, PC-4: only a label made on time counts; a label first available later means
+# no new entries that day.
+on_time_seconds: 60           # DEFAULT (draft, Andre PC-4): the day's label counts only if the
+                              #   first decision at or after the decision time comes within
+                              #   this many seconds of it (the decision minute). Later (data
+                              #   late, broker away, a restart) means no new entries that day

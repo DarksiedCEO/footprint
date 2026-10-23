@@ -18,8 +18,10 @@ engine:
                               #   adverse-first: against an open trade, the bad extreme
                               #   comes before the good one)
   history_minutes: 43200      # 1-minute bars handed to each decision (~30 sessions; the
-                              #   readers look back up to 20 sessions; the play caller's regime reader,
-                              #   not wired yet, needs more: decisions-pending PC-2)
+                              #   readers look back up to 20 sessions). The play caller's
+                              #   regime reader needs more (61 sessions): the backtest hands
+                              #   it its own source, every closed bar since the start of the
+                              #   data (decisions-pending PC-2)
 gates:                        # the go-live gates (work order, section 4)
   min_trades: 200
   min_win_rate_pct: 45

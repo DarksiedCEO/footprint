@@ -35,7 +35,7 @@ can still be read (the label can then come later than the decision time; PC-4).
 Corrected HISTORY bars with today's bars unchanged are not noticed: replaying a whole
 corrected data set needs a new reader (one reader per run).
 
-The reader only labels. Which play runs on which label is the console's job (not wired).
+The reader only labels. Which play runs on which label: the play caller (decision/play.py).
 """
 
 from __future__ import annotations

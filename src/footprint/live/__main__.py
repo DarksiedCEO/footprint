@@ -23,6 +23,7 @@ from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.brokers.ibkr.settings import IbConnectionSettings, read_env_file
 from footprint.core.config import load_profiles
 from footprint.data.news import blackouts_from
+from footprint.decision.play import PlayHistoryTooShort
 from footprint.execution.channels import ChannelSettings, TelegramOnlySettings
 from footprint.live.app import AlarmFile, Driver, build
 
@@ -95,15 +96,19 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    live = build(
-        profiles,
-        settings,
-        args.state,
-        AlarmFile(args.state / "alarms.log"),
-        blackouts_from(args.blackouts),
-        channels=channels,
-        new_ledger=args.new_ledger,
-    )
+    try:
+        live = build(
+            profiles,
+            settings,
+            args.state,
+            AlarmFile(args.state / "alarms.log"),
+            blackouts_from(args.blackouts),
+            channels=channels,
+            new_ledger=args.new_ledger,
+        )
+    except PlayHistoryTooShort as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     stop = threading.Event()
     commands: queue.Queue[str] = queue.Queue()
     signal.signal(signal.SIGTERM, lambda signum, frame: stop.set())
