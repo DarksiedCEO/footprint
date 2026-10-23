@@ -614,9 +614,13 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
       2026-09-14 to 2026-11-12, five times a day): Monday-Thursday, 180 of 180 entries fit
       under both caps ($3,127-$3,692). Friday, **0 of 40 fit at $5,000; 40 of 40 fit at
       $10,000** ($5,322-$5,702).
-    - **Every backtest result before CAP-1 (tournament, Bollinger, NQ out-of-sample
-      2010-2024) excluded all Fridays. Those results are not comparable with runs after
-      CAP-1.** Treat them as "Fridays excluded (pre-CAP-1)".
+    - **Results from the backtest engine (`footprint.backtest`) on the default config
+      before CAP-1, such as the Bollinger results, excluded all Fridays and are not
+      comparable with engine runs after CAP-1.** Treat them as "Fridays excluded
+      (pre-CAP-1)". The research harness (`footprint.research`, London-v1) prices with
+      Black-76 and never reads the cap, so it is unaffected. The tournament and NQ
+      out-of-sample 2010-2024 results came from scratch scripts that are no longer on disk;
+      whether they used the cap is NOT VERIFIED (review round 2, LOW).
     - Why no golden changed: the only golden (seam_default) is one Tuesday window with one
       entry at $3,337.50, which fits under both caps.
   - **Option prices (all ESTIMATES, from the review; not checked against a full set of real
