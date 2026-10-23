@@ -3,11 +3,16 @@
 Order (one-way, nothing loops back):
 0. risk precheck (Dolores): breakers, kill switch, open position, trade ceiling,
    session and news, run on EVERY decision so the record always shows them;
+0b. the play caller (decision/play.py), also on EVERY decision so the day's label is
+   made at the decision minute whatever else happens: a TREND day runs the breakout
+   entry; a CHOP or STAND ASIDE day, and any moment before the decision time, takes no
+   new entries (PC-5). Exits never pass through here (the runner asks for a decision
+   only with nothing open or working);
 1. crew reads on completed bars only: trend (Mateo), momentum (Darius), volume
    (Rafael), zero-day (Nia), levels (Grant), daily range (Nadia);
 2. console gates and score (Desmond);
 3. contract (Felix) -> size (Ezra) -> decay veto (Theta) -> full risk veto with the
-   sized cost (Dolores);
+   sized cost (Dolores), only when the play allows entries;
 4. an ApprovedEntry only when every step passes.
 Every step's result is kept on the Decision so the journal can record why the
 system did or did not trade. Malformed input (wrong symbol, out-of-order bars)
@@ -38,6 +43,7 @@ from footprint.core.series import require_series
 from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed, resample, session_days
 from footprint.decision.console.desmond import Console, ConsoleInputs, ConsoleVerdict
+from footprint.decision.play import PlayCall, PlayCaller, PlayGate
 from footprint.decision.risk.gate import (
     AccountState,
     EntryRequest,
@@ -62,6 +68,7 @@ class ApprovedEntry:
     entry: EntryRequest
     risk: RiskDecision
     theta: ThetaCheck
+    play: PlayCall
     _token: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -84,6 +91,8 @@ class ApprovedEntry:
             self.plan.contracts,
         ):
             raise PermissionError("theta judged a different contract or size")
+        if not self.play.entries_allowed:
+            raise PermissionError("no new entries on this play (only a TREND day trades)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +107,7 @@ class Decision:
     risk: RiskDecision | None
     approved: ApprovedEntry | None
     theta: ThetaCheck | None = None
+    play: PlayCall | None = None
 
     @property
     def fired(self) -> bool:
@@ -112,6 +122,8 @@ class Decision:
         if self.fired:
             return []
         out = ["risk: " + v.value for v in self.precheck.vetoes]
+        if self.play is not None and not self.play.entries_allowed:
+            out.append(f"play: {self.play.reason}")
         if self.data_error:
             out.append(f"data: {self.data_error}")
         if self.verdict is not None:
@@ -145,11 +157,14 @@ class Pipeline:
         profiles: Profiles,
         trigger: EntryTrigger | None = None,
         console: Gatekeeper | None = None,
+        play: PlayGate | None = None,
     ) -> None:
         """`trigger` replaces only the momentum read (backtest rule library); None, as
         the live runner builds it, is the momentum reader (Darius). `console` replaces
         the console (backtest rule library only); None, as the live runner builds it,
-        is the live console (Desmond)."""
+        is the live console (Desmond). `play` replaces the play caller (the backtest builds
+        one on its own history source); None, as the live runner builds it, is the play
+        caller reading the bars handed to each decision."""
         self._p = profiles
         s, inst = profiles.strategy, profiles.instrument
         self._trend = TrendReader(s.trend)
@@ -165,6 +180,9 @@ class Pipeline:
         )
         self._contract = ContractPicker(profiles.execution, inst)
         self._theta = ThetaAgent(s.theta, inst, profiles.risk)
+        self._play: PlayGate = (
+            PlayCaller(profiles.regime, profiles.play, s.data, inst) if play is None else play
+        )
         self._issued: dict[int, ApprovedEntry] = {}
         self._n_points = points_for_target(
             profiles.risk.profit_target,
@@ -197,14 +215,32 @@ class Pipeline:
             theta: ThetaCheck | None = None,
         ) -> Decision:
             return Decision(
-                as_of, pre, verdict, data_error, contract, plan, entry, risk, approved, theta
+                as_of,
+                pre,
+                verdict,
+                data_error,
+                contract,
+                plan,
+                entry,
+                risk,
+                approved,
+                theta,
+                play,
             )
 
+        # Asked first and on every decision: the day's label is fixed at the decision
+        # minute, whatever the crew, the data or the risk layer say.
+        play = self._play.call(minute_bars, as_of)
         try:
             verdict = self._verdict(minute_bars, as_of)
         except (ValueError, TypeError) as exc:
             return stop(data_error=str(exc))
-        if not verdict.go or verdict.direction is None or not pre.allowed:
+        if (
+            not verdict.go
+            or verdict.direction is None
+            or not pre.allowed
+            or not play.entries_allowed
+        ):
             return stop(verdict=verdict)
 
         direction = verdict.direction
@@ -226,7 +262,7 @@ class Pipeline:
                 verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, theta=theta
             )
         signal = Signal(ts=as_of, direction=direction, reads=verdict.reads)
-        approved = ApprovedEntry(signal, plan, entry, risk, theta, _APPROVAL)
+        approved = ApprovedEntry(signal, plan, entry, risk, theta, play, _APPROVAL)
         self._issued[id(approved)] = approved
         return stop(
             verdict=verdict,

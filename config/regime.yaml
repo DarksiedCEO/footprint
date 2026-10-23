@@ -1,0 +1,11 @@
+# Play caller (regime reader): labels the New York day TREND, CHOP or STAND ASIDE before
+# the first trade, from bars only, with no lookahead. Rules: Andre's play-caller
+# pre-registration draft (claude/playcaller-preregistration-draft-2026-10-21.md).
+# Every number below is a DEFAULT from that DRAFT, pending Andre's sign-off; none has
+# been tested on any data. Read by the regime reader; the play caller (config/play.yaml,
+# decision/play.py) acts on its label from playcaller-wire-v1 on (PC-5).
+decision_minutes: 30            # DEFAULT: the label is made this many minutes after the cash open
+efficiency_lookback_sessions: 60  # DEFAULT: today's opening efficiency is ranked against this many prior sessions
+trend_rank_pct: 67              # DEFAULT: TREND needs an efficiency rank at or above this (top third)
+chop_rank_pct: 33               # DEFAULT: CHOP is an efficiency rank below this (bottom third)
+overnight_lookback_sessions: 20  # DEFAULT: TREND also needs the overnight range at or above its median over this many prior sessions

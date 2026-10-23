@@ -22,6 +22,7 @@ from footprint.core.calendar import (
 from footprint.core.config import ConfigError, InstrumentProfile, Profiles, load_profiles
 from footprint.execution.channels import is_critical
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME
 from tests.execution.conftest import Stack
 
@@ -106,7 +107,7 @@ def test_no_entry_is_approved_on_a_us_holiday_session(stack: Stack) -> None:
     closed = replace(stack.profiles.instrument, no_trade_days=frozenset({day}))
     profiles = replace(stack.profiles, instrument=closed)
     bars = market()
-    decision = Pipeline(profiles).decide(
+    decision = Pipeline(profiles, play=open_play()).decide(
         bars, chain_for(bars[-1].close), stack.ledger.account(DECISION_TIME), (), DECISION_TIME
     )
     assert decision.approved is None
@@ -144,7 +145,7 @@ def test_an_expired_calendar_approves_no_entry(stack: Stack) -> None:
 
     profiles = expired(stack.profiles)
     bars = market()
-    decision = Pipeline(profiles).decide(
+    decision = Pipeline(profiles, play=open_play()).decide(
         bars, chain_for(bars[-1].close), stack.ledger.account(DECISION_TIME), (), DECISION_TIME
     )
     assert decision.approved is None

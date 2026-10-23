@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from footprint.backtest import __main__ as single_module
-from footprint.backtest import compare, rules
+from footprint.backtest import compare, engine, rules
 from footprint.backtest.__main__ import main as single_main
 from footprint.backtest.compare import NO_PROFIT_CLAIM, main
 from footprint.backtest.settings import RuleSettings
@@ -27,6 +27,7 @@ from footprint.execution.management.malik import ExitRule
 from tests.backtest.conftest import TRADE_FROM
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 
 CONFIG = REPO_ROOT / "config"
 _POSITION_SUFFIX = re.compile(rb'("position_id": "[0-9T]+-\d+-)[0-9a-f]{8}"')
@@ -69,6 +70,9 @@ def compared(bars: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path
     out = tmp_path_factory.mktemp("shared") / "cmp"
     with pytest.MonkeyPatch.context() as patch:
         _cut_to_two_by_two(patch)
+        # Module-scoped, so built before the per-test stand-in (conftest's
+        # trend_every_day): the same stand-in play caller here, by hand.
+        patch.setattr(engine, "PlayCaller", lambda *args, **kwargs: open_play())
         code, printed, _ = _compare(bars, out)
     assert code == 0
     return out, printed

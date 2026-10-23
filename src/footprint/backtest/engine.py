@@ -27,6 +27,13 @@ The clock, minute by minute:
 
 The run ends early on any halt or a latched kill switch (live, those wait for
 Andre), and the readout says why.
+
+The play caller (decision/play.py) is the live one, on its own history source: every
+bar that has closed by then, from the start of the data, so its regime reader always
+has all the history the data holds (it is asked once a trading day). The crew keeps
+its `history_minutes` window, unchanged. Each day's label is in the journal (plays)
+and counted in the readout: a run whose days were never labelled TREND (warm-up after
+calendar_from, too little data before the traded window, ...) says so.
 """
 
 from __future__ import annotations
@@ -48,6 +55,7 @@ from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import require_series
 from footprint.decision.pipeline import EntryTrigger, Gatekeeper, Pipeline
+from footprint.decision.play import PlayCaller, PlayGate
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.executor.diego import Executor
@@ -83,6 +91,7 @@ class BacktestRun:
     marked_max_drawdown_pct: Decimal = Decimal(0)  # equity marked to the bid each step
     marked_max_drawdown: Decimal = Decimal(0)
     worst_open_loss: Decimal = Decimal(0)  # the worst unrealized P&L of any trade
+    plays: list[dict[str, Any]] = field(default_factory=list)  # each day's label (journal)
 
 
 class Backtest:
@@ -97,13 +106,15 @@ class Backtest:
         trigger: EntryTrigger | None = None,
         exit_rule: ExitRule | None = None,
         console: Gatekeeper | None = None,
+        play: PlayGate | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
         clock starts at the first bar at or after it. None: start at the first bar.
         `trigger`: a named entry rule's trigger (footprint.backtest.rules); None is
         the live entry, unchanged. `exit_rule`: a named exit rule; None is the live
         exit, unchanged. `console`: a rule's console (footprint.backtest.rule_console);
-        None is the live console, unchanged."""
+        None is the live console, unchanged. `play`: tests only (a stand-in play caller);
+        None is the live play caller on every closed bar since the start of the data."""
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -137,9 +148,11 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
-        pipeline = (
-            Pipeline(p) if trigger is None and console is None else Pipeline(p, trigger, console)
-        )
+        if play is None:
+            play = PlayCaller(
+                p.regime, p.play, p.strategy.data, p.instrument, history=self._history_bars
+            )
+        pipeline = Pipeline(p, trigger, console, play)
         stops = StopKeeper(p.risk, p.instrument, p.execution)
         executor = Executor(p, pipeline, tracked, stops, self.ledger, self.halt, self.book)
         manager = (
@@ -174,6 +187,11 @@ class Backtest:
             start = max(0, end - self._s.engine.history_minutes)
             self._window, self._window_end = self._bars[start:end], end
         return self._window
+
+    def _history_bars(self, now: datetime) -> tuple[Bar, ...]:
+        """Every bar that had closed by `now`, from the start of the data (the play
+        caller's history: no look-ahead, no window)."""
+        return self._bars[: bisect_right(self._starts, now - _MINUTE)]
 
     def _chain(self, now: datetime) -> OptionChain:
         if self._published is not None and self._published.ts == now:
@@ -252,6 +270,7 @@ class Backtest:
             marked_max_drawdown_pct=self._worst_pct,
             marked_max_drawdown=self._worst,
             worst_open_loss=self._worst_open,
+            plays=self.journal.plays(),
         )
 
     def _inside_calendar(self, first: datetime, last: datetime) -> None:

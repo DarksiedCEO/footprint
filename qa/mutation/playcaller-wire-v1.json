@@ -1,0 +1,612 @@
+{
+ "groups": {
+  "play": [
+   "tests/decision/test_play.py"
+  ],
+  "pipeline": [
+   "tests/decision/test_pipeline_play.py",
+   "tests/decision/test_console_pipeline.py"
+  ],
+  "engine": [
+   "tests/backtest/test_engine_play.py",
+   "tests/backtest/test_rules_seam.py",
+   "tests/backtest/test_engine.py"
+  ],
+  "live": [
+   "tests/live/test_play_wiring.py"
+  ],
+  "reader": [
+   "tests/agents/test_regime_reader.py"
+  ]
+ },
+ "mutants": [
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if (self.cause is PlayCause.TREND) != (self.regime is Regime.TREND):",
+   "if False:",
+   "TREND cause/regime consistency check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if (self.cause is PlayCause.CHOP) != (self.regime is Regime.CHOP):",
+   "if False:",
+   "CHOP cause/regime consistency check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        return self.cause is PlayCause.TREND\n",
+   "        return self.cause is not PlayCause.CHOP\n",
+   "entries allowed on any non-CHOP play"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if today is None or session_at(as_of, self._instrument) is not SessionKind.PRIME:",
+   "if today is None:",
+   "prime-session check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        require_utc(as_of, \"as_of\")\n        today = trading_day_at",
+   "        today = trading_day_at",
+   "UTC check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if self._fixed is not None and self._fixed[0] == today:",
+   "if self._fixed is not None:",
+   "kept label not keyed on the day"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if self._fixed is not None and self._fixed[0] == today:",
+   "if False:",
+   "label never kept (reader asked every call)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "return replace(self._fixed[1], first=False)",
+   "return self._fixed[1]",
+   "kept call still marked first (journaled twice)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if as_of < due:\n",
+   "        if as_of <= due:\n",
+   "the decision minute itself counted as before the decision time"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if as_of < due:\n",
+   "        if as_of < due - _MINUTE:\n",
+   "entries allowed one minute before the decision time"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        self._fixed = (today, fixed)\n",
+   "",
+   "label never stored"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "return cash_open + _MINUTE * self._regime.decision_minutes",
+   "return cash_open",
+   "decision time = the cash open"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "return cash_open + _MINUTE * self._regime.decision_minutes",
+   "return cash_open + _MINUTE * (self._regime.decision_minutes - 1)",
+   "decision time a minute early"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if as_of >= due + self._on_time:",
+   "if as_of > due + self._on_time:",
+   "window edge inclusive"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if as_of >= due + self._on_time:",
+   "if as_of >= due + self._on_time + self._on_time:",
+   "window doubled"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if as_of >= due + self._on_time:",
+   "if False:",
+   "late check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "self._on_time = timedelta(seconds=play.on_time_seconds)",
+   "self._on_time = timedelta(minutes=play.on_time_seconds)",
+   "window in minutes, not seconds"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if warm_up(today, self.history_sessions, self._instrument):\n",
+   "        if False:\n",
+   "warm-up check removed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "bars = minute_bars if self._history is None else self._history(as_of)",
+   "bars = minute_bars",
+   "own history source ignored"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "bars = minute_bars if self._history is None else self._history(as_of)",
+   "bars = self._history(as_of) if self._history is not None else ()",
+   "handed bars ignored without a source"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "except (ValueError, TypeError) as exc:",
+   "except ValueError as exc:",
+   "TypeError from the reader not caught"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "except (ValueError, TypeError) as exc:",
+   "except Exception as exc:",
+   "every exception swallowed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "cause = PlayCause.NO_DATA if label.efficiency_rank_pct is None else PlayCause.RULES",
+   "cause = PlayCause.RULES",
+   "data failures counted as rules"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "cause = PlayCause.NO_DATA if label.efficiency_rank_pct is None else PlayCause.RULES",
+   "cause = PlayCause.NO_DATA",
+   "rule stand-asides counted as data"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if label.regime is Regime.CHOP:\n            return PlayCall(",
+   "        if False:\n            return PlayCall(",
+   "CHOP branch removed (falls to stand aside)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "    for _ in range(sessions - 1):\n        back = previous_trading_day(back, instrument)\n        if back < instrument.calendar_from:",
+   "    for _ in range(sessions - 2):\n        back = previous_trading_day(back, instrument)\n        if back < instrument.calendar_from:",
+   "warm-up walks one session short"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if back < instrument.calendar_from:\n            return True",
+   "        if back <= instrument.calendar_from:\n            return True",
+   "calendar_from itself counted as before it"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "                if count < r.efficiency_lookback_sessions:\n                    oldest = min(oldest, cash_open(back))",
+   "                if count < r.efficiency_lookback_sessions - 1:\n                    oldest = min(oldest, cash_open(back))",
+   "need misses the oldest opening"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "                if count < r.overnight_lookback_sessions:\n                    oldest = min(oldest, night_open(back))",
+   "                if count < r.overnight_lookback_sessions - 1:\n                    oldest = min(oldest, night_open(back))",
+   "need misses the oldest night"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "                    oldest = min(oldest, cash_open(back))",
+   "                    oldest = min(oldest, night_open(back))",
+   "need counts the opening day's night"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "need = span if need is None else max(need, span)",
+   "need = span",
+   "need is the last day, not the worst"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "if is_tradable_day(day, p) and not warm_up(day, caller.history_sessions, p):",
+   "if is_tradable_day(day, p):",
+   "warm-up days not skipped in the need"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "start_day = day - _DAY if night.start > night.end else day\n        return datetime.combine(start_day, night.start, night_zone)",
+   "start_day = day\n        return datetime.combine(start_day, night.start, night_zone)",
+   "need: night opens the same day"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "    if have < need:\n",
+   "    if have < need - 1:\n",
+   "one day short accepted"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "    if need is None:\n        raise PlayHistoryTooShort(",
+   "    if need is None:\n        return 0\n        raise PlayHistoryTooShort(",
+   "no labellable day accepted"
+  ],
+  [
+   "play",
+   "src/footprint/core/config.py",
+   "return PlaySettings(on_time_seconds=_integer(raw, \"on_time_seconds\", where, minimum=1))",
+   "return PlaySettings(on_time_seconds=_integer(raw, \"on_time_seconds\", where, minimum=0))",
+   "zero window accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            or not play.entries_allowed\n",
+   "",
+   "pipeline ignores the play"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if not self.play.entries_allowed:\n            raise PermissionError",
+   "        if False:\n            raise PermissionError",
+   "approval does not check the play"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if self.play is not None and not self.play.entries_allowed:\n            out.append(f\"play: {self.play.reason}\")",
+   "        if False:\n            out.append(f\"play: {self.play.reason}\")",
+   "play reason missing from the record"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                theta,\n                play,\n            )",
+   "                theta,\n                None,\n            )",
+   "decision does not carry the play"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            PlayCaller(profiles.regime, profiles.play, s.data, inst) if play is None else play",
+   "            PlayCaller(profiles.regime, profiles.play, s.data, inst)",
+   "injected play caller ignored"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "        if play is not None and play.first:",
+   "        if play is not None:",
+   "play journaled every decision"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "\"entries_allowed\": play.entries_allowed,",
+   "\"entries_allowed\": True,",
+   "journal says entries allowed"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "\"label\": play.label,",
+   "\"label\": None,",
+   "journal drops the reader's label"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        return self._bars[: bisect_right(self._starts, now - _MINUTE)]",
+   "        return self._bars[: bisect_right(self._starts, now)]",
+   "play history sees the forming bar"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        return self._bars[: bisect_right(self._starts, now - _MINUTE)]",
+   "        return self._closed_bars(now)",
+   "play history is the crew window"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "                p.regime, p.play, p.strategy.data, p.instrument, history=self._history_bars",
+   "                p.regime, p.play, p.strategy.data, p.instrument",
+   "backtest play reads the crew window"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "            plays=self.journal.plays(),\n",
+   "",
+   "run does not carry the plays"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/readout.py",
+   "    if play_days and not play_days.get(PlayCause.TREND.value):",
+   "    if not play_days.get(PlayCause.TREND.value):",
+   "warning also with no labels"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/readout.py",
+   "    if play_days and not play_days.get(PlayCause.TREND.value):",
+   "    if False:",
+   "no-TREND warning removed"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/readout.py",
+   "            + _WARM_UP_NOTE * (PlayCause.WARM_UP.value in play_days)\n",
+   "",
+   "warm-up note removed"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/readout.py",
+   "    lines += [f\"- {cause}: {count}\" for cause, count in r.play_days.items()]\n",
+   "",
+   "play days missing from markdown"
+  ],
+  [
+   "live",
+   "src/footprint/live/app.py",
+   "    check_live_history(p)  # PlayHistoryTooShort: the regime reader needs this history\n",
+   "",
+   "live start does not check the history"
+  ],
+  [
+   "live",
+   "src/footprint/live/__main__.py",
+   "    except PlayRefused as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2",
+   "    except PlayRefused as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 0",
+   "refusal exits 0"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if fixed.cause is PlayCause.WAITING:\n",
+   "        if False:\n",
+   "R1-M1: a WAITING call fixes the day"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            self._waiting = today\n",
+   "            pass\n",
+   "R1-M1: the waiting day is not remembered (window end gives LATE, not NO_DATA)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            if self._waiting == today:",
+   "            if self._waiting is not None:",
+   "R1-M1: waiting on any earlier day makes a late start NO_DATA"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            if self._waiting == today:",
+   "            if True:",
+   "R1-M1: after the window always NO_DATA (never LATE)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            if not _has_closed_bar_from(bars, final, as_of):",
+   "            if False:",
+   "R1-M1: never wait for the final opening minute (old behaviour)"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if bar.ts + _MINUTE <= as_of:",
+   "        if True:",
+   "R1-M1: a forming bar counts as the final minute"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        if bar.ts + _MINUTE <= as_of:",
+   "        if bar.ts + _MINUTE < as_of:",
+   "R1-M1: a bar closing exactly at as_of is not closed"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            return bar.ts >= start\n",
+   "            return bar.ts > start\n",
+   "R1-M1: the final minute itself does not count"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "            return bar.ts >= start\n    return False\n",
+   "            return bar.ts >= start\n    return True\n",
+   "R1-M1: no closed bar at all counts as present"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "        final = due - _MINUTE  #",
+   "        final = due  #",
+   "R1-M1: waiting for the decision minute's bar instead of the final opening minute"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "                    PlayCause.NO_DATA,\n                    f\"the opening's final minute",
+   "                    PlayCause.LATE,\n                    f\"the opening's final minute",
+   "R1-M1: still waiting at window end is LATE, not NO_DATA"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "    except ValueError as exc:  # the reader's own check",
+   "    except TypeError as exc:  # the reader's own check",
+   "R1-L4: an unusable regime config escapes as a bare ValueError"
+  ],
+  [
+   "play",
+   "src/footprint/decision/play.py",
+   "class PlayHistoryTooShort(PlayRefused):",
+   "class PlayHistoryTooShort(ValueError):",
+   "R1-L4: history refusal no longer a PlayRefused"
+  ],
+  [
+   "reader",
+   "src/footprint/agents/regime_reader.py",
+   "                    bad_history_day=day,\n",
+   "",
+   "R1-M2: the bad history day is not named on the call"
+  ],
+  [
+   "reader",
+   "src/footprint/agents/regime_reader.py",
+   "                bad_history_day=bad_history_day,\n",
+   "                bad_history_day=None,\n",
+   "R1-M2: aside() drops the bad history day"
+  ],
+  [
+   "engine",
+   "src/footprint/execution/runner.py",
+   "        if play is None or not play.first or play.label is None:",
+   "        if play is None or play.label is None:",
+   "R1-M2: alarm on every decision, not once a day"
+  ],
+  [
+   "engine",
+   "src/footprint/execution/runner.py",
+   "        bad = play.label.bad_history_day\n        if bad is None:\n            return\n",
+   "        bad = play.label.bad_history_day\n",
+   "R1-M2: alarm on every fixed label, bad history or not"
+  ],
+  [
+   "engine",
+   "src/footprint/execution/runner.py",
+   "        self._alarm_bad_history(decision, now)\n",
+   "",
+   "R1-M2: the bad-history alarm is never raised"
+  ],
+  [
+   "engine",
+   "src/footprint/execution/runner.py",
+   "PLAY CALLER: no new entries on {play.day}: history",
+   "PLAY CALLER: no new entries: history",
+   "R1-M2: the alarm does not name the blocked day"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "        self._record_decision(decision)\n        while self._owed_plays:\n            self._append(self._plays, self._owed_plays[0])\n            self._owed_plays.pop(0)\n",
+   "        while self._owed_plays:\n            self._append(self._plays, self._owed_plays[0])\n            self._owed_plays.pop(0)\n        self._record_decision(decision)\n",
+   "R1-L3: a failing play record loses the decision record"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "            self._append(self._plays, self._owed_plays[0])\n            self._owed_plays.pop(0)\n",
+   "            self._append(self._plays, self._owed_plays.pop(0))\n",
+   "R1-L3: the owed record is dropped before it is written (no retry)"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "        while self._owed_plays:\n",
+   "        if self._owed_plays:\n",
+   "R1-L3: only one owed record written per decision"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "        if play is not None and play.first:\n            self._owed_plays.append(",
+   "        if play is not None:\n            self._owed_plays.append(",
+   "R1-L3: a play record on every decision"
+  ],
+  [
+   "play",
+   "src/footprint/core/config.py",
+   "    if delay >= play.on_time_seconds:",
+   "    if delay > play.on_time_seconds:",
+   "R1-L1: a poll delay equal to the window is accepted"
+  ],
+  [
+   "play",
+   "src/footprint/core/config.py",
+   "    check_play_timing(profiles.instrument, profiles.execution, profiles.regime, profiles.play)\n",
+   "",
+   "R1-L1/L4: the play timing check is not made at load"
+  ],
+  [
+   "play",
+   "src/footprint/core/config.py",
+   "    if cash.end <= cash.start or regime.decision_minutes >= cash_minutes:",
+   "    if cash.end <= cash.start or regime.decision_minutes > cash_minutes:",
+   "R1-L4: a decision time at the cash close is accepted"
+  ],
+  [
+   "live",
+   "src/footprint/live/__main__.py",
+   "    except ConfigError as exc:",
+   "    except KeyError as exc:",
+   "R1-L4: a ConfigError at load is a traceback"
+  ],
+  [
+   "live",
+   "src/footprint/live/__main__.py",
+   "    except PlayRefused as exc:",
+   "    except PlayHistoryTooShort as exc:",
+   "R1-L4: only the history refusal is caught at build"
+  ],
+  [
+   "pipeline",
+   "tests/decision/plays.py",
+   "        if as_of < clock.decision_time(today):",
+   "        if False:",
+   "R1-L2: the stand-in allows entries before the decision time"
+  ],
+  [
+   "pipeline",
+   "tests/decision/plays.py",
+   "        if today is None or session_at(as_of, inst) is not SessionKind.PRIME:",
+   "        if today is None:",
+   "R1-L2: the stand-in allows entries outside prime"
+  ]
+ ]
+}

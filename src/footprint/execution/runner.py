@@ -366,6 +366,7 @@ class Runner:
             self._journal.record_decision(decision)
         except Exception as exc:
             self._alarm(now, f"journal failed for a decision: {exc!r}")
+        self._alarm_bad_history(decision, now)
         if decision.approved is None:
             return
         if self._cleared_by is None:
@@ -383,6 +384,23 @@ class Runner:
             self._entry_done(ticket, now)
             if self._position is not None:
                 self._manage(now, blackouts)
+
+    def _alarm_bad_history(self, decision: Decision, now: datetime) -> None:
+        """Once a day (on the decision that fixed the day's label): a history session the
+        regime reader could not use stood the day aside. That one session stands aside
+        every day it stays in the reader's lookback, so Andre is told which (PC-7)."""
+        play = decision.play
+        if play is None or not play.first or play.label is None:
+            return
+        bad = play.label.bad_history_day
+        if bad is None:
+            return
+        self._alarm(
+            now,
+            f"PLAY CALLER: no new entries on {play.day}: history session {bad} is unusable "
+            f"({play.label.reason}); it stands aside every day it stays in the regime "
+            "reader's lookback (PC-7)",
+        )
 
     def _manage(self, now: datetime, blackouts: tuple[NewsBlackout, ...]) -> None:
         assert self._position is not None
