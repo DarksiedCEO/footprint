@@ -20,3 +20,15 @@ treats its band as inclusive (it solves inside [min, max]), which is what the co
 does; the mutant would make the guard refuse one price the agent allows, failing
 closed. No test can produce the exact tie without forging a quote off the model, so
 the mutants are recorded as equivalent in practice.
+
+## Gamma loader bound: one side left in local time (`core/config.py`, `_check_gamma_reachable`)
+
+Round 2 own mutant 17 ("no UTC: clock change ignored"): drops `.astimezone(UTC)` from
+`ends` only, leaving `opens` in UTC. Equivalent: Python subtracts two aware datetimes
+with *different* tzinfo objects by first converting both to UTC, so `ends - opens` is
+the same real elapsed time either way. The conversion matters only when both sides keep
+the *same* ZoneInfo object (then the subtraction is naive and the clock-change hour is
+lost: 81 hours instead of 82). That case is pinned by the tests: dropping UTC from both
+sides gives 81 hours and test_a_gamma_minimum_under_the_longest_possible_wait_loads[82-3]
+fails (seen while building: the first, naive calculation gave 81). The mutation run
+evidence for that two-sided variant is not in the .out; it was observed by hand only.
