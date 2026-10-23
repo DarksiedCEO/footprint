@@ -91,7 +91,46 @@ def test_the_guard_refuses_exactly_where_the_vetoes_refuse_the_modelled_contract
             assert veto is None, (price, direction, veto)
         else:
             assert veto in ("theta", "vega"), (price, direction, veto, problem)
-            assert veto in problem, problem
+            assert f"{veto}." in problem, problem
+            assert f"{veto} would veto" in problem, problem
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "step"),
+    [(D(7200), D(7400), D("0.25")), (D(91250), D(92100), D(1))],
+)
+def test_at_the_edges_of_the_band_the_guard_agrees_with_the_vetoes_price_by_price(
+    profiles: Profiles, settings: BacktestSettings, low: Decimal, high: Decimal, step: Decimal
+) -> None:
+    # Near each edge the verdict flips back and forth with the strike and the option
+    # tick: a put can fail where the call passes, and a tie in strike distance decides
+    # which contract is judged. The guard must refuse exactly where Felix's long or
+    # short pick would be vetoed, and nowhere else.
+    m = model(profiles, settings)
+    picker = ContractPicker(profiles.execution, profiles.instrument)
+    refused = allowed = 0
+    at = low
+    while at <= high:
+        problem = model_problem(m, profiles, TUE_LATE, at)
+        vetoes = []
+        for direction in Direction:
+            choice = picker.choose(m.chain(TUE_LATE, at), direction, TUE_LATE)
+            assert isinstance(choice, ContractChoice), choice
+            veto = first_veto(profiles, plan_for(choice), at, TUE_LATE)
+            if veto is not None:
+                vetoes.append((choice.quote.right.value.lower(), choice.quote.strike, veto))
+        if problem is None:
+            assert not vetoes, (at, vetoes)
+            allowed += 1
+        else:
+            assert vetoes, (at, problem)
+            assert any(
+                f"{r} {k} " in problem and f"{v} would veto" in problem for r, k, v in vetoes
+            ), (at, problem, vetoes)
+            refused += 1
+        at += step
+    assert refused  # the range really straddles an edge
+    assert allowed
 
 
 @pytest.mark.parametrize(
@@ -102,6 +141,7 @@ def test_the_guard_refuses_exactly_where_the_vetoes_refuse_the_modelled_contract
         (5000, "vega", "above"),
         (7000, "vega", "above"),
         (100000, "vega", "below"),
+        (150000, "theta", "below"),
     ],
 )
 def test_the_known_bad_prices_with_todays_draft_numbers(
@@ -110,8 +150,9 @@ def test_the_known_bad_prices_with_todays_draft_numbers(
     # The facts behind GV-3 and GV-4 (review H1), with the draft config of 2026-10-23.
     problem = model_problem(model(profiles, settings), profiles, TUE_LATE, D(price))
     assert problem is not None
-    assert f"{agent}." in problem
-    assert f" {side} " in problem
+    bound = "min_implied_vol" if side == "below" else "max_implied_vol"
+    assert f" {side} {agent}.{bound} " in problem or f", {side} {agent}.{bound} " in problem
+    assert f"{agent} would veto every entry" in problem
     assert str(price) in problem
 
 

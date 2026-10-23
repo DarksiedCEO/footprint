@@ -691,7 +691,9 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
     entry (already so before this branch);
   - from there to about 7,250-7,350 it is above vega's 1.0: Vega vetoes every entry
     (new with this branch);
-  - from there to about 90,500-91,800 Felix's pick passes Theta and all three;
+  - from there to about 90,500-92,000 Felix's pick passes Theta and all three (near
+    each edge the verdict flips back and forth over tens of points, with the strike and
+    the option tick);
   - above that it is below vega's 0.08: Vega vetoes every entry.
   NQ traded below about 7,300 until 2019, so a backtest over 2010-2019 would trade
   nothing there. That run is not possible today anyway (the exchange calendar starts at
