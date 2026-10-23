@@ -687,6 +687,23 @@ class ThetaSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class VegaSettings:
+    min_implied_vol: Decimal
+    max_implied_vol: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaSettings:
+    min_abs_delta: Decimal
+    max_abs_delta: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class GammaSettings:
+    min_hours_to_expiry: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class ZeroDaySettings:
     lookback_sessions: int
     trip_multiple: Decimal
@@ -712,6 +729,9 @@ class StrategyProfile:
     levels: LevelsSettings
     options: OptionsSettings
     theta: ThetaSettings
+    vega: VegaSettings
+    delta: DeltaSettings
+    gamma: GammaSettings
     zeroday: ZeroDaySettings
     console: ConsoleSettings
 
@@ -804,6 +824,39 @@ def load_strategy(path: Path) -> StrategyProfile:
     if theta.max_implied_vol <= theta.min_implied_vol:
         raise ConfigError(f"{th_where}: max_implied_vol must be > min_implied_vol")
 
+    # GV-1: the vega band is also the bracket every Greeks agent solves implied
+    # volatility in. It must lie inside theta's bounds: a vega bound outside them could
+    # never be reached (Theta refuses first), a setting that would only mislead.
+    vg_where = f"{where}: vega"
+    vg = _check_keys(raw["vega"], {f.name for f in fields(VegaSettings)}, vg_where)
+    vega = VegaSettings(
+        min_implied_vol=_positive_decimal(vg, "min_implied_vol", vg_where),
+        max_implied_vol=_positive_decimal(vg, "max_implied_vol", vg_where),
+    )
+    if vega.max_implied_vol <= vega.min_implied_vol:
+        raise ConfigError(f"{vg_where}: max_implied_vol must be > min_implied_vol")
+    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:
+        raise ConfigError(
+            f"{vg_where}: the band must lie inside theta's [min_implied_vol, max_implied_vol]"
+        )
+
+    dl_where = f"{where}: delta"
+    dl = _check_keys(raw["delta"], {f.name for f in fields(DeltaSettings)}, dl_where)
+    delta = DeltaSettings(
+        min_abs_delta=_positive_decimal(dl, "min_abs_delta", dl_where),
+        max_abs_delta=_positive_decimal(dl, "max_abs_delta", dl_where),
+    )
+    if delta.max_abs_delta <= delta.min_abs_delta:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be > min_abs_delta")
+    if delta.max_abs_delta > 1:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be <= 1")
+
+    gm_where = f"{where}: gamma"
+    gm = _check_keys(raw["gamma"], {f.name for f in fields(GammaSettings)}, gm_where)
+    gamma = GammaSettings(
+        min_hours_to_expiry=_positive_decimal(gm, "min_hours_to_expiry", gm_where),
+    )
+
     z_where = f"{where}: zeroday"
     z = _check_keys(raw["zeroday"], {f.name for f in fields(ZeroDaySettings)}, z_where)
     zeroday = ZeroDaySettings(
@@ -841,6 +894,9 @@ def load_strategy(path: Path) -> StrategyProfile:
         levels=levels,
         options=options,
         theta=theta,
+        vega=vega,
+        delta=delta,
+        gamma=gamma,
         zeroday=zeroday,
         console=console,
     )

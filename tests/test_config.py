@@ -464,6 +464,9 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.theta.max_decay_pct_of_target == Decimal(25)
     assert s.theta.rate == Decimal("0.04")
     assert (s.theta.min_implied_vol, s.theta.max_implied_vol) == (Decimal("0.05"), Decimal("1.5"))
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (Decimal("0.08"), Decimal("1.0"))
+    assert (s.delta.min_abs_delta, s.delta.max_abs_delta) == (Decimal("0.3"), Decimal("0.7"))
+    assert s.gamma.min_hours_to_expiry == Decimal(6)
 
 
 @pytest.mark.parametrize(
@@ -506,6 +509,24 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("theta", {"max_implied_vol": 0.05}),  # == min_implied_vol
         ("theta", {"max_implied_vol": 0.01}),  # below min_implied_vol
         ("theta", {"extra": 1}),
+        ("vega", {"min_implied_vol": 0}),
+        ("vega", {"min_implied_vol": "0.08"}),
+        ("vega", {"max_implied_vol": 0.08}),  # == min_implied_vol
+        ("vega", {"max_implied_vol": 0.07}),  # below min_implied_vol
+        ("vega", {"min_implied_vol": 0.04}),  # below theta's min_implied_vol
+        ("vega", {"max_implied_vol": 1.6}),  # above theta's max_implied_vol
+        ("vega", {"extra": 1}),
+        ("delta", {"min_abs_delta": 0}),
+        ("delta", {"min_abs_delta": -0.3}),
+        ("delta", {"max_abs_delta": 0.3}),  # == min_abs_delta
+        ("delta", {"max_abs_delta": 0.2}),  # below min_abs_delta
+        ("delta", {"max_abs_delta": 1.01}),  # no |delta| above 1 is a band
+        ("delta", {"max_abs_delta": True}),
+        ("delta", {"extra": 1}),
+        ("gamma", {"min_hours_to_expiry": 0}),
+        ("gamma", {"min_hours_to_expiry": -1}),
+        ("gamma", {"min_hours_to_expiry": "6"}),
+        ("gamma", {"extra": 1}),
     ],
 )
 def test_bad_strategy_values_are_rejected(
@@ -676,6 +697,41 @@ def test_theta_accepts_a_negative_rate_and_a_full_budget(
     target.write_text(yaml.safe_dump(data))
     theta = load_strategy(target).theta
     assert (theta.rate, theta.max_decay_pct_of_target) == (Decimal("-0.01"), Decimal(100))
+
+
+def test_the_greeks_bands_accept_their_edges(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    theta = data["theta"]
+    data["vega"].update(
+        {"min_implied_vol": theta["min_implied_vol"], "max_implied_vol": theta["max_implied_vol"]}
+    )
+    data["delta"].update({"max_abs_delta": 1})
+    data["gamma"].update({"min_hours_to_expiry": 0.5})
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    s = load_strategy(target)
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (
+        s.theta.min_implied_vol,
+        s.theta.max_implied_vol,
+    )
+    assert s.delta.max_abs_delta == 1
+    assert s.gamma.min_hours_to_expiry == Decimal("0.5")
+
+
+@pytest.mark.parametrize("section", ["vega", "delta", "gamma"])
+def test_a_missing_greeks_section_is_refused(
+    strategy_path: Path, tmp_path: Path, section: str
+) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    del data[section]
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="missing"):
+        load_strategy(target)
 
 
 def test_the_option_expiry_rules_load(instrument_path: Path) -> None:

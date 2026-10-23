@@ -597,3 +597,74 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
+
+## Greeks vetoes (branch greeks-veto-v1, stacked on trading-class-v1; 2026-10-22)
+
+Built from Andre's decisions of 2026-10-22 (GV-1, GV-2). After Theta, and before
+Dolores' full check, Vega, Delta and Gamma (agents/greeks.py) value the chosen option
+the way Theta does: a known European class only (B76-2), calendar time to its expiry
+moment (B76-1, core/expiry.py), the Black-76 implied volatility of its mid (core/
+implied_vol.py) with the chain's underlying price as the forward and `theta.rate`, then
+Black-76 delta, gamma and vega at that volatility. Veto only: each blocks the entry on
+its own hard danger and is otherwise silent; none scores. They run in the order Vega,
+Delta, Gamma; the first veto stops the entry and nothing after it runs. Every check
+(allowed or not) is journalled with its numbers (implied volatility, delta, gamma, vega,
+years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismatched
+(other contract or size) or misplaced check. Anything an agent cannot value is no entry.
+
+- **For Andre (GV-1): every number is a DRAFT default, untested on any data.**
+  - Vega: no entry when no volatility in [`vega.min_implied_vol`, `vega.max_implied_vol`]
+    = [0.08, 1.0] prices the mid (this also covers a quote under its intrinsic value).
+    The band is also the bracket all three solve in. The loader requires it inside
+    Theta's [0.05, 1.5]: a vega bound outside Theta's could never be reached (Theta
+    refuses first). With the defaults, a volatility in [0.05, 0.08) or (1.0, 1.5] now
+    passes Theta and is refused by Vega.
+  - Delta: no entry when |delta| (a put's delta is negative) is outside
+    [`delta.min_abs_delta`, `delta.max_abs_delta`] = [0.3, 0.7]: a far out-of-the-money
+    option, or a deep in-the-money one that is mostly intrinsic value. Edges are inside.
+  - Gamma: no entry with less than `gamma.min_hours_to_expiry` = 6 hours to the expiry
+    moment ("the danger zone near expiry"). **The builder chose time, not a gamma cap**,
+    and asks Andre to confirm: (1) Black-76 gamma per point is about 1 / (price x vol x
+    root of time), so a fixed cap drifts with the index level and the volatility, while
+    time to expiry is the cause of the danger at any level; (2) for a bought option a
+    high gamma is not itself a loss; the danger near expiry is decay, jumps and the
+    model running away from the market. Gamma still journals its Black-76 gamma.
+    **Fact: with Felix's `dte_min: 1` this rule cannot bind today.** Entries stop 5
+    minutes before the 14:00 PT prime close and options expire at 13:00 PT, so a 1-day
+    option has at least about 23 hours left (about 20 when its expiry day is a stock
+    half day). It is a backstop for a later `dte_min: 0` (same-day options) or a
+    shorter session, not a rule that changes today's trades.
+  - One rate for every Black-76 valuation: `theta.rate` (0.04, UNVERIFIED). No second
+    rate was added.
+- **GV-2 NOT BUILT: stopped and documented, as instructed.** The only place the system
+  computes how far futures must move for the profit target is N, the levels room check
+  (`points_for_target` with `options.assumed_delta` 0.45; Grant's levels_room gate and
+  its +2 score inside Desmond's console). Felix, Ezra, Theta, the stop and the trail do
+  not use a delta. N runs inside the console, BEFORE Felix chooses a contract (Felix runs
+  only on a passing verdict, for the verdict's direction), so there is no chosen
+  contract and no live delta when it runs. Replacing it needs a pipeline change Andre
+  has not decided:
+  - (a) pick the contract first: when the trend has a direction, run Felix and Ezra
+    (and value the delta) before the console, and fail the levels gate when there is no
+    chain, no contract or no usable delta. Changes the decision order and every journal
+    record; the rule console (backtest rules) needs the same seam.
+  - (b) keep the console as is, and re-run Grant's room check after Delta with the live
+    delta (no entry if the live N finds a wall). One-sided: it can only remove trades
+    the 0.45 let through, never add ones 0.45 refused, and the +2 score still uses 0.45.
+  - (c) keep 0.45 until the option-history data exists.
+  Until Andre picks, `options.assumed_delta` stays the only delta in N. The journal now
+  carries the live delta of every entry that reaches Delta, so the gap can be measured
+  (live N = profit_target / (|delta| x point_value x contracts)).
+- Other uses of `options.assumed_delta`, left unchanged on purpose: the backtest's
+  option model (`backtest/options_model.py`) uses it as the slope of its synthetic
+  premium (a pricing assumption, G4, not a target distance), and the readout prints it.
+- **GV-3 (backtest effect, fact):** the backtest runs the same pipeline on its modelled
+  quotes, so the vetoes run there too. On the model's ordinary chains (150-point
+  at-the-money premium at 1 day; futures at 20,000 or 23,712) the contract Felix picks
+  passes all three (test_option_model.py). In the golden run (seam_default) the one
+  fired entry read implied volatility 0.309, delta 0.495, 30.0 hours to expiry; its
+  trades, ledger and readout did not change, and every existing field of its 11
+  decision records is identical; each record only gained `vega`, `delta` and `gamma`
+  (null on the 10 records that never reached them). The modelled volatility is read from the model's own synthetic
+  prices: the backtest's Greeks are a model measured with another model, not market
+  facts (as TH-2 says for Theta).
