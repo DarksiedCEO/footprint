@@ -401,6 +401,8 @@ def test_the_contract_missing_from_the_chain_stays(
 def test_a_stale_chain_stays_and_one_just_fresh_enough_is_valued(
     make: Callable[[OptionChain | None], tuple[DecayExit, Chains]],
     execution: ExecutionProfile,
+    settings: ThetaSettings,
+    instrument: InstrumentProfile,
 ) -> None:
     q = quote()
     age = timedelta(seconds=execution.quotes.max_age_seconds)
@@ -413,6 +415,10 @@ def test_a_stale_chain_stays_and_one_just_fresh_enough_is_valued(
     valued = check(fresh, q, D(10))
     assert valued.decay_dollars is not None
     assert valued.fire
+    # Valued from now, not from the chain's own (older) stamp (mutation survivor 25).
+    moment = expiry_moment(q.expiry, instrument)
+    assert valued.years == (moment - NOW) / YEAR
+    assert valued.decay_points == pytest.approx(expected(q, NOW, settings, instrument)[1])
 
 
 def test_a_chain_from_the_future_stays(

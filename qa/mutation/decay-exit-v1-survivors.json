@@ -1,0 +1,59 @@
+{
+ "groups": {
+  "exit": [
+   "tests/agents/test_decay_exit.py"
+  ],
+  "theta": [
+   "tests/agents/test_theta.py"
+  ],
+  "malik": [
+   "tests/execution/test_decay_exit_manage.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "wiring": [
+   "tests/test_decay_exit_wiring.py"
+  ],
+  "engine": [
+   "tests/backtest/test_engine.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            chain.underlying_price,\n            now,\n            timedelta",
+   "            chain.underlying_price,\n            chain.ts,\n            timedelta",
+   "valued at the chain's time, not now"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                position.contract_id, position.contracts, net_open, trailing, now",
+   "                position.contract_id, 1, net_open, trailing, now",
+   "contracts not passed"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        note = self._decay_notes.pop(pid, None)",
+   "        note = self._decay_notes.get(pid)",
+   "note kept after use"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if reason is ExitReason.DECAY_EXIT and note is not None:",
+   "        if note is not None:",
+   "note written for another reason's exit"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "                exit_rule=exit_rule,\n                decay_exit=decay,",
+   "                exit_rule=exit_rule,",
+   "backtest with a named exit rule loses the decay exit"
+  ]
+ ]
+}

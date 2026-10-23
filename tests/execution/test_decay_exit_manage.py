@@ -235,6 +235,59 @@ def test_an_exit_that_must_wait_notes_the_decay_once(
     assert len(_notes(position)) == 1
 
 
+def test_the_decay_exit_is_told_the_contracts_held(stack: Stack) -> None:
+    # (max_contracts is 1 in v1; the hand-off must still carry the position's own size:
+    # mutation survivor 31.)
+    watch = FixedWatch(False)
+    _with(stack, watch)
+    position = filled_position(stack)
+    position.contracts = 3
+    t = SEND + 30 * SEC
+    stack.step(position, stack.quote(160, 161, t), (), t)
+    assert [a[1] for a in watch.asked] == [3]
+
+
+def test_a_decay_exit_sent_again_after_its_order_died_notes_the_decay_once(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The exit order dies at the broker; the same decay exit is sent again through the
+    # same path. The journal's why is written once (mutation survivor 37).
+    watch = FixedWatch(True)
+    _with(stack, watch)
+    position = filled_position(stack)
+    exit_rests_on_arrival(stack, monkeypatch)
+    t = SEND + 30 * SEC
+    assert stack.step(position, stack.quote(153, 154, t), (), t) is None
+    first = position.exit_order_id
+    assert first is not None
+    stack.broker.cancel(first)  # gone at the broker
+    closed = stack.step(position, stack.quote(153, 154, t + SEC), (), t + SEC)
+    assert closed is not None
+    assert closed.reason is ExitReason.DECAY_EXIT
+    assert len(_sells(stack, position)) == 2  # the dead one, then its one replacement
+    assert len(_notes(position)) == 1
+    assert len(watch.asked) == 1
+
+
+def test_a_decay_exit_overtaken_by_another_reason_is_not_noted(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The decay exit said out but could not begin (positions uncertain); by the next
+    # quote the kill switch has latched: that exit goes out as KILL_SWITCH and the
+    # journal does not claim decay (mutation survivor 38).
+    watch = FixedWatch(True)
+    _with(stack, watch)
+    position = filled_position(stack)
+    uncertain_on(stack, monkeypatch, 1)
+    t = SEND + 30 * SEC
+    assert stack.step(position, stack.quote(153, 154, t), (), t) is None
+    stack.ledger.latch_kill_switch("test")
+    closed = stack.step(position, stack.quote(153, 154, t + SEC), (), t + SEC)
+    assert closed is not None
+    assert closed.reason is ExitReason.KILL_SWITCH
+    assert _notes(position) == []
+
+
 def test_a_decay_exit_that_fails_says_nothing_and_alarms_once(stack: Stack) -> None:
     watch = FixedWatch(True, raises=RuntimeError("chain feed broke"))
     _with(stack, watch)

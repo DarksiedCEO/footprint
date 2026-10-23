@@ -14,6 +14,7 @@ from pathlib import Path
 
 from footprint.agents.theta import DecayExit
 from footprint.backtest.engine import Backtest
+from footprint.backtest.rules import EXIT_RULES
 from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
@@ -82,3 +83,19 @@ def test_the_backtest_engine_hands_the_manager_a_decay_exit(tmp_path: Path) -> N
     watch = engine.runner._manager._decay_exit
     assert isinstance(watch, DecayExit)
     assert watch._chain == engine._chain
+
+
+def test_a_backtest_with_a_named_exit_rule_keeps_the_decay_exit(tmp_path: Path) -> None:
+    profiles = load_profiles(REPO_ROOT / "config", "nq.yaml")
+    settings = load_backtest(REPO_ROOT / "config" / "backtest.yaml")
+    csv = tmp_path / "bars.csv"
+    write_bars(csv)
+    bars = list(CsvBarSource(csv, profiles.instrument.symbol).bars())
+    rule = EXIT_RULES["target"](profiles, settings.rules)
+    engine = Backtest(
+        profiles, settings, bars, tmp_path / "run", trade_from=TRADE_FROM, exit_rule=rule
+    )
+    manager = engine.runner._manager
+    assert manager._exit_rule is rule
+    assert isinstance(manager._decay_exit, DecayExit)
+    assert manager._decay_exit._chain == engine._chain
