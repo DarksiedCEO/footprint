@@ -77,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             else None
         ),
     ).run()
+    decay_exit = profiles.strategy.theta.decay_exit
     assumptions = {
         "option prices": "MODELLED from the futures price (no options history)",
         "delta (G4, fixed)": str(profiles.strategy.options.assumed_delta),
@@ -86,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
         "risk.profit_target": str(profiles.risk.profit_target),
         "risk.trail_keep_pct": str(profiles.risk.trail_keep_pct),
         "risk.stop_loss": str(profiles.risk.stop_loss),
+        # Theta's decay exit (DX-1) runs in every backtest it is enabled for, named exit
+        # rule or not: research runs name it so they can be compared (review M1).
+        "theta.decay_exit.enabled": "true" if decay_exit.enabled else "false",
+        "theta.decay_exit.window_minutes": str(decay_exit.window_minutes),
+        "theta.decay_exit.max_pct_of_open_profit": str(decay_exit.max_pct_of_open_profit),
         "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),

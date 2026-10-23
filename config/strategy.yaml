@@ -41,6 +41,17 @@ theta:
   rate: 0.04                    # UNVERIFIED: annual rate for Black-76 discounting
   min_implied_vol: 0.05         # DRAFT hard danger: below this the quote is not believable
   max_implied_vol: 1.5          # DRAFT hard danger: extreme implied volatility, no entry
+  # Decay exit (decision DX-1, Andre 2026-10-22; paper and backtest only): Malik closes an
+  # open trade whose open profit (on the bid, net of round-trip fees) is above 0 and below
+  # risk.profit_target, with the trail not yet locked, when the modelled decay over the
+  # next window_minutes (same model as above), for the held contracts, is above
+  # max_pct_of_open_profit % of that open profit. Unvaluable: no decay exit.
+  decay_exit:
+    # OFF until Andre rules on DX-2 (review H1): with these drafts it closes every
+    # normally paced winner on its first small gain (docs/decisions-pending.md DX-2).
+    enabled: false              # DEFAULT (draft, Andre DX-2): off until Andre rules on DX-2
+    window_minutes: 30          # DEFAULT (draft, Andre DX-1): decay valued over this window
+    max_pct_of_open_profit: 50  # DEFAULT (draft, Andre DX-1): close above this % of open profit
 zeroday:
   lookback_sessions: 20      # G9: "typical" = average of the same metric on these sessions
   trip_multiple: 4           # G9: range, volatility and price-jump tripwires
