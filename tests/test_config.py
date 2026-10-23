@@ -181,6 +181,13 @@ def test_risk_rejects_bad_values(risk_path: Path, tmp_path: Path, changes: dict[
         load_risk(rewrite(risk_path, tmp_path, **changes))
 
 
+def test_risk_accepts_a_position_cap_equal_to_the_bankroll(risk_path: Path, tmp_path: Path) -> None:
+    """The cap may reach the bankroll but not pass it (CAP-1 review R10)."""
+    bankroll = load_risk(risk_path).bankroll
+    profile = load_risk(rewrite(risk_path, tmp_path, position_cap=int(bankroll)))
+    assert profile.position_cap == profile.bankroll
+
+
 def test_error_names_the_file_and_key(risk_path: Path, tmp_path: Path) -> None:
     bad = rewrite(risk_path, tmp_path, bankroll=-1)
     with pytest.raises(ConfigError, match=rf"{bad.name}: bankroll"):
