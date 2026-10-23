@@ -584,3 +584,76 @@ def test_the_need_is_exactly_what_the_reader_needs_on_the_worst_day(
     short = [b for b in bars if b.ts >= _utc_day_start(decided.date() - timedelta(days=need - 1))]
     assert caller(profiles).call(enough, decided).cause is PlayCause.TREND
     assert caller(profiles).call(short, decided).cause is PlayCause.NO_DATA
+
+
+# --- mutation survivors (qa/mutation/playcaller-wire-v1.notes.md) --------------------
+
+
+def test_history_reaching_exactly_calendar_from_is_not_warm_up(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """#27: the reader refuses only days BEFORE calendar_from. With calendar_from on a
+    trading day, the day whose oldest history day is calendar_from itself is labelled;
+    the day before it is warm-up (the repo's calendar_from is a holiday, so it cannot
+    show this)."""
+    start = date(2026, 1, 5)  # a Monday
+    moved = replace(inst, calendar_from=start)
+    sessions = caller(profiles).history_sessions
+    day = start
+    for _ in range(sessions - 1):  # the trading day whose oldest history day is `start`
+        day += timedelta(days=1)
+        while day.weekday() >= 5 or day in inst.holidays:
+            day += timedelta(days=1)
+    play = PlayCaller(SMALL, PLAY, profiles.strategy.data, moved)
+    call = play.call(trend_day(moved, day), _decision(moved, day))
+    assert call.cause is PlayCause.TREND
+    reader = RegimeReader(SMALL, profiles.strategy.data, moved)
+    assert reader.call(trend_day(moved, day), _decision(moved, day)).regime is Regime.TREND
+    before = previous_trading_day(day, moved)
+    assert (
+        PlayCaller(SMALL, PLAY, profiles.strategy.data, moved)
+        .call((), _decision(moved, before))
+        .cause
+        is PlayCause.WARM_UP
+    )
+
+
+def _need_by_hand(profiles: Profiles) -> int:
+    """history_days_needed recomputed from the reader's reading list, here."""
+    inst, r = profiles.instrument, profiles.regime
+    sessions = max(r.efficiency_lookback_sessions, r.overnight_lookback_sessions) + 1
+    worst = 0
+    day = inst.calendar_from
+    while day <= inst.calendar_through:
+        if day.weekday() < 5 and day not in inst.holidays and day not in inst.no_trade_days:
+            back, ok, oldest = day, True, _night_open(day, inst)
+            for count in range(sessions - 1):
+                back = previous_trading_day(back, inst)
+                ok = ok and back >= inst.calendar_from
+                if count < r.efficiency_lookback_sessions:
+                    oldest = min(oldest, _cash_open(back, inst))
+                if count < r.overnight_lookback_sessions:
+                    oldest = min(oldest, _night_open(back, inst))
+            if ok:
+                decided = _cash_open(day, inst) + MINUTE * r.decision_minutes
+                worst = max(worst, (decided.date() - oldest.date()).days)
+        day += timedelta(days=1)
+    return worst
+
+
+@pytest.mark.parametrize(
+    ("efficiency", "overnight"),
+    [(6, 4), (4, 6), (5, 5), (60, 20), (20, 60)],
+)
+def test_the_need_matches_the_readers_reading_list(
+    profiles: Profiles, efficiency: int, overnight: int
+) -> None:
+    """#29, #33: with the overnight lookback the longer one, the oldest bar read is a
+    NIGHT, which opens the calendar day before its trading day."""
+    regime = replace(
+        profiles.regime,
+        efficiency_lookback_sessions=efficiency,
+        overnight_lookback_sessions=overnight,
+    )
+    p = replace(profiles, regime=regime)
+    assert history_days_needed(p) == _need_by_hand(p)
