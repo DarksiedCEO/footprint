@@ -270,6 +270,7 @@ def test_an_option_at_its_expiry_moment_is_refused(
 ) -> None:
     check = agent.assess(plan(quote(expiry=TUE)), FORWARD, expiry_moment(TUE, instrument))
     assert not check.allowed
+    assert "expired" in check.reason  # refused as expired, not left to the solver
     assert check.implied_vol is None
 
 
@@ -527,3 +528,28 @@ def test_an_allowed_gamma_reason_carries_the_hours(
     assert f"{left:.2f}" in check.reason
     assert check.gamma is not None
     assert f"{check.gamma:.6f}" in check.reason
+
+
+@pytest.mark.parametrize("side", ["below", "above"])
+def test_a_vega_veto_is_named_a_hard_danger_with_its_timing(
+    vega: VegaAgent,
+    band: VegaSettings,
+    strategy: StrategyProfile,
+    instrument: InstrumentProfile,
+    side: str,
+) -> None:
+    # Vega's own danger is worded as one, not as an option it could not value, and it
+    # keeps the expiry moment and the time left for the journal.
+    theta = strategy.theta
+    vol = (
+        float(theta.min_implied_vol + band.min_implied_vol) / 2
+        if side == "below"
+        else float(theta.max_implied_vol + band.max_implied_vol) / 2
+    )
+    check = vega.assess(plan(priced(vol, instrument)), FORWARD, NOW)
+    assert not check.allowed
+    assert "hard danger" in check.reason
+    assert "cannot value" not in check.reason
+    moment = expiry_moment(WED, instrument)
+    assert check.expires_at == moment
+    assert check.years == pytest.approx((moment - NOW) / YEAR, rel=1e-12)
