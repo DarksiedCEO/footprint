@@ -676,6 +676,7 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
     the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 9,997.50 (fits) /
     10,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
     at a 499.75 fill; `tests/backtest/test_position_cap_fridays.py` shows a modelled Friday
-    entry refused at $5,000 and taken at the shipped cap (Thursday fits both);
+    entry refused at $5,000 and taken at the shipped cap (Monday and Thursday take a
+    1-day option that fits both);
     `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
     `risk.position_cap`.
