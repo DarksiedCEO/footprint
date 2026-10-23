@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -687,6 +687,23 @@ class ThetaSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class VegaSettings:
+    min_implied_vol: Decimal
+    max_implied_vol: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaSettings:
+    min_abs_delta: Decimal
+    max_abs_delta: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class GammaSettings:
+    min_hours_to_expiry: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class ZeroDaySettings:
     lookback_sessions: int
     trip_multiple: Decimal
@@ -712,6 +729,9 @@ class StrategyProfile:
     levels: LevelsSettings
     options: OptionsSettings
     theta: ThetaSettings
+    vega: VegaSettings
+    delta: DeltaSettings
+    gamma: GammaSettings
     zeroday: ZeroDaySettings
     console: ConsoleSettings
 
@@ -804,6 +824,48 @@ def load_strategy(path: Path) -> StrategyProfile:
     if theta.max_implied_vol <= theta.min_implied_vol:
         raise ConfigError(f"{th_where}: max_implied_vol must be > min_implied_vol")
 
+    # GV-1: the vega band is also the bracket every Greeks agent solves implied
+    # volatility in. It must lie inside theta's bounds: a vega bound outside them could
+    # never be reached (Theta refuses first), a setting that would only mislead.
+    vg_where = f"{where}: vega"
+    vg = _check_keys(raw["vega"], {f.name for f in fields(VegaSettings)}, vg_where)
+    vega = VegaSettings(
+        min_implied_vol=_positive_decimal(vg, "min_implied_vol", vg_where),
+        max_implied_vol=_positive_decimal(vg, "max_implied_vol", vg_where),
+    )
+    if vega.max_implied_vol <= vega.min_implied_vol:
+        raise ConfigError(f"{vg_where}: max_implied_vol must be > min_implied_vol")
+    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:
+        raise ConfigError(
+            f"{vg_where}: the band must lie inside theta's [min_implied_vol, max_implied_vol]"
+        )
+
+    dl_where = f"{where}: delta"
+    dl = _check_keys(raw["delta"], {f.name for f in fields(DeltaSettings)}, dl_where)
+    delta = DeltaSettings(
+        min_abs_delta=_positive_decimal(dl, "min_abs_delta", dl_where),
+        max_abs_delta=_positive_decimal(dl, "max_abs_delta", dl_where),
+    )
+    if delta.max_abs_delta <= delta.min_abs_delta:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be > min_abs_delta")
+    if delta.max_abs_delta > 1:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be <= 1")
+    # Review M1, interim until Andre decides GV-5: N (the levels room check) assumes
+    # options.assumed_delta, which is pessimistic only while Delta lets no entry through
+    # with a smaller delta.
+    if delta.min_abs_delta < options.assumed_delta:
+        raise ConfigError(
+            f"{dl_where}: min_abs_delta {delta.min_abs_delta} must be >= "
+            f"options.assumed_delta {options.assumed_delta}: below it, N would understate "
+            "the move an allowed entry needs (GV-5)"
+        )
+
+    gm_where = f"{where}: gamma"
+    gm = _check_keys(raw["gamma"], {f.name for f in fields(GammaSettings)}, gm_where)
+    gamma = GammaSettings(
+        min_hours_to_expiry=_positive_decimal(gm, "min_hours_to_expiry", gm_where),
+    )
+
     z_where = f"{where}: zeroday"
     z = _check_keys(raw["zeroday"], {f.name for f in fields(ZeroDaySettings)}, z_where)
     zeroday = ZeroDaySettings(
@@ -841,6 +903,9 @@ def load_strategy(path: Path) -> StrategyProfile:
         levels=levels,
         options=options,
         theta=theta,
+        vega=vega,
+        delta=delta,
+        gamma=gamma,
         zeroday=zeroday,
         console=console,
     )
@@ -1123,4 +1188,35 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         execution=load_execution(config_dir / "execution.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
+    _check_gamma_reachable(
+        profiles.strategy.gamma, profiles.instrument, config_dir / "strategy.yaml"
+    )
     return profiles
+
+
+def _check_gamma_reachable(gamma: GammaSettings, instrument: InstrumentProfile, path: Path) -> None:
+    """The longest any entry can wait for its expiry: entries are made only in the prime
+    session, and Felix never takes an option expiring more than dte_max calendar days
+    after the trading day; an option stops trading at option_expiry.time (early closes
+    only make that earlier). So the longest wait is from a prime-session start to the
+    expiry time dte_max days later, measured on real clocks over the maintained calendar
+    (a clock change can add an hour). A minimum above it refuses every entry, and a huge
+    one cannot even be held as a time span (review L1, R2-4)."""
+    prime = ZoneInfo(instrument.prime_session.timezone)
+    expiry = ZoneInfo(instrument.option_expiry.timezone)
+    span = timedelta(days=instrument.dte_max)
+    longest = timedelta(0)
+    day = instrument.calendar_from
+    while day <= instrument.calendar_through:
+        opens = datetime.combine(day, instrument.prime_session.start, prime).astimezone(UTC)
+        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry).astimezone(UTC)
+        longest = max(longest, ends - opens)
+        day += timedelta(days=1)
+    hours = longest / timedelta(hours=1)
+    if gamma.min_hours_to_expiry > Decimal(str(hours)):
+        raise ConfigError(
+            f"{path}: gamma: min_hours_to_expiry {gamma.min_hours_to_expiry} is over "
+            f"{hours:g} hours, the longest any entry can wait for its expiry (prime "
+            f"session start to option_expiry.time, dte_max {instrument.dte_max} days "
+            "later): no option Felix may pick could meet it"
+        )

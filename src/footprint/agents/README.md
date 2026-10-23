@@ -24,6 +24,9 @@ System ids are permanent. Names are display labels only and may change.
 | `execution`  | Diego     | Limit-only order placement |
 | `zeroday`    | Nia       | Flags markets that match no known pattern; tells risk to stand down |
 | `theta`      | (unnamed) | Decay veto: modelled Black-76 decay over the planned hold vs its budget |
+| `vega`       | (unnamed) | Veto only: implied volatility of the mid outside the vega band |
+| `delta`      | (unnamed) | Veto only: Black-76 absolute delta outside the delta band |
+| `gamma`      | (unnamed) | Veto only: too little time left to the option's expiry moment |
 | `console`    | Desmond   | Scores reads, rules only, emits Signals |
 | `risk`       | Dolores   | Final veto, daily/weekly limits, kill switch |
 | `trade_mgmt` | Malik     | Manages the open trade |
@@ -38,3 +41,5 @@ System ids are permanent. Names are display labels only and may change.
   support it, 0 when neutral and -1 when against; a -1 from `levels` is a veto.
 - `zeroday` returns a `ZeroDayCheck`; tripped means no new entries.
 - `theta` returns a `ThetaCheck` on a sized entry; not allowed means no entry.
+- `vega`, `delta` and `gamma` (agents/greeks.py) each return a `GreekCheck` on a sized
+  entry, after Theta; not allowed means no entry. They never score.

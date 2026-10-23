@@ -6,8 +6,8 @@ Order (one-way, nothing loops back):
 1. crew reads on completed bars only: trend (Mateo), momentum (Darius), volume
    (Rafael), zero-day (Nia), levels (Grant), daily range (Nadia);
 2. console gates and score (Desmond);
-3. contract (Felix) -> size (Ezra) -> decay veto (Theta) -> full risk veto with the
-   sized cost (Dolores);
+3. contract (Felix) -> size (Ezra) -> decay veto (Theta) -> the Greeks vetoes (Vega,
+   Delta, Gamma; GV-1) -> full risk veto with the sized cost (Dolores);
 4. an ApprovedEntry only when every step passes.
 Every step's result is kept on the Decision so the journal can record why the
 system did or did not trade. Malformed input (wrong symbol, out-of-order bars)
@@ -24,6 +24,7 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from footprint.agents.contract_picker import ContractChoice, ContractPicker, NoContract
+from footprint.agents.greeks import DeltaAgent, GammaAgent, GreekCheck, VegaAgent
 from footprint.agents.levels import LevelsReader, points_for_target
 from footprint.agents.momentum_reader import MomentumReader
 from footprint.agents.range_reader import RangeReader
@@ -62,6 +63,9 @@ class ApprovedEntry:
     entry: EntryRequest
     risk: RiskDecision
     theta: ThetaCheck
+    vega: GreekCheck
+    delta: GreekCheck
+    gamma: GreekCheck
     _token: object = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -84,6 +88,18 @@ class ApprovedEntry:
             self.plan.contracts,
         ):
             raise PermissionError("theta judged a different contract or size")
+        for name, check in (("vega", self.vega), ("delta", self.delta), ("gamma", self.gamma)):
+            if check.agent_id != name:
+                raise PermissionError(
+                    f"the {name} slot holds {check.agent_id!r}: not a {name} check"
+                )
+            if not check.allowed:
+                raise PermissionError(f"an entry {name} vetoed cannot be approved")
+            if (check.contract_id, check.contracts) != (
+                self.plan.choice.quote.contract_id,
+                self.plan.contracts,
+            ):
+                raise PermissionError(f"{name} judged a different contract or size")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +114,9 @@ class Decision:
     risk: RiskDecision | None
     approved: ApprovedEntry | None
     theta: ThetaCheck | None = None
+    vega: GreekCheck | None = None
+    delta: GreekCheck | None = None
+    gamma: GreekCheck | None = None
 
     @property
     def fired(self) -> bool:
@@ -122,6 +141,9 @@ class Decision:
             out.append(f"sizing: {self.plan.reason}")
         if self.theta is not None and not self.theta.allowed:
             out.append(f"theta: {self.theta.reason}")
+        for check in (self.vega, self.delta, self.gamma):
+            if check is not None and not check.allowed:
+                out.append(f"{check.agent_id}: {check.reason}")
         if self.risk is not None:
             out += ["risk: " + v.value for v in self.risk.vetoes if v not in self.precheck.vetoes]
         return out
@@ -165,6 +187,13 @@ class Pipeline:
         )
         self._contract = ContractPicker(profiles.execution, inst)
         self._theta = ThetaAgent(s.theta, inst, profiles.risk)
+        # GV-1: one rate for every Black-76 valuation (Theta's), one volatility band
+        # (Vega's) that every Greeks agent solves in. Run in this order, after Theta.
+        self._greeks = (
+            VegaAgent(s.vega, s.theta.rate, inst),
+            DeltaAgent(s.delta, s.vega, s.theta.rate, inst),
+            GammaAgent(s.gamma, s.vega, s.theta.rate, inst),
+        )
         self._issued: dict[int, ApprovedEntry] = {}
         self._n_points = points_for_target(
             profiles.risk.profit_target,
@@ -195,9 +224,23 @@ class Pipeline:
             risk: RiskDecision | None = None,
             approved: ApprovedEntry | None = None,
             theta: ThetaCheck | None = None,
+            greeks: Sequence[GreekCheck] = (),
         ) -> Decision:
+            found = {check.agent_id: check for check in greeks}
             return Decision(
-                as_of, pre, verdict, data_error, contract, plan, entry, risk, approved, theta
+                as_of,
+                pre,
+                verdict,
+                data_error,
+                contract,
+                plan,
+                entry,
+                risk,
+                approved,
+                theta,
+                vega=found.get("vega"),
+                delta=found.get("delta"),
+                gamma=found.get("gamma"),
             )
 
         try:
@@ -219,14 +262,27 @@ class Pipeline:
         theta = self._theta.assess(plan, chain.underlying_price, as_of)
         if not theta.allowed:
             return stop(verdict=verdict, contract=choice, plan=plan, theta=theta)
+        greeks: list[GreekCheck] = []
+        for agent in self._greeks:
+            check = agent.assess(plan, chain.underlying_price, as_of)
+            greeks.append(check)
+            if not check.allowed:
+                return stop(verdict=verdict, contract=choice, plan=plan, theta=theta, greeks=greeks)
+        vega, delta, gamma = greeks
         entry = EntryRequest(as_of, direction, plan.cost)
         risk = evaluate(p.risk, p.instrument, blackouts, account, entry)
         if not risk.allowed:
             return stop(
-                verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, theta=theta
+                verdict=verdict,
+                contract=choice,
+                plan=plan,
+                entry=entry,
+                risk=risk,
+                theta=theta,
+                greeks=greeks,
             )
         signal = Signal(ts=as_of, direction=direction, reads=verdict.reads)
-        approved = ApprovedEntry(signal, plan, entry, risk, theta, _APPROVAL)
+        approved = ApprovedEntry(signal, plan, entry, risk, theta, vega, delta, gamma, _APPROVAL)
         self._issued[id(approved)] = approved
         return stop(
             verdict=verdict,
@@ -236,6 +292,7 @@ class Pipeline:
             risk=risk,
             approved=approved,
             theta=theta,
+            greeks=greeks,
         )
 
     def issued(self, approved: ApprovedEntry) -> bool:

@@ -67,6 +67,9 @@ class Journal:
                 "contract": decision.contract,
                 "plan": decision.plan,
                 "theta": decision.theta,
+                "vega": decision.vega,
+                "delta": decision.delta,
+                "gamma": decision.gamma,
                 "risk": decision.risk,
             },
         )
