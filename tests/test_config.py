@@ -665,6 +665,90 @@ def test_a_top_level_key_given_twice_is_refused_in_any_profile(
         load_execution(target)
 
 
+def test_the_decay_exit_settings_load(strategy_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    exit_ = load_strategy(strategy_path).theta.decay_exit
+    assert exit_.enabled is True  # DX-1 drafts
+    assert exit_.window_minutes == 30
+    assert exit_.max_pct_of_open_profit == Decimal(50)
+
+
+def _decay_exit_file(strategy_path: Path, tmp_path: Path, decay_exit: object) -> Path:
+    data = yaml.safe_load(strategy_path.read_text())
+    data["theta"]["decay_exit"] = decay_exit
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    [
+        ({"window_minutes": 0}, "window_minutes must be >= 1"),
+        ({"window_minutes": -5}, "window_minutes must be >= 1"),
+        ({"window_minutes": 1.5}, "window_minutes must be an integer"),
+        ({"window_minutes": True}, "window_minutes must be an integer"),
+        ({"max_pct_of_open_profit": 0}, "max_pct_of_open_profit must be a finite number > 0"),
+        ({"max_pct_of_open_profit": -1}, "max_pct_of_open_profit must be a finite number > 0"),
+        ({"max_pct_of_open_profit": 100.01}, "max_pct_of_open_profit must be <= 100"),
+        ({"max_pct_of_open_profit": "50"}, "max_pct_of_open_profit must be a number"),
+        ({"extra": 1}, "unknown keys"),
+        ({"enabled": "yes"}, "enabled must be true or false"),
+        ({"enabled": 1}, "enabled must be true or false"),
+        ({"enabled": ...}, "missing keys"),
+        ({"window_minutes": ...}, "missing keys"),
+        ({"max_pct_of_open_profit": ...}, "missing keys"),
+    ],
+)
+def test_bad_decay_exit_values_are_rejected(
+    strategy_path: Path, tmp_path: Path, changes: dict[str, Any], match: str
+) -> None:
+    from footprint.core.config import load_strategy
+
+    body: dict[str, Any] = {"enabled": True, "window_minutes": 30, "max_pct_of_open_profit": 50}
+    for key, value in changes.items():
+        if value is ...:
+            del body[key]
+        else:
+            body[key] = value
+    target = _decay_exit_file(strategy_path, tmp_path, body)
+    with pytest.raises(ConfigError, match=match) as refused:
+        load_strategy(target)
+    assert "theta: decay_exit" in str(refused.value)
+
+
+@pytest.mark.parametrize("bad", [None, 30, [30, 50]])
+def test_the_decay_exit_must_be_a_mapping(strategy_path: Path, tmp_path: Path, bad: object) -> None:
+    from footprint.core.config import load_strategy
+
+    with pytest.raises(ConfigError, match="theta: decay_exit: expected a mapping"):
+        load_strategy(_decay_exit_file(strategy_path, tmp_path, bad))
+
+
+def test_the_decay_exit_is_required(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    del data["theta"]["decay_exit"]
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="missing keys"):
+        load_strategy(target)
+
+
+def test_the_decay_exit_accepts_the_edges(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    body: dict[str, Any] = {"enabled": False, "window_minutes": 1, "max_pct_of_open_profit": 100}
+    exit_ = load_strategy(_decay_exit_file(strategy_path, tmp_path, body)).theta.decay_exit
+    assert (exit_.window_minutes, exit_.max_pct_of_open_profit) == (1, Decimal(100))
+    assert exit_.enabled is False
+    body = {"enabled": True, "window_minutes": 30, "max_pct_of_open_profit": 0.5}
+    exit_ = load_strategy(_decay_exit_file(strategy_path, tmp_path, body)).theta.decay_exit
+    assert exit_.max_pct_of_open_profit == Decimal("0.5")
+
+
 def test_theta_accepts_a_negative_rate_and_a_full_budget(
     strategy_path: Path, tmp_path: Path
 ) -> None:

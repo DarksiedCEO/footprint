@@ -21,6 +21,8 @@ The clock, minute by minute:
 - The path's order is fixed per bar, worst case for what is live after the open:
   an open trade sees its bad extreme first; a working entry sees its good extreme
   first (it can fill only after the best price has passed).
+- Theta's decay exit (DX-1) is on, as in paper: it values the held option on the
+  modelled chain at that moment.
 - When the history ends, a trade still open is sold at the bid through the normal
   exit path and booked (END_OF_DATA). Equity is also marked to the bid at every
   step, for the drawdown inside trades.
@@ -39,6 +41,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from footprint.agents.theta import DecayExit
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
 from footprint.backtest.settings import BacktestSettings
@@ -142,10 +145,22 @@ class Backtest:
         )
         stops = StopKeeper(p.risk, p.instrument, p.execution)
         executor = Executor(p, pipeline, tracked, stops, self.ledger, self.halt, self.book)
+        # Theta's decay exit (DX-1) runs in the backtest as in paper, on the same chain
+        # the decision reads (the modelled one).
+        decay = DecayExit(p.strategy.theta, p.instrument, p.risk, p.execution.quotes, self._chain)
         manager = (
-            Manager(p, tracked, stops, self.ledger, self.halt, self.book)
+            Manager(p, tracked, stops, self.ledger, self.halt, self.book, decay_exit=decay)
             if exit_rule is None
-            else Manager(p, tracked, stops, self.ledger, self.halt, self.book, exit_rule=exit_rule)
+            else Manager(
+                p,
+                tracked,
+                stops,
+                self.ledger,
+                self.halt,
+                self.book,
+                exit_rule=exit_rule,
+                decay_exit=decay,
+            )
         )
         self.journal = Journal(workdir / "journal")
         self.runner = Runner(

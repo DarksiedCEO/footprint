@@ -597,3 +597,51 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
+
+## Decay exit (branch decay-exit-v1; Andre's DX-1, 2026-10-22)
+
+- **DX-1 (decided by Andre, 2026-10-22):** Theta may make Malik close an open trade, in
+  paper and the backtest only, when its open profit is above 0 and below
+  `risk.profit_target`, the trail has not locked, and the Black-76 decay over the next
+  `theta.decay_exit.window_minutes` (B76-1: price(now) minus price(now + window), calendar
+  time, the implied-volatility solve and expiry moment Theta already uses, through the one
+  shared `value_decay`), times the held contracts and the point value, is ABOVE
+  `theta.decay_exit.max_pct_of_open_profit` percent of the open profit. At or below it the
+  trade stays. Losing trades are left to the stop.
+- **How it was built (for Andre to check):**
+  - Open profit is trade management's own figure: on the BID, net of round-trip fees
+    (`fee_per_contract_per_side`), the same basis as Booker's trail, the target rule
+    (Q5.5-a) and every risk check. "Trail not locked" is read from Booker (`trailing`),
+    so a trade that reached the target and fell back below it stays with its locked trail.
+  - The option is found in the option chain at that moment (live: the market data's
+    chain; backtest: the modelled chain); the chain's underlying price is the forward and
+    the chain quote's MID is what the volatility is solved from, exactly as for an entry.
+  - No decay exit (the other exits run unchanged) when: no chain; a chain older than
+    `quotes.max_age_seconds` or stamped in the future; the held option not in the chain
+    (live, the chain offers only strikes near the money on the chosen expiry: a held
+    option that drifted out of it is NOT valued); an American or unknown class; the option
+    expires within the window (near expiry the decay exit stands aside; the close lead and
+    the stop still run); no implied volatility inside the bounds; inputs the model cannot
+    take. A decay exit that raises alarms once per position and says nothing.
+  - It is asked after every existing reason (stop, gap, close, news, news time stop,
+    daily and weekly loss, kill switch), only on a fresh quote, and never while an exit is
+    under way (no second seller). The exit is the existing one: stop cancelled first, one
+    limit sell at the bid in the stop's OCA group. Journal: exit reason `DECAY_EXIT`, and
+    an event line "decay exit: ..." with the decay, the limit, the open profit, the implied
+    volatility, the mid and the underlying.
+  - Paper only: trade management does not know paper from live; the live app hands it the
+    decay exit, and that app is paper only by the hard-coded D33 check. Going live is a
+    code change and must revisit DX-1.
+- **For Andre (DX-1 drafts, untested on real data):** `enabled: true`, `window_minutes: 30`,
+  `max_pct_of_open_profit: 50` (config/strategy.yaml, theta.decay_exit). `enabled` was
+  added by the builder (not in DX-1) so a backtest can be run with and without it.
+- **DX-2 (finding, for Andre, important):** with these drafts the decay exit closes almost
+  every trade on its first small gain. In the backtest's rising-market scenario the 1-day
+  option's modelled decay over 30 minutes is about $29 per contract, so any open profit
+  between $0 and about $57 is closed (the trade was closed at +$10 net one minute in,
+  where before it rode the move to the trail). A momentum entry usually passes through
+  that band. Decide whether the rule should apply only after a minimum hold or a minimum
+  open profit, or with a different share or window, before paper trading.
+- Backtest goldens: unchanged (the one golden trade never reaches a profit). Two engine
+  tests that test the trail and the dead-feed path now run with `enabled: false`; a new
+  engine test shows the decay exit firing and journaled with the drafts.

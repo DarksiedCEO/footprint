@@ -678,12 +678,23 @@ class OptionsSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class DecayExitSettings:
+    """Decision DX-1: whether the decay exit runs, its window and its share of the open
+    profit."""
+
+    enabled: bool
+    window_minutes: int
+    max_pct_of_open_profit: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class ThetaSettings:
     planned_hold_minutes: int
     max_decay_pct_of_target: Decimal
     rate: Decimal
     min_implied_vol: Decimal
     max_implied_vol: Decimal
+    decay_exit: DecayExitSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -790,12 +801,22 @@ def load_strategy(path: Path) -> StrategyProfile:
     rate = th["rate"]
     if isinstance(rate, bool) or not isinstance(rate, int | float):
         raise ConfigError(f"{th_where}: rate must be a number, got {rate!r}")
+    dx_where = f"{th_where}: decay_exit"
+    dx = _check_keys(th["decay_exit"], {f.name for f in fields(DecayExitSettings)}, dx_where)
+    decay_exit = DecayExitSettings(
+        enabled=_boolean(dx, "enabled", dx_where),
+        window_minutes=_integer(dx, "window_minutes", dx_where, minimum=1),
+        max_pct_of_open_profit=_positive_decimal(dx, "max_pct_of_open_profit", dx_where),
+    )
+    if decay_exit.max_pct_of_open_profit > _PERCENT_MAX:
+        raise ConfigError(f"{dx_where}: max_pct_of_open_profit must be <= {_PERCENT_MAX}")
     theta = ThetaSettings(
         planned_hold_minutes=_integer(th, "planned_hold_minutes", th_where, minimum=1),
         max_decay_pct_of_target=_positive_decimal(th, "max_decay_pct_of_target", th_where),
         rate=Decimal(str(rate)),
         min_implied_vol=_positive_decimal(th, "min_implied_vol", th_where),
         max_implied_vol=_positive_decimal(th, "max_implied_vol", th_where),
+        decay_exit=decay_exit,
     )
     if not theta.rate.is_finite():
         raise ConfigError(f"{th_where}: rate must be finite, got {rate!r}")
