@@ -1,0 +1,145 @@
+{
+ "groups": {
+  "guard": [
+   "tests/backtest/test_model_vol_guard.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "(\"below\", \"min_implied_vol\", vol < float(s.vega.min_implied_vol)),",
+   "(\"below\", \"min_implied_vol\", vol <= float(s.vega.min_implied_vol)),",
+   "vega floor edge refused"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "(\"above\", \"max_implied_vol\", vol > float(s.vega.max_implied_vol)),",
+   "(\"above\", \"max_implied_vol\", vol >= float(s.vega.max_implied_vol)),",
+   "vega ceiling edge refused"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "return abs(q.strike - price), q.strike if right is Right.CALL else -q.strike",
+   "return abs(q.strike - price), -q.strike",
+   "tie rule wrong for calls"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/engine.py",
+   "check_model_vol(self._model, profiles, self._bars[self._first :])",
+   "check_model_vol(self._model, profiles, self._bars[self._first + 1 :])",
+   "first traded bar skipped"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.min_abs_delta < options.assumed_delta:",
+   "    if delta.max_abs_delta < options.assumed_delta:",
+   "M1 compares the ceiling"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "years = (expiry_moment(quote.expiry, profiles.instrument) - moment) / _YEAR",
+   "years = (expiry_moment(quote.expiry, profiles.instrument) - moment) / timedelta(days=366)",
+   "366-day year"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "years = (expiry_moment(quote.expiry, profiles.instrument) - moment) / _YEAR",
+   "years = (expiry_moment(quote.expiry, profiles.instrument) - moment + timedelta(hours=1)) / _YEAR",
+   "counts to the prime close (L3)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    low = min(prime, key=lambda b: (b.low, b.ts))",
+   "    low = min(prime, key=lambda b: (b.low, -b.ts.timestamp()))",
+   "low tie takes the latest bar"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    if not prime:\n        raise NoPrimeSession(",
+   "    if not prime and False:\n        raise NoPrimeSession(",
+   "no prime bars: no refusal"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    high = max(prime, key=lambda b: (b.high, -b.ts.timestamp()))",
+   "    high = max(prime, key=lambda b: (b.high, b.ts))",
+   "high tie takes the latest bar"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/__main__.py",
+   "    except BacktestRefused as refused:",
+   "    except ModelOutsideBand as refused:",
+   "CLI catches only the model refusal"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "class NoPrimeSession(BacktestRefused):",
+   "class NoPrimeSession(ValueError):",
+   "no-prime refusal outside the refused family"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    span = timedelta(days=instrument.dte_max)",
+   "    span = timedelta(days=instrument.dte_max + 1)",
+   "bound a day late"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        opens = datetime.combine(day, instrument.prime_session.start, prime).astimezone(UTC)",
+   "        opens = datetime.combine(day, instrument.prime_session.end, prime).astimezone(UTC)",
+   "from the prime close"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry).astimezone(UTC)",
+   "        ends = datetime.combine(day + span, instrument.option_expiry.early_close_time, expiry).astimezone(UTC)",
+   "to the early-close time"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        longest = max(longest, ends - opens)",
+   "        longest = ends - opens",
+   "last day, not the longest"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry).astimezone(UTC)",
+   "        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry)",
+   "no UTC: clock change ignored"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if gamma.min_hours_to_expiry > Decimal(str(hours)):",
+   "    if gamma.min_hours_to_expiry >= Decimal(str(hours)):",
+   "the longest wait itself refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    while day <= instrument.calendar_through:",
+   "    while day <= instrument.calendar_from:",
+   "only the first calendar day"
+  ]
+ ]
+}

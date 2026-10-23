@@ -12,6 +12,7 @@ session and refuses to run, naming the price, when either is outside the band.
 Synthetic bars here prove the guard only: nothing about any rule's profitability."""
 
 import csv
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -24,7 +25,12 @@ from footprint.agents.greeks import DeltaAgent, GammaAgent, VegaAgent
 from footprint.agents.theta import ThetaAgent
 from footprint.backtest.__main__ import main
 from footprint.backtest.engine import Backtest
-from footprint.backtest.model_check import ModelOutsideBand, model_problem
+from footprint.backtest.model_check import (
+    BacktestRefused,
+    ModelOutsideBand,
+    NoPrimeSession,
+    model_problem,
+)
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.calendar import SessionKind, session_at
@@ -247,6 +253,62 @@ def test_the_worst_traded_bar_is_found_not_the_first(
     assert "vega.min_implied_vol" in str(refused.value)
 
 
+def test_a_bad_price_on_the_first_traded_bar_is_found(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    # Review round 2, R2-1(a): the first traded bar is traded like any other.
+    bars = extend(history, [D(-10)] * 5)
+    first = next(i for i, b in enumerate(bars) if b.ts >= TRADE_FROM)
+    assert session_at(bars[first].ts, profiles.instrument) is SessionKind.PRIME
+    bars[first] = replace(bars[first], low=D(6000))
+    with pytest.raises(
+        ModelOutsideBand,
+        match=re.escape(
+            f"6000, the lowest price traded in the prime session (bar {bars[first].ts.isoformat()})"
+        ),
+    ):
+        Backtest(profiles, settings, bars, workdir(tmp_path), trade_from=TRADE_FROM)
+
+
+@pytest.mark.parametrize("side", ["low", "high"])
+def test_a_tie_on_the_extreme_price_names_the_earliest_bar(
+    profiles: Profiles,
+    settings: BacktestSettings,
+    history: tuple[Bar, ...],
+    tmp_path: Path,
+    side: str,
+) -> None:
+    # Review round 2, R2-1(b): two bars at the same extreme price; the earliest one is
+    # checked and named (deterministic, the first moment the run would trade there).
+    bars = extend(history, [D(-10)] * 5)
+    early, late = len(bars) - 4, len(bars) - 2
+    for i in (early, late):
+        bars[i] = (
+            replace(bars[i], low=D(6000)) if side == "low" else replace(bars[i], high=D(100000))
+        )
+    with pytest.raises(ModelOutsideBand) as refused:
+        Backtest(profiles, settings, bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    assert f"(bar {bars[early].ts.isoformat()})" in str(refused.value)
+
+
+def test_a_run_with_no_prime_session_bar_is_refused(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    # Review round 2, R2-1(c), decided fail closed: no entry is ever made outside the
+    # prime session, so a run with no traded prime bar could only trade nothing.
+    last = history[-1]
+    evening = datetime(2026, 9, 15, 23, 0, tzinfo=UTC)  # 16:00 PT, overnight session
+    tail = [
+        replace(last, ts=evening + timedelta(minutes=i), open=last.close, low=last.close - 1)
+        for i in range(3)
+    ]
+    assert all(session_at(b.ts, profiles.instrument) is SessionKind.OVERNIGHT for b in tail)
+    with pytest.raises(NoPrimeSession, match="no traded bar is in the prime session") as refused:
+        Backtest(profiles, settings, [*history, *tail], workdir(tmp_path), trade_from=evening)
+    assert isinstance(refused.value, BacktestRefused)
+    assert not isinstance(refused.value, ModelOutsideBand)
+
+
 def test_history_before_trade_from_is_not_checked(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
@@ -288,4 +350,26 @@ def test_the_command_line_refuses_with_a_clear_error_and_exit_2(
     printed = capsys.readouterr()
     assert "refused" in printed.err
     assert "vega.max_implied_vol" in printed.err
+    assert not (out / "readout.json").exists()
+
+
+def test_the_command_line_refuses_a_run_with_no_prime_bar_with_exit_2(
+    history: tuple[Bar, ...], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    last = history[-1]
+    evening = datetime(2026, 9, 15, 23, 0, tzinfo=UTC)
+    tail = [
+        replace(last, ts=evening + timedelta(minutes=i), open=last.close, low=last.close - 1)
+        for i in range(3)
+    ]
+    path = tmp_path / "bars.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ts", "open", "high", "low", "close", "volume"])
+        for b in [*history, *tail]:
+            writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
+    out = tmp_path / "run"
+    argv = ["--bars", str(path), "--out", str(out), "--config", str(REPO_ROOT / "config")]
+    assert main([*argv, "--trade-from", evening.isoformat()]) == 2
+    assert "no traded bar is in the prime session" in capsys.readouterr().err
     assert not (out / "readout.json").exists()

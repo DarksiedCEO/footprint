@@ -16,7 +16,10 @@ band. Checked per moment: the at-the-money call and put of the nearest listed ex
 at least dte_min days from the trading day (Felix's expiry; when none is inside
 dte_max, still the nearest, since the model's volatility hardly depends on the days
 left). It is a guard on the model, not a forecast of any trade: single entries can
-still be vetoed, and are journalled.
+still be vetoed, and are journalled. It has no margin at the edges of the band: near
+an edge the verdict moves with the time of day and the strike offset, so a run whose
+extreme sits there can pass while some entries near that extreme are vetoed (GV-3).
+A run with no traded prime-session bar is refused too: it could make no entry.
 """
 
 from __future__ import annotations
@@ -37,9 +40,17 @@ from footprint.core.options import OptionQuote, Right
 _YEAR = timedelta(days=365)  # B76-1: calendar years, as the vetoes count them
 
 
-class ModelOutsideBand(ValueError):
+class BacktestRefused(ValueError):
+    """The backtest will not run: it could only trade nothing, silently."""
+
+
+class ModelOutsideBand(BacktestRefused):
     """At a price the backtest trades, the option model's implied volatility is outside
     the band the vetoes accept: the run would trade nothing there, silently."""
+
+
+class NoPrimeSession(BacktestRefused):
+    """No traded bar is in the prime session, the only session with entries."""
 
 
 def model_problem(
@@ -67,10 +78,15 @@ def model_problem(
 
 def check_model_vol(model: OptionModel, profiles: Profiles, traded: Sequence[Bar]) -> None:
     """Raise ModelOutsideBand when the model fails at the lowest or the highest price of
-    the traded bars inside the prime session."""
+    the traded bars inside the prime session (on a tie, the earliest such bar), and
+    NoPrimeSession when there is no traded prime bar at all (second review, R2-1:
+    fail closed, such a run could make no entry)."""
     prime = [b for b in traded if session_at(b.ts, profiles.instrument) is SessionKind.PRIME]
     if not prime:
-        return
+        raise NoPrimeSession(
+            "refused: no traded bar is in the prime session, the only session in which "
+            "entries are made: the run could only trade nothing"
+        )
     low = min(prime, key=lambda b: (b.low, b.ts))
     high = max(prime, key=lambda b: (b.high, -b.ts.timestamp()))
     for bar, price, which in ((low, low.low, "lowest"), (high, high.high, "highest")):

@@ -788,13 +788,18 @@ def _profiles_with_gamma(tmp_path: Path, hours: float, dte_max: int | None = Non
     return config
 
 
-@pytest.mark.parametrize(("hours", "dte_max"), [(1e30, None), (1e300, None), (96, 3), (24, 0)])
+@pytest.mark.parametrize(
+    ("hours", "dte_max"), [(1e30, None), (1e300, None), (82.01, 3), (96, 3), (9.01, 0)]
+)
 def test_a_gamma_minimum_no_option_could_meet_is_a_config_error(
     tmp_path: Path, hours: float, dte_max: int | None
 ) -> None:
     # Review round 1, L1: a huge minimum used to crash Pipeline construction with an
-    # OverflowError. Felix never takes an option more than dte_max days from the trading
-    # day, so a minimum of (dte_max + 1) days or more refuses every entry: a config error.
+    # OverflowError. Round 2, R2-4: the bound is the longest any entry can wait. Entries
+    # are made only in the prime session (from 04:00 PT) and Felix never takes an option
+    # more than dte_max days from the trading day, expiring at 13:00 PT: dte_max days +
+    # 9 hours, plus the hour the clocks go back (2026-10-30 to 11-02: 82 hours at
+    # dte_max 3); 9 hours at dte_max 0. A longer minimum refuses every entry.
     from footprint.core.config import load_profiles
     from footprint.decision.pipeline import Pipeline
 
@@ -803,7 +808,7 @@ def test_a_gamma_minimum_no_option_could_meet_is_a_config_error(
         Pipeline(load_profiles(config, "nq.yaml"))
 
 
-@pytest.mark.parametrize(("hours", "dte_max"), [(95.99, 3), (23.5, 0)])
+@pytest.mark.parametrize(("hours", "dte_max"), [(82, 3), (81.99, 3), (9, 0)])
 def test_a_gamma_minimum_under_the_longest_possible_wait_loads(
     tmp_path: Path, hours: float, dte_max: int
 ) -> None:

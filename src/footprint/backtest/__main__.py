@@ -5,7 +5,8 @@
 Writes readout.md and readout.json (plus the run's ledger and journal) into --out,
 which must not exist yet or be empty. Exit code: 0 PASS, 1 FAIL or NOT ENOUGH
 TRADES, 2 INVALID (also: refused before it ran, because the option model cannot be
-traded at the data's prices; see backtest/model_check.py).
+traded at the data's prices or no traded bar is in the prime session; see
+backtest/model_check.py).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from footprint.backtest.engine import Backtest
-from footprint.backtest.model_check import ModelOutsideBand
+from footprint.backtest.model_check import BacktestRefused
 from footprint.backtest.readout import read_out, to_json, to_markdown
 from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.rules import (
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
                 else None
             ),
         )
-    except ModelOutsideBand as refused:
+    except BacktestRefused as refused:
         print(f"backtest: {refused}", file=sys.stderr)
         return _INVALID
     run = backtest.run()

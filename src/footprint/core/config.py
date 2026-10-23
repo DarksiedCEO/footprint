@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -1195,13 +1195,28 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
 
 
 def _check_gamma_reachable(gamma: GammaSettings, instrument: InstrumentProfile, path: Path) -> None:
-    """Felix never takes an option expiring more than dte_max calendar days after the
-    trading day, so no option has (dte_max + 1) days left: a minimum that long refuses
-    every entry (and a huge one cannot even be held as a time span). Review L1."""
-    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)
-    if gamma.min_hours_to_expiry >= Decimal(str(longest)):
+    """The longest any entry can wait for its expiry: entries are made only in the prime
+    session, and Felix never takes an option expiring more than dte_max calendar days
+    after the trading day; an option stops trading at option_expiry.time (early closes
+    only make that earlier). So the longest wait is from a prime-session start to the
+    expiry time dte_max days later, measured on real clocks over the maintained calendar
+    (a clock change can add an hour). A minimum above it refuses every entry, and a huge
+    one cannot even be held as a time span (review L1, R2-4)."""
+    prime = ZoneInfo(instrument.prime_session.timezone)
+    expiry = ZoneInfo(instrument.option_expiry.timezone)
+    span = timedelta(days=instrument.dte_max)
+    longest = timedelta(0)
+    day = instrument.calendar_from
+    while day <= instrument.calendar_through:
+        opens = datetime.combine(day, instrument.prime_session.start, prime).astimezone(UTC)
+        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry).astimezone(UTC)
+        longest = max(longest, ends - opens)
+        day += timedelta(days=1)
+    hours = longest / timedelta(hours=1)
+    if gamma.min_hours_to_expiry > Decimal(str(hours)):
         raise ConfigError(
-            f"{path}: gamma: min_hours_to_expiry {gamma.min_hours_to_expiry} must be under "
-            f"{longest:g} hours, one day past dte_max {instrument.dte_max}: no option Felix "
-            "may pick could meet it"
+            f"{path}: gamma: min_hours_to_expiry {gamma.min_hours_to_expiry} is over "
+            f"{hours:g} hours, the longest any entry can wait for its expiry (prime "
+            f"session start to option_expiry.time, dte_max {instrument.dte_max} days "
+            "later): no option Felix may pick could meet it"
         )

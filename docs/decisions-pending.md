@@ -626,9 +626,15 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
     The floor was 0.3 in the first draft; it is 0.45 since review round 1 (M1, see GV-5).
   - Gamma: no entry with less than `gamma.min_hours_to_expiry` = 6 hours to the expiry
     moment ("the danger zone near expiry"). Since review round 1 (L1) `load_profiles`
-    refuses a minimum of (instrument `dte_max` + 1) days or more (96 hours today): no
-    option Felix may pick could meet it, and a huge value used to crash Pipeline
-    construction with an OverflowError instead of a config error. **The builder chose time, not a gamma cap**,
+    refuses a minimum longer than any entry can wait for its expiry: no option Felix
+    may pick could meet it, and a huge value used to crash Pipeline construction with
+    an OverflowError instead of a config error. Since review round 2 (R2-4) that bound
+    is derived from config, not "dte_max + 1 days": from a prime-session start
+    (`prime_session.start`, 04:00 PT; entries are made only in prime) to
+    `option_expiry.time` (13:00 PT) `dte_max` days later, on real clocks over the
+    maintained calendar (`calendar_from` to `calendar_through`). Today that is 82 hours
+    (3 days and 9 hours, plus the hour the clocks go back on 2026-11-01); 81 hours on
+    any other weekend. **The builder chose time, not a gamma cap**,
     and asks Andre to confirm: (1) Black-76 gamma per point is about 1 / (price x vol x
     root of time), so a fixed cap drifts with the index level and the volatility, while
     time to expiry is the cause of the danger at any level; (2) for a bought option a
@@ -702,8 +708,19 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
   so the command line and compare both get it), the model is checked at the lowest and
   the highest price traded in the prime session; outside the band the run is refused
   with an error naming that price, the contract, its volatility and the bound (exit 2,
-  INVALID, from the command line). The fix itself is GV-4. In the golden run (seam_default) the one
-  fired entry read implied volatility 0.309, delta 0.495, 30.0 hours to expiry; its
+  INVALID, from the command line). The fix itself is GV-4.
+  **The guard has no safety margin at the band's edges (review round 2, R2-2).** It
+  checks one moment per extreme price. Near each edge the verdict flips with the time
+  of day and the strike offset; the reviewer measured the flip zones over 21 moments
+  as about 7,243 to 7,362 (lower edge, about 1.6% wide) and about 90,450 to 91,750
+  (upper edge). A run whose lowest (or highest) price falls inside a flip zone can pass
+  the guard while some entries near that price are vetoed: a partial loss of trades,
+  journalled, not the silent zero trades H1 was about. Not fixed (documented, as
+  allowed); the margin, if wanted, comes with GV-4.
+  A run with no traded bar in the prime session is also refused (round 2, R2-1, fail
+  closed: no entry is made outside prime, so it could only trade nothing). No existing
+  test or golden runs such a backtest (full gate passed with the refusal in place).
+  In the golden run (seam_default) the one fired entry read implied volatility 0.309, delta 0.495, 30.0 hours to expiry; its
   trades, ledger and readout did not change, and every existing field of its 11
   decision records is identical; each record only gained `vega`, `delta` and `gamma`
   (null on the 10 records that never reached them). The modelled volatility is read from the model's own synthetic
@@ -741,6 +758,22 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
   This narrows the band: entries with |delta| from 0.30 to 0.45 are now vetoed. The
   golden run's one entry (|delta| 0.4952) still passes; the only golden change is the
   band printed in its Delta reason ("[0.45, 0.7]" for "[0.3, 0.7]").
+  **What the 0.45 floor costs, in points (review round 2, R2-3; the reviewer's own
+  Black-76, NQ at 25,000, not checked on a live chain):** Delta vetoes an
+  out-of-the-money nearest strike once it is about this far from the price:
+
+  | Implied vol | 1-day option (23 h left), call / put | 3 days 9 h left (81 h), call / put |
+  |---|---|---|
+  | 0.10 | 16 / 16 points | 31 / 29 points |
+  | 0.15 | 25 / 23 points | 48 / 43 points |
+  | 0.20 | 33 / 31 points | 65 / 56 points |
+
+  Felix allows up to 50 points (`execution.contract.max_strike_distance`). With
+  10-point strikes near the money the floor would almost never bind; with 25- or
+  50-point strikes in a quiet, low-volatility tape it will veto real entries. Puts are
+  cut slightly sooner (an at-the-money put's delta is under 0.5). **NQ's live strike
+  spacing near the money is NOT verified.** On the backtest model's chains Delta never
+  vetoes (smallest |delta| of Felix's pick seen by the reviewer: 0.474).
   Options: (a) keep the floor at `assumed_delta` (the interim rule); (b) a lower floor,
   with GV-2 deciding how N uses the live delta (then drop the loader rule); (c) another
   number.
