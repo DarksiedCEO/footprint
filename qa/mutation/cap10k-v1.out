@@ -1,0 +1,9 @@
+source: 397aaec17c84b529ffd6fce2e4692d6e8b567eb1 tree-dirty: 0 files
+baseline [config]: passed
+baseline [sizing]: passed
+  1 KILLED   [config] config/risk.yaml: the old cap restored
+  2 KILLED   [sizing] config/risk.yaml: cap just under the 9,997.50 boundary
+  3 KILLED   [sizing] config/risk.yaml: cap just over the 10,002.50 boundary
+  4 KILLED   [sizing] src/footprint/decision/sizing.py: Ezra sizes against the wrong cap
+  5 KILLED   [config] src/footprint/core/config.py: overnight cap checked against the bankroll, not the day cap
+5 mutants, 0 survived or errored
