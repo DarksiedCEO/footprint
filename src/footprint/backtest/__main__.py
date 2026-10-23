@@ -86,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         "risk.profit_target": str(profiles.risk.profit_target),
         "risk.trail_keep_pct": str(profiles.risk.trail_keep_pct),
         "risk.stop_loss": str(profiles.risk.stop_loss),
+        # The cap decides which entries Ezra can afford (CAP-1 review L1).
+        "risk.position_cap": str(profiles.risk.position_cap),
         "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),

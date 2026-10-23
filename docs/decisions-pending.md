@@ -597,3 +597,90 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
+
+## Position cap raised to $10,000 (branch cap10k-v1; Andre, 2026-10-23)
+
+- **CAP-1 (Andre, decided 2026-10-23 08:38 PT): `risk.position_cap` 5000 -> 10000.** A
+  config change; the only code change in the PR is that the backtest readout now prints
+  `risk.position_cap` among its assumptions (review L1). Ezra still buys one contract
+  (`max_contracts: 1`) and refuses any contract whose worst allowed fill plus the entry fee
+  is over the cap. `overnight_position_cap` (2500) is unchanged; v1 does not trade overnight.
+  - **What it actually changes: Friday entries.** Felix always takes the NEAREST expiry
+    inside 1-3 days, so Monday to Thursday he buys a 1-day option. A 2- or 3-day option is
+    chosen only when no 1-day one exists: on Fridays (Monday expiry, 3 days) and on the day
+    before a holiday (e.g. Wed 2026-11-25 -> Friday, 2 days). The cap does not let Ezra buy
+    2-3 day options in general; it mainly decides whether Fridays trade.
+    - Backtest model evidence (review M1; Felix + Ezra over modelled chains, delta 0.45,
+      2026-09-14 to 2026-11-12, five times a day): Monday-Thursday, 180 of 180 entries fit
+      under both caps ($3,127-$3,692). Friday, **0 of 40 fit at $5,000; 40 of 40 fit at
+      $10,000** ($5,322-$5,702).
+    - **Results from the backtest engine (`footprint.backtest`) on the default config
+      before CAP-1, such as the Bollinger results, excluded all Fridays and are not
+      comparable with engine runs after CAP-1.** Treat them as "Fridays excluded
+      (pre-CAP-1)". The research harness (`footprint.research`, London-v1) prices with
+      Black-76 and never reads the cap, so it is unaffected. The tournament and NQ
+      out-of-sample 2010-2024 results came from scratch scripts that are no longer on disk;
+      whether they used the cap is NOT VERIFIED (review round 2, LOW).
+    - Why no golden changed: the only golden (seam_default) is one Tuesday window with one
+      entry at $3,337.50, which fits under both caps.
+  - **Option prices (all ESTIMATES, from the review; not checked against a full set of real
+    quotes).** The London shadow quote of 2026-10-22 (at-the-money NQ, mid ~178.5 points,
+    ~$3,570) was taken Thu 20:27 PT for the Fri 13:00 PT expiry: about **0.69 day** left, not
+    1 day. Scaled by the square root of time:
+
+    | Basis | 2-day | 3-day |
+    |---|---|---|
+    | Shadow quote, rescaled from 0.69 day | ~$6,080 | ~$7,440 |
+    | Oct 30 quote (~505 points at ~7.4 days) | ~$5,250 | ~$6,430 |
+    | Backtest model (150 points per root-day) | ~$4,243 | ~$5,196 |
+
+    So a 2-3 day at-the-money option costs roughly **$5,000-$7,500 (estimated)**. In the
+    backtest model alone, 2-day options already fit the old cap; only 3-day (Friday)
+    options did not. Live, at evening implied volatility (~214 points per root-day), even a
+    1-day option at the 04:00 PT open is about 251 points, **~$5,020**, so the old cap would
+    also have refused some Monday-Thursday entries at the open.
+  - **Unchanged:** the $750 hard stop, `stop_min`/`stop_max`, the $1,000 target, the daily
+    ($2,000) and weekly ($3,500) loss limits and the kill switch. The planned loss per trade
+    in dollars is the same. All exit maths is dollars per contract: at a 499.75-point fill
+    (the largest under the cap) the hard stop is 462.25, the resting limit 457.25 (worst
+    stop fill plus fees $855, inside `stop_max`), and the trail arms at a bid of 550.00 and
+    moves the stop to 525.00 (pinned by a test).
+  - **Other effects:**
+    - Up to 40% of the $25,000 bankroll can sit in one option, up from 20%.
+    - $750 is a smaller share of a pricier option (7.5-12.5% of $6,000-$10,000), so ordinary
+      noise reaches the stop more often. The real-data backtest is what measures this.
+    - Line 12 of this file (the withdrawal policy) says position size steps up toward $10,000
+      "only at the same percent-of-bankroll risk". The dollar risk per trade is unchanged;
+      the premium held is not. Andre's call that this is consistent with that policy.
+  - **M2: one trade's worst case now exceeds the kill switch. AWAITING ANDRE'S SIGN-OFF.**
+    If the price gaps through the resting stop-limit and the position is then flattened
+    lower, one trade can lose up to the premium paid: now up to **$10,000** (40% of the
+    bankroll). That is 2x the kill-switch drawdown ($5,000 = 20% of $25,000), 2.9x the
+    weekly limit ($3,500), 5x the daily limit ($2,000) and 2.7x the 15% go-live drawdown
+    gate ($3,750). At the old cap the worst case ($5,000) equalled the kill-switch amount.
+    The limits only veto the NEXT entry; they cannot cap a loss in progress. A realistic
+    intraday gap is far smaller than the whole premium (positions are flat at the close),
+    but the exposure is real.
+    - (a) Accept the $10,000 worst case.
+    - (b) Lower the cap (for example to the kill-switch amount, $5,000-$6,000, accepting
+      fewer or no Friday entries).
+  - **M3: the spread filter scales with the premium. AWAITING ANDRE'S SIGN-OFF.**
+    `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread: about 25 points
+    ($500) at a ~500-point premium, against about 12.5 points at ~250. Code-checked case: a
+    477.75/502.25 quote (spread 5.0% of mid, the most Felix allows) is accepted; Ezra's
+    worst allowed fill is 496.00 (cost $9,922.50) and its stop 458.50 sits only **~$385**
+    above the bid. For a ~$5,000 entry (243.75/256.25, fill 253.00) the same room is
+    **~$565**. So stop-outs from noise rise beyond the 7.5-12.5% effect above. Real quotes
+    seen: Oct 30 NQ spread 9 points on ~500 (1.8%, fine); Oct 23 weekly 28 points on 178
+    (refused).
+    - (a) Accept the percent-of-mid filter as is.
+    - (b) Add an absolute spread cap in points to `config/execution.yaml` (a draft number
+      for Andre to set; NOT built in this PR).
+  - **Tests:** `tests/test_config.py` pins 10000 and accepts a cap equal to the bankroll;
+    the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 9,997.50 (fits) /
+    10,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
+    at a 499.75 fill; `tests/backtest/test_position_cap_fridays.py` shows a modelled Friday
+    entry refused at $5,000 and taken at the shipped cap (Monday and Thursday take a
+    1-day option that fits both);
+    `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
+    `risk.position_cap`.
