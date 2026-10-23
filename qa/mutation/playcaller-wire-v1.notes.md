@@ -28,3 +28,20 @@ cherry-pick onto trading-class-v1 and this wiring: source f4e08b6, tree-dirty 0,
 passed, **64 mutants, 0 survived or errored**. PR 39's own `playcaller-v1.out` is left
 as it was (its evidence for 85d3663); the only change to regime_reader.py here is one
 docstring line (which play runs on which label now names decision/play.py).
+
+## Review round 1 fixes (code d141ffa)
+
+30 new mutants (R1-*, #55-#84) for M1 (waiting for the opening's final minute, the
+window-end NO_DATA, the closed-bar test), M2 (the bad history day on the reader's call,
+the once-a-day alarm), L1/L4 (the load-time checks, PlayRefused, the program's REFUSED
+exits), L2 (the stand-in's clock) and L3 (the journal's owed play record). Mutant #54's
+text follows the rename of its handler to `PlayRefused`.
+
+Evidence on d141ffa, tree-dirty 0, every baseline passed:
+- `playcaller-wire-v1.out`: **84 mutants, 0 survived or errored** (no TIMEOUT).
+- `playcaller-v1.wire-r1.out`: PR 39's spec (`playcaller-v1.json`, unchanged) re-run
+  because regime_reader.py changed (bad_history_day): **64 mutants, 0 survived or
+  errored**. This also closes review round 1 I4 (that spec's evidence is now bound to a
+  commit of this branch; `playcaller-v1.out` stays as PR 39's evidence for 85d3663).
+
+No survivors, so no equivalence arguments.

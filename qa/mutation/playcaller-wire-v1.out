@@ -1,8 +1,9 @@
-source: 8860d7adc9ea22cf8869219edf9325d267f97434 tree-dirty: 0 files
+source: d141ffa62d951a7068d4d32d935ca5325f74ca4a tree-dirty: 0 files
 baseline [engine]: passed
 baseline [live]: passed
 baseline [pipeline]: passed
 baseline [play]: passed
+baseline [reader]: passed
   1 KILLED   [play] src/footprint/decision/play.py: TREND cause/regime consistency check removed
   2 KILLED   [play] src/footprint/decision/play.py: CHOP cause/regime consistency check removed
   3 KILLED   [play] src/footprint/decision/play.py: entries allowed on any non-CHOP play
@@ -57,4 +58,34 @@ baseline [play]: passed
  52 KILLED   [engine] src/footprint/backtest/readout.py: play days missing from markdown
  53 KILLED   [live] src/footprint/live/app.py: live start does not check the history
  54 KILLED   [live] src/footprint/live/__main__.py: refusal exits 0
-54 mutants, 0 survived or errored
+ 55 KILLED   [play] src/footprint/decision/play.py: R1-M1: a WAITING call fixes the day
+ 56 KILLED   [play] src/footprint/decision/play.py: R1-M1: the waiting day is not remembered (window end gives LATE, not NO_DATA)
+ 57 KILLED   [play] src/footprint/decision/play.py: R1-M1: waiting on any earlier day makes a late start NO_DATA
+ 58 KILLED   [play] src/footprint/decision/play.py: R1-M1: after the window always NO_DATA (never LATE)
+ 59 KILLED   [play] src/footprint/decision/play.py: R1-M1: never wait for the final opening minute (old behaviour)
+ 60 KILLED   [play] src/footprint/decision/play.py: R1-M1: a forming bar counts as the final minute
+ 61 KILLED   [play] src/footprint/decision/play.py: R1-M1: a bar closing exactly at as_of is not closed
+ 62 KILLED   [play] src/footprint/decision/play.py: R1-M1: the final minute itself does not count
+ 63 KILLED   [play] src/footprint/decision/play.py: R1-M1: no closed bar at all counts as present
+ 64 KILLED   [play] src/footprint/decision/play.py: R1-M1: waiting for the decision minute's bar instead of the final opening minute
+ 65 KILLED   [play] src/footprint/decision/play.py: R1-M1: still waiting at window end is LATE, not NO_DATA
+ 66 KILLED   [play] src/footprint/decision/play.py: R1-L4: an unusable regime config escapes as a bare ValueError
+ 67 KILLED   [play] src/footprint/decision/play.py: R1-L4: history refusal no longer a PlayRefused
+ 68 KILLED   [reader] src/footprint/agents/regime_reader.py: R1-M2: the bad history day is not named on the call
+ 69 KILLED   [reader] src/footprint/agents/regime_reader.py: R1-M2: aside() drops the bad history day
+ 70 KILLED   [engine] src/footprint/execution/runner.py: R1-M2: alarm on every decision, not once a day
+ 71 KILLED   [engine] src/footprint/execution/runner.py: R1-M2: alarm on every fixed label, bad history or not
+ 72 KILLED   [engine] src/footprint/execution/runner.py: R1-M2: the bad-history alarm is never raised
+ 73 KILLED   [engine] src/footprint/execution/runner.py: R1-M2: the alarm does not name the blocked day
+ 74 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: R1-L3: a failing play record loses the decision record
+ 75 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: R1-L3: the owed record is dropped before it is written (no retry)
+ 76 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: R1-L3: only one owed record written per decision
+ 77 KILLED   [pipeline] src/footprint/execution/journal/josephine.py: R1-L3: a play record on every decision
+ 78 KILLED   [play] src/footprint/core/config.py: R1-L1: a poll delay equal to the window is accepted
+ 79 KILLED   [play] src/footprint/core/config.py: R1-L1/L4: the play timing check is not made at load
+ 80 KILLED   [play] src/footprint/core/config.py: R1-L4: a decision time at the cash close is accepted
+ 81 KILLED   [live] src/footprint/live/__main__.py: R1-L4: a ConfigError at load is a traceback
+ 82 KILLED   [live] src/footprint/live/__main__.py: R1-L4: only the history refusal is caught at build
+ 83 KILLED   [pipeline] tests/decision/plays.py: R1-L2: the stand-in allows entries before the decision time
+ 84 KILLED   [pipeline] tests/decision/plays.py: R1-L2: the stand-in allows entries outside prime
+84 mutants, 0 survived or errored
