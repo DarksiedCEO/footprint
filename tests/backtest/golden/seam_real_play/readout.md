@@ -7,7 +7,7 @@
 - no trading day was labelled TREND, so the entry never ran: no_data 1
 
 Data: 2026-09-15T14:00:00+00:00 to 2026-09-15T14:15:00+00:00. Equity 25000 to 25000. Ledger and journal agree: yes.
-Decisions: 17 (0 fired). Alarms: 2. Ended early: no.
+Decisions: 17 (0 fired). Alarms: 3. Ended early: no.
 Drawdown marked to the bid: 0.00% (0.00). Worst open loss in any trade: 0.00.
 
 ## Gates

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -1170,4 +1170,37 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         play=load_play(config_dir / "play.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
+    check_play_timing(profiles.instrument, profiles.execution, profiles.regime, profiles.play)
     return profiles
+
+
+def check_play_timing(
+    instrument: InstrumentProfile,
+    execution: ExecutionProfile,
+    regime: RegimeSettings,
+    play: PlaySettings,
+) -> None:
+    """The play caller's timing rules that span profiles. Raises ConfigError.
+
+    - The day's label is made `regime.decision_minutes` after the cash open, so that
+      moment must fall inside the cash session (the regime reader's own check, made at
+      load so a bad config is refused at start-up).
+    - The opening's final minute bar is polled `bar_poll_delay_seconds` after it closes;
+      at or past `play.on_time_seconds` it could never arrive on time and every live day
+      would stand aside (review round 1, L1).
+    """
+    cash = instrument.cash_session
+    start = datetime.combine(date.min, cash.start)
+    cash_minutes = (datetime.combine(date.min, cash.end) - start) // timedelta(minutes=1)
+    if cash.end <= cash.start or regime.decision_minutes >= cash_minutes:
+        raise ConfigError(
+            f"regime.decision_minutes ({regime.decision_minutes}) must end inside the cash "
+            f"session ({cash.start} to {cash.end})"
+        )
+    delay = execution.market_data.bar_poll_delay_seconds
+    if delay >= play.on_time_seconds:
+        raise ConfigError(
+            f"market_data.bar_poll_delay_seconds ({delay}) must be below "
+            f"play.on_time_seconds ({play.on_time_seconds}): the opening's final minute "
+            "could never be read on time"
+        )

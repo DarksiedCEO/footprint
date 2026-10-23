@@ -21,9 +21,9 @@ from pathlib import Path
 
 from footprint.brokers.ibkr.paper import LiveAccountRefused
 from footprint.brokers.ibkr.settings import IbConnectionSettings, read_env_file
-from footprint.core.config import load_profiles
+from footprint.core.config import ConfigError, load_profiles
 from footprint.data.news import blackouts_from
-from footprint.decision.play import PlayHistoryTooShort
+from footprint.decision.play import PlayRefused
 from footprint.execution.channels import ChannelSettings, TelegramOnlySettings
 from footprint.live.app import AlarmFile, Driver, build
 
@@ -66,7 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    profiles = load_profiles(args.config, args.instrument)
+    try:
+        profiles = load_profiles(args.config, args.instrument)
+    except ConfigError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     env = read_env_file(str(args.env))
     try:
         settings = IbConnectionSettings.from_env(env, profiles.execution.ibkr)
@@ -106,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             channels=channels,
             new_ledger=args.new_ledger,
         )
-    except PlayHistoryTooShort as exc:
+    except PlayRefused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
     stop = threading.Event()

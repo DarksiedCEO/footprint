@@ -238,3 +238,138 @@ def test_no_play_record_without_a_play(
     journal.record_decision(replace(decision, play=None))
     journal.record_decision(decision)  # a stand-in's play is never `first`
     assert journal.plays() == []
+
+
+# --- review round 1 ---------------------------------------------------------------------
+
+
+def _trend_decisions(profiles: Profiles) -> tuple[Decision, Decision]:
+    """The real play caller (small lookbacks) on a trend day: the decision that fixes the
+    day's label, and a later one the same day."""
+    from footprint.decision.play import PlayCaller
+    from tests.agents.test_regime_reader import SMALL, _decision
+    from tests.decision.test_play import trend_day
+
+    inst = profiles.instrument
+    pipeline = Pipeline(
+        profiles, play=PlayCaller(SMALL, profiles.play, profiles.strategy.data, inst)
+    )
+    bars = trend_day(inst)
+    at = _decision(inst)
+    first = pipeline.decide(bars, None, clean(profiles), (), at)
+    later = pipeline.decide(bars, None, clean(profiles), (), at + MINUTE)
+    assert first.play is not None
+    assert first.play.first
+    assert later.play is not None
+    assert not later.play.first
+    return first, later
+
+
+class _FailPlays:
+    """Journal._append that fails on the plays file `times` times."""
+
+    def __init__(self, times: int) -> None:
+        self.times = times
+        self.real = Journal._append
+
+    def __call__(self, path: Path, record: dict[str, object]) -> None:
+        if path.name == "plays.jsonl" and self.times > 0:
+            self.times -= 1
+            raise OSError("disk full")
+        self.real(path, record)
+
+
+def test_a_failed_play_record_is_written_on_the_next_decision(
+    profiles: Profiles, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L3: the day's label is journaled from the decision that fixed it; if that write
+    fails, it is retried on the next decision (and the failure still raises, so the
+    runner alarms it). The decision record itself is never lost to it."""
+    first, later = _trend_decisions(profiles)
+    journal = Journal(tmp_path)
+    monkeypatch.setattr(Journal, "_append", staticmethod(_FailPlays(1)))
+    with pytest.raises(OSError, match="disk full"):
+        journal.record_decision(first)
+    assert journal.plays() == []
+    assert len(journal.decisions()) == 1  # written despite the plays failure
+    journal.record_decision(later)
+    (record,) = journal.plays()
+    assert record["cause"] == "trend"
+    assert record["as_of"] == first.as_of.isoformat()  # the fixing decision's record
+    journal.record_decision(later)
+    assert len(journal.plays()) == 1  # once a day
+    assert len(journal.decisions()) == 3
+
+
+def test_a_play_record_failing_twice_is_retried_until_written(
+    profiles: Profiles, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, later = _trend_decisions(profiles)
+    journal = Journal(tmp_path)
+    monkeypatch.setattr(Journal, "_append", staticmethod(_FailPlays(2)))
+    with pytest.raises(OSError, match="disk full"):
+        journal.record_decision(first)
+    with pytest.raises(OSError, match="disk full"):
+        journal.record_decision(later)
+    journal.record_decision(later)
+    assert len(journal.plays()) == 1
+    assert len(journal.decisions()) == 3
+
+
+def test_every_owed_play_record_is_written_on_the_next_success(
+    profiles: Profiles, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record still owed when the next day's label is fixed: both are written, the
+    owed one first."""
+    first, _ = _trend_decisions(profiles)
+    journal = Journal(tmp_path)
+    monkeypatch.setattr(Journal, "_append", staticmethod(_FailPlays(1)))
+    with pytest.raises(OSError, match="disk full"):
+        journal.record_decision(first)
+    replayed = replace(first, as_of=first.as_of + MINUTE)
+    journal.record_decision(replayed)
+    assert [p["as_of"] for p in journal.plays()] == [
+        first.as_of.isoformat(),
+        replayed.as_of.isoformat(),
+    ]
+
+
+def test_a_written_play_record_is_not_written_again(
+    profiles: Profiles, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, later = _trend_decisions(profiles)
+    journal = Journal(tmp_path)
+    journal.record_decision(first)
+    journal.record_decision(later)
+    journal.record_decision(first)  # (a replayed fixing decision is a new record)
+    assert len(journal.plays()) == 2
+
+
+# --- L2: the stand-in respects the decision time -------------------------------------
+
+
+def test_the_stand_in_takes_no_entries_before_the_decision_time(profiles: Profiles) -> None:
+    """The stand-in says its cause only where the real play caller could: in the prime
+    session from the decision time on. Before it, BEFORE_DECISION; outside prime,
+    OUTSIDE_PRIME; neither allows entries (review round 1, L2)."""
+    from footprint.decision.play import PlayCaller
+    from tests.agents.test_regime_reader import TODAY, _night_open
+
+    inst = profiles.instrument
+    due = PlayCaller(profiles.regime, profiles.play, profiles.strategy.data, inst).decision_time(
+        TODAY
+    )
+    stand_in = FixedPlay(PlayCause.TREND)
+    before = stand_in.call((), due - timedelta(seconds=1))
+    assert before.cause is PlayCause.BEFORE_DECISION
+    assert before.day == TODAY
+    assert not before.entries_allowed
+    at = stand_in.call((), due)
+    assert at.cause is PlayCause.TREND
+    assert at.day == TODAY
+    assert not at.first  # a stand-in never fixes (journals) a day
+    night = stand_in.call((), _night_open(TODAY, inst) + MINUTE)
+    assert night.cause is PlayCause.OUTSIDE_PRIME
+    assert night.day is None
+    assert not night.entries_allowed
+    assert stand_in.calls == [due - timedelta(seconds=1), due, _night_open(TODAY, inst) + MINUTE]

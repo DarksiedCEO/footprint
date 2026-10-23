@@ -131,7 +131,7 @@
     "final_equity": "25000",
     "decisions": 17,
     "fired": 0,
-    "alarms": 2,
+    "alarms": 3,
     "ended_early": null,
     "open_at_end": false,
     "skipped_minutes": 0,

@@ -3,14 +3,19 @@
 Andre's decisions (docs/decisions-pending.md, play caller):
 - PC-5 (2026-10-22): a TREND day runs the existing breakout entry (the live momentum
   entry, unchanged); a CHOP day and a STAND ASIDE day take no new entries.
-- PC-4: only a label made on time counts. The day's label is fixed by the FIRST call at
-  or after the decision time (regime.decision_minutes after the cash open). If that call
-  comes within `play.on_time_seconds` of the decision time, the reader's label stands
-  for the rest of the trading day, whatever it is (a data failure included: it is not
-  retried, so a late-arriving minute can never make a late label). If it comes later
-  (data late, the broker away, a restart after the decision minute), the day stands
-  aside (LATE) and the reader is not asked. A bad overnight stands aside (the reader's
-  own rule).
+- PC-4: only a label made on time counts. The on-time window is `play.on_time_seconds`
+  from the decision time (regime.decision_minutes after the cash open). Inside it:
+  - while the opening's final minute has not arrived yet (no closed bar at or after it
+    among the bars read), nothing is fixed: the play is WAITING (no new entries) and the
+    next decision asks again (review round 1, M1: a bar arriving late but inside the
+    window is not a late label);
+  - otherwise the reader is asked and its label stands for the rest of the trading day,
+    whatever it is (a data failure included: with a later minute already there, the
+    final minute is missing, not late, and it is not retried).
+  After the window, the reader is never asked: a day still WAITING is fixed NO_DATA (the
+  final minute did not come on time); a day never asked inside it (data late, the broker
+  away, a restart after the decision minute) is LATE. A bad overnight stands aside (the
+  reader's own rule).
 - No new entries before the decision time, on any day: the pre-cash prime hours and the
   first `decision_minutes` of the cash session take no new entries. The reader is not
   asked then, so nothing is fixed before the decision minute.
@@ -67,6 +72,7 @@ class PlayCause(Enum):
     LATE = "late"  # no call inside the on-time window (PC-4)
     READER_FAILED = "reader_failed"  # the reader or its history source raised
     BEFORE_DECISION = "before_decision"  # prime, before the decision time (nothing fixed)
+    WAITING = "waiting"  # on time, the opening's final minute not there yet (nothing fixed)
     OUTSIDE_PRIME = "outside_prime"  # not the prime session (nothing fixed)
 
 
@@ -117,6 +123,7 @@ class PlayCaller:
         self._zone = ZoneInfo(instrument.cash_session.timezone)
         self._history = history
         self._fixed: tuple[date, PlayCall] | None = None
+        self._waiting: date | None = None  # the day a WAITING call was last given for
 
     @property
     def agent_id(self) -> str:
@@ -150,6 +157,9 @@ class PlayCaller:
                 f"no new entries before the decision time {due.isoformat()}",
             )
         fixed = self._fix(minute_bars, as_of, today, due)
+        if fixed.cause is PlayCause.WAITING:
+            self._waiting = today
+            return fixed
         self._fixed = (today, fixed)
         return fixed
 
@@ -159,7 +169,15 @@ class PlayCaller:
         def aside(cause: PlayCause, reason: str, label: RegimeCall | None = None) -> PlayCall:
             return PlayCall(today, Regime.STAND_ASIDE, cause, reason, label, first=True)
 
+        final = due - _MINUTE  # the opening's final minute (a bar's ts is its start)
         if as_of >= due + self._on_time:
+            if self._waiting == today:
+                return aside(
+                    PlayCause.NO_DATA,
+                    f"the opening's final minute ({final.isoformat()}) had not arrived by "
+                    f"the end of the on-time window ({self._on_time} after "
+                    f"{due.isoformat()}); no new entries today",
+                )
             return aside(
                 PlayCause.LATE,
                 f"no label on time: the first decision at or after {due.isoformat()} came at "
@@ -174,6 +192,14 @@ class PlayCaller:
             )
         try:
             bars = minute_bars if self._history is None else self._history(as_of)
+            if not _has_closed_bar_from(bars, final, as_of):
+                return PlayCall(
+                    today,
+                    Regime.STAND_ASIDE,
+                    PlayCause.WAITING,
+                    f"waiting for the opening's final minute ({final.isoformat()}): no "
+                    "new entries yet",
+                )
             label = self._reader.call(bars, as_of)
         except (ValueError, TypeError) as exc:
             return aside(
@@ -203,6 +229,15 @@ class PlayCaller:
         return aside(cause, f"stand aside: {label.reason}; no new entries today", label)
 
 
+def _has_closed_bar_from(bars: Sequence[Bar], start: datetime, as_of: datetime) -> bool:
+    """True when the newest bar closed by `as_of` starts at or after `start` (bars in
+    time order; out-of-order input is the reader's to refuse)."""
+    for bar in reversed(bars):
+        if bar.ts + _MINUTE <= as_of:
+            return bar.ts >= start
+    return False
+
+
 def warm_up(day: date, sessions: int, instrument: InstrumentProfile) -> bool:
     """True when the `sessions - 1` trading days before `day` reach before calendar_from
     (the reader refuses such history: PC-3)."""
@@ -214,7 +249,11 @@ def warm_up(day: date, sessions: int, instrument: InstrumentProfile) -> bool:
     return False
 
 
-class PlayHistoryTooShort(ValueError):
+class PlayRefused(ValueError):
+    """The play caller cannot run on this configuration: refuse to start."""
+
+
+class PlayHistoryTooShort(PlayRefused):
     """The configured history cannot cover the regime reader: refuse to start."""
 
 
@@ -225,7 +264,12 @@ def history_days_needed(profiles: Profiles) -> int:
     openings of the previous efficiency_lookback_sessions days and the nights of the
     previous overnight_lookback_sessions days. Warm-up days (PC-3) are skipped."""
     p, r = profiles.instrument, profiles.regime
-    caller = PlayCaller(r, profiles.play, profiles.strategy.data, p)
+    try:
+        caller = PlayCaller(r, profiles.play, profiles.strategy.data, p)
+    except ValueError as exc:  # the reader's own check of the regime settings
+        raise PlayRefused(
+            f"the regime config cannot be used: {exc} (config/regime.yaml). Refusing to start"
+        ) from exc
     zone = ZoneInfo(p.cash_session.timezone)
     night = p.overnight_session
     night_zone = ZoneInfo(night.timezone)
@@ -262,7 +306,8 @@ def history_days_needed(profiles: Profiles) -> int:
 
 def check_live_history(profiles: Profiles) -> None:
     """Live start-up check (PC-2): fail closed when market_data.history_days cannot
-    cover the regime reader on some day of the maintained calendar."""
+    cover the regime reader on some day of the maintained calendar (PlayHistoryTooShort),
+    or the regime settings cannot be used at all (PlayRefused)."""
     need = history_days_needed(profiles)
     have = profiles.execution.market_data.history_days
     if have < need:

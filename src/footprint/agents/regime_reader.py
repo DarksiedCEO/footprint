@@ -83,6 +83,10 @@ class RegimeCall:
     efficiency_rank_pct: Decimal | None = None
     overnight_range: Decimal | None = None
     overnight_median: Decimal | None = None
+    # The history session whose unusable data made this call stand aside (None when the
+    # call stands on today's data, on the rules, or on no particular day). One such
+    # session stands aside every day it stays in the lookback, so it is named as data.
+    bad_history_day: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,8 +217,23 @@ class RegimeReader:
     ) -> tuple[RegimeCall, bool]:
         """The call, and whether it rests on sound data (only then is it kept)."""
 
-        def aside(reason: str, **known: Decimal | None) -> tuple[RegimeCall, bool]:
-            return RegimeCall(Regime.STAND_ASIDE, today, as_of, reason, **known), False
+        def aside(
+            reason: str,
+            *,
+            efficiency: Decimal | None = None,
+            overnight_range: Decimal | None = None,
+            bad_history_day: date | None = None,
+        ) -> tuple[RegimeCall, bool]:
+            call = RegimeCall(
+                Regime.STAND_ASIDE,
+                today,
+                as_of,
+                reason,
+                efficiency=efficiency,
+                overnight_range=overnight_range,
+                bad_history_day=bad_history_day,
+            )
+            return call, False
 
         bars = completed(minute_bars, as_of, 1)
         starts = [bar.ts for bar in bars]
@@ -261,6 +280,7 @@ class RegimeReader:
                     f"history {day.isoformat()}: {exc}",
                     efficiency=efficiency,
                     overnight_range=night,
+                    bad_history_day=day,
                 )
 
         c = classify(efficiency, past_eff, night, past_night, self._s)

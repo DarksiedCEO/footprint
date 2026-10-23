@@ -50,8 +50,46 @@ def test_the_program_refuses_with_exit_code_2() -> None:
         for n in ast.walk(main)
         if isinstance(n, ast.Try)
         for h in n.handlers
-        if isinstance(h.type, ast.Name) and h.type.id == "PlayHistoryTooShort"
+        if isinstance(h.type, ast.Name) and h.type.id == "PlayRefused"
     ]
     assert len(handlers) == 1
     returns = [n for n in ast.walk(handlers[0]) if isinstance(n, ast.Return)]
     assert [ast.literal_eval(r.value) for r in returns if r.value is not None] == [2]
+
+
+def _handler(name: str) -> tuple[ast.Try, ast.ExceptHandler]:
+    main = _function(MAIN, "main")
+    found = [
+        (n, h)
+        for n in ast.walk(main)
+        if isinstance(n, ast.Try)
+        for h in n.handlers
+        if isinstance(h.type, ast.Name) and h.type.id == name
+    ]
+    assert len(found) == 1, name
+    return found[0]
+
+
+def _refuses(handler: ast.ExceptHandler) -> None:
+    returns = [n for n in ast.walk(handler) if isinstance(n, ast.Return)]
+    assert [ast.literal_eval(r.value) for r in returns if r.value is not None] == [2]
+    texts = [
+        n.value
+        for n in ast.walk(handler)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    ]
+    assert any(t.startswith("REFUSED: ") for t in texts)
+
+
+def test_a_bad_config_is_refused_with_exit_code_2_not_a_traceback() -> None:
+    """L4: load_profiles' ConfigError (a bad regime or play config included) is printed
+    as REFUSED and exits 2. NOT VERIFIED by running main (it imports ibapi)."""
+    block, handler = _handler("ConfigError")
+    assert "load_profiles" in _calls(ast.Module(body=block.body, type_ignores=[]))
+    _refuses(handler)
+
+
+def test_every_play_refusal_at_build_is_refused_with_exit_code_2() -> None:
+    block, handler = _handler("PlayRefused")
+    assert "build" in _calls(ast.Module(body=block.body, type_ignores=[]))
+    _refuses(handler)

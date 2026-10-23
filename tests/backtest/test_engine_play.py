@@ -175,3 +175,87 @@ def test_warm_up_days_are_reported(
     assert "warm_up 1" in why
     assert "calendar_from" in why
     assert "PC-3" in why
+
+
+# --- review round 1 ---------------------------------------------------------------------
+
+
+def test_the_real_play_caller_labels_a_trend_day_and_the_breakout_trades(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """L2: end to end with the REAL play caller (small lookbacks that the scenario's
+    sessions can carry): the day is labelled TREND at the decision minute, the breakout
+    fires and the trade runs to its stop, as with the stand-in."""
+    small = replace(profiles, regime=SMALL)
+    bars = extend(history, [D(-10)] * 15)
+    run = Backtest(small, settings, bars, workdir(tmp_path), trade_from=TRADE_FROM).run()
+    assert [p["cause"] for p in run.plays] == ["trend"]
+    assert run.plays[0]["entries_allowed"] is True
+    assert run.fired == 1
+    assert len(run.trades) == 1
+    assert run.trades[0]["exit_reason"] == "STOP"
+    assert read_out(run, settings, {}).play_days == {"trend": 1}
+
+
+def _play_alarms(run: object) -> list[str]:
+    return [a.message for a in run.alarms if "PLAY CALLER" in a.message]  # type: ignore[attr-defined]
+
+
+def test_a_bad_history_day_is_alarmed_once_a_day_with_its_date(
+    profiles: Profiles, settings: BacktestSettings, tmp_path: Path
+) -> None:
+    """M2: one unusable history session stands the day aside; that is alarmed once that
+    day (not every decision), naming the bad session and why."""
+    from tests.agents.test_regime_reader import _cash_open, _history
+
+    inst = profiles.instrument
+    small = replace(profiles, regime=SMALL)
+    bars = trend_day(inst)
+    bad = _history(SMALL.efficiency_lookback_sessions, inst)[0]
+    open_ = _cash_open(bad, inst)
+    bars = [b for b in bars if not open_ <= b.ts < open_ + MINUTE * 6]
+    at = _decision(inst)
+    last = bars[-1]
+    price = last.close
+    for k in range(5):  # several decisions that day
+        bars.append(Bar(last.symbol, at + MINUTE * k, price, price + 1, price - 1, price, 1))
+    run = Backtest(small, settings, bars, workdir(tmp_path), trade_from=at).run()
+    assert [p["cause"] for p in run.plays] == ["no_data"]
+    (alarm,) = _play_alarms(run)
+    assert bad.isoformat() in alarm
+    assert "minutes" in alarm  # the reader's reason
+    assert at.date().isoformat() in alarm  # the day it blocks
+
+
+def test_a_sound_day_raises_no_play_alarm(
+    profiles: Profiles, settings: BacktestSettings, tmp_path: Path
+) -> None:
+    inst = profiles.instrument
+    small = replace(profiles, regime=SMALL)
+    bars = trend_day(inst)
+    at = _decision(inst)
+    last = bars[-1]
+    bars.append(Bar(last.symbol, at, last.close, last.close + 1, last.close - 1, last.close, 1))
+    run = Backtest(small, settings, bars, workdir(tmp_path), trade_from=at).run()
+    assert [p["cause"] for p in run.plays] == ["trend"]
+    assert _play_alarms(run) == []
+
+
+def test_a_bad_today_raises_no_history_alarm(
+    profiles: Profiles, settings: BacktestSettings, tmp_path: Path
+) -> None:
+    """Only a bad HISTORY session is alarmed (it blocks many days); a bad overnight
+    today stands aside as before, journaled."""
+    from tests.agents.test_regime_reader import TODAY, _cash_open, _night_open
+
+    inst = profiles.instrument
+    small = replace(profiles, regime=SMALL)
+    bars = trend_day(inst)
+    night, open_ = _night_open(TODAY, inst), _cash_open(TODAY, inst)
+    bars = [b for b in bars if not night <= b.ts < open_]
+    at = _decision(inst)
+    last = bars[-1]
+    bars.append(Bar(last.symbol, at, last.close, last.close + 1, last.close - 1, last.close, 1))
+    run = Backtest(small, settings, bars, workdir(tmp_path), trade_from=at).run()
+    assert [p["cause"] for p in run.plays] == ["no_data"]
+    assert _play_alarms(run) == []

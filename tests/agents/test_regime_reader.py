@@ -947,3 +947,61 @@ def test_a_correction_to_only_the_last_opening_minute_relabels(
     call = reader.call(fixed, _decision(instrument) + MINUTE)
     assert call.efficiency == Decimal(0)
     assert call.regime is Regime.CHOP
+
+
+# --- review round 1, M2: which history day made the reader stand aside -----------------
+
+
+def test_the_bad_history_day_is_on_the_call(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    """M2: one unusable history session stands aside every day it stays in the lookback,
+    so the call names it as data (the play caller's alarm says which day to look at)."""
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    bad = _history(SMALL.efficiency_lookback_sessions, instrument)[2]
+    open_ = _cash_open(bad, instrument)
+    bars = [b for b in bars if not open_ <= b.ts < open_ + MINUTE * 30]
+    call = _reader(instrument, data).call(bars, _decision(instrument))
+    assert call.regime is Regime.STAND_ASIDE
+    assert call.bad_history_day == bad
+
+
+def test_a_bad_history_night_is_named_too(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    bars = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    bad = _history(SMALL.efficiency_lookback_sessions, instrument)[-1]  # inside both lookbacks
+    night, open_ = _night_open(bad, instrument), _cash_open(bad, instrument)
+    bars = [b for b in bars if not night <= b.ts < open_]
+    call = _reader(instrument, data).call(bars, _decision(instrument))
+    assert call.regime is Regime.STAND_ASIDE
+    assert bad.isoformat() in call.reason
+    assert call.bad_history_day == bad
+
+
+def test_a_flat_history_opening_is_named_on_the_call(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    history = [_mid_closes(k) for k in range(6)]
+    history[3] = _closes_for("flat")
+    bars = _build(
+        instrument, today_closes=_closes_for("clean"), today_night=20.0, history_closes=history
+    )
+    call = _reader(instrument, data).call(bars, _decision(instrument))
+    assert call.bad_history_day == _history(SMALL.efficiency_lookback_sessions, instrument)[3]
+
+
+def test_no_bad_history_day_when_today_or_nothing_is_at_fault(
+    instrument: InstrumentProfile, data: DataSettings
+) -> None:
+    reader = _reader(instrument, data)
+    sound = _build(instrument, today_closes=_closes_for("clean"), today_night=20.0)
+    assert reader.call(sound, _decision(instrument)).bad_history_day is None
+    open_ = _cash_open(TODAY, instrument)
+    gap = {open_ + MINUTE * i for i in range(10, 10 + data.max_gap_minutes + 1)}
+    today_bad = [b for b in sound if b.ts not in gap]
+    call = _reader(instrument, data).call(today_bad, _decision(instrument))
+    assert call.regime is Regime.STAND_ASIDE
+    assert call.bad_history_day is None
+    chop = _build(instrument, today_closes=_closes_for("chop"), today_night=20.0)
+    assert _reader(instrument, data).call(chop, _decision(instrument)).bad_history_day is None

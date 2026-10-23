@@ -3,11 +3,12 @@
 Written before the code. Andre's decisions:
 - PC-5 (2026-10-22): a TREND day runs the existing breakout entry; a CHOP day and a
   STAND ASIDE day take no new entries.
-- PC-4: only a label made on time counts. The day's label is fixed by the FIRST
-  decision at or after the decision time: inside `play.on_time_seconds` of it, the
-  reader's label stands for the whole day (a data failure then included: no retry);
-  later, the day stands aside (LATE) and the reader is not asked. A bad overnight
-  stands aside (the reader's own rule).
+- PC-4: only a label made on time counts. Inside `play.on_time_seconds` of the decision
+  time, the first sound label (or data failure) stands for the whole day; while the
+  opening's final minute has not arrived yet nothing is fixed (WAITING, review M1).
+  At the end of the window still waiting: NO_DATA; never asked inside it: LATE (the
+  reader is not asked after the window). A bad overnight stands aside (the reader's
+  own rule).
 - No new entries before the decision time, on any day (the reader is not asked).
 - PC-3: a day whose history would reach before calendar_from is WARM_UP (stand aside).
 - PC-2: the reader needs `history_sessions` of bars; live, market_data.history_days
@@ -19,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -38,6 +40,7 @@ from footprint.decision.play import (
     PlayCaller,
     PlayCause,
     PlayHistoryTooShort,
+    PlayRefused,
     check_live_history,
     history_days_needed,
 )
@@ -335,22 +338,132 @@ def test_the_window_comes_from_config(profiles: Profiles, inst: InstrumentProfil
     assert caller(profiles).call(trend_day(inst), at).cause is PlayCause.LATE
 
 
-def test_data_unusable_at_the_decision_minute_stands_aside_all_day(
+def _without_final_opening_minute(bars: Sequence[Bar], inst: InstrumentProfile) -> list[Bar]:
+    return [b for b in bars if b.ts != _decision(inst) - MINUTE]
+
+
+def test_a_final_opening_minute_arriving_late_inside_the_window_is_labelled(
     profiles: Profiles, inst: InstrumentProfile
 ) -> None:
-    """The final opening minute missing on time: NO_DATA, fixed for the day, even when
-    the minute arrives a moment later (a late label never counts)."""
+    """M1 (review round 1): the opening's final minute not there yet at the decision
+    time is not a data failure: inside the on-time window nothing is fixed, the caller
+    waits (no entries), and labels the day once the minute arrives."""
     full = trend_day(inst)
-    last_opening = _decision(inst) - MINUTE
-    missing = [b for b in full if b.ts != last_opening]
     play = caller(profiles)
-    call = play.call(missing, _decision(inst))
+    waiting = play.call(_without_final_opening_minute(full, inst), _decision(inst) + 5 * SECOND)
+    assert waiting.cause is PlayCause.WAITING
+    assert waiting.regime is Regime.STAND_ASIDE
+    assert not waiting.entries_allowed
+    assert not waiting.first  # nothing fixed, nothing journaled
+    assert waiting.day == TODAY
+    assert waiting.label is None
+    assert (_decision(inst) - MINUTE).isoformat() in waiting.reason
+    still = play.call(_without_final_opening_minute(full, inst), _decision(inst) + 20 * SECOND)
+    assert still.cause is PlayCause.WAITING
+    call = play.call(full, _decision(inst) + 30 * SECOND)
+    assert call.cause is PlayCause.TREND
+    assert call.first
+    assert call.entries_allowed
+    assert play.call(full, _decision(inst) + MINUTE * 5).cause is PlayCause.TREND
+
+
+def test_waiting_until_the_last_second_of_the_window_still_labels(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    full = trend_day(inst)
+    play = caller(profiles)
+    edge = _decision(inst) + timedelta(seconds=PLAY.on_time_seconds) - SECOND
+    assert play.call((), _decision(inst)).cause is PlayCause.WAITING  # nothing at all yet
+    assert play.call(full, edge).cause is PlayCause.TREND
+
+
+def test_a_final_opening_minute_arriving_after_the_window_stands_aside_all_day(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """PC-4 stands: a label first available after the window never counts. Waiting for
+    the final minute through the whole window fixes NO_DATA (the data did not come)."""
+    full = trend_day(inst)
+    source_calls: list[datetime] = []
+    bars = _without_final_opening_minute(full, inst)
+
+    def source(now: datetime) -> Sequence[Bar]:
+        source_calls.append(now)
+        return bars
+
+    play = caller(profiles, history=source)
+    assert play.call((), _decision(inst) + 5 * SECOND).cause is PlayCause.WAITING
+    bars = full  # the minute arrives, but only after the window
+    end = _decision(inst) + timedelta(seconds=PLAY.on_time_seconds)
+    call = play.call((), end)
     assert call.cause is PlayCause.NO_DATA
     assert call.regime is Regime.STAND_ASIDE
     assert call.first
+    assert not call.entries_allowed
+    assert call.label is None  # the reader was not asked: no label after the window
+    assert "final" in call.reason
+    assert (_decision(inst) - MINUTE).isoformat() in call.reason
+    assert source_calls == [_decision(inst) + 5 * SECOND]
+    again = play.call((), end + MINUTE)
+    assert again.cause is PlayCause.NO_DATA
+    assert not again.first
+
+
+def test_never_asked_inside_the_window_is_still_late(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """Waiting on one day does not turn the next day's late start into NO_DATA."""
+    full = trend_day(inst)
+    play = caller(profiles)
+    assert (
+        play.call(_without_final_opening_minute(full, inst), _decision(inst)).cause
+        is PlayCause.WAITING
+    )
+    tomorrow = TODAY + timedelta(days=1)
+    late = _decision(inst, tomorrow) + timedelta(seconds=PLAY.on_time_seconds)
+    assert play.call(trend_day(inst, tomorrow), late).cause is PlayCause.LATE
+
+
+def test_the_waiting_day_is_forgotten_once_it_is_fixed(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """A day that waited and was then labelled: a new caller state for the next day."""
+    full = trend_day(inst)
+    play = caller(profiles)
+    assert play.call((), _decision(inst)).cause is PlayCause.WAITING
+    assert play.call(full, _decision(inst) + SECOND).cause is PlayCause.TREND
+    late = _decision(inst) + timedelta(seconds=PLAY.on_time_seconds)
+    assert play.call(full, late).cause is PlayCause.TREND  # fixed: unchanged
+
+
+def test_a_bar_still_forming_does_not_count_as_the_final_minute(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """The bar of the decision minute itself (still forming inside a one-minute window)
+    is not a closed bar: still waiting for the final opening minute."""
+    full = trend_day(inst)
+    last = full[-1]
+    forming = Bar(last.symbol, _decision(inst), last.close, last.close, last.close, last.close, 1)
+    play = caller(profiles)
+    bars = [*_without_final_opening_minute(full, inst), forming]
+    assert play.call(bars, _decision(inst) + 30 * SECOND).cause is PlayCause.WAITING
+
+
+def test_a_hole_at_the_final_minute_with_later_bars_closed_is_no_data_at_once(
+    profiles: Profiles, inst: InstrumentProfile
+) -> None:
+    """With a later minute already closed, the final opening minute is not late but
+    missing: the reader is asked, says so, and the day is fixed NO_DATA at once."""
+    wide = PlaySettings(on_time_seconds=PLAY.on_time_seconds * 3)
+    full = trend_day(inst)
+    last = full[-1]
+    after = Bar(last.symbol, _decision(inst), last.close, last.close, last.close, last.close, 1)
+    bars = [*_without_final_opening_minute(full, inst), after]
+    play = caller(profiles, play=wide)
+    call = play.call(bars, _decision(inst) + MINUTE + SECOND)
+    assert call.cause is PlayCause.NO_DATA
+    assert call.first
     assert call.label is not None
     assert "final minute" in call.label.reason
-    assert play.call(full, _decision(inst) + SECOND).cause is PlayCause.NO_DATA
 
 
 def test_a_bad_overnight_stands_aside(profiles: Profiles, inst: InstrumentProfile) -> None:
@@ -657,3 +770,73 @@ def test_the_need_matches_the_readers_reading_list(
     )
     p = replace(profiles, regime=regime)
     assert history_days_needed(p) == _need_by_hand(p)
+
+
+# --- review round 1: start-up refusals (L1, L4) ---------------------------------------
+
+
+def _config_copy(tmp_path: Path) -> Path:
+    import shutil
+
+    copy = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", copy)
+    return copy
+
+
+def _set(path: Path, key: str, value: int) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith(f"{key}:"):
+            indent = line[: len(line) - len(stripped)]
+            line = f"{indent}{key}: {value}"
+        out.append(line)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def test_a_bar_poll_delay_reaching_the_on_time_window_is_refused(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    """L1: the bar of the opening's final minute is asked for `bar_poll_delay_seconds`
+    after it closes; with a delay at or past the on-time window every live day would be
+    late. The loader refuses it."""
+    config = _config_copy(tmp_path)
+    delay = profiles.execution.market_data.bar_poll_delay_seconds
+    _set(config / "play.yaml", "on_time_seconds", delay)
+    with pytest.raises(ConfigError, match="bar_poll_delay_seconds") as refused:
+        load_profiles(config, "nq.yaml")
+    assert "on_time_seconds" in str(refused.value)
+    _set(config / "play.yaml", "on_time_seconds", delay + 1)
+    assert load_profiles(config, "nq.yaml").play.on_time_seconds == delay + 1
+
+
+def test_a_decision_time_outside_the_cash_session_is_refused_at_load(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    """L4: the reader's own check, made by the loader, so a bad regime config is a
+    config error at start-up (REFUSED, exit 2), not a traceback from inside build()."""
+    cash = profiles.instrument.cash_session
+    minutes = (
+        datetime.combine(date.min, cash.end) - datetime.combine(date.min, cash.start)
+    ) // MINUTE
+    config = _config_copy(tmp_path)
+    _set(config / "regime.yaml", "decision_minutes", minutes)
+    with pytest.raises(ConfigError, match="decision_minutes"):
+        load_profiles(config, "nq.yaml")
+    _set(config / "regime.yaml", "decision_minutes", minutes - 1)
+    assert load_profiles(config, "nq.yaml").regime.decision_minutes == minutes - 1
+
+
+def test_the_live_history_check_refuses_an_unusable_regime_config(profiles: Profiles) -> None:
+    """L4, for Profiles built without the loader: the start-up check refuses with the
+    same refusal type the program prints as REFUSED, never a bare ValueError."""
+    cash = profiles.instrument.cash_session
+    minutes = (
+        datetime.combine(date.min, cash.end) - datetime.combine(date.min, cash.start)
+    ) // MINUTE
+    bad = replace(profiles, regime=replace(profiles.regime, decision_minutes=minutes))
+    with pytest.raises(PlayRefused, match="decision_minutes") as refused:
+        check_live_history(bad)
+    assert "Refusing to start" in str(refused.value)
+    assert issubclass(PlayHistoryTooShort, PlayRefused)
