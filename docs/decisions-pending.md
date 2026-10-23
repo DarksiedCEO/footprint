@@ -632,16 +632,78 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   - Paper only: trade management does not know paper from live; the live app hands it the
     decay exit, and that app is paper only by the hard-coded D33 check. Going live is a
     code change and must revisit DX-1.
-- **For Andre (DX-1 drafts, untested on real data):** `enabled: true`, `window_minutes: 30`,
+- **For Andre (DX-1 drafts, untested on real data):** `window_minutes: 30`,
   `max_pct_of_open_profit: 50` (config/strategy.yaml, theta.decay_exit). `enabled` was
-  added by the builder (not in DX-1) so a backtest can be run with and without it.
-- **DX-2 (finding, for Andre, important):** with these drafts the decay exit closes almost
-  every trade on its first small gain. In the backtest's rising-market scenario the 1-day
-  option's modelled decay over 30 minutes is about $29 per contract, so any open profit
-  between $0 and about $57 is closed (the trade was closed at +$10 net one minute in,
-  where before it rode the move to the trail). A momentum entry usually passes through
-  that band. Decide whether the rule should apply only after a minimum hold or a minimum
-  open profit, or with a different share or window, before paper trading.
-- Backtest goldens: unchanged (the one golden trade never reaches a profit). Two engine
-  tests that test the trail and the dead-feed path now run with `enabled: false`; a new
-  engine test shows the decay exit firing and journaled with the drafts.
+  added by the builder (not in DX-1) so a backtest can be run with and without it. It
+  SHIPS `enabled: false` (review round 1, H1) until Andre rules on DX-2 below: paper and
+  the backtest run without the decay exit until then. Every test of the rule turns it on
+  explicitly; the backtest readout prints all three settings (review M1).
+- **DX-2 (for Andre, open; blocks turning the decay exit on):** with the drafts, the decay
+  exit closes **every normally paced winner** on its first small gain, not "almost every
+  trade".
+  - Why (structural): the rule compares a rate (decay per 30 minutes) with a stock (open
+    profit). Right after entry the open profit is always small, so the decay exceeds half
+    of it. In the backtest's 1-day option (F 23721, K 23725 call, mid 168.625) the
+    modelled decay over 30 minutes is $28.59 per contract (reviewer recomputed it
+    independently: IV 0.3083, 1.4293 points). The exit fires while open profit is between
+    $0 and 2 x $28.59 = about $57. Under the backtest model (delta 0.45 x $20, 2-point
+    spread, $5 round trip) that is an NQ move of about +5 to +11.4 points from entry;
+    every winner must cross it, and the engine (every 5 s) and live feed (every tick)
+    see it on a fresh quote. Only a jump that clears the whole band inside one 5-second
+    step escapes. The band widens toward expiry: Theta's entry veto admits a 60-minute
+    decay up to $250, so at entry the band can reach about $250 (about 33 NQ points).
+  - Measured on the real engine, decay exit off vs on (reviewer's script, reproduced by
+    the builder on this branch with the same results):
+
+    | Scenario | Off | On |
+    |---|---|---|
+    | +10/min x16, then back | +680 (STOP, trail) | **+10 (DECAY_EXIT)** |
+    | +20/min x10 | +1700 | **+5 (DECAY_EXIT)** |
+    | +40/min x5 | +1705 | **+50 (DECAY_EXIT)** |
+    | +5/min x40 | +1670 | **+20 (DECAY_EXIT)** |
+    | +120 in one bar | +990 | +990 (escapes the band) |
+
+  - What it does to the go-live gates (arithmetic, inference from the model, not a
+    backtest on real data): winners average about $20 to $50 (the measured wins above
+    average $21.25); losers are left to the stop, $750 (more with a $1,000 stop).
+    Payoff = average win / average loss = 20/750 to 50/750 = **0.027 to 0.067**, against
+    the gate of 1.5. Profit factor = (win rate / loss rate) x payoff; reaching 1.3 needs
+    win rate / loss rate >= 1.3 x 750 / average win = 48.75 (at $20) to 19.5 (at $50),
+    i.e. a **win rate of about 95% to 98%** (about 97% at the $28.59 decay itself),
+    against a gate of 45%. With the drafts on, the gates cannot be reached.
+  - Options for Andre (the builder does not pick one; each needs a new draft number and
+    a backtest with it on and off):
+    - (a) a minimum open profit before the decay exit may fire (for example a share of
+      `risk.profit_target`), so a trade must first get clear of the band;
+    - (b) a minimum hold time since entry before it may fire;
+    - (c) compare the decay with the distance left to the target (`profit_target` minus
+      open profit) instead of with the open profit, so a trade far from its target is
+      judged by what it still has to make;
+    - (d) keep it off (`enabled: false`, as shipped).
+- **DX-3 (for Andre, recorded, not fixed; review L4): backtest and live value different
+  chains.** The backtest's modelled chain lists 5 expiries and +/-6 strikes around the
+  money, so a held option is almost always in it and valued. The live chain lists only
+  the chosen expiry near the money (`_in_chain`: a held option from another expiry is
+  never offered; one whose quote is older than 5 s drops out). So a held option the
+  backtest values may not be valued live, and the decay exit is then silent for it
+  (now journaled once per position as "decay exit cannot value the held option",
+  review L3). Under the drafts this barely matters, because the band sits next to the
+  entry; any rule from DX-2 that fires later in a trade makes it matter more. Decide
+  whether the live chain should keep the held contract's own quote, before turning the
+  decay exit on in paper.
+- **Changed after review round 1 (decay-exit-v1):** shipped off (H1); readout prints the
+  settings (M1); the decay exit is pinned to be asked before a named exit rule (L1: both
+  sell at the same bid through the same path; asking it first only decides the journal's
+  reason, DECAY_EXIT, and keeps the decay note); the decay dollars are pinned to the
+  instrument's point value (L2); an option the decay exit cannot value is journaled on
+  the position and logged once per position (L3; not an alarm, which pages Andre, as
+  it is not a safety fault: the stop and the other exits run unchanged); the "decay
+  exit: ..." note now carries the time of the check its numbers come from, not the time
+  the sell went out (I1). I2 (the stop is cancelled before the sell, like every exit) is
+  the existing certified design and unchanged; for this optional profit-taking exit it
+  trades a step of protection for a $5 to $50 gain while the drafts stand.
+- Backtest goldens: the one golden trade is unchanged (it never reaches a profit). Review
+  M1 added three lines (the decay-exit settings) to the golden readout.md, readout.json
+  and printed readout. Two engine tests that test the trail and the dead-feed path run
+  with `enabled: false`; an engine test turns it on and shows it firing and journaled
+  with the drafts; another shows the shipped config riding the winner to the trail.

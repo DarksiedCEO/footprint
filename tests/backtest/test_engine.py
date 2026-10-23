@@ -35,6 +35,14 @@ def without_decay_exit(profiles: Profiles) -> Profiles:
     return replace(profiles, strategy=replace(profiles.strategy, theta=off))
 
 
+def with_decay_exit(profiles: Profiles) -> Profiles:
+    """The profiles with Theta's decay exit (DX-1) turned on: it ships off until Andre
+    rules on DX-2 (review H1)."""
+    theta = profiles.strategy.theta
+    on = replace(theta, decay_exit=replace(theta.decay_exit, enabled=True))
+    return replace(profiles, strategy=replace(profiles.strategy, theta=on))
+
+
 def only_trade(result: BacktestRun) -> dict[str, object]:
     assert len(result.trades) == 1, result.trades
     return result.trades[0]
@@ -70,12 +78,12 @@ def test_a_rising_market_is_ridden_and_the_trail_locks_profit(
 def test_the_decay_exit_runs_in_the_backtest_and_is_journaled(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    """DX-1 with the drafted numbers, on the rising market above: the first small gain
-    (+10.00 net) is closed, because the modelled decay of the 1-day option over the next
-    30 minutes (about 29 dollars) is above half of it. Sold at the bid, journaled with
-    the numbers, ledger and journal agreeing."""
+    """DX-1 with the drafted numbers, turned on, on the rising market above: the first
+    small gain (+10.00 net) is closed, because the modelled decay of the 1-day option
+    over the next 30 minutes (about 29 dollars) is above half of it (DX-2). Sold at the
+    bid, journaled with the numbers, ledger and journal agreeing."""
     moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12
-    _, result = run(profiles, settings, extend(history, moves), tmp_path)
+    _, result = run(with_decay_exit(profiles), settings, extend(history, moves), tmp_path)
     trade = only_trade(result)
     assert trade["exit_reason"] == "DECAY_EXIT"
     net = D(str(trade["net_pnl"]))
@@ -86,6 +94,19 @@ def test_the_decay_exit_runs_in_the_backtest_and_is_journaled(
     assert "limit" in note
     assert "implied vol" in note
     assert read_out(result, settings, {}).ledger_matches_journal
+
+
+def test_as_shipped_the_decay_exit_is_off_and_the_winner_is_ridden(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review H1: the shipped config runs without the decay exit until Andre rules on
+    DX-2, so the rising market is ridden to the trail as before DX-1."""
+    assert profiles.strategy.theta.decay_exit.enabled is False
+    moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12
+    _, result = run(profiles, settings, extend(history, moves), tmp_path)
+    trade = only_trade(result)
+    assert trade["exit_reason"] == "STOP"
+    assert not [e for e in trade["events"] if "decay exit" in str(e)]  # type: ignore[attr-defined]
 
 
 def test_decisions_never_see_a_bar_before_it_closes(

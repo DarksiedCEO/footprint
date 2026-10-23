@@ -669,7 +669,7 @@ def test_the_decay_exit_settings_load(strategy_path: Path) -> None:
     from footprint.core.config import load_strategy
 
     exit_ = load_strategy(strategy_path).theta.decay_exit
-    assert exit_.enabled is True  # DX-1 drafts
+    assert exit_.enabled is False  # off until Andre rules on DX-2 (review H1)
     assert exit_.window_minutes == 30
     assert exit_.max_pct_of_open_profit == Decimal(50)
 

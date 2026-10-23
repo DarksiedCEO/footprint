@@ -21,8 +21,9 @@ The clock, minute by minute:
 - The path's order is fixed per bar, worst case for what is live after the open:
   an open trade sees its bad extreme first; a working entry sees its good extreme
   first (it can fill only after the best price has passed).
-- Theta's decay exit (DX-1) is on, as in paper: it values the held option on the
-  modelled chain at that moment.
+- Theta's decay exit (DX-1) runs as in paper when theta.decay_exit.enabled is set
+  (shipped off until Andre rules on DX-2): it values the held option on the modelled
+  chain at that moment. The readout names its settings.
 - When the history ends, a trade still open is sold at the bid through the normal
   exit path and booked (END_OF_DATA). Equity is also marked to the bid at every
   step, for the drawdown inside trades.

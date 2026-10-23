@@ -47,7 +47,9 @@ theta:
   # next window_minutes (same model as above), for the held contracts, is above
   # max_pct_of_open_profit % of that open profit. Unvaluable: no decay exit.
   decay_exit:
-    enabled: true               # DEFAULT (draft, Andre DX-1): false turns the decay exit off
+    # OFF until Andre rules on DX-2 (review H1): with these drafts it closes every
+    # normally paced winner on its first small gain (docs/decisions-pending.md DX-2).
+    enabled: false              # DEFAULT (draft, Andre DX-2): off until Andre rules on DX-2
     window_minutes: 30          # DEFAULT (draft, Andre DX-1): decay valued over this window
     max_pct_of_open_profit: 50  # DEFAULT (draft, Andre DX-1): close above this % of open profit
 zeroday:

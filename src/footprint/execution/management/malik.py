@@ -16,7 +16,9 @@ Each call to `manage` looks at one fresh quote and decides, in this order:
      agents/theta.py `DecayExit`): a trade in profit, short of the target and with
      the trail not locked, losing more to modelled decay over the next window than
      its configured share of the open profit. A decay exit that fails to answer
-     alarms once and says nothing: the other exits run unchanged.
+     alarms once and says nothing: the other exits run unchanged. One that cannot
+     value the held option says why in the position's journal (and the log), once
+     per position. It is asked before a named exit rule (backtest only).
 3. Otherwise, move the trail: Booker updates the stop and the resting order is
    modified to match (never loosened; Booker refuses that).
 A STALE quote changes nothing and raises an alarm; the broker's resting stop
@@ -153,6 +155,9 @@ class Manager:
         self._decay_exit = decay_exit
         self._decay_notes: dict[str, str] = {}  # why a decay exit began, for the journal
         self._decay_alarmed: set[str] = set()  # positions alarmed: decay exit failed
+        # Positions whose option the decay exit could not value, journaled once each
+        # (review L3: a decay exit silent for a whole trade must be visible).
+        self._decay_unvalued: set[str] = set()
         self._broker = broker
         self._stops = stops
         self._ledger = ledger
@@ -476,8 +481,18 @@ class Manager:
                 )
             return False
         if not verdict.fire:
+            if verdict.unvalued and pid not in self._decay_unvalued:
+                self._decay_unvalued.add(pid)
+                said = (
+                    "decay exit cannot value the held option (once per position; the "
+                    f"other exits run unchanged): {verdict.reason}"
+                )
+                log.warning("%s: %s", pid, said)
+                position.events.append(f"{now.isoformat()} {said}")
             return False
-        self._decay_notes[pid] = verdict.reason
+        # Stamped with the check's time: the numbers are from this quote, even when the
+        # sell goes out on a later step (review I1).
+        self._decay_notes[pid] = f"{now.isoformat()} {verdict.reason}"
         return True
 
     def _start_exit(
@@ -703,7 +718,7 @@ class Manager:
         position.exit_order_id = order.order_id
         note = self._decay_notes.pop(pid, None)
         if reason is ExitReason.DECAY_EXIT and note is not None:
-            position.events.append(f"{now.isoformat()} {note}")  # the journal's why
+            position.events.append(note)  # the journal's why, as of its check
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
         try:
             status = self._broker.place(order)

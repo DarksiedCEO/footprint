@@ -40,9 +40,15 @@ D = Decimal
 SEC = timedelta(seconds=1)
 
 
+def switched_on(theta: ThetaSettings) -> ThetaSettings:
+    """Theta's settings with the decay exit turned ON. It ships off until Andre rules
+    on DX-2, so every test of the rule itself turns it on explicitly."""
+    return replace(theta, decay_exit=replace(theta.decay_exit, enabled=True))
+
+
 @pytest.fixture
 def settings(strategy: StrategyProfile) -> ThetaSettings:
-    return strategy.theta
+    return switched_on(strategy.theta)
 
 
 class Chains:
@@ -150,6 +156,7 @@ def test_decay_above_the_share_of_open_profit_says_out(
     assert verdict.decay_points == pytest.approx(points, rel=1e-12)
     assert verdict.implied_vol == pytest.approx(vol, rel=1e-12)
     assert verdict.open_profit == decay
+    assert not verdict.unvalued
     assert verdict.limit_dollars == decay * settings.decay_exit.max_pct_of_open_profit / 100
     assert verdict.underlying_price == FORWARD
     assert chains.asked == [NOW]
@@ -197,6 +204,7 @@ def test_more_open_profit_than_the_decay_needs_stays(
     assert not verdict.fire
     assert verdict.decay_dollars == decay
     assert "within" in verdict.reason
+    assert not verdict.unvalued  # valued, and judged: a stay by the rule
 
 
 @pytest.mark.parametrize("open_profit", [D(0), D("-0.01"), D(-500)])
@@ -209,6 +217,7 @@ def test_a_trade_not_in_profit_is_left_to_its_stop(
     assert not verdict.fire
     assert "not in profit" in verdict.reason
     assert verdict.decay_dollars is None
+    assert not verdict.unvalued  # not judged: nothing to value
     assert chains.asked == []  # nothing is valued for it
 
 
@@ -221,6 +230,7 @@ def test_at_or_above_the_target_the_trail_takes_over(
         verdict = check(exit_, q, open_profit)
         assert not verdict.fire
         assert "target" in verdict.reason
+        assert not verdict.unvalued
     assert chains.asked == []
 
 
@@ -254,6 +264,7 @@ def test_a_trade_whose_trail_has_locked_is_left_to_the_trail(
     verdict = check(exit_, q, decay, trailing=True)
     assert not verdict.fire
     assert "trail" in verdict.reason
+    assert not verdict.unvalued
     assert chains.asked == []
 
 
@@ -386,6 +397,7 @@ def test_no_chain_stays(make: Callable[[OptionChain | None], tuple[DecayExit, Ch
     verdict = check(exit_, quote(), D(10))
     assert not verdict.fire
     assert "no option chain" in verdict.reason
+    assert verdict.unvalued
     assert chains.asked == [NOW]
 
 
@@ -396,6 +408,7 @@ def test_the_contract_missing_from_the_chain_stays(
     verdict = check(exit_, quote(), D(10))
     assert not verdict.fire
     assert "not in the option chain" in verdict.reason
+    assert verdict.unvalued
 
 
 def test_a_stale_chain_stays_and_one_just_fresh_enough_is_valued(
@@ -411,6 +424,7 @@ def test_a_stale_chain_stays_and_one_just_fresh_enough_is_valued(
     assert not verdict.fire
     assert "stale" in verdict.reason
     assert verdict.decay_dollars is None
+    assert verdict.unvalued
     fresh, _ = make(chain_of(q, ts=NOW - age))
     valued = check(fresh, q, D(10))
     assert valued.decay_dollars is not None
@@ -430,6 +444,7 @@ def test_a_chain_from_the_future_stays(
     assert not verdict.fire
     assert "future" in verdict.reason
     assert verdict.decay_dollars is None
+    assert verdict.unvalued
 
 
 def test_a_quote_no_volatility_can_produce_stays(
@@ -441,6 +456,7 @@ def test_a_quote_no_volatility_can_produce_stays(
     assert not verdict.fire
     assert "implied volatility" in verdict.reason
     assert verdict.implied_vol is None
+    assert verdict.unvalued
 
 
 def test_implied_volatility_above_the_maximum_stays(
@@ -474,6 +490,7 @@ def test_a_class_black76_does_not_value_stays(
     assert not verdict.fire
     assert why in verdict.reason
     assert verdict.decay_dollars is None
+    assert verdict.unvalued
 
 
 def test_near_expiry_within_the_window_it_stays_and_just_outside_it_is_valued(
@@ -520,6 +537,7 @@ def test_inputs_the_model_cannot_take_stay(
     verdict = check(exit_, q, D(10))
     assert not verdict.fire
     assert "cannot value" in verdict.reason
+    assert verdict.unvalued
 
 
 def test_the_time_must_be_utc(
@@ -543,4 +561,54 @@ def test_turned_off_it_never_says_out_and_values_nothing(
     assert not verdict.fire
     assert "off" in verdict.reason
     assert verdict.decay_dollars is None
+    assert not verdict.unvalued  # off is not a failure to value
     assert chains.asked == []
+
+
+def test_it_ships_off_until_andre_rules_on_dx2(
+    strategy: StrategyProfile,
+    settings: ThetaSettings,
+    instrument: InstrumentProfile,
+    risk: RiskProfile,
+    execution: ExecutionProfile,
+) -> None:
+    """Review H1: with the drafted numbers the decay exit closes every normally paced
+    winner on its first small gain (DX-2), so the shipped default is off."""
+    assert strategy.theta.decay_exit.enabled is False
+    q = quote()
+    decay = dollars(expected(q, NOW, settings, instrument)[1], instrument)
+    chains = Chains(chain_of(q))
+    shipped = exit_for(strategy.theta, instrument, risk, execution, chains)
+    verdict = check(shipped, q, decay)  # fires when switched on (first test above)
+    assert not verdict.fire
+    assert chains.asked == []
+
+
+def test_the_decay_dollars_use_the_instruments_point_value(
+    settings: ThetaSettings,
+    instrument: InstrumentProfile,
+    risk: RiskProfile,
+    execution: ExecutionProfile,
+) -> None:
+    """Review L2: the decay in dollars is the option points times THIS instrument's
+    point value (a profile with another point value gives other dollars)."""
+    q = quote()
+    other = replace(instrument, point_value=instrument.point_value * 3)
+    points = expected(q, NOW, settings, other)[1]
+    exit_ = exit_for(settings, other, risk, execution, Chains(chain_of(q)))
+    verdict = check(exit_, q, D(500), contracts=2)
+    assert verdict.decay_dollars == D(str(points)) * other.point_value * 2
+    assert verdict.decay_dollars != D(str(points)) * instrument.point_value * 2
+    assert f"{verdict.decay_dollars:.2f}" in verdict.reason
+
+
+def test_an_option_expiring_within_the_window_is_unvalued(
+    make: Callable[[OptionChain | None], tuple[DecayExit, Chains]],
+    instrument: InstrumentProfile,
+) -> None:
+    after = expiry_moment(WED, instrument) + timedelta(minutes=1)
+    q = quote()
+    exit_, _ = make(chain_of(q, ts=after))
+    verdict = check(exit_, q, D(10), now=after)
+    assert not verdict.fire
+    assert verdict.unvalued

@@ -8,6 +8,9 @@ ca5399d; only the temp path and the random position-id suffix are normalised).
 The one intended change since: Q6 (i), review G52-2, added the three exit-number lines
 (risk.profit_target, risk.trail_keep_pct, risk.stop_loss) to the readout's assumptions,
 in readout.md, readout.json and the printed readout; nothing else in the golden moved.
+The second: review M1 of decay-exit-v1 added the three decay-exit lines
+(theta.decay_exit.enabled, window_minutes, max_pct_of_open_profit) after them, in the
+same three places; with the decay exit shipped off, nothing else moved.
 """
 
 from __future__ import annotations

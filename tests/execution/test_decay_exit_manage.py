@@ -10,8 +10,10 @@ says nothing: the other exits run unchanged."""
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -19,21 +21,23 @@ from footprint.agents.theta import DecayExit, DecayExitCheck
 from footprint.core.models import Bar
 from footprint.core.options import OptionChain
 from footprint.execution.executor.diego import Position
-from footprint.execution.management.malik import ExitReason, Manager
+from footprint.execution.management.malik import ExitReason, ExitRule, Manager
 from footprint.execution.orders import Order, OrderState, OrderType, Side
-from tests.agents.test_decay_exit import expected
+from tests.agents.test_decay_exit import expected, switched_on
 from tests.execution.conftest import SEND, Stack
 from tests.execution.test_execution import exit_rests_on_arrival, filled_position
 from tests.execution.test_exit_guards import uncertain_on
+from tests.execution.test_held_back_stop import _held_position
 
 D = Decimal
 SEC = timedelta(seconds=1)
 NOTE = "decay exit: modelled decay 99.00 over the next window, above the limit 12.50"
 
 
-def verdict(fire: bool, reason: str = NOTE) -> DecayExitCheck:
+def verdict(fire: bool, reason: str = NOTE, *, unvalued: bool = False) -> DecayExitCheck:
     return DecayExitCheck(
         fire=fire,
+        unvalued=unvalued,
         reason=reason,
         open_profit=D(25),
         limit_dollars=D("12.50"),
@@ -46,11 +50,21 @@ def verdict(fire: bool, reason: str = NOTE) -> DecayExitCheck:
 
 
 class FixedWatch:
-    """A stand-in decay exit: always answers `fire` (or raises) and records each ask."""
+    """A stand-in decay exit: always answers `fire` (or raises) and records each ask.
+    `unvalued`: a stay because the option could not be valued (with `reason`)."""
 
-    def __init__(self, fire: bool, raises: Exception | None = None) -> None:
+    def __init__(
+        self,
+        fire: bool,
+        raises: Exception | None = None,
+        *,
+        unvalued: bool = False,
+        reason: str = NOTE,
+    ) -> None:
         self.fire = fire
         self.raises = raises
+        self.unvalued = unvalued
+        self.reason = reason
         self.asked: list[tuple[str, int, Decimal, bool, datetime]] = []
 
     def check(
@@ -59,10 +73,10 @@ class FixedWatch:
         self.asked.append((contract_id, contracts, open_profit, trailing, now))
         if self.raises is not None:
             raise self.raises
-        return verdict(self.fire)
+        return verdict(self.fire, self.reason, unvalued=self.unvalued)
 
 
-def _with(stack: Stack, watch: FixedWatch | DecayExit) -> None:
+def _with(stack: Stack, watch: FixedWatch | DecayExit, rule: ExitRule | None = None) -> None:
     stack.manager = Manager(
         stack.profiles,
         stack.manager._broker,
@@ -71,6 +85,7 @@ def _with(stack: Stack, watch: FixedWatch | DecayExit) -> None:
         stack.halt,
         stack.book,
         stack.alarms.append,
+        exit_rule=rule,
         decay_exit=watch,
     )
 
@@ -310,6 +325,145 @@ def test_a_decay_exit_that_fails_says_nothing_and_alarms_once(stack: Stack) -> N
     assert closed.reason is ExitReason.STOP
 
 
+class AlwaysOut:
+    """A named exit rule (backtest rule library stand-in) that always wants out."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def wants_out(self, position: Position, net_open: Decimal, now: datetime) -> bool:
+        self.asked += 1
+        return True
+
+
+def test_the_decay_exit_is_asked_before_a_named_exit_rule(stack: Stack) -> None:
+    """Review L1: both want out on the same quote; the decay exit is asked first, so
+    the journal names DECAY_EXIT (both sell at the same bid through the same path)."""
+    watch = FixedWatch(True)
+    rule = AlwaysOut()
+    _with(stack, watch, rule)
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    closed = stack.step(position, stack.quote(153, 154, t), (), t)
+    assert closed is not None
+    assert closed.reason is ExitReason.DECAY_EXIT
+    assert len(watch.asked) == 1
+    assert rule.asked == 0
+    assert len(_notes(position)) == 1
+
+
+def test_a_named_exit_rule_still_runs_when_the_decay_exit_stays(stack: Stack) -> None:
+    watch = FixedWatch(False)
+    rule = AlwaysOut()
+    _with(stack, watch, rule)
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    closed = stack.step(position, stack.quote(153, 154, t), (), t)
+    assert closed is not None
+    assert closed.reason is ExitReason.RULE
+    assert (len(watch.asked), rule.asked) == (1, 1)
+    assert _notes(position) == []
+
+
+UNVALUED = "C-2026-09-16-20000: not in the option chain; no decay exit"
+
+
+def _unvalued_events(position: Position) -> list[str]:
+    return [e for e in position.events if "decay exit cannot value" in e]
+
+
+def test_an_option_the_decay_exit_cannot_value_is_journaled_once_per_position(
+    stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review L3: a decay exit that can never value the held option would be silently
+    off for the whole trade. The first time, the reason is journaled on the position and
+    logged; never again for that position (no spam); nothing else changes."""
+    watch = FixedWatch(False, unvalued=True, reason=UNVALUED)
+    _with(stack, watch)
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    with caplog.at_level("WARNING", logger="footprint.trade_mgmt"):
+        for k in range(3):
+            now = t + k * SEC
+            assert stack.step(position, stack.quote(153, 154, now), (), now) is None
+    assert len(watch.asked) == 3
+    assert _unvalued_events(position) == [
+        f"{t.isoformat()} decay exit cannot value the held option (once per position; "
+        f"the other exits run unchanged): {UNVALUED}"
+    ]
+    logged = [r for r in caplog.records if "decay exit cannot value" in r.getMessage()]
+    assert len(logged) == 1
+    assert position.position_id in logged[0].getMessage()
+    assert UNVALUED in logged[0].getMessage()
+    assert _notes(position) == []
+    assert _sells(stack, position) == []
+    assert stack.broker.status(f"{position.position_id}-stop").state is OrderState.WORKING
+    assert not stack.halt.tripped
+
+
+def test_a_stay_by_the_rule_is_not_journaled_as_unvalued(stack: Stack) -> None:
+    watch = FixedWatch(False, unvalued=False, reason="C: within the limit")
+    _with(stack, watch)
+    position = filled_position(stack)
+    t = SEND + 30 * SEC
+    assert stack.step(position, stack.quote(153, 154, t), (), t) is None
+    assert _unvalued_events(position) == []
+
+
+def test_each_position_gets_its_own_unvalued_note(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    watch = FixedWatch(False, unvalued=True, reason=UNVALUED)
+    _with(stack, watch)
+    first = filled_position(stack)
+    t = SEND + 30 * SEC
+    stack.step(first, stack.quote(153, 154, t), (), t)
+    # A later position (another id, its own journal), with the same stop state.
+    second = copy.copy(first)
+    second.position_id = f"{first.position_id}-again"
+    second.events = []
+    state = stack.stops.current(first.position_id)
+    monkeypatch.setattr(stack.stops, "current", lambda pid: state)
+    assert not stack.manager._decay_says_out(second, D(25), t + SEC)
+    assert not stack.manager._decay_says_out(first, D(25), t + 2 * SEC)
+    assert len(_unvalued_events(first)) == 1
+    assert len(_unvalued_events(second)) == 1
+
+
+def test_the_decay_note_is_stamped_when_the_check_was_made(
+    stack: Stack, bars: list[Bar], tmp_path: Path
+) -> None:
+    """Review I1: an exit whose stop cancel is pending at the broker places its sell
+    on a later step without asking again; the note carries the time its numbers are
+    from (the check), the exit line the time the sell went out."""
+    fake, _, runner, _, t = _held_position(stack, bars, tmp_path)
+    position = runner.position
+    assert position is not None
+    watch = FixedWatch(True)
+    stack.manager._decay_exit = watch
+    fake.slow_cancels = True  # the stop's cancel stays PendingCancel
+    checked = t
+    stack.quote(position.entry_price + 2, position.entry_price + 3, checked)
+    runner.step(checked)
+    assert len(watch.asked) == 1
+    assert position.exit_order_id is None  # waiting on the stop's cancel
+    fake.slow_cancels = False
+    fake.finish_cancels()
+    placed = checked
+    for _ in range(10):
+        if position.exit_order_id is not None or runner.position is None:
+            break
+        placed += SEC
+        stack.quote(position.entry_price + 2, position.entry_price + 3, placed)
+        runner.step(placed)
+    assert placed > checked
+    assert len(watch.asked) == 1  # not asked again while its exit carried on
+    assert _notes(position) == [f"{checked.isoformat()} {NOTE}"]
+    exits = [e for e in position.events if " exit DECAY_EXIT at " in e]
+    assert exits
+    assert exits[0].startswith(placed.isoformat())
+
+
 def test_with_no_decay_exit_the_manager_never_exits_for_decay(stack: Stack) -> None:
     position = filled_position(stack)
     t = SEND + 30 * SEC
@@ -330,8 +484,8 @@ def _real(stack: Stack, bars: list[Bar]) -> tuple[DecayExit, Decimal]:
     def chains(now: datetime) -> OptionChain:
         return OptionChain(p.instrument.symbol, now, forward, (q,))
 
-    exit_ = DecayExit(p.strategy.theta, p.instrument, p.risk, p.execution.quotes, chains)
-    theta = p.strategy.theta
+    theta = switched_on(p.strategy.theta)  # shipped off until Andre rules on DX-2
+    exit_ = DecayExit(theta, p.instrument, p.risk, p.execution.quotes, chains)
     points = expected(q, SEND + 30 * SEC, theta, p.instrument, forward=forward)[1]
     return exit_, D(str(points)) * p.instrument.point_value
 

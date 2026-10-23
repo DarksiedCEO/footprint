@@ -228,6 +228,9 @@ class DecayExitCheck:
     the trade now (trade management's exit path does it); `reason` is the journal line."""
 
     fire: bool
+    # True: a trade the rule judges, whose option could not be valued (`reason` says
+    # why); the decay exit is silent for it. False: fired, or stayed by the rule.
+    unvalued: bool
     reason: str
     open_profit: Decimal
     limit_dollars: Decimal | None  # max_pct_of_open_profit of the open profit
@@ -258,7 +261,8 @@ class DecayExit:
     Fail closed: no chain, a chain older than quotes.max_age_seconds (or from the
     future), the option not in it, or an option `value_decay` refuses (an American or
     unknown class, expiring within the window, no implied volatility in range) says
-    "stay": never sell on a guess; the other exits keep running. Every number is a
+    "stay" with `unvalued` set (trade management journals it once per position):
+    never sell on a guess; the other exits keep running. Every number is a
     model estimate: it decides an exit, never a price (the exit sells at the bid)."""
 
     def __init__(
@@ -290,9 +294,12 @@ class DecayExit:
         require_utc(now, "now")
         rule = self._s.decay_exit
 
-        def stay(reason: str, years: float | None = None) -> DecayExitCheck:
+        def stay(
+            reason: str, years: float | None = None, *, unvalued: bool = False
+        ) -> DecayExitCheck:
             return DecayExitCheck(
                 fire=False,
+                unvalued=unvalued,
                 reason=reason,
                 open_profit=open_profit,
                 limit_dollars=None,
@@ -316,20 +323,24 @@ class DecayExit:
             return stay(f"{contract_id}: the trail has locked; left to the trail")
         chain = self._chain(now)
         if chain is None:
-            return stay(f"{contract_id}: no option chain to value it from; no decay exit")
+            return stay(
+                f"{contract_id}: no option chain to value it from; no decay exit", unvalued=True
+            )
         age = now - chain.ts
         if age < timedelta(0):
             return stay(
                 f"{contract_id}: the option chain is from the future "
-                f"({chain.ts.isoformat()}); no decay exit"
+                f"({chain.ts.isoformat()}); no decay exit",
+                unvalued=True,
             )
         if age > self._max_age:
             return stay(
-                f"{contract_id}: the option chain is stale ({chain.ts.isoformat()}); no decay exit"
+                f"{contract_id}: the option chain is stale ({chain.ts.isoformat()}); no decay exit",
+                unvalued=True,
             )
         quote = next((q for q in chain.quotes if q.contract_id == contract_id), None)
         if quote is None:
-            return stay(f"{contract_id}: not in the option chain; no decay exit")
+            return stay(f"{contract_id}: not in the option chain; no decay exit", unvalued=True)
         valued = value_decay(
             quote,
             chain.underlying_price,
@@ -340,7 +351,7 @@ class DecayExit:
             self._instrument,
         )
         if valued.decay_points is None:
-            return stay(f"{valued.reason}; no decay exit", valued.years)
+            return stay(f"{valued.reason}; no decay exit", valued.years, unvalued=True)
         decay = Decimal(str(valued.decay_points)) * self._instrument.point_value * contracts
         limit = open_profit * rule.max_pct_of_open_profit / _PERCENT_MAX
         fire = decay > limit
@@ -353,6 +364,7 @@ class DecayExit:
         )
         return DecayExitCheck(
             fire=fire,
+            unvalued=False,
             reason=f"{contract_id}: decay exit: {numbers}" if fire else f"{contract_id}: {numbers}",
             open_profit=open_profit,
             limit_dollars=limit,
