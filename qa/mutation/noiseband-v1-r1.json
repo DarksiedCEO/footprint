@@ -1,0 +1,210 @@
+{
+ "groups": {
+  "r1": [
+   "tests/research/test_noiseband_r1.py",
+   "tests/research/test_noise_band.py",
+   "tests/research/test_noiseband_settings_cli.py",
+   "tests/research/test_cli_settings_isolation.py",
+   "tests/research/test_london_orb.py",
+   "tests/research/test_bars_sessions_vol.py"
+  ]
+ },
+ "mutants": [
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "        to_close = last is not None and last + 1 >= _minute(s.rth_end, s.rth_start)",
+   "        to_close = last is not None and last >= _minute(s.rth_end, s.rth_start)",
+   "L-3: to-close off by one"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "        to_close = last is not None and last + 1 >= _minute(s.rth_end, s.rth_start)",
+   "        to_close = last is not None and last + 1 > _minute(s.rth_end, s.rth_start)",
+   "L-3: to-close strict"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            ends_early=day.clock[positions[-1]] < s.flat,",
+   "            ends_early=day.clock[positions[-1]] <= s.flat,",
+   "NB-12: a bar at flat counts as early"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            ends_early=day.clock[positions[-1]] < s.flat,",
+   "            ends_early=False,",
+   "NB-12 off"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "        if n is None or c.past is None or c.session.ends_early:  # NB-12",
+   "        if n is None or c.past is None:  # NB-12",
+   "NB-12 not applied to signals"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "        if signal is None or day.clock[i + 1] >= s.flat:  # NB-11",
+   "        if signal is None or day.clock[i + 1] > s.flat:  # NB-11",
+   "NB-11 strict"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "        if signal is None or day.clock[i + 1] >= s.flat:  # NB-11",
+   "        if signal is None:  # NB-11",
+   "NB-11 off"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "                return day.clock[i + 1] >= self.settings.flat",
+   "                return day.clock[i + 1] > self.settings.flat",
+   "NB-11 report strict"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "                return day.clock[i + 1] >= self.settings.flat\n        return False",
+   "                return day.clock[i + 1] >= self.settings.flat\n        return True",
+   "NB-11 report counts days without a signal"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            if not c.session.kept and c.session.to_close and d.day.weekday() < calendar.SATURDAY",
+   "            if not c.session.kept and c.session.to_close",
+   "L-3 lists weekends"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            if not c.session.kept and c.session.to_close and d.day.weekday() < calendar.SATURDAY",
+   "            if c.session.to_close and d.day.weekday() < calendar.SATURDAY",
+   "L-3 lists kept days"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            if not c.session.kept and c.session.to_close and d.day.weekday() < calendar.SATURDAY",
+   "            if not c.session.kept and d.day.weekday() < calendar.SATURDAY",
+   "L-3 lists early closes"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "            d.day for d, c in zip(days, contexts, strict=True) if c.past and c.session.ends_early",
+   "            d.day for d, c in zip(days, contexts, strict=True) if c.session.ends_early",
+   "NB-12 report counts warm-up days"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/noise_band.py",
+   "    return f\"{label}: {len(dates)}\" + (\"\" if not dates else \": \" + \", \".join(map(str, dates)))",
+   "    return f\"{label}: {len(dates)}\"",
+   "dates not listed"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/__init__.py",
+   "    if unknown:\n        raise ConfigError(f\"{where}: {unknown} are not registered",
+   "    if False:\n        raise ConfigError(f\"{where}: {unknown} are not registered",
+   "unregistered t-bar names accepted"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/__init__.py",
+   "    if RULES[rule].t_bar_required and rule not in settings.judging.min_t_stat:",
+   "    if False:",
+   "missing t bar accepted"
+  ],
+  [
+   "r1",
+   "src/footprint/research/rules/__init__.py",
+   "    \"noise_band\": Registered(noise_variants, build_noise, t_bar_required=True),",
+   "    \"noise_band\": Registered(noise_variants, build_noise),",
+   "noise_band does not require a t bar"
+  ],
+  [
+   "r1",
+   "src/footprint/research/settings.py",
+   "    if unknown:  # review M-1",
+   "    if False:  # review M-1",
+   "load accepts misspelt t-bar names"
+  ],
+  [
+   "r1",
+   "src/footprint/research/settings.py",
+   "    if not isinstance(vol_index, str) or not vol_index.isalnum():",
+   "    if not isinstance(vol_index, str):",
+   "vol_index any string"
+  ],
+  [
+   "r1",
+   "src/footprint/research/settings.py",
+   "        vol_index=vol_index,",
+   "        vol_index=\"VIX\",",
+   "vol_index fixed"
+  ],
+  [
+   "r1",
+   "src/footprint/research/vol.py",
+   "    first = path.name.split(\".\")[0].split(\"_\")[0]",
+   "    first = path.name.split(\"_\")[0]",
+   "dot not a separator"
+  ],
+  [
+   "r1",
+   "src/footprint/research/vol.py",
+   "    first = path.name.split(\".\")[0].split(\"_\")[0]",
+   "    first = path.name.split(\".\")[0]",
+   "underscore not a separator"
+  ],
+  [
+   "r1",
+   "src/footprint/research/vol.py",
+   "    return first.upper() == index.upper()",
+   "    return first == index",
+   "case matters"
+  ],
+  [
+   "r1",
+   "src/footprint/research/vol.py",
+   "    return first.upper() == index.upper()",
+   "    return first.upper().startswith(index.upper())",
+   "prefix match"
+  ],
+  [
+   "r1",
+   "src/footprint/research/__main__.py",
+   "        check_t_bars(settings, args.rule)",
+   "        pass",
+   "CLI skips the t-bar check"
+  ],
+  [
+   "r1",
+   "src/footprint/research/__main__.py",
+   "    if not vol_matches(args.vol, settings.vol_index):",
+   "    if False:",
+   "CLI skips the vol check"
+  ],
+  [
+   "r1",
+   "src/footprint/research/__main__.py",
+   "else f\"{t_bar} (judging.min_t_stat.{args.rule})\"),",
+   "else f\"{t_bar}\"),",
+   "t bar source not printed"
+  ],
+  [
+   "r1",
+   "src/footprint/research/__main__.py",
+   "        + (\"none configured\" if t_bar is None",
+   "        + (\"\" if t_bar is None",
+   "no-t-bar line silent"
+  ]
+ ]
+}

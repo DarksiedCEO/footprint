@@ -610,9 +610,14 @@ For Andre:
   `instruments.es.yaml.reference_price`), about the ES level at signing.
 - **NB-3:** the cost sensitivities 30 and 90 run through the new CLI flag `--cost`; the
   judged 45 is config. The report says when `--cost` was given.
-- **NB-4 (DEFAULT, draft, UNVERIFIED):** ES strike step 5 index points
-  (`instruments.es.yaml.strike_step`). backtest.yaml's 25 is NQ's. Confirm against CME's
-  ES options listing.
+- **NB-4 (DEFAULT, draft, UNVERIFIED; corrected after review L-1):** ES strike step 5
+  index points (`instruments.es.yaml.strike_step`). It has NO effect on this run: with
+  moneyness 0 the entry price is rescaled to exactly the reference price (7700), and
+  7700 is a multiple of 5 and of 25 alike, so the strike is 7700 either way (the
+  reviewer checked several entry prices, both directions). The earlier reason given
+  here (25 would put the strike up to 12.5 points from the money) was wrong. The value
+  matters only if moneyness or the reference price changes. Confirm against CME's ES
+  options listing before then.
 - **NB-5 (UNVERIFIED, unused by research):** every es.yaml value other than symbol,
   exchange, point value (50) and tick (0.25) is copied from nq.yaml so the profile loads.
   Nothing on the trading path loads es.yaml.
@@ -628,3 +633,31 @@ For Andre:
   value when the warm-up 14 entered config; listed as REVIEWED (not a trading value).
 - **NB-10 (data, not verified):** the ES file's format and adjustment were not opened or
   checked by the builder (by design). Like R-1, it must be UNADJUSTED (raw) bars.
+
+Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
+- **M-1 (fixed):** `judging.min_t_stat` names are checked twice. At load, every name
+  must have a section under `rules` (a typo such as `noise_bnad` is refused). At the
+  CLI, every name must be a registered rule, and a rule registered with
+  `t_bar_required` (noise_band) is refused when it has no t bar. The report prints the
+  bar in use ("t bar: 2.3 (judging.min_t_stat.noise_band)" or "none configured").
+- **L-1 (fixed):** NB-4's reason corrected above and in research.yaml.
+- **L-3 (fixed, report only, rule unchanged):** the rule notes list every weekday the
+  keep rule drops whose regular bars still run to the close (last bar opening in the
+  session's last minute), so a mid-day data gap (true lookahead from the bar count) is
+  visible with its date. Announced early closes are not listed.
+- **L-4 (fixed):** `instruments.<profile>.vol_index` names the vol index (nq VXN, es VIX).
+  The CLI refuses a `--vol` file whose name's first part (before the first "_" or ".",
+  case aside) is not that index: `VIX_History.csv` passes for ES, `VXN_History.csv` and
+  `VIX9D_History.csv` are refused. The content cannot tell (same header), so the file
+  name is the check: fail closed. The report prints the index and the file name.
+- **L-2 (no change):** the reviewer's three equivalent mutants are noted in
+  qa/mutation/noiseband-v1-r1.notes.md.
+- **NB-11 (new, fail closed):** a signal whose next bar opens at or after 15:55 (a data
+  gap) is refused and the day is not traded. tournament.py would still enter. The rule
+  notes print the count and the dates. 0 on NQ.
+- **NB-12 (new, fail closed):** a kept day whose last regular bar opens before 15:55 is
+  not traded. tournament.py would trade it and exit at the last regular close; the
+  harness can only flat at a bar from 15:55 on, which may be after the session. Like
+  the keep rule (NB-6), this is known only at the day's end; it only removes trades.
+  The rule notes print the count and the dates. NQ count: see
+  qa/research/noiseband-nq-parity.out.

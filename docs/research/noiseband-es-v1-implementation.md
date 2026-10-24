@@ -35,8 +35,9 @@ docs/decisions-pending.md.
   50, tick 0.25; every other value copied from nq.yaml, UNVERIFIED for ES and unused by
   research). research.yaml `instruments.es.yaml`: reference price 7700 (DEFAULT, draft:
   about the ES level at signing), round trip 45 (signed), strike step 5 (DEFAULT, draft,
-  UNVERIFIED: ES option strikes near the money; backtest.yaml's 25 is NQ's and would put
-  the strike up to 12.5 points from the money at the reference level).
+  UNVERIFIED: ES option strikes near the money). Corrected after review L-1: the step
+  has no effect on this run, because with moneyness 0 the strike is the reference
+  price, 7700, a multiple of the step (see NB-4).
 - Costs (NB-3): the judged 45 is config; the 30 and 90 sensitivities use the CLI's new
   `--cost` (the report states the override).
 - t bar: research.yaml `judging.min_t_stat.noise_band: 2.3`, applied by the CLI to this
@@ -53,3 +54,12 @@ docs/decisions-pending.md.
     $R --exit booker --days-to-expiry 2;      $R --exit adr_bracket --days-to-expiry 2
     $R --exit booker --cost 30;               $R --exit adr_bracket --cost 30
     $R --exit booker --cost 90;               $R --exit adr_bracket --cost 90
+
+## Review round 1 changes (dated 2026-10-23; no rule or number of the pre-registration changed)
+
+- The signed t bar can no longer be dropped by a misspelt or missing config entry (M-1).
+- The vol file must be the instrument's index: VIX for ES (`vol_index`, L-4).
+- The rule notes list dropped weekdays with a mid-day gap (L-3), signals refused because
+  the next bar opens at or after 15:55 (NB-11), and kept days ending before 15:55, not
+  traded (NB-12). NB-11 and NB-12 are fail-closed refusals where the harness cannot
+  follow the source; each is counted and dated in every report.

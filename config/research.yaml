@@ -32,13 +32,18 @@ instruments:                  # values that depend on the instrument, keyed by t
     round_trip_per_contract: 170  # UNVERIFIED: measured NQ overnight round trip (spread,
                                   #   slippage, fees) in dollars per contract
     strike_step: null         # null: backtest.yaml option_model.strike_step
+    vol_index: VXN            # the --vol file must be this Cboe index's history: its file
+                              #   name's first part (before "_" or ".") must be this name
   es.yaml:                    # noiseband-es-v1 (docs/research/noiseband-es-v1.md)
     reference_price: 7700     # DEFAULT (draft, Andre NB-2): about the ES level when the
                               #   pre-registration was signed (2026-10-23)
     round_trip_per_contract: 45   # PRE-REGISTERED (signed): the judged cost; the signed
                                   #   sensitivities are run with --cost (NB-3). UNVERIFIED
     strike_step: 5            # DEFAULT (draft, Andre NB-4): ES option strikes near the
-                              #   money, in index points. UNVERIFIED against CME's listing
+                              #   money, in index points. UNVERIFIED against CME's listing.
+                              #   No effect on this run: with moneyness 0 the strike is the
+                              #   reference price, a multiple of the step (review L-1)
+    vol_index: VIX            # PRE-REGISTERED (signed): the VIX for ES (review L-4)
 exits:                        # numbers come from risk.yaml (stop_loss, profit_target,
                               #   trail_keep_pct); only the contract counts live here
   booker: {contracts: 1}

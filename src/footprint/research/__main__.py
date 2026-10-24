@@ -22,14 +22,15 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
+from footprint.core.config import ConfigError
 from footprint.research.bars import load_days
 from footprint.research.engine import Trade, run
 from footprint.research.exits import KINDS
-from footprint.research.rules import RULES
+from footprint.research.rules import RULES, check_t_bars
 from footprint.research.sessions import names
 from footprint.research.settings import ResearchSettings, load_research
 from footprint.research.stats import Summary, judge, marked_drawdown, ruined_at, summarize, thirds
-from footprint.research.vol import load_vol
+from footprint.research.vol import load_vol, vol_matches
 
 U = "UNVERIFIED"
 
@@ -145,7 +146,8 @@ def settings_lines(
         f"option: moneyness {o.moneyness_points} pts, {o.days_to_expiry} days to expiry, "
         f"{o.days_per_year} days/year, rate {o.rate} [{U}], strike step {o.strike_step}, "
         f"point value {o.point_value}, reference price {o.reference_price}",
-        f"vol: index CLOSE / {settings.vol_divisor} used as implied vol [{U}], "
+        f"vol index {settings.vol_index} (file {args.vol.name}): "
+        f"CLOSE / {settings.vol_divisor} used as implied vol [{U}], "
         f"stale after {settings.vol_max_age_days} days",
         f"{cost} [{U}]",
         f"exits: stop {e.stop_dollars}/contract gross, lock from {e.lock_start_dollars} net "
@@ -155,6 +157,8 @@ def settings_lines(
         f"pass also needs {settings.judging.min_positive_parts} of "
         f"{settings.judging.time_parts} time parts positive"
         + ("" if t_bar is None else f" and a t statistic of at least {t_bar}"),
+        "t bar: "
+        + ("none configured" if t_bar is None else f"{t_bar} (judging.min_t_stat.{args.rule})"),
     ]
 
 
@@ -171,6 +175,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--instrument", default="nq.yaml")
     args = parser.parse_args(argv)
     settings = load_research(args.config, args.instrument)
+    try:
+        check_t_bars(settings, args.rule)
+    except ConfigError as exc:
+        parser.error(str(exc))
+    if not vol_matches(args.vol, settings.vol_index):
+        parser.error(
+            f"--vol {args.vol.name} is not the {settings.vol_index} history that "
+            f"{args.instrument} names (research.yaml instruments)"
+        )
     configured_cost = settings.round_trip_per_contract
     if args.cost is not None:
         if not (math.isfinite(args.cost) and args.cost >= 0):

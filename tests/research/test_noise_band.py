@@ -274,6 +274,9 @@ def test_no_signal_from_the_flat_time_on(research: ResearchSettings) -> None:
     r = prepared(research, [*HIST, d], max_trades_per_session=99, flat=time(14, 59))
     assert [m for m, _ in signals(r, d, every=True)][-1] == 314  # 329 is the 14:59 bar itself
     r = prepared(research, [*HIST, d], max_trades_per_session=99, flat=time(15, 0))
+    # 329 (14:59) is before the flat time, but its next bar opens AT it (NB-11)
+    assert [m for m, _ in signals(r, d, every=True)][-1] == 314
+    r = prepared(research, [*HIST, d], max_trades_per_session=99, flat=time(15, 1))
     assert [m for m, _ in signals(r, d, every=True)][-1] == 329
 
 
@@ -343,15 +346,28 @@ def test_signal_carries_the_range_and_enters_at_the_next_open(
     assert s.flat_by == datetime.combine(DATES[14], time(15, 55), tzinfo=NY)
 
 
-def test_the_last_regular_bar_never_signals(research: ResearchSettings) -> None:
-    """The source rule needs a next regular-session bar to enter on."""
-    closes = [120.0] * 360  # minutes 0..359: 359 is a checkpoint and the last bar
+def test_a_kept_day_ending_before_the_flat_time_is_not_traded(
+    research: ResearchSettings,
+) -> None:
+    """NB-12: the source would trade it and exit at its last regular close; the harness
+    would flat at a later bar (after the session). Fail closed: not traded, reported."""
+    closes = [120.0] * 360  # minutes 0..359 (last bar 15:29), then a 16:00 bar
     d = _join(
         today(DATES[14], closes),
         make_day(datetime.combine(DATES[14], time(16, 0), tzinfo=NY), [120.0], day=DATES[14]),
     )
     r = prepared(research, [*HIST, d], max_trades_per_session=99)
-    assert [m for m, _ in signals(r, d, every=True)][-1] == 344
+    assert r.kept(d)
+    assert signals(r, d, every=True) == []
+    assert any(line.startswith("NB-12") and str(DATES[14]) in line for line in r.report([*HIST, d]))
+    # a last regular bar opening one minute before the flat time is still early; one
+    # opening AT the flat time is not
+    early = today(DATES[14], [120.0] * 385)  # minutes 0..384
+    r = prepared(research, [*HIST, early])
+    assert signals(r, early) == []
+    full = today(DATES[14], [120.0] * 386)  # minutes 0..385
+    r = prepared(research, [*HIST, full])
+    assert signals(r, full) == [(44, 1)]
 
 
 def test_no_lookahead_into_later_prices(research: ResearchSettings) -> None:
@@ -388,9 +404,9 @@ def test_short_days_are_not_kept_traded_or_counted(research: ResearchSettings) -
     assert signals(r, d) == [(44, 1)]
     # the short day is not the previous close and not in the history
     assert r.levels(d, 44)[1] == pytest.approx(99 * 0.985)  # type: ignore[index]
-    ok = today(DATES[14], [120.0] * 300)
+    ok = rth(DATES[14], [120.0] * 300, opens=[100.0, *[120.0] * 299], first_minute=90)
     r = prepared(research, [*HIST, ok, d])
-    assert signals(r, ok) == [(44, 1)]
+    assert signals(r, ok) == [(104, 1)]  # 11:00-15:59: kept with exactly the minimum
 
 
 def test_bars_outside_the_regular_session_do_not_count(research: ResearchSettings) -> None:
@@ -564,7 +580,12 @@ def test_signals_match_the_source_rule(
     path = tmp_path / "bars.csv"
     _synthetic_csv(path, seed)
     with path.open(newline="") as handle:
-        expected = ref.first_signals(ref.load(csv.DictReader(handle)))
+        source = ref.load(csv.DictReader(handle))
+    # the harness's two fail-closed refusals (NB-11, NB-12), not in the source rule
+    early = {d.date for d in source if d.m[-1] < ref.FLAT_MINUTE}
+    expected = [
+        (d, x, m) for d, x, m in ref.first_signals(source) if d not in early and m < ref.FLAT_MINUTE
+    ]
     got = _harness_first_signals(research, path)
     assert len(expected) >= 5  # the data makes signals
     assert {direction for _, direction, _ in expected} == {1, -1}

@@ -7,6 +7,9 @@ noise_band_x1.5_every15, first signal per day, on one bars file. Signals only
 TOURNAMENT_PY is the source script (its sha256 is printed; the pre-registration names
 4c0db0b7...). The tournament's own `load` and entry function make the expected list;
 the loop that takes the first signal is its `run` loop stopped at the first trade.
+The harness refuses two cases the source trades (NB-11: the entry bar opens at or after
+the flat minute; NB-12: the day's last regular bar opens before it); those source
+signals are counted and listed, then left out of the comparison.
 """
 
 from __future__ import annotations
@@ -40,6 +43,8 @@ def tournament_signals(source: Path, bars: str) -> list[Signal]:
     entry = tour.ENTRIES[VARIANT]
     out: list[Signal] = []
     hist: list[object] = []
+    nb11: list[object] = []
+    nb12: list[object] = []
     for day in days:
         if math.isnan(day.adr) or math.isnan(day.prev_close):
             hist.append(day)
@@ -51,11 +56,19 @@ def tournament_signals(source: Path, bars: str) -> list[Signal]:
                 break
             d = signal(k, 0)
             if d:
-                out.append((day.date, d, day.m[k + 1]))
+                if day.m[-1] < tour.FLAT_MINUTE:
+                    nb12.append(day.date)
+                elif day.m[k + 1] >= tour.FLAT_MINUTE:
+                    nb11.append(day.date)
+                else:
+                    out.append((day.date, d, day.m[k + 1]))
                 break
             k += 1
         hist.append(day)
-    print(f"tournament: {len(days)} kept days, {len(out)} first signals")
+    print(f"tournament: {len(days)} kept days, {len(out) + len(nb11) + len(nb12)} first signals")
+    print(f"  left out, NB-11 (entry bar at/after flat): {len(nb11)} {nb11}")
+    print(f"  left out, NB-12 (day ends before flat): {len(nb12)} {nb12}")
+    print(f"  compared: {len(out)}")
     return out
 
 

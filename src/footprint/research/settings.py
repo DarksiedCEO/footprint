@@ -158,6 +158,7 @@ class ResearchSettings:
     sessions: tuple[tuple[str, Window], ...]
     vol_divisor: float
     vol_max_age_days: int
+    vol_index: str  # the Cboe index the --vol file must be (instruments.<profile>)
     option: OptionSettings
     round_trip_per_contract: float
     exits: ExitSettings
@@ -251,10 +252,15 @@ def load_research(config_dir: Path, instrument_file: str) -> ResearchSettings:
     p_where = f"{i_where}: {instrument_file}"
     per = _check_keys(
         listed[instrument_file],
-        {"reference_price", "round_trip_per_contract", "strike_step"},
+        {"reference_price", "round_trip_per_contract", "strike_step", "vol_index"},
         p_where,
     )
     reference = per["reference_price"]
+    vol_index = per["vol_index"]
+    if not isinstance(vol_index, str) or not vol_index.isalnum():
+        raise ConfigError(
+            f"{p_where}: vol_index must be the index's name (letters and digits), got {vol_index!r}"
+        )
     if per["strike_step"] is not None:
         strike_step = _positive_decimal(per, "strike_step", p_where)
     option = OptionSettings(
@@ -317,12 +323,16 @@ def load_research(config_dir: Path, instrument_file: str) -> ResearchSettings:
     rules = raw["rules"]
     if not isinstance(rules, dict):
         raise ConfigError(f"{where}: rules must be a mapping")
+    unknown = sorted(set(judging.min_t_stat) - set(rules))
+    if unknown:  # review M-1: a misspelt name must never drop a pre-registered t bar
+        raise ConfigError(f"{t_where}: {unknown} name no rule in rules (known: {sorted(rules)})")
     return ResearchSettings(
         timezone=timezone,
         roll=roll,
         sessions=sessions,
         vol_divisor=divisor,
         vol_max_age_days=max_age,
+        vol_index=vol_index,
         option=option,
         round_trip_per_contract=cost,
         exits=exits,
