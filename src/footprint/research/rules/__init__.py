@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from footprint.research.engine import Rule
 from footprint.research.rules.london_orb import build_orb, orb_variants
+from footprint.research.rules.noise_band import build_noise, noise_variants
 from footprint.research.settings import ResearchSettings
 
 
@@ -24,4 +25,5 @@ class Registered:
 
 RULES: dict[str, Registered] = {
     "london_orb": Registered(orb_variants, build_orb),
+    "noise_band": Registered(noise_variants, build_noise),
 }

@@ -1,0 +1,509 @@
+{
+ "groups": {
+  "nb": [
+   "tests/research/test_noise_band.py"
+  ],
+  "bracket": [
+   "tests/research/test_adr_bracket.py",
+   "tests/research/test_engine.py",
+   "tests/research/test_exits.py"
+  ],
+  "plumb": [
+   "tests/research/test_noiseband_settings_cli.py",
+   "tests/research/test_cli_settings_isolation.py",
+   "tests/research/test_stats.py"
+  ]
+ },
+ "mutants": [
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "    if not start < end:\n",
+   "    if not start <= end:\n",
+   "rth_end may equal rth_start"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "    if end > settings.roll:",
+   "    if end > settings.roll and False:",
+   "roll check off"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "    if not start < flat < end:",
+   "    if not start < flat <= end:",
+   "flat may equal rth_end"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "min_rth_bars=_integer(raw, \"min_rth_bars\", where, minimum=1)",
+   "min_rth_bars=_integer(raw, \"min_rth_bars\", where, minimum=0)",
+   "min bars 0 allowed"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "first_check_minute=_integer(raw, \"first_check_minute\", where, minimum=0)",
+   "first_check_minute=_integer(raw, \"first_check_minute\", where, minimum=-1)",
+   "negative first check allowed"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "if s.rth_start <= day.clock[k] < s.rth_end)",
+   "if s.rth_start <= day.clock[k] <= s.rth_end)",
+   "rth end inclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "if s.rth_start <= day.clock[k] < s.rth_end)",
+   "if s.rth_start < day.clock[k] < s.rth_end)",
+   "rth start exclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        weekday = day.day.weekday() < calendar.SATURDAY",
+   "        weekday = True",
+   "weekends kept"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        kept = weekday and len(positions) >= s.min_rth_bars",
+   "        kept = weekday and len(positions) > s.min_rth_bars",
+   "min bars exclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        kept = weekday and len(positions) >= s.min_rth_bars",
+   "        kept = weekday and len(day) >= s.min_rth_bars",
+   "count all bars, not regular"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            first_open=day.open[positions[0]],",
+   "            first_open=day.close[positions[0]],",
+   "first open from close"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            first_open=day.open[positions[0]],",
+   "            first_open=day.open[0],",
+   "first open of the whole day"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            last_close=day.close[positions[-1]],",
+   "            last_close=day.close[-1],",
+   "last close incl. post-session bars"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            span=max(day.high[k] for k in positions) - min(day.low[k] for k in positions),",
+   "            span=max(day.high) - min(day.low),",
+   "range over the whole day"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            span=max(day.high[k] for k in positions) - min(day.low[k] for k in positions),",
+   "            span=max(day.close[k] for k in positions) - min(day.close[k] for k in positions),",
+   "range from closes"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            past = tuple(kept[-w:]) if len(kept) >= w else None",
+   "            past = tuple(kept[-w:]) if len(kept) >= w - 1 else None",
+   "warm-up one day short"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            past = tuple(kept[-w:]) if len(kept) >= w else None",
+   "            past = tuple(kept[-w - 1 :]) if len(kept) >= w else None",
+   "history one day long"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "                previous_close=kept[-1].last_close if kept and session.kept else None,",
+   "                previous_close=kept[-1].first_open if kept and session.kept else None,",
+   "previous close = previous open"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            if session.kept:\n                kept.append(session)",
+   "            if session.positions:\n                kept.append(session)",
+   "unkept days enter history"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        for day in sorted(days, key=lambda d: d.day):",
+   "        for day in sorted(days, key=lambda d: d.day, reverse=True):",
+   "days reversed"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            j = bisect_right(p.minutes, minute) - 1",
+   "            j = bisect_right(p.minutes, minute)",
+   "next bar, not at-or-before"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            if j >= 0:\n",
+   "            if True:\n",
+   "later-starting day not left out"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "                values.append(abs(p.closes[j] / p.first_open - 1))",
+   "                values.append(p.closes[j] / p.first_open - 1)",
+   "signed move, not absolute"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "                values.append(abs(p.closes[j] / p.first_open - 1))",
+   "                values.append(abs(p.closes[j] / p.closes[0] - 1))",
+   "past first close not open"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        return statistics.fmean(values) if values else None",
+   "        return statistics.median(values) if values else None",
+   "median not mean"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            max(first, c.previous_close) * (1 + s),",
+   "            first * (1 + s),",
+   "top ignores previous close"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            min(first, c.previous_close) * (1 - s),",
+   "            first * (1 - s),",
+   "bottom ignores previous close"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        s = sigma * self.settings.band_multiple",
+   "        s = sigma",
+   "multiple ignored"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if state.trades >= s.max_trades_per_session:",
+   "        if state.trades > s.max_trades_per_session:",
+   "second trade allowed"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "n + 1 >= len(c.session.positions)",
+   "n >= len(c.session.positions)",
+   "last regular bar may signal"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if day.clock[i] >= s.flat:",
+   "        if day.clock[i] > s.flat:",
+   "flat bar may signal"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if minute < s.first_check_minute or (minute + 1) % s.check_every_minutes:",
+   "        if minute <= s.first_check_minute or (minute + 1) % s.check_every_minutes:",
+   "first check exclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if minute < s.first_check_minute or (minute + 1) % s.check_every_minutes:",
+   "        if minute < s.first_check_minute or minute % s.check_every_minutes:",
+   "checkpoint off by one"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if minute < s.first_check_minute or (minute + 1) % s.check_every_minutes:",
+   "        if (minute + 1) % s.check_every_minutes:",
+   "first check ignored"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if close > top:",
+   "        if close >= top:",
+   "top inclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if close < bottom:",
+   "        if close <= bottom:",
+   "bottom inclusive"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "        if close > top:",
+   "        if day.high[i] > top:",
+   "high not close"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            return Signal(1, flat_by, next_open=True, range_points=c.range_points)",
+   "            return Signal(1, flat_by, next_open=False, range_points=c.range_points)",
+   "call enters at close"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            return Signal(-1, flat_by, next_open=True, range_points=c.range_points)",
+   "            return Signal(-1, flat_by, next_open=True, range_points=None)",
+   "put without range"
+  ],
+  [
+   "nb",
+   "src/footprint/research/rules/noise_band.py",
+   "            f\"few regular bars): {len(days) - kept}\",",
+   "            f\"few regular bars): {len(days)}\",",
+   "report not-kept count"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "        entered_here = signal.next_open and j == start + 1",
+   "        entered_here = False",
+   "entry bar open walked again"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "        if not entered_here:\n            at(day.open[j], opened, True)",
+   "        if True:\n            at(day.open[j], opened, True)",
+   "entry open re-checked"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "                if i + 1 >= len(day):",
+   "                if i + 1 > len(day):",
+   "next bar past the end"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "                entry_ts, price = day.ts[i + 1], day.open[i + 1]",
+   "                entry_ts, price = day.ts[i + 1], day.close[i]",
+   "next-open price = trigger close"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "                entry_ts, price = day.ts[i + 1], day.open[i + 1]",
+   "                entry_ts, price = day.ts[i] + _MINUTE, day.open[i + 1]",
+   "next-open time = trigger close time"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "    if callable(prepare):\n        prepare(days)",
+   "    if False:\n        prepare(days)",
+   "prepare not called"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "    if span is None or not span > 0:",
+   "    if span is None:",
+   "zero range accepted"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "        price - d * bracket.stop_range_fraction * span,",
+   "        price - d * bracket.target_range_fraction * span,",
+   "stop uses target fraction"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "        price + d * bracket.target_range_fraction * span,",
+   "        price + d * bracket.stop_range_fraction * span,",
+   "target uses stop fraction"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "        price - d * bracket.stop_range_fraction * span,",
+   "        price - bracket.stop_range_fraction * span,",
+   "stop ignores direction"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "            if exit_kind == BRACKET:",
+   "            if exit_kind != BRACKET:",
+   "levels for the wrong exits"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/engine.py",
+   "                value(choice, levels[1], ts, vol, opt),",
+   "                value(choice, levels[0], ts, vol, opt),",
+   "target valued at the stop"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "            self.contracts = ex.adr_bracket.contracts",
+   "            self.contracts = ex.booker_contracts",
+   "bracket contracts from booker"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "        if self.kind == BRACKET:\n            return self._bracket(value, gap, futures_level, bracket)",
+   "        if False:\n            return self._bracket(value, gap, futures_level, bracket)",
+   "bracket kind runs the booker"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "        if futures_level is not None and futures_level > level:",
+   "        if futures_level is not None and futures_level < level:",
+   "rule stop lower wins"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "        if value <= level:\n            fill = Fill(self.open, value if gap else level, reason)",
+   "        if value < level:\n            fill = Fill(self.open, value if gap else level, reason)",
+   "stop exclusive"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "            fill = Fill(self.open, value if gap else level, reason)",
+   "            fill = Fill(self.open, level, reason)",
+   "stop gap fills at level"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "        elif value >= target:",
+   "        elif value > target:",
+   "target exclusive"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "            fill = Fill(self.open, value if gap else target, \"range_target\")",
+   "            fill = Fill(self.open, target, \"range_target\")",
+   "target gap fills at level"
+  ],
+  [
+   "bracket",
+   "src/footprint/research/exits.py",
+   "            fill = Fill(self.open, value if gap else target, \"range_target\")",
+   "            fill = Fill(1, value if gap else target, \"range_target\")",
+   "target sells one contract"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/settings.py",
+   "    if instrument_file not in listed:",
+   "    if instrument_file not in listed and False:",
+   "unlisted instrument accepted"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/settings.py",
+   "    if per[\"strike_step\"] is not None:\n        strike_step = _positive_decimal(per, \"strike_step\", p_where)",
+   "    if per[\"strike_step\"] is not None:\n        pass",
+   "instrument strike step ignored"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/settings.py",
+   "    if cost < 0:\n        raise ConfigError(f\"{p_where}",
+   "    if cost < -1:\n        raise ConfigError(f\"{p_where}",
+   "negative cost accepted"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/settings.py",
+   "        contracts=_integer(a, \"contracts\", a_where, minimum=1),",
+   "        contracts=_integer(a, \"contracts\", a_where, minimum=0),",
+   "zero bracket contracts"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/settings.py",
+   "        min_t_stat={str(name): _signed(bars, name, t_where) for name in bars},",
+   "        min_t_stat={},",
+   "t bars dropped"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/stats.py",
+   "    if min_t_stat is not None:\n        text, ok = _at_least(whole.t_stat, min_t_stat)",
+   "    if min_t_stat is not None:\n        text, ok = _at_least(whole.t_stat, min_t_stat - 1)",
+   "t bar loosened"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/stats.py",
+   "        checks.append((\"t statistic\", text, ok))",
+   "        checks.append((\"t statistic\", text, True))",
+   "t bar never fails"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/__main__.py",
+   "        if not (math.isfinite(args.cost) and args.cost >= 0):",
+   "        if not (args.cost >= 0):",
+   "infinite cost accepted"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/__main__.py",
+   "        settings = replace(settings, round_trip_per_contract=args.cost)",
+   "        pass",
+   "--cost ignored"
+  ],
+  [
+   "plumb",
+   "src/footprint/research/__main__.py",
+   "        min_t_stat=settings.judging.min_t_stat.get(args.rule),",
+   "        min_t_stat=None,",
+   "CLI drops the t bar"
+  ]
+ ]
+}

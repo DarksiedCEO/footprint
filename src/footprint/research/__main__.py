@@ -1,7 +1,12 @@
 """Research CLI: value one rule's option trades with Black-76 and print the report.
 
     uv run python -m footprint.research --bars nq_1m.csv --vol VXN_History.csv \\
-        --rule NAME [--exit booker|scale_out] [--days-to-expiry D] [--config DIR]
+        --rule NAME [--exit booker|scale_out|adr_bracket] [--days-to-expiry D] \\
+        [--cost DOLLARS] [--instrument FILE] [--config DIR]
+
+`--cost` replaces the instrument's configured round trip cost for a sensitivity run (the
+report says so). A rule with a pre-registered t bar (research.yaml judging.min_t_stat)
+is judged with it.
 
 The report gives every statistic for all trades and for each session (by entry time),
 the verdict against the go-live gates, and the exact settings used. Every modelled
@@ -11,6 +16,7 @@ number is marked UNVERIFIED.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -46,7 +52,12 @@ def _row(label: str, s: Summary, width: int) -> str:
 
 
 def report(
-    trades: Sequence[Trade], skipped: int, settings: ResearchSettings, header: Sequence[str]
+    trades: Sequence[Trade],
+    skipped: int,
+    settings: ResearchSettings,
+    header: Sequence[str],
+    *,
+    min_t_stat: float | None = None,
 ) -> str:
     pnls = [t.net for t in trades]
     lines = [*header, "", f"trades: {len(trades)}   skipped (no usable vol): {skipped}", ""]
@@ -79,7 +90,13 @@ def report(
         "exit fills: " + (", ".join(f"{k}={v}" for k, v in sorted(reasons.items())) or "none")
     )
     verdict = judge(
-        pnls, settings.bankroll, settings.gates, j.time_parts, j.min_positive_parts, marks=marks
+        pnls,
+        settings.bankroll,
+        settings.gates,
+        j.time_parts,
+        j.min_positive_parts,
+        marks=marks,
+        min_t_stat=min_t_stat,
     )
     lines.append("")
     lines.append(f"verdict: {'PASS' if verdict.passed else 'FAIL'} [{U}: modelled option prices]")
@@ -102,9 +119,22 @@ LIMITS = (
 )
 
 
-def settings_lines(settings: ResearchSettings, args: argparse.Namespace) -> list[str]:
+def settings_lines(
+    settings: ResearchSettings, args: argparse.Namespace, configured_cost: float
+) -> list[str]:
     o = settings.option
     e = settings.exits
+    cost = f"cost: {settings.round_trip_per_contract} per contract round trip"
+    if args.cost is not None:
+        cost += f" (--cost; config {configured_cost})"
+    b = e.adr_bracket
+    bracket = (
+        ""
+        if b is None
+        else f"; adr_bracket stop {b.stop_range_fraction} and target "
+        f"{b.target_range_fraction} of the rule's range, contracts {b.contracts}"
+    )
+    t_bar = settings.judging.min_t_stat.get(args.rule)
     return [
         f"rule: {args.rule}"
         + ("" if args.variant is None else f" (variant {args.variant})")
@@ -117,13 +147,14 @@ def settings_lines(settings: ResearchSettings, args: argparse.Namespace) -> list
         f"point value {o.point_value}, reference price {o.reference_price}",
         f"vol: index CLOSE / {settings.vol_divisor} used as implied vol [{U}], "
         f"stale after {settings.vol_max_age_days} days",
-        f"cost: {settings.round_trip_per_contract} per contract round trip [{U}]",
+        f"{cost} [{U}]",
         f"exits: stop {e.stop_dollars}/contract gross, lock from {e.lock_start_dollars} net "
         f"keeping {e.lock_fraction:.2f} of peak, first target {e.first_target_dollars} net; "
-        f"contracts booker {e.booker_contracts}, scale_out {e.scale_out_contracts}",
+        f"contracts booker {e.booker_contracts}, scale_out {e.scale_out_contracts}{bracket}",
         f"bankroll {settings.bankroll}; gates from backtest.yaml; "
         f"pass also needs {settings.judging.min_positive_parts} of "
-        f"{settings.judging.time_parts} time parts positive",
+        f"{settings.judging.time_parts} time parts positive"
+        + ("" if t_bar is None else f" and a t statistic of at least {t_bar}"),
     ]
 
 
@@ -135,10 +166,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--variant", default=None, help="the rule's pre-registered variant")
     parser.add_argument("--exit", default=KINDS[0], choices=KINDS)
     parser.add_argument("--days-to-expiry", type=float, default=None)
+    parser.add_argument("--cost", type=float, default=None, help="round trip per contract")
     parser.add_argument("--config", type=Path, default=Path("config"))
     parser.add_argument("--instrument", default="nq.yaml")
     args = parser.parse_args(argv)
     settings = load_research(args.config, args.instrument)
+    configured_cost = settings.round_trip_per_contract
+    if args.cost is not None:
+        if not (math.isfinite(args.cost) and args.cost >= 0):
+            parser.error("--cost must be a finite number >= 0")
+        settings = replace(settings, round_trip_per_contract=args.cost)
     if args.days_to_expiry is not None:
         if not args.days_to_expiry > 0:
             parser.error("--days-to-expiry must be > 0")
@@ -159,7 +196,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     days = load_days(args.bars, settings.symbol, settings.zone, settings.roll)
     vols = load_vol(args.vol, settings.vol_divisor, settings.vol_max_age_days)
     trades, skipped = run(days, rule, vols, settings, args.exit)
-    text = report(trades, skipped, settings, settings_lines(settings, args))
+    text = report(
+        trades,
+        skipped,
+        settings,
+        settings_lines(settings, args, configured_cost),
+        min_t_stat=settings.judging.min_t_stat.get(args.rule),
+    )
     extra = getattr(rule, "report", None)
     if callable(extra):
         text += "\n\nrule notes:\n" + "\n".join(extra(days))

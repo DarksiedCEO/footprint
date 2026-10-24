@@ -242,6 +242,9 @@ def yaml_files() -> list[Path]:
 # - text N: small counts and item numbers in docstrings, comments and messages; since
 #   G20-1 reads both ends of a hyphen range: config.py's message "nth must be 1-5" (the
 #   nth-weekday range above) and channels.py's E.164 phone regex "[1-9]".
+# - text 14 in channels.py (noiseband-v1, 2026-10-23): the E.164 phone regex's digit
+#   count "{7,14}" (a phone number has at most 15 digits, the "+[1-9]" one included).
+#   It became forbidden only because research.yaml's noise_band warm-up is 14 days.
 REVIEWED: dict[str, dict[str, int]] = {
     "footprint/agents/_series.py": {
         "code 2": 1,
@@ -388,6 +391,7 @@ REVIEWED: dict[str, dict[str, int]] = {
     "footprint/execution/channels.py": {
         "code 2": 1,
         "text 10": 1,
+        "text 14": 1,
         "text 3": 1,
         "text 7": 1,
         "text 9": 1,

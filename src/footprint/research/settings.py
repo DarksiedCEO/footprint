@@ -4,12 +4,17 @@ No number lives in code. Values that already exist elsewhere are read from there
 copied: the exits from risk.yaml (stop_loss, profit_target, trail_keep_pct), the gates
 and the strike step from backtest.yaml, the point value and symbol from the instrument
 profile, the bankroll from risk.yaml.
+
+Values that depend on the instrument (the reference price, the round trip cost, and an
+instrument's own strike step where backtest.yaml's does not apply) live in research.yaml
+`instruments`, keyed by the profile file the run uses. A profile not listed there is
+refused: one instrument's cost is never used silently for another.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -37,7 +42,7 @@ _TOP = {
     "sessions",
     "vol",
     "option",
-    "costs",
+    "instruments",
     "exits",
     "judging",
     "rules",
@@ -117,6 +122,16 @@ class OptionSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class AdrBracketSettings:
+    """The `adr_bracket` exit: a futures stop and target, each a fraction of the rule's
+    average daily range (the signal's `range_points`) from the entry price."""
+
+    contracts: int
+    stop_range_fraction: float
+    target_range_fraction: float
+
+
+@dataclass(frozen=True, slots=True)
 class ExitSettings:
     stop_dollars: float  # per contract, gross option dollars
     lock_start_dollars: float  # per contract, net of the round-trip cost
@@ -124,12 +139,16 @@ class ExitSettings:
     first_target_dollars: float  # scale-out: per contract, net of the round-trip cost
     booker_contracts: int
     scale_out_contracts: int
+    adr_bracket: AdrBracketSettings | None = None  # None: that exit cannot be used
 
 
 @dataclass(frozen=True, slots=True)
 class JudgingSettings:
     time_parts: int
     min_positive_parts: int
+    # per rule name: the t statistic must also be at least this; a rule not listed has
+    # no t bar
+    min_t_stat: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,11 +238,25 @@ def load_research(config_dir: Path, instrument_file: str) -> ResearchSettings:
 
     o_where = f"{where}: option"
     o = _check_keys(
-        raw["option"],
-        {"moneyness_points", "days_to_expiry", "days_per_year", "rate", "reference_price"},
-        o_where,
+        raw["option"], {"moneyness_points", "days_to_expiry", "days_per_year", "rate"}, o_where
     )
-    reference = o["reference_price"]
+    i_where = f"{where}: instruments"
+    listed = raw["instruments"]
+    if not isinstance(listed, dict):
+        raise ConfigError(f"{i_where}: must be a mapping of instrument profile files")
+    if instrument_file not in listed:
+        raise ConfigError(
+            f"{i_where}: no research values for {instrument_file!r} (listed: {sorted(listed)})"
+        )
+    p_where = f"{i_where}: {instrument_file}"
+    per = _check_keys(
+        listed[instrument_file],
+        {"reference_price", "round_trip_per_contract", "strike_step"},
+        p_where,
+    )
+    reference = per["reference_price"]
+    if per["strike_step"] is not None:
+        strike_step = _positive_decimal(per, "strike_step", p_where)
     option = OptionSettings(
         moneyness_points=_signed(o, "moneyness_points", o_where),
         days_to_expiry=float(_positive_decimal(o, "days_to_expiry", o_where)),
@@ -231,25 +264,32 @@ def load_research(config_dir: Path, instrument_file: str) -> ResearchSettings:
         rate=_signed(o, "rate", o_where),
         reference_price=None
         if reference is None
-        else float(_positive_decimal(o, "reference_price", o_where)),
+        else float(_positive_decimal(per, "reference_price", p_where)),
         strike_step=float(strike_step),
         point_value=float(instrument.point_value),
     )
 
-    c_where = f"{where}: costs"
-    c = _check_keys(raw["costs"], {"round_trip_per_contract"}, c_where)
-    cost = _signed(c, "round_trip_per_contract", c_where)
+    cost = _signed(per, "round_trip_per_contract", p_where)
     if cost < 0:
-        raise ConfigError(f"{c_where}: round_trip_per_contract must be >= 0, got {cost}")
+        raise ConfigError(f"{p_where}: round_trip_per_contract must be >= 0, got {cost}")
 
     e_where = f"{where}: exits"
-    e = _check_keys(raw["exits"], {"booker", "scale_out"}, e_where)
+    e = _check_keys(raw["exits"], {"booker", "scale_out", "adr_bracket"}, e_where)
     booker = _check_keys(e["booker"], {"contracts"}, f"{e_where}: booker")
     scale = _check_keys(e["scale_out"], {"contracts"}, f"{e_where}: scale_out")
     booker_contracts = _integer(booker, "contracts", f"{e_where}: booker", minimum=1)
     scale_contracts = _integer(scale, "contracts", f"{e_where}: scale_out", minimum=1)
     if scale_contracts <= 1:
         raise ConfigError(f"{e_where}: scale_out needs more than one contract")
+    a_where = f"{e_where}: adr_bracket"
+    a = _check_keys(
+        e["adr_bracket"], {"contracts", "stop_range_fraction", "target_range_fraction"}, a_where
+    )
+    adr_bracket = AdrBracketSettings(
+        contracts=_integer(a, "contracts", a_where, minimum=1),
+        stop_range_fraction=float(_positive_decimal(a, "stop_range_fraction", a_where)),
+        target_range_fraction=float(_positive_decimal(a, "target_range_fraction", a_where)),
+    )
     exits = ExitSettings(
         stop_dollars=float(risk.stop_loss),
         lock_start_dollars=float(risk.profit_target),
@@ -257,13 +297,19 @@ def load_research(config_dir: Path, instrument_file: str) -> ResearchSettings:
         first_target_dollars=float(risk.profit_target),
         booker_contracts=booker_contracts,
         scale_out_contracts=scale_contracts,
+        adr_bracket=adr_bracket,
     )
 
     j_where = f"{where}: judging"
-    j = _check_keys(raw["judging"], {"time_parts", "min_positive_parts"}, j_where)
+    j = _check_keys(raw["judging"], {"time_parts", "min_positive_parts", "min_t_stat"}, j_where)
+    t_where = f"{j_where}: min_t_stat"
+    bars = j["min_t_stat"]
+    if not isinstance(bars, dict):
+        raise ConfigError(f"{t_where}: must be a mapping of rule names to numbers")
     judging = JudgingSettings(
         time_parts=_integer(j, "time_parts", j_where, minimum=1),
         min_positive_parts=_integer(j, "min_positive_parts", j_where, minimum=0),
+        min_t_stat={str(name): _signed(bars, name, t_where) for name in bars},
     )
     if judging.min_positive_parts > judging.time_parts:
         raise ConfigError(f"{j_where}: min_positive_parts must be <= time_parts")

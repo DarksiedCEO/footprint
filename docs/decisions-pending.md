@@ -589,3 +589,42 @@ Changed after hostile review round 1 (a2edcbb, CERTIFIED WITH CONDITIONS):
 For Andre:
 - **L-1:** run the 8 pre-registered scenarios only after R-1 (unadjusted bars) is
   settled; each is judged once.
+
+## Noise-band ES test (branch noiseband-v1; 2026-10-23)
+
+Pre-registered and signed in `docs/research/noiseband-es-v1.md` (implementation notes and
+the ES run commands: `docs/research/noiseband-es-v1-implementation.md`; committed before the
+rule). The rule is `research/rules/noise_band.py`; the N2 exit is the new `adr_bracket`
+kind in `research/exits.py`; the engine gained a next-bar-open entry and a rule
+`prepare(days)` hook. Research only. NOT run on ES data; built and tested on synthetic
+data, signal parity checked on NQ (1437 of 1437 first-signal days agree with
+tournament.py). Not certified: independent review pending.
+
+For Andre:
+- **NB-1 (flat and gaps, harness semantics kept):** flat at the OPEN of the first bar
+  opening at or after 15:55 ET; tournament.py exits at the CLOSE of the 15:55 bar (one
+  minute later). A stop or target the price opens through fills at the open's value
+  (tournament.py: at the level). Both make the harness slightly more conservative; the
+  signals are unaffected.
+- **NB-2 (DEFAULT, draft):** ES reference price 7700 (research.yaml
+  `instruments.es.yaml.reference_price`), about the ES level at signing.
+- **NB-3:** the cost sensitivities 30 and 90 run through the new CLI flag `--cost`; the
+  judged 45 is config. The report says when `--cost` was given.
+- **NB-4 (DEFAULT, draft, UNVERIFIED):** ES strike step 5 index points
+  (`instruments.es.yaml.strike_step`). backtest.yaml's 25 is NQ's. Confirm against CME's
+  ES options listing.
+- **NB-5 (UNVERIFIED, unused by research):** every es.yaml value other than symbol,
+  exchange, point value (50) and tick (0.25) is copied from nq.yaml so the profile loads.
+  Nothing on the trading path loads es.yaml.
+- **NB-6 (inherited, pre-registered):** a day is kept only with at least 300 regular
+  bars, a count known only at the day's end (the source rule's own lookahead). Printed
+  in the report.
+- **NB-7 (config restructure):** the reference price and round trip cost moved from
+  research.yaml `option`/`costs` to `instruments.<profile>`; a profile not listed is
+  refused. NQ's values (20000, 170, backtest strike step) are unchanged.
+- **NB-8:** the t bar is per rule (`judging.min_t_stat`); only noise_band has one (2.3).
+  London's pre-registered verdict is unchanged.
+- **NB-9 (A-18 reviewed entry):** channels.py's E.164 regex `{7,14}` became a forbidden
+  value when the warm-up 14 entered config; listed as REVIEWED (not a trading value).
+- **NB-10 (data, not verified):** the ES file's format and adjustment were not opened or
+  checked by the builder (by design). Like R-1, it must be UNADJUSTED (raw) bars.
