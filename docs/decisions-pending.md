@@ -659,5 +659,5 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
   not traded. tournament.py would trade it and exit at the last regular close; the
   harness can only flat at a bar from 15:55 on, which may be after the session. Like
   the keep rule (NB-6), this is known only at the day's end; it only removes trades.
-  The rule notes print the count and the dates. NQ count: see
-  qa/research/noiseband-nq-parity.out.
+  The rule notes print the count and the dates. 0 on NQ
+  (qa/research/noiseband-nq-parity.out: NB-11 0, NB-12 0, L-3 0; parity 1437 of 1437).
