@@ -1,0 +1,12 @@
+tournament.py sha256 4c0db0b7dcea5bb52fa2f5d33a9a9905ba29b894ac9c8f50404b536154a3069c
+bars /home/claude/data/nq/nq_raw.csv; instrument nq.yaml
+option $ per futures point: 9.00
+tournament: 3568 kept days, 1437 first signals
+session days: 3685; kept: 3568; not kept (not a weekday, or too few regular bars): 117
+kept days warming up: 14; tradable: 3554
+keep-rule caveat: a day is kept only with at least 300 bars opening 09:30-16:00, a full day's bar count known only at its end (inherited from the source rule, as pre-registered).
+entries are at the open of the bar after the signal bar; the last regular bar of a day never signals.
+harness: 3685 session days, 1437 first signals
+agree: 1437; only tournament: 0; only harness: 0
+agreement: 1437 of 1437 signal days (1.000000)
+same list in the same order: True
