@@ -31,6 +31,7 @@ from footprint.backtest.bollinger import (
     squeeze_fires,
     walk_fires,
 )
+from footprint.backtest.price_level import LevelConsole
 from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.settings import BacktestSettings, load_backtest
 from footprint.core.config import ConfigError, Profiles
@@ -716,5 +717,9 @@ def test_a_bollinger_run_builds_its_pipeline_with_the_rule_console(
             ]
         )
         main(["--bars", str(bars_csv), "--out", str(tmp_path / "pb"), "--entry", "pullback", *FROM])
-    assert isinstance(consoles[0], RuleConsole)
-    assert consoles[1] is None
+    # The shipped config rescales option prices (BH-2): each console comes wrapped in a
+    # LevelConsole, which only converts the levels room N (the rule console reads none).
+    wrapped = [c.inner if isinstance(c, LevelConsole) else c for c in consoles]
+    assert all(isinstance(c, LevelConsole) for c in consoles)
+    assert isinstance(wrapped[0], RuleConsole)
+    assert isinstance(wrapped[1], Console)  # the live console, built as the pipeline builds it

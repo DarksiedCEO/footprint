@@ -27,6 +27,11 @@ The clock, minute by minute:
 
 The run ends early on any halt or a latched kill switch (live, those wait for
 Andre), and the readout says why.
+
+With `option_model.reference_price` set (BH-2), the option model is quoted at the
+reference level: each trade's futures moves are rescaled from the price its entry was
+decided at, and the console judges the levels room at the data's level (see
+price_level.py for exactly what is and is not rescaled).
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ from typing import Any
 from footprint.backtest.model_check import check_model_vol
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
+from footprint.backtest.price_level import PriceLevel, level_console
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.calendar import SessionKind, local_minute, session_at
 from footprint.core.config import _PERCENT_MAX, Profiles
@@ -120,13 +126,16 @@ class Backtest:
         self._first = 0 if trade_from is None else bisect_left(self._starts, trade_from)
         if self._first >= len(self._bars):
             raise ValueError("trade_from is after the last bar")
-        self._inside_calendar(self._bars[self._first].ts, self._bars[-1].ts)
+        self._inside_calendar(self._bars[0].ts, self._bars[self._first].ts, self._bars[-1].ts)
         self._model = OptionModel(
             settings.option_model, profiles.instrument, profiles.strategy.options.assumed_delta
         )
+        reference = settings.option_model.reference_price
         # Review H1 (GV-4 open): refuse, loudly, prices the model cannot be traded at.
-        check_model_vol(self._model, profiles, self._bars[self._first :])
+        check_model_vol(self._model, profiles, self._bars[self._first :], reference)
         self._price = self._bars[0].open
+        self._level = PriceLevel(reference)  # BH-2: the futures level options are quoted at
+        self._level.anchor(self._price)
         self._published: OptionChain | None = None
         self._window_end = -1
         self._window: tuple[Bar, ...] = ()
@@ -140,6 +149,7 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
+        console = level_console(console, p, self._level)
         pipeline = (
             Pipeline(p) if trigger is None and console is None else Pipeline(p, trigger, console)
         )
@@ -181,7 +191,7 @@ class Backtest:
     def _chain(self, now: datetime) -> OptionChain:
         if self._published is not None and self._published.ts == now:
             return self._published
-        return self._model.chain(now, self._price)
+        return self._model.chain(now, self._level.model_price(self._price))
 
     # --- the clock ------------------------------------------------------------------
 
@@ -257,13 +267,23 @@ class Backtest:
             worst_open_loss=self._worst_open,
         )
 
-    def _inside_calendar(self, first: datetime, last: datetime) -> None:
+    def _inside_calendar(self, oldest: datetime, first: datetime, last: datetime) -> None:
         """The traded window must lie inside the maintained exchange calendar. Outside
         it every day is closed (fail closed: no holiday or early close is known there),
         so a backtest over it would run without an error and trade nothing (delta review
-        2, N-2). Look-back bars before `trade_from` may lie anywhere: they are never
-        traded."""
+        2, N-2). Look-back bars before `trade_from` are never traded, but the readers
+        take sessions from them (prior-day levels, multi-session averages): one before
+        calendar_from could be a holiday stub read as a session, so it is refused too
+        (BH-13)."""
         instrument = self._p.instrument
+        before = local_minute(oldest, instrument.prime_session)[0]
+        if before < instrument.calendar_from:
+            raise ValueError(
+                f"the backtest's bars start on {before}, before calendar_from "
+                f"{instrument.calendar_from}: no holiday is known there, so the readers "
+                "could take a closed day for a session. Drop those bars, or extend the "
+                "calendar back first"
+            )
         start = local_minute(first, instrument.prime_session)[0]
         end = local_minute(last, instrument.prime_session)[0]
         if start < instrument.calendar_from:
@@ -350,13 +370,16 @@ class Backtest:
         return None
 
     def _publish(self, t: datetime, *, full_chain: bool) -> None:
+        if self._idle():
+            self._level.anchor(self._price)  # BH-2: the next trade is measured from here
+        price = self._level.model_price(self._price)
         if full_chain:
-            self._published = self._model.chain(t, self._price)
+            self._published = self._model.chain(t, price)
             for quote in self._model.broker_quotes(self._published):
                 self.book.publish(quote)
             return
         for contract_id in self._live_contracts():
-            self.book.publish(self._model.quote(contract_id, t, self._price))
+            self.book.publish(self._model.quote(contract_id, t, price))
 
     def _live_contracts(self) -> set[str]:
         position = self.runner.position

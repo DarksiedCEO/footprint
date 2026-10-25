@@ -34,6 +34,9 @@ class OptionModelSettings:
     open_interest: int
     expiries_listed: int
     trading_class: str  # the class the modelled (European, daily) options carry
+    # The futures level options are modelled at (BH-2; footprint.backtest.price_level);
+    # None: no rescaling, the model at the data's own price.
+    reference_price: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,9 @@ def load_backtest(path: Path) -> BacktestSettings:
         open_interest=_integer(o, "open_interest", o_where, minimum=0),
         expiries_listed=_integer(o, "expiries_listed", o_where, minimum=1),
         trading_class=_trading_class(o, "trading_class", o_where),
+        reference_price=None
+        if o["reference_price"] is None
+        else _positive_decimal(o, "reference_price", o_where),
     )
 
     e_where = f"{where}: engine"

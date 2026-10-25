@@ -16,6 +16,7 @@ import json
 import sys
 from dataclasses import asdict
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 from footprint.backtest.engine import Backtest
@@ -100,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         "risk.profit_target": str(profiles.risk.profit_target),
         "risk.trail_keep_pct": str(profiles.risk.trail_keep_pct),
         "risk.stop_loss": str(profiles.risk.stop_loss),
+        **_price_level(settings.option_model.reference_price),
         "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),
@@ -120,6 +122,20 @@ def main(argv: list[str] | None = None) -> int:
     (args.out / "readout.json").write_text(json.dumps(to_json(readout), indent=2), encoding="utf-8")
     print(to_markdown(readout))
     return {"PASS": 0, "FAIL": 1, "NOT ENOUGH TRADES": 1}.get(readout.verdict, _INVALID)
+
+
+def _price_level(reference: Decimal | None) -> dict[str, str]:
+    """BH-2: say how option prices were put at one level (nothing when they were not)."""
+    if reference is None:
+        return {}
+    return {
+        "price level": (
+            f"options modelled as if the future traded at {reference}: each trade's futures "
+            f"moves rescaled by {reference} / (the futures price its entry was decided at); "
+            "strikes listed at that level; the bars the readers see NOT rescaled; the levels "
+            "room N converted to the data's level"
+        )
+    }
 
 
 if __name__ == "__main__":

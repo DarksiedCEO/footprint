@@ -8,6 +8,11 @@ ca5399d; only the temp path and the random position-id suffix are normalised).
 The one intended change since: Q6 (i), review G52-2, added the three exit-number lines
 (risk.profit_target, risk.trail_keep_pct, risk.stop_loss) to the readout's assumptions,
 in readout.md, readout.json and the printed readout; nothing else in the golden moved.
+Since backtest-history-v1 (BH-2) the run uses the shipped config with price-level
+rescaling OFF (option_model.reference_price: null), the model it was written with; its
+readout lists that setting as one more assumption line ("option model reference_price:
+None"), in readout.md, readout.json and the printed readout. Its journal and ledger are
+unchanged byte for byte.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score
 from footprint.decision.pipeline import Decision, Pipeline
 from footprint.decision.risk.gate import AccountState
-from tests.backtest.conftest import TRADE_FROM
+from tests.backtest.conftest import TRADE_FROM, config_copy
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
 from tests.decision.scenario import DECISION_TIME, chain_for, market
@@ -124,7 +129,7 @@ def _run(tmp_path: Path, *extra: str) -> tuple[Path, str]:
                 "--out",
                 str(out),
                 "--config",
-                str(REPO_ROOT / "config"),
+                str(config_copy(tmp_path / "config", None)),
                 "--trade-from",
                 TRADE_FROM.isoformat(),
                 *extra,

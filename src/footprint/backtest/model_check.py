@@ -20,6 +20,10 @@ still be vetoed, and are journalled. It has no margin at the edges of the band: 
 an edge the verdict moves with the time of day and the strike offset, so a run whose
 extreme sits there can pass while some entries near that extreme are vetoed (GV-3).
 A run with no traded prime-session bar is refused too: it could make no entry.
+
+With price-level rescaling (backtest-history-v1, BH-2; price_level.py) every entry is
+decided with the model quoted at the reference price, whatever the data's level: the
+check is then made at the reference, at the moments of the same two bars.
 """
 
 from __future__ import annotations
@@ -76,11 +80,17 @@ def model_problem(
     return None
 
 
-def check_model_vol(model: OptionModel, profiles: Profiles, traded: Sequence[Bar]) -> None:
+def check_model_vol(
+    model: OptionModel,
+    profiles: Profiles,
+    traded: Sequence[Bar],
+    reference: Decimal | None = None,
+) -> None:
     """Raise ModelOutsideBand when the model fails at the lowest or the highest price of
     the traded bars inside the prime session (on a tie, the earliest such bar), and
     NoPrimeSession when there is no traded prime bar at all (second review, R2-1:
-    fail closed, such a run could make no entry)."""
+    fail closed, such a run could make no entry). With a `reference` (BH-2) the model
+    is checked at the reference price, at those two bars' moments."""
     prime = [b for b in traded if session_at(b.ts, profiles.instrument) is SessionKind.PRIME]
     if not prime:
         raise NoPrimeSession(
@@ -90,7 +100,17 @@ def check_model_vol(model: OptionModel, profiles: Profiles, traded: Sequence[Bar
     low = min(prime, key=lambda b: (b.low, b.ts))
     high = max(prime, key=lambda b: (b.high, -b.ts.timestamp()))
     for bar, price, which in ((low, low.low, "lowest"), (high, high.high, "highest")):
-        problem = model_problem(model, profiles, bar.ts, price)
+        problem = model_problem(model, profiles, bar.ts, price if reference is None else reference)
+        if problem is not None and reference is not None:
+            symbol = profiles.instrument.symbol
+            raise ModelOutsideBand(
+                f"refused: the backtest's option model cannot be traded at "
+                f"option_model.reference_price {reference}, the {symbol} level every option "
+                f"is modelled at (checked at the {which} price traded in the prime session, "
+                f"{price}, bar {bar.ts.isoformat()}): {problem}. Choose a reference_price "
+                "inside the model's band (decision BH-2; how to price the model is GV-4, "
+                "docs/decisions-pending.md)"
+            )
         if problem is not None:
             symbol = profiles.instrument.symbol
             raise ModelOutsideBand(

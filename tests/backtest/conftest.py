@@ -1,4 +1,8 @@
+import csv
+import re
+import shutil
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -22,8 +26,44 @@ def profiles() -> Profiles:
 
 
 @pytest.fixture(scope="session")
-def settings() -> BacktestSettings:
+def shipped_settings() -> BacktestSettings:
+    """config/backtest.yaml as shipped: option prices rescaled to reference_price (BH-2)."""
     return load_backtest(REPO_ROOT / "config" / "backtest.yaml")
+
+
+@pytest.fixture(scope="session")
+def settings(shipped_settings: BacktestSettings) -> BacktestSettings:
+    """The shipped settings with price-level rescaling OFF (reference_price null): the
+    option model exactly as it was before backtest-history-v1. The engine tests written
+    before it pin that model; the rescaled one has its own tests
+    (test_price_level.py, test_backtest_history.py)."""
+    model = replace(shipped_settings.option_model, reference_price=None)
+    return replace(shipped_settings, option_model=model)
+
+
+_REFERENCE_LINE = re.compile(r"^(  reference_price: )\S+", re.MULTILINE)
+
+
+def config_copy(target: Path, reference: Decimal | None) -> Path:
+    """A copy of config/ with option_model.reference_price set to `reference` (None:
+    rescaling off); every other byte is the shipped file's."""
+    shutil.copytree(REPO_ROOT / "config", target)
+    path = target / "backtest.yaml"
+    text, n = _REFERENCE_LINE.subn(
+        lambda m: m.group(1) + ("null" if reference is None else str(reference)),
+        path.read_text(encoding="utf-8"),
+    )
+    assert n == 1, "backtest.yaml must carry exactly one reference_price line"
+    path.write_text(text, encoding="utf-8")
+    return target
+
+
+def write_csv(path: Path, bars: Sequence[Bar]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ts", "open", "high", "low", "close", "volume"])
+        for b in bars:
+            writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
 
 
 @pytest.fixture(scope="session")

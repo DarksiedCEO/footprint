@@ -22,6 +22,28 @@ def rewrite(source: Path, tmp_path: Path, **changes: Any) -> Path:
     return target
 
 
+CUT = date(2026, 1, 1)
+
+
+@pytest.fixture
+def calendar_2026(instrument_path: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The shipped nq.yaml cut to its 2026-27 calendar: calendar_from 2026-01-01, every
+    listed date before it dropped, no early_close_periods (the one shipped ends in 2021).
+    That is the calendar these tests were written against, before backtest-history-v1
+    extended it back to 2010 (the history is tested in tests/test_calendar_history.py)."""
+    data = yaml.safe_load(instrument_path.read_text())
+    for key in ("holidays", "no_trade_days", "easter_sundays"):
+        data[key] = [d for d in data[key] if d >= CUT]
+    data["early_closes"] = {d: t for d, t in data["early_closes"].items() if d >= CUT}
+    expiry = data["option_expiry"]
+    expiry["early_close_dates"] = [d for d in expiry["early_close_dates"] if d >= CUT]
+    data["early_close_periods"] = []
+    data["calendar_from"] = CUT
+    target = tmp_path_factory.mktemp("calendar_2026") / instrument_path.name
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
 def session(**changes: str) -> dict[str, str]:
     return {"start": "04:00", "end": "14:00", "timezone": "America/Los_Angeles"} | changes
 
@@ -269,20 +291,20 @@ def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None
     ],
 )
 def test_an_incomplete_calendar_is_refused(
-    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], missing: str
+    calendar_2026: Path, tmp_path: Path, changes: dict[str, Any], missing: str
 ) -> None:
     data = dict(changes)
     if "holidays" in data:
         data["holidays"] = [date.fromisoformat(d) for d in data["holidays"]]
     early = data.get("early_closes")
     if isinstance(early, str):
-        listed = dict(yaml.safe_load(instrument_path.read_text())["early_closes"])
+        listed = dict(yaml.safe_load(calendar_2026.read_text())["early_closes"])
         if early == "christmas_as_early":
             listed[date(2026, 12, 25)] = "10:00"
         else:
             listed.pop(date.fromisoformat(early.split()[1]))
         data["early_closes"] = listed
-    target = rewrite(instrument_path, tmp_path, **data)
+    target = rewrite(calendar_2026, tmp_path, **data)
     with pytest.raises(ConfigError) as refused:  # AEGIS re-audit M-3
         load_instrument(target)
     assert missing in str(refused.value)
@@ -330,6 +352,7 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         "Labor Day": date(2026, 9, 7),
         "Thanksgiving": date(2026, 11, 26),
         "Day after Thanksgiving": date(2026, 11, 27),
+        "Independence Day eve": None,  # BH-1: July 3 2026 is a Friday, the observed holiday
         "Christmas Eve": date(2026, 12, 24),
         "Christmas Day": date(2026, 12, 25),
     }
@@ -380,12 +403,12 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
     ],
 )
 def test_bad_holiday_rules_are_refused(
-    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
+    calendar_2026: Path, tmp_path: Path, changes: dict[str, Any], message: str
 ) -> None:
     rules = changes.get("holiday_rules")
     if isinstance(rules, str):  # "drop <name>" / "early <name>": the real rules, edited
         verb, _, name = rules.partition(" ")
-        current = yaml.safe_load(instrument_path.read_text())["holiday_rules"]
+        current = yaml.safe_load(calendar_2026.read_text())["holiday_rules"]
         if verb == "drop":
             changes = {"holiday_rules": [r for r in current if r["name"] != name]}
             assert len(changes["holiday_rules"]) == len(current) - 1
@@ -398,7 +421,7 @@ def test_bad_holiday_rules_are_refused(
                     {**r, "kind": "early_close"} if r["name"] == name else r for r in current
                 ]
             }
-    target = rewrite(instrument_path, tmp_path, **changes)
+    target = rewrite(calendar_2026, tmp_path, **changes)
     with pytest.raises(ConfigError, match=message):
         load_instrument(target)
 
@@ -839,7 +862,11 @@ def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
     rules = load_instrument(instrument_path).option_expiry
     assert rules.time == time(13, 0)
     assert rules.early_close_time == time(10, 0)
-    assert rules.early_close_dates == frozenset({date(2026, 11, 27), date(2026, 12, 24)})
+    # From 2026 on; the history back to 2010 is in tests/test_calendar_history.py.
+    assert {d for d in rules.early_close_dates if d >= CUT} == {
+        date(2026, 11, 27),
+        date(2026, 12, 24),
+    }
     assert rules.timezone == "America/Los_Angeles"
     assert rules.american_trading_classes == frozenset({"NQ"})
     assert rules.european_trading_class_patterns == ("Q[1-5][A-D]", "QN[1-5]", "QNE")
@@ -894,51 +921,51 @@ def expiry(**changes: Any) -> dict[str, Any]:
     ],
 )
 def test_bad_option_expiry_rules_are_rejected(
-    instrument_path: Path, tmp_path: Path, rules: dict[str, Any]
+    calendar_2026: Path, tmp_path: Path, rules: dict[str, Any]
 ) -> None:
     with pytest.raises(ConfigError, match="option_expiry"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
-def test_several_american_classes_load(instrument_path: Path, tmp_path: Path) -> None:
+def test_several_american_classes_load(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(american_trading_classes=["NQ", "XQ"])
-    profile = load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+    profile = load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
     assert profile.option_expiry.american_trading_classes == frozenset({"NQ", "XQ"})
 
 
-def test_the_old_date_rule_keys_are_refused(instrument_path: Path, tmp_path: Path) -> None:
+def test_the_old_date_rule_keys_are_refused(calendar_2026: Path, tmp_path: Path) -> None:
     # The quarterly-by-date rule was wrong (a weekly is listed on quarterly Fridays): a
     # config still carrying it must not load as if it meant something.
     rules = expiry(american_months=[3, 6, 9, 12])
     with pytest.raises(ConfigError, match="option_expiry"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
 def test_an_option_early_close_outside_the_calendar_names_the_window(
-    instrument_path: Path, tmp_path: Path
+    calendar_2026: Path, tmp_path: Path
 ) -> None:
     rules = expiry(early_close_dates=[date(2025, 12, 24), date(2026, 11, 27), date(2026, 12, 24)])
     with pytest.raises(ConfigError, match="outside calendar_from"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
-def test_a_missing_option_early_close_names_the_rule(instrument_path: Path, tmp_path: Path) -> None:
+def test_a_missing_option_early_close_names_the_rule(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(early_close_dates=[date(2026, 12, 24)])
     with pytest.raises(ConfigError, match=r"lacks 2026-11-27 \(Day after Thanksgiving"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
 def test_a_no_trade_day_does_not_excuse_a_missing_option_early_close(
-    instrument_path: Path, tmp_path: Path
+    calendar_2026: Path, tmp_path: Path
 ) -> None:
     # No-trade days are Andre's own choice; the stock market still closes early on them,
     # so the options still stop early (review round 3, R3-1).
-    data = yaml.safe_load(instrument_path.read_text())
+    data = yaml.safe_load(calendar_2026.read_text())
     no_trade = [*data["no_trade_days"], date(2026, 11, 27)]
     early = {d: t for d, t in data["early_closes"].items() if d != date(2026, 11, 27)}
     rules = expiry(early_close_dates=[date(2026, 12, 24)])
     path = rewrite(
-        instrument_path,
+        calendar_2026,
         tmp_path,
         no_trade_days=no_trade,
         early_closes=early,
@@ -948,7 +975,7 @@ def test_a_no_trade_day_does_not_excuse_a_missing_option_early_close(
         load_instrument(path)
 
 
-def test_a_weekend_date_error_names_its_list(instrument_path: Path, tmp_path: Path) -> None:
+def test_a_weekend_date_error_names_its_list(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 28), date(2026, 12, 24)])
     with pytest.raises(ConfigError, match="option_expiry early_close_dates 2026-11-28"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))

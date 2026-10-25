@@ -777,3 +777,134 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
   Options: (a) keep the floor at `assumed_delta` (the interim rule); (b) a lower floor,
   with GV-2 deciding how N uses the live delta (then drop the loader rule); (c) another
   number.
+
+## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)
+
+Lets the real backtest (`footprint.backtest`: the pipeline, the agents, sizing, exits,
+the runner) run on the NQ 1-minute history 2010-06 to 2024-09 (Databento, raw
+unadjusted front month, `ts` = bar open, UTC). The live trading path does not change:
+the calendar loader only gained optional rule fields and a period list (the 2026-27
+dates are untouched), and everything else is in `footprint.backtest`. **No result on
+history has been read or reported: the full 2010-2024 run is a pre-registered test
+Andre signs first.** Only two short smoke windows were run, to prove it runs end to end.
+
+Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
+
+- **BH-1 (calendar window).** `calendar_from` moves from 2026-01-01 to 2010-06-01; the
+  lists carry every holiday, no-trade day, early close, option early-close date and
+  Easter Sunday from then, and the loader's completeness check runs over the whole
+  window. Two rule refinements make the check exact for history: `first_year`
+  (Juneteenth counts from 2022: the stock market and CME equity first observed it in
+  2022; in the data June 19 was a full session before, and 2022-06-20, 2023-06-19,
+  2024-06-19 halted at 12:00 CT) and `weekdays` (a new required rule, "Independence Day
+  eve": the stock market's July 3 half day, only Monday to Thursday; on a Friday July 3
+  is the observed holiday itself). The completeness check for early-close rules counts
+  only LISTED early closes, never a BH-3 period day (found while building: the routine
+  13:15 halt would otherwise hide a missing half day, e.g. 2019-07-03; a test pins it).
+  One-off closures: 2012-10-29 and 2012-10-30 (Hurricane Sandy), 2018-12-05 (G.H.W. Bush
+  mourning day), 2025-01-09 (Carter mourning day, UNVERIFIED: after the data).
+- **How the history dates were verified.** Derived from the shipped `holiday_rules`
+  (with the refinements above), then checked day by day against the data with the
+  repo's own loader and calendar functions: every weekday 2010-06-07..2024-09-27 was
+  classed by the data (bars in the prime session or not; where the last bar before a
+  halt was; any gap of 10+ minutes inside the calendar's prime session). Result: no
+  calendar trading day ends earlier in the data than the calendar says (by more than
+  15 minutes); no holiday has a bar at or after 06:30 PT; every no-trade day's halt is
+  where the data's last bar is. The remaining differences are not calendar items:
+  data gaps (no bars at all on 2014-06-12, 2014-06-13, 2014-09-23..25, 2014-12-31; late
+  start 2014-09-26) and the March 2020 circuit-breaker halts (13 to 32 minutes on
+  2020-03-09, -12, -16, -18). Dates after 2024-09-27 (2024-11-28 on, all of 2025) have
+  no data: **UNVERIFIED**, from the CME/NYSE pattern, with the shipped earlier closes.
+  The early closes were checked only against this one data set, not against CME notices.
+- **BH-2 (price-level rescaling, backtest only): `option_model.reference_price: 20000`.**
+  The model's fixed premium means something only near the level it was set for (GV-3):
+  without this, 2010's NQ (about 1,800) was refused by the model guard (it refuses below
+  about 7,300). Now options are modelled as if the future traded at the reference:
+  - rescaled: the futures price the option model is quoted at, F x reference / anchor,
+    where the anchor is the futures price at the last moment nothing was live (no
+    working entry, no position, no reconcile): the price the trade's entry was decided
+    at, fixed until the trade is closed and reconciled. While idle the model sees the
+    reference itself. Strikes are listed and rounded at the reference level (25-point
+    strike_step there), never rounded at the data's level and scaled (that would
+    magnify the rounding about 11x in 2010);
+  - not rescaled: premiums (`atm_premium_points`), spread, option ticks, every dollar
+    amount (stops, targets, trail, fees, caps, loss limits: option and account values,
+    already at the model's level), and the bars the readers see;
+  - converted back: the levels room N (futures points that make the profit target, G4,
+    about 111 points) is compared with the bars at the data's level, N x anchor /
+    reference (BH-4);
+  - the model guard checks the model at the reference (at the moments of the lowest and
+    highest traded prime bars), and names reference_price when the reference itself is
+    outside the band;
+  - `reference_price: null` turns all of it off: the model at the data's own price, as
+    before. The readout lists the reference and a "price level" line.
+  Proved by tests: where the anchor equals the reference, a trade's dollars (entry,
+  exit, net P&L, final equity, marked drawdown, worst open loss) equal the un-rescaled
+  run's, and the golden run's trade record and ledger are byte-identical; the same
+  percentage path at 2x, 0.5x and 0.075x the level gives the same dollars (and,
+  unscaled, does not). The reference is not checked against any real option chain.
+- **BH-3 (the CME maintenance halt).** Until 2021-06-25 CME equity futures halted
+  15:15-15:30 CT (13:15-13:30 PT) every day, inside Footprint's prime session (and until
+  late 2012 Fridays closed at 15:15 CT outright). New instrument key
+  `early_close_periods`: from 2010-06-01 through 2021-06-25 the prime session ends at
+  13:15 PT every trading day (an earlier listed close wins; holidays skipped). So in
+  that span no entry after 13:10 and everything flat by 13:10 (close_lead 5), never a
+  position held into a 15-minute halt with no quotes. It costs the 13:30-14:00 PT
+  minutes of those years. Verified in the data: no bar starts in 13:15-13:29 PT on any
+  day before 2021-06-28, and one starts in every minute of it from then on.
+- **BH-4 (levels room at the data's level).** With BH-2, the option reaches the $1,000
+  target after a data-level move of N x anchor / reference (about 10 points in 2010, not
+  111). The console's levels room is judged with that converted N, through a
+  backtest-only wrapper (`price_level.LevelConsole`) on the pipeline's existing console
+  seam; nothing else in the decision changes. Without it, 2010 entries would need about
+  11x the room 2024 entries need. Round numbers stay reported only (not walls); they
+  are at the data's level. Andre: accept, or say if N should stay unconverted.
+- **BH-5 (the stock market's half days).** Day after Thanksgiving, Christmas Eve
+  (weekdays) and July 3 (Monday to Thursday): the futures halted 12:15 CT; prime close
+  10:15 PT (the data's last bar before the halt is 10:14; 2015-11-27 has one at 10:15;
+  2012-07-03 reopened at 13:30 PT, ignored). Options stop at 10:00 PT those days
+  (`option_expiry.early_close_dates`, all 34 listed). After the data: 10:00 PT.
+- **BH-6 (US-holiday sessions).** No-trade days as before; their halt: 08:30 PT (10:30 CT)
+  in 2010-2012 and 10:00 PT (12:00 CT) from 2014-05-26, as in the data; after it 10:00.
+- **BH-7 (days closed in the data are holidays).** Where the data shows the exchange
+  closed through the cash open, the day is a `holiday`, not a no-trade day: Thanksgiving
+  2012, the 2013 US holidays and MLK/Presidents Day 2014 (no prime bar at all), the Good
+  Fridays with an 08:15 CT jobs-report session (2012, 2015, 2021, 2023), Sandy, Bush, and
+  Carter (UNVERIFIED). Then no option expiry is modelled on them and their evening
+  session is closed (Footprint does not trade overnight in v1).
+- **BH-8 (a counterfactual instrument; for Andre).** The model lists a European option
+  expiring every trading day, 1-3 days out. NQ did not list daily expiries in most of
+  2010-2024 (Friday weeklies first, other weekdays added over the years; exact dates
+  NOT verified here). A history run therefore trades an option that did not exist in
+  those years, priced by a model never checked against real NQ option quotes (GV-4).
+  Andre: accept for the pre-registered run, or restrict the window to years with daily
+  expiries.
+- **BH-9 (the raw splice).** The series switches to the next contract at a session open
+  (the builder rolls by session volume). No position crosses it: v1 flattens before the
+  prime close and does not trade overnight. The readers' look-back does: on a roll day
+  the prior day's levels and the multi-session averages mix two contracts (a roll gap of
+  tens of points). Not corrected; a known small bias, about four days a year.
+- **BH-10 (halts and gaps the calendar cannot know).** A trade open during a data gap or
+  an unannounced halt (March 2020) sees no quotes: the engine steps through, as on a dead
+  feed; the trade-management alarms or a halt may end the run early, and the readout
+  says why. Not handled further.
+- **BH-11 (cost of a full run; not measured).** The command line loads every bar into
+  memory (4.8 million bars for 2010-2024) and decides every prime minute. Neither memory
+  nor run time of a full run is measured; see the smoke runs for minutes per second.
+- **BH-12 (fail closed, expiries).** The model lists no expiry after calendar_through
+  (no holiday known there): near the end fewer expiries, possibly none in 1-3 days, so no
+  entry.
+- **BH-13 (fail closed, look-back).** A backtest whose bars start before calendar_from
+  is refused, look-back bars included (was allowed: delta review 2): the readers take
+  sessions from look-back bars, and before calendar_from a holiday stub could be read as
+  a session.
+- Unchanged and still open: BT-FRI (late Friday entries refused at sizing; the
+  reference level changes the premium nothing), GV-4 (how to price the model).
+- Tests: the pre-existing engine tests now pin the unscaled model (the backtest test
+  fixture `settings` sets reference_price null); the golden run (seam_default) uses a
+  copy of the shipped config with reference_price null: its journal and ledger are
+  byte-identical, and its readout gained one assumption line ("option model
+  reference_price: None") in readout.md, readout.json and the printed readout. The
+  calendar tests written for the 2026-27 calendar run on that slice of the shipped file
+  (a fixture cuts it; several option-expiry refusal tests would otherwise have passed
+  for the wrong reason, on a missing 2010 date).

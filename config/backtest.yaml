@@ -12,6 +12,15 @@ option_model:
   expiries_listed: 5          # daily expiries listed ahead (Felix takes 1-3 days out)
   trading_class: Q3C          # the class modelled quotes carry: a daily (European) class
                               #   name; it must match the instrument's European patterns
+  reference_price: 20000      # DEFAULT (draft, Andre BH-2): options are modelled as if the
+                              #   future traded at this level. Each trade's futures moves are
+                              #   rescaled by reference_price / (the futures price its entry
+                              #   was decided at), so the fixed premium above means the same
+                              #   in every year of a long history and a dollar result depends
+                              #   only on the trade's percentage path. Strikes are listed at
+                              #   this level; the bars the readers see are NOT rescaled; the
+                              #   levels room N is converted to the data's level. null: no
+                              #   rescaling (the model at the data's own price, as before)
 engine:
   substep_seconds: 5          # the runner steps this often inside a minute while an entry
                               #   or a position is live (the minute's path is modelled
