@@ -1,0 +1,240 @@
+{
+ "groups": {
+  "anchor": [
+   "tests/backtest/test_backtest_history.py"
+  ],
+  "rolls": [
+   "tests/backtest/test_roll_sessions.py",
+   "tests/backtest/test_compare.py"
+  ],
+  "calendar": [
+   "tests/test_calendar_history.py"
+  ]
+ },
+ "mutants": [
+  [
+   "anchor",
+   "src/footprint/backtest/engine.py",
+   "        if self._idle() and not (\n",
+   "        if False and not (\n",
+   "L1: no re-anchor before a decision"
+  ],
+  [
+   "anchor",
+   "src/footprint/backtest/engine.py",
+   "            and self._published.ts == now\n            and self._level.anchored_at(self._price)\n",
+   "            and self._level.anchored_at(self._price)\n",
+   "L1: an older chain reused"
+  ],
+  [
+   "anchor",
+   "src/footprint/backtest/engine.py",
+   "            and self._published.ts == now\n            and self._level.anchored_at(self._price)\n",
+   "            and self._published.ts == now\n",
+   "L1: a stale anchor reused"
+  ],
+  [
+   "anchor",
+   "src/footprint/backtest/engine.py",
+   "            self._publish(now, full_chain=True)  # re-anchors: nothing is live",
+   "            self._level.anchor(self._price)",
+   "L1: re-anchored but not put in the book"
+  ],
+  [
+   "anchor",
+   "src/footprint/backtest/price_level.py",
+   "        return self._anchor == price",
+   "        return self._anchor != price",
+   "anchored_at inverted"
+  ],
+  [
+   "anchor",
+   "src/footprint/backtest/price_level.py",
+   "        return self._anchor == price",
+   "        return True",
+   "anchored_at always true"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/engine.py",
+   "        if settings.rolls.block_first_session and roll_sessions is None:",
+   "        if False:",
+   "blocking with no roll list accepted"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/engine.py",
+   "            if settings.rolls.block_first_session and roll_sessions is not None\n",
+   "            if roll_sessions is not None\n",
+   "a roll list blocks with the switch off"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/engine.py",
+   "        console = roll_console(level_console(console, p, self._level), p, blocked)",
+   "        console = level_console(console, p, self._level)",
+   "roll sessions never blocked"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if day is None or day not in self._blocked:\n            return verdict",
+   "        if True:\n            return verdict",
+   "the gate never added (re-targeted, review round 2)"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if day is None or day not in self._blocked:\n            return verdict",
+   "        if day is None:\n            return verdict",
+   "every session blocked (re-targeted, review round 2)"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "            \"roll_session\",\n            False,",
+   "            \"roll_session\",\n            True,",
+   "the roll gate passes"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        return replace(verdict, gates=(*verdict.gates, gate))",
+   "        return replace(verdict, gates=(gate,))",
+   "the inner gates dropped"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        day = trading_day_at(inputs.as_of, self._instrument)",
+   "        day = inputs.as_of.date()",
+   "the calendar date, not the trading day"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "    if not sessions:\n        return console",
+   "    if False:\n        return console",
+   "wrapped with nothing to block"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "    inner = live_console(profiles) if console is None else console",
+   "    inner = console",
+   "no live console to wrap"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "    if source == NONE:\n        return frozenset()",
+   "    if False:\n        return frozenset()",
+   "none not understood"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "    if not rows or rows[0] != _HEADER:",
+   "    if not rows:",
+   "header unchecked"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if day.weekday() >= calendar.SATURDAY:",
+   "        if day.weekday() > calendar.SATURDAY:",
+   "a Saturday accepted"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if day in found:",
+   "        if False:",
+   "a date twice accepted"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if found and day < found[-1]:",
+   "        if False:",
+   "out of order accepted"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "    except OSError as exc:",
+   "    except UnicodeError as exc:",
+   "an unreadable file not refused cleanly"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/rolls.py",
+   "        if not index:\n            continue  # the header",
+   "        if False:\n            continue  # the header",
+   "the header read as a date"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/settings.py",
+   "    if not isinstance(block, bool):",
+   "    if False:",
+   "a non-boolean switch accepted"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/__main__.py",
+   "        rolls = None if args.rolls is None else load_roll_sessions(args.rolls)\n    except ValueError as bad:",
+   "        rolls = None if args.rolls is None else load_roll_sessions(args.rolls)\n    except KeyError as bad:",
+   "a bad roll file crashes instead of exit 2"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/__main__.py",
+   "            roll_sessions=rolls,\n",
+   "",
+   "the roll list not handed to the run"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/__main__.py",
+   "    if not block or sessions is None:\n        return {}",
+   "    if sessions is None:\n        return {}",
+   "a roll line with blocking off"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/__main__.py",
+   "    if source == ROLLS_NONE:\n        listed = \"none declared\"",
+   "    if False:\n        listed = \"none declared\"",
+   "none not said (re-targeted, review round 2)"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/__main__.py",
+   "        **_rolls(settings.rolls.block_first_session, args.rolls, rolls),\n",
+   "",
+   "no roll line"
+  ],
+  [
+   "rolls",
+   "src/footprint/backtest/compare.py",
+   "    if args.rolls is not None:\n        argv += [\"--rolls\", args.rolls]",
+   "    if False:\n        pass",
+   "compare drops --rolls"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if any(not isinstance(d, date) or isinstance(d, datetime) for d in (start, through)):",
+   "        if any(not isinstance(d, date) for d in (start, through)):",
+   "RV6: a datetime period bound accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if close is None or close.second or close.microsecond or close.tzinfo is not None:",
+   "        if close is None or close.second or close.microsecond:",
+   "RV7: a time-zone-aware period close accepted"
+  ]
+ ]
+}

@@ -125,6 +125,7 @@ def test_a_stair_run_uses_and_records_the_numbers_of_the_named_config(
             [
                 *("--bars", str(bars), "--out", str(out), "--config", str(config)),
                 *("--trade-from", TRADE_FROM.isoformat(), "--entry", name),
+                *("--rolls", "none"),  # no contract roll in these bars (BH-9)
             ]
         )
     assert [t._settings for t in built] == [StairSettings(2, Decimal("0.4"), 7, 33)]

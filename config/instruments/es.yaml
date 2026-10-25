@@ -31,23 +31,51 @@ cash_session:
 option_tick_size: 0.25
 dte_min: 1                   # UNVERIFIED for ES (not used by research): nq.yaml's values
 dte_max: 3
-# UNVERIFIED for ES (not used by research; added when noiseband-v1 was merged with
-# theta-v1, PR 40, whose instrument schema requires it): option_expiry is copied from
-# nq.yaml (NB-5) so the profile loads. ES options have their own trading classes; with
-# NQ's lists below every ES option class is refused (fail closed), never assumed European.
+# UNVERIFIED for ES (not used by research; NB-5): everything from here to the end is
+# nq.yaml's, copied byte for byte: option_expiry (added to the schema by theta-v1, PR 40;
+# NQ's trading-class lists refuse every ES option class, so it fails closed if anything
+# ever read it) and the calendar block (CME equity index futures share one calendar;
+# extended back to 2010-06-01 by backtest-history-v1, PR 47, BH-1/BH-3). Copied when
+# integration-v1 merged noiseband-v1 with those PRs; research reads only symbol and
+# point_value from this file.
+# When an option stops trading (the moment its value is counted to), CME rulebook
+# chapter 359A: weekly (Mon-Fri) and end-of-month options terminate at 3:00 p.m.
+# Chicago time, or at noon Chicago "in the case of an early scheduled close" of the
+# Primary Listing Exchange (the STOCK market's half days, not the futures halts listed
+# in early_closes below). In PT: `time` normally; on an `early_close_dates` date the
+# earlier of `early_close_time` and `time`.
+# UNVERIFIED: the stock market's 2026-27 half days (NYSE/Nasdaq calendars; check before
+# each, paper checklist 29). History (backtest-history-v1, BH-5): 2010-11-26 to 2024-07-03
+# are the days NQ futures halted early in the 1-minute data, on the stock market's half
+# days (day after Thanksgiving, Christmas Eve, July 3 Monday to Thursday); 2024-11-29
+# onward are after the data (UNVERIFIED, from the NYSE pattern).
+# Quarterly options are AMERICAN (359A01.G.1) and expire with the futures; Footprint
+# does not trade them (Andre, decision B76-2): an option whose IBKR trading class is in
+# `american_trading_classes` is refused. By class, not date: on a quarterly Friday IBKR
+# also lists a weekly class (QN3, on the next quarterly future) beside the quarterly
+# (NQ), seen in IBKR's NQ and ES option listings on 2026-10-22 (paper checklist 29).
 option_expiry:
   time: "13:00"
   early_close_time: "10:00"     # noon CT
-  early_close_dates: [2026-11-27, 2026-12-24]
+  # Stock market half days: the day after Thanksgiving, and Christmas Eve.
+  early_close_dates: [2010-11-26, 2011-11-25, 2012-07-03, 2012-11-23, 2012-12-24,
+                      2013-07-03, 2013-11-29, 2013-12-24, 2014-07-03, 2014-11-28, 2014-12-24,
+                      2015-11-27, 2015-12-24, 2016-11-25, 2017-07-03, 2017-11-24, 2018-07-03,
+                      2018-11-23, 2018-12-24, 2019-07-03, 2019-11-29, 2019-12-24, 2020-11-27,
+                      2020-12-24, 2021-11-26, 2022-11-25, 2023-07-03, 2023-11-24, 2024-07-03,
+                      2024-11-29, 2024-12-24, 2025-07-03, 2025-11-28, 2025-12-24,
+                      2026-11-27, 2026-12-24]
   timezone: America/Los_Angeles
   american_trading_classes: [NQ]
+  # Only these classes are valued (whole-name match); any other class is refused, never
+  # assumed European. Seen 2026-10-22: dailies Q1A..Q5D (week 1-5, Mon A .. Thu D),
+  # Friday weeklies QN1..QN4, end of month QNE. UNVERIFIED: that the API sends these
+  # same names (check with the read-only check script before go-live).
   european_trading_class_patterns: ["Q[1-5][A-D]", "QN[1-5]", "QNE"]
 # Days the PRIME session trades. Each OVERNIGHT session belongs to the next
 # trading day (it opens the evening before), so Friday evening and weekends
 # are closed.
 trading_days: [MON, TUE, WED, THU, FRI]
-# UNVERIFIED for ES (not used by research): the calendar below is copied from nq.yaml
-# (CME equity index futures share one holiday calendar); same caveats.
 # The exchange calendar (D34). Full-day closures: no prime session that day, and the
 # overnight session leading into it is closed too.
 # UNVERIFIED against CME's own 2026/27 trading-hours pages (they load interactively);
@@ -58,15 +86,210 @@ trading_days: [MON, TUE, WED, THU, FRI]
 # day's prior-session levels). Dates go on the weekday the exchange observes them; the
 # loader refuses a weekend date or a date given twice. Verify at cmegroup.com (paper
 # checklist 23).
+#
+# HISTORY, 2010-06-01 to 2025-12-31 (backtest-history-v1, decisions BH-1 .. BH-7): derived
+# from the holiday_rules below and checked day by day against the NQ 1-minute data
+# (Databento raw front month, 2010-06-06 to 2024-09-27): which weekdays had no bar in the
+# prime session, and where each short session's last bar was. A day the data shows the
+# exchange closed through the cash open (no prime bar, or bars only before 06:30 PT) is
+# a HOLIDAY here, even where the stock-market rule would make it a no-trade day (BH-7):
+# then no option expiry is modelled on it and its evening session is closed. Dates after
+# 2024-09-27 have no data: UNVERIFIED, from the CME/NYSE pattern.
+# Every history date in holidays, early_closes, no_trade_days, option_expiry
+# early_close_dates and easter_sundays is a DEFAULT (draft, Andre BH-1, BH-5, BH-6, BH-7).
 holidays:
+  - 2010-12-24   # Christmas Day (data: no prime bars)
+  - 2011-04-22   # Good Friday (data: no prime bars)
+  - 2011-12-26   # Christmas Day (data: no prime bars)
+  - 2012-01-02   # New Year's Day (data: no prime bars)
+  - 2012-04-06   # Good Friday (data: prime bars 04:01-06:14 only)
+  - 2012-10-29   # Hurricane Sandy (stock market closed); data: prime bars 04:00-06:14 only, halted before the cash open
+  - 2012-10-30   # Hurricane Sandy (stock market closed); data: prime bars 04:00-06:14 only, halted before the cash open
+  - 2012-11-22   # Thanksgiving; data: no prime bars (exchange closed in prime)
+  - 2012-12-25   # Christmas Day (data: no prime bars)
+  - 2013-01-01   # New Year's Day (data: no prime bars)
+  - 2013-01-21   # Martin Luther King Jr. Day; data: no prime bars (exchange closed in prime)
+  - 2013-02-18   # Presidents Day; data: no prime bars (exchange closed in prime)
+  - 2013-03-29   # Good Friday (data: no prime bars)
+  - 2013-05-27   # Memorial Day; data: no prime bars (exchange closed in prime)
+  - 2013-07-04   # Independence Day; data: no prime bars (exchange closed in prime)
+  - 2013-09-02   # Labor Day; data: no prime bars (exchange closed in prime)
+  - 2013-11-28   # Thanksgiving; data: no prime bars (exchange closed in prime)
+  - 2013-12-25   # Christmas Day (data: no prime bars)
+  - 2014-01-01   # New Year's Day (data: no prime bars)
+  - 2014-01-20   # Martin Luther King Jr. Day; data: no prime bars (exchange closed in prime)
+  - 2014-02-17   # Presidents Day; data: no prime bars (exchange closed in prime)
+  - 2014-04-18   # Good Friday (data: no prime bars)
+  - 2014-12-25   # Christmas Day (data: no prime bars)
+  - 2015-01-01   # New Year's Day (data: no prime bars)
+  - 2015-04-03   # Good Friday (data: prime bars 04:01-06:14 only)
+  - 2015-12-25   # Christmas Day (data: no prime bars)
+  - 2016-01-01   # New Year's Day (data: no prime bars)
+  - 2016-03-25   # Good Friday (data: no prime bars)
+  - 2016-12-26   # Christmas Day (data: no prime bars)
+  - 2017-01-02   # New Year's Day (data: no prime bars)
+  - 2017-04-14   # Good Friday (data: no prime bars)
+  - 2017-12-25   # Christmas Day (data: no prime bars)
+  - 2018-01-01   # New Year's Day (data: no prime bars)
+  - 2018-03-30   # Good Friday (data: no prime bars)
+  - 2018-12-05   # national day of mourning, President G.H.W. Bush; data: prime bars 04:00-06:29 only, halted before the cash open
+  - 2018-12-25   # Christmas Day (data: no prime bars)
+  - 2019-01-01   # New Year's Day (data: no prime bars)
+  - 2019-04-19   # Good Friday (data: no prime bars)
+  - 2019-12-25   # Christmas Day (data: no prime bars)
+  - 2020-01-01   # New Year's Day (data: no prime bars)
+  - 2020-04-10   # Good Friday (data: no prime bars)
+  - 2020-12-25   # Christmas Day (data: no prime bars)
+  - 2021-01-01   # New Year's Day (data: no prime bars)
+  - 2021-04-02   # Good Friday (data: prime bars 04:00-06:14 only)
+  - 2021-12-24   # Christmas Day (data: no prime bars)
+  - 2022-04-15   # Good Friday (data: no prime bars)
+  - 2022-12-26   # Christmas Day (data: no prime bars)
+  - 2023-01-02   # New Year's Day (data: no prime bars)
+  - 2023-04-07   # Good Friday (data: prime bars 04:00-06:14 only)
+  - 2023-12-25   # Christmas Day (data: no prime bars)
+  - 2024-01-01   # New Year's Day (data: no prime bars)
+  - 2024-03-29   # Good Friday (data: no prime bars)
+  - 2024-12-25   # Christmas Day UNVERIFIED (after the data)
+  - 2025-01-01   # New Year's Day UNVERIFIED (after the data)
+  - 2025-01-09   # national day of mourning, President Carter; UNVERIFIED (after the data): CME equity halted 08:30 CT
+  - 2025-04-18   # Good Friday UNVERIFIED (after the data)
+  - 2025-12-25   # Christmas Day UNVERIFIED (after the data)
   - 2026-01-01   # New Year's Day
   - 2026-04-03   # Good Friday
   - 2026-12-25   # Christmas Day
   - 2027-01-01   # New Year's Day
   - 2027-03-26   # Good Friday
 # Early closes: the prime session ends at this time (prime_session timezone, PT) on
-# that date; no new entries and everything flat close_lead_minutes before it.
+# that date; no new entries and everything flat close_lead_minutes before it. The time
+# is the session's last minute, like prime_session.end: the data's last bar before a
+# halt at 10:15 PT is the 10:14 bar. History (BH-5, BH-6): US-holiday sessions halted
+# 10:30 CT (08:30 PT) in 2010-2012 and 12:00 CT (10:00 PT) from 2014; the stock market's
+# half days halted 12:15 CT (10:15 PT). After the data (2024-09-28 on): the shipped
+# convention, the earlier 10:00 PT, UNVERIFIED. DEFAULT (draft, Andre BH-5, BH-6).
 early_closes:
+  2010-07-05: "08:30"   # Independence Day: data's last prime bar 08:29
+  2010-09-06: "08:30"   # Labor Day: data's last prime bar 08:29
+  2010-11-25: "08:30"   # Thanksgiving: data's last prime bar 08:29
+  2010-11-26: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2011-01-17: "08:30"   # Martin Luther King Jr. Day: data's last prime bar 08:29
+  2011-02-21: "08:30"   # Presidents Day: data's last prime bar 08:29
+  2011-05-30: "08:30"   # Memorial Day: data's last prime bar 08:29
+  2011-07-04: "08:30"   # Independence Day: data's last prime bar 08:29
+  2011-09-05: "08:30"   # Labor Day: data's last prime bar 08:29
+  2011-11-24: "08:30"   # Thanksgiving: data's last prime bar 08:29
+  2011-11-25: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2012-01-16: "08:30"   # Martin Luther King Jr. Day: data's last prime bar 08:29
+  2012-02-20: "08:30"   # Presidents Day: data's last prime bar 08:29
+  2012-05-28: "08:30"   # Memorial Day: data's last prime bar 08:29
+  2012-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data halts after 10:14 (reopens 13:30, ignored)
+  2012-07-04: "08:30"   # Independence Day: data's last prime bar 08:29
+  2012-09-03: "08:30"   # Labor Day: data's last prime bar 08:29
+  2012-11-23: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2012-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2013-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2013-11-29: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2013-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2014-05-26: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2014-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2014-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2014-09-01: "10:00"   # Labor Day: data's last prime bar 09:59
+  2014-11-27: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2014-11-28: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2014-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2015-01-19: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2015-02-16: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2015-05-25: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2015-07-03: "10:00"   # Independence Day: data's last prime bar 09:59
+  2015-09-07: "10:00"   # Labor Day: data's last prime bar 09:59
+  2015-11-26: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2015-11-27: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:15 (at the halt)
+  2015-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2016-01-18: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2016-02-15: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2016-05-30: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2016-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2016-09-05: "10:00"   # Labor Day: data's last prime bar 09:59
+  2016-11-24: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2016-11-25: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2017-01-16: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2017-02-20: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2017-05-29: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2017-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2017-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2017-09-04: "10:00"   # Labor Day: data's last prime bar 09:59
+  2017-11-23: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2017-11-24: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2018-01-15: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2018-02-19: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2018-05-28: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2018-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2018-07-04: "10:00"   # Independence Day: data's last prime bar 10:00 (at the halt)
+  2018-09-03: "10:00"   # Labor Day: data's last prime bar 09:59
+  2018-11-22: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2018-11-23: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2018-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2019-01-21: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2019-02-18: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2019-05-27: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2019-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2019-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2019-09-02: "10:00"   # Labor Day: data's last prime bar 09:59
+  2019-11-28: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2019-11-29: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2019-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2020-01-20: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2020-02-17: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2020-05-25: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2020-07-03: "10:00"   # Independence Day: data's last prime bar 09:59
+  2020-09-07: "10:00"   # Labor Day: data's last prime bar 09:59
+  2020-11-26: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2020-11-27: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2020-12-24: "10:15"   # Christmas Eve: stock half day; data's last bar 10:14 before the halt
+  2021-01-18: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2021-02-15: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2021-05-31: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2021-07-05: "10:00"   # Independence Day: data's last prime bar 09:59
+  2021-09-06: "10:00"   # Labor Day: data's last prime bar 09:59
+  2021-11-25: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2021-11-26: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2022-01-17: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2022-02-21: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2022-05-30: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2022-06-20: "10:00"   # Juneteenth: data's last prime bar 09:59
+  2022-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2022-09-05: "10:00"   # Labor Day: data's last prime bar 09:59
+  2022-11-24: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2022-11-25: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2023-01-16: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2023-02-20: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2023-05-29: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2023-06-19: "10:00"   # Juneteenth: data's last prime bar 09:59
+  2023-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2023-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2023-09-04: "10:00"   # Labor Day: data's last prime bar 09:59
+  2023-11-23: "10:00"   # Thanksgiving: data's last prime bar 09:59
+  2023-11-24: "10:15"   # day after Thanksgiving: stock half day; data's last bar 10:14 before the halt
+  2024-01-15: "10:00"   # Martin Luther King Jr. Day: data's last prime bar 09:59
+  2024-02-19: "10:00"   # Presidents Day: data's last prime bar 09:59
+  2024-05-27: "10:00"   # Memorial Day: data's last prime bar 09:59
+  2024-06-19: "10:00"   # Juneteenth: data's last prime bar 09:59
+  2024-07-03: "10:15"   # Independence Day eve (July 3): stock half day; data's last bar 10:14 before the halt
+  2024-07-04: "10:00"   # Independence Day: data's last prime bar 09:59
+  2024-09-02: "10:00"   # Labor Day: data's last prime bar 09:59
+  2024-11-28: "10:00"   # Thanksgiving: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2024-11-29: "10:00"   # day after Thanksgiving: stock half day, UNVERIFIED (after the data; earlier of 12:00/12:15 CT)
+  2024-12-24: "10:00"   # Christmas Eve: stock half day, UNVERIFIED (after the data; earlier of 12:00/12:15 CT)
+  2025-01-20: "10:00"   # Martin Luther King Jr. Day: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-02-17: "10:00"   # Presidents Day: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-05-26: "10:00"   # Memorial Day: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-06-19: "10:00"   # Juneteenth: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-07-03: "10:00"   # Independence Day eve (July 3): stock half day, UNVERIFIED (after the data; earlier of 12:00/12:15 CT)
+  2025-07-04: "10:00"   # Independence Day: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-09-01: "10:00"   # Labor Day: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-11-27: "10:00"   # Thanksgiving: 12:00 CT halt, UNVERIFIED (after the data; CME pattern)
+  2025-11-28: "10:00"   # day after Thanksgiving: stock half day, UNVERIFIED (after the data; earlier of 12:00/12:15 CT)
+  2025-12-24: "10:00"   # Christmas Eve: stock half day, UNVERIFIED (after the data; earlier of 12:00/12:15 CT)
   2026-01-19: "10:00"   # Martin Luther King Jr. Day: 12:00 CT halt
   2026-02-16: "10:00"   # Presidents Day: 12:00 CT halt
   2026-05-25: "10:00"   # Memorial Day: 12:00 CT halt
@@ -83,6 +306,94 @@ early_closes:
 # Footprint treats them as CLOSED (no session, no entry, never the "prior day") until
 # they are separately reviewed and explicitly approved.
 no_trade_days:
+  - 2010-07-05   # Independence Day
+  - 2010-09-06   # Labor Day
+  - 2010-11-25   # Thanksgiving
+  - 2011-01-17   # Martin Luther King Jr. Day
+  - 2011-02-21   # Presidents Day
+  - 2011-05-30   # Memorial Day
+  - 2011-07-04   # Independence Day
+  - 2011-09-05   # Labor Day
+  - 2011-11-24   # Thanksgiving
+  - 2012-01-16   # Martin Luther King Jr. Day
+  - 2012-02-20   # Presidents Day
+  - 2012-05-28   # Memorial Day
+  - 2012-07-04   # Independence Day
+  - 2012-09-03   # Labor Day
+  - 2014-05-26   # Memorial Day
+  - 2014-07-04   # Independence Day
+  - 2014-09-01   # Labor Day
+  - 2014-11-27   # Thanksgiving
+  - 2015-01-19   # Martin Luther King Jr. Day
+  - 2015-02-16   # Presidents Day
+  - 2015-05-25   # Memorial Day
+  - 2015-07-03   # Independence Day
+  - 2015-09-07   # Labor Day
+  - 2015-11-26   # Thanksgiving
+  - 2016-01-18   # Martin Luther King Jr. Day
+  - 2016-02-15   # Presidents Day
+  - 2016-05-30   # Memorial Day
+  - 2016-07-04   # Independence Day
+  - 2016-09-05   # Labor Day
+  - 2016-11-24   # Thanksgiving
+  - 2017-01-16   # Martin Luther King Jr. Day
+  - 2017-02-20   # Presidents Day
+  - 2017-05-29   # Memorial Day
+  - 2017-07-04   # Independence Day
+  - 2017-09-04   # Labor Day
+  - 2017-11-23   # Thanksgiving
+  - 2018-01-15   # Martin Luther King Jr. Day
+  - 2018-02-19   # Presidents Day
+  - 2018-05-28   # Memorial Day
+  - 2018-07-04   # Independence Day
+  - 2018-09-03   # Labor Day
+  - 2018-11-22   # Thanksgiving
+  - 2019-01-21   # Martin Luther King Jr. Day
+  - 2019-02-18   # Presidents Day
+  - 2019-05-27   # Memorial Day
+  - 2019-07-04   # Independence Day
+  - 2019-09-02   # Labor Day
+  - 2019-11-28   # Thanksgiving
+  - 2020-01-20   # Martin Luther King Jr. Day
+  - 2020-02-17   # Presidents Day
+  - 2020-05-25   # Memorial Day
+  - 2020-07-03   # Independence Day
+  - 2020-09-07   # Labor Day
+  - 2020-11-26   # Thanksgiving
+  - 2021-01-18   # Martin Luther King Jr. Day
+  - 2021-02-15   # Presidents Day
+  - 2021-05-31   # Memorial Day
+  - 2021-07-05   # Independence Day
+  - 2021-09-06   # Labor Day
+  - 2021-11-25   # Thanksgiving
+  - 2022-01-17   # Martin Luther King Jr. Day
+  - 2022-02-21   # Presidents Day
+  - 2022-05-30   # Memorial Day
+  - 2022-06-20   # Juneteenth
+  - 2022-07-04   # Independence Day
+  - 2022-09-05   # Labor Day
+  - 2022-11-24   # Thanksgiving
+  - 2023-01-16   # Martin Luther King Jr. Day
+  - 2023-02-20   # Presidents Day
+  - 2023-05-29   # Memorial Day
+  - 2023-06-19   # Juneteenth
+  - 2023-07-04   # Independence Day
+  - 2023-09-04   # Labor Day
+  - 2023-11-23   # Thanksgiving
+  - 2024-01-15   # Martin Luther King Jr. Day
+  - 2024-02-19   # Presidents Day
+  - 2024-05-27   # Memorial Day
+  - 2024-06-19   # Juneteenth
+  - 2024-07-04   # Independence Day
+  - 2024-09-02   # Labor Day
+  - 2024-11-28   # Thanksgiving
+  - 2025-01-20   # Martin Luther King Jr. Day
+  - 2025-02-17   # Presidents Day
+  - 2025-05-26   # Memorial Day
+  - 2025-06-19   # Juneteenth
+  - 2025-07-04   # Independence Day
+  - 2025-09-01   # Labor Day
+  - 2025-11-27   # Thanksgiving
   - 2026-01-19   # Martin Luther King Jr. Day
   - 2026-02-16   # Presidents Day
   - 2026-05-25   # Memorial Day
@@ -103,18 +414,35 @@ holiday_rules:
   - {name: "Presidents Day", month: 2, weekday: MON, nth: 3}
   - {name: "Good Friday", days_from_easter: -2}
   - {name: "Memorial Day", month: 5, weekday: MON, nth: -1}
-  - {name: "Juneteenth", month: 6, day: 19, observed: weekend}
+  - {name: "Juneteenth", month: 6, day: 19, observed: weekend, first_year: 2022}  # DEFAULT (draft, Andre BH-1): first
+    #   observed by the stock market and CME equity in 2022 (the data: June 19 was a full
+    #   session before; 2022-06-20, 2023-06-19 and 2024-06-19 halted at 12:00 CT)
   - {name: "Independence Day", month: 7, day: 4, observed: weekend}
   - {name: "Labor Day", month: 9, weekday: MON, nth: 1}
   - {name: "Thanksgiving", month: 11, weekday: THU, nth: 4}
   - {name: "Day after Thanksgiving", kind: early_close, month: 11, weekday: THU, nth: 4, days_after: 1}
+  # BH-1: the stock market's July 3 half day, only Monday to Thursday (on a Friday July 3
+  # is the observed Independence Day; on a weekend there is none)
+  - {name: "Independence Day eve", kind: early_close, month: 7, day: 3, observed: weekday_only, weekdays: [MON, TUE, WED, THU]}
   - {name: "Christmas Eve", kind: early_close, month: 12, day: 24, observed: weekday_only}
   - {name: "Christmas Day", month: 12, day: 25, observed: weekend}
 # Easter Sunday of every year the calendar covers (for Good Friday); listed, not
 # computed. Add the next year's when extending calendar_through.
-easter_sundays: [2026-04-05, 2027-03-28]
-calendar_from: 2026-01-01     # the lists above are complete from here (fixed: the check
-                              #   never starts later because a year's dates were deleted)
+easter_sundays: [2010-04-04, 2011-04-24, 2012-04-08, 2013-03-31, 2014-04-20, 2015-04-05,
+                 2016-03-27, 2017-04-16, 2018-04-01, 2019-04-21, 2020-04-12, 2021-04-04,
+                 2022-04-17, 2023-04-09, 2024-03-31, 2025-04-20, 2026-04-05, 2027-03-28]
+# Spans in which the prime session ends at `close` (PT) on every trading day (BH-3): CME's
+# daily equity maintenance halt, 15:15-15:30 CT (13:15-13:30 PT), was inside the prime
+# session until 2021-06-25 (in the data, before 2021-06-28 no bar starts in 13:16-13:28 PT
+# on any day, and 80 days have one single bar at the halt's edges, 76 at 13:15 and 4 at
+# 13:29; from 2021-06-28 a bar starts in every minute of it); Fridays and the days before holidays closed
+# at 15:15 CT outright until late 2012. Footprint ends the prime session at the halt: no
+# position is held into it (the earlier close, as above). An earlier listed close wins.
+early_close_periods:
+  - {from: 2010-06-01, through: 2021-06-25, close: "13:15"}  # DEFAULT (draft, Andre BH-3)
+calendar_from: 2010-06-01     # the lists above are complete from here (fixed: the check
+                              #   never starts later because a year's dates were deleted).
+                              #   DEFAULT (draft, Andre BH-1): back to the NQ history
 calendar_through: 2027-03-31  # the lists above are complete up to here. FAIL CLOSED:
                               #   every later day is treated as closed until extended
 calendar_warn_days: 30        # alarm this many days before calendar_through

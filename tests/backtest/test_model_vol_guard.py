@@ -37,7 +37,7 @@ from footprint.core.calendar import SessionKind, session_at
 from footprint.core.config import Profiles
 from footprint.core.models import Bar, Direction
 from footprint.decision.sizing import EntryPlan
-from tests.backtest.conftest import TRADE_FROM, extend, workdir
+from tests.backtest.conftest import TRADE_FROM, config_copy, extend, workdir
 from tests.conftest import REPO_ROOT
 
 D = Decimal
@@ -344,7 +344,10 @@ def test_the_command_line_refuses_with_a_clear_error_and_exit_2(
         for b in shifted(bars, D(6000) - bars[-1].close):
             writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
     out = tmp_path / "run"
-    argv = ["--bars", str(path), "--out", str(out), "--config", str(REPO_ROOT / "config")]
+    # Rescaling off (BH-2): with the shipped reference_price every option is modelled
+    # at the reference level and this price level passes (test_backtest_history.py).
+    config = config_copy(tmp_path / "config", None)
+    argv = ["--bars", str(path), "--out", str(out), "--config", str(config)]
     code = main([*argv, "--trade-from", TRADE_FROM.isoformat()])
     assert code == 2  # INVALID, never PASS or FAIL
     printed = capsys.readouterr()
@@ -370,6 +373,7 @@ def test_the_command_line_refuses_a_run_with_no_prime_bar_with_exit_2(
             writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
     out = tmp_path / "run"
     argv = ["--bars", str(path), "--out", str(out), "--config", str(REPO_ROOT / "config")]
+    argv += ["--rolls", "none"]
     assert main([*argv, "--trade-from", evening.isoformat()]) == 2
     assert "no traded bar is in the prime session" in capsys.readouterr().err
     assert not (out / "readout.json").exists()

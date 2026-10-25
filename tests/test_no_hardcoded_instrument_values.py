@@ -101,6 +101,8 @@ def test_profiles_yield_the_expected_forbidden_values(
         "06:30",
         "13:00",
         "10:00",  # the early closes
+        "08:30",  # history (BH-6): 2010-2012 US-holiday halts
+        "10:15",  # history (BH-5): the stock market's half days
     }
 
 

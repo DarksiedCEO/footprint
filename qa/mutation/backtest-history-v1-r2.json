@@ -1,0 +1,93 @@
+{
+ "groups": {
+  "guards": [
+   "tests/backtest/test_roll_sessions.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "        if blocked:  # review R2-3: a roll list must belong to these bars",
+   "        if False:",
+   "R2-3: a list outside the bars accepted"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            outside = sorted(d for d in blocked if not first <= d <= last)",
+   "            outside = sorted(d for d in blocked if not first < d <= last)",
+   "R2-3: a roll on the first bar's day refused"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            outside = sorted(d for d in blocked if not first <= d <= last)",
+   "            outside = sorted(d for d in blocked if not first <= d < last)",
+   "R2-3: a roll on the last bar's day refused"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            outside = sorted(d for d in blocked if not first <= d <= last)",
+   "            outside = sorted(d for d in blocked if not d <= last)",
+   "R2-3: a roll before the bars accepted"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            outside = sorted(d for d in blocked if not first <= d <= last)",
+   "            outside = sorted(d for d in blocked if not first <= d)",
+   "R2-3: a roll after the bars accepted"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            last = local_minute(self._bars[-1].ts, prime)[0]",
+   "            last = self._bars[-1].ts.date()",
+   "R2-3: the last day in UTC"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "        while not is_tradable_day(day, instrument):",
+   "        while False:",
+   "R2-4: a closed roll day not moved"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "        while not is_tradable_day(day, instrument):",
+   "        while day in instrument.holidays:",
+   "R2-4: a no-trade day kept"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "            if day > instrument.calendar_through:",
+   "            if day > instrument.calendar_through + timedelta(days=400):",
+   "R2-4: the search runs past the calendar"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "        found[day] = session",
+   "        found[session] = session",
+   "R2-4: the roll day blocked, not the moved one"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "            f\"{day} is the first tradable session on a new contract (roll session \"\n            f\"{self._blocked[day]}): the look-back",
+   "            f\"{day} is the first tradable session on a new contract (roll session \"\n            f\"{day}): the look-back",
+   "R2-4: the roll session not named"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/__main__.py",
+   "        listed = f\"{len(sessions)} listed ({source}), first {min(sessions)}, last {max(sessions)}\"",
+   "        listed = f\"{len(sessions)} listed ({source})\"",
+   "R2-3: first and last not printed"
+  ]
+ ]
+}

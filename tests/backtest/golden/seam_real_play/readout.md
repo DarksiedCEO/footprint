@@ -60,6 +60,7 @@ Drawdown marked to the bid: 0.00% (0.00). Worst open loss in any trade: 0.00.
 - option model open_interest: 500
 - option model expiries_listed: 5
 - option model trading_class: Q3C
+- option model reference_price: None
 - fees per contract per side: 2.5
 - risk.profit_target: 1000
 - risk.trail_keep_pct: 50

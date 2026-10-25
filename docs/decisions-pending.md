@@ -1139,10 +1139,14 @@ For Andre:
 - **NB-5 (UNVERIFIED, unused by research):** every es.yaml value other than symbol,
   exchange, point value (50) and tick (0.25) is copied from nq.yaml so the profile loads.
   Nothing on the trading path loads es.yaml.
-  Integration (integration-v1, 2026-10-24): theta-v1 (PR 40) made `option_expiry` a
-  required instrument key after this branch was cut; it is copied from nq.yaml into
-  es.yaml under the same rule (UNVERIFIED for ES, unused by research; NQ's class lists
-  refuse every ES option class, so it fails closed if anything ever read it).
+  Integration (integration-v1, 2026-10-24/25): theta-v1 (PR 40) made `option_expiry` a
+  required instrument key, and backtest-history-v1 (PR 47) extended nq.yaml's calendar
+  back to 2010-06-01 with new required keys (`early_close_periods`, the "Independence
+  Day eve" rule, `first_year`, older `option_expiry.early_close_dates`). es.yaml from
+  `option_expiry` to the end is copied from nq.yaml byte for byte, under this same rule
+  (UNVERIFIED for ES, unused by research; NQ's class lists refuse every ES option class,
+  so it fails closed if anything ever read it); `test_es_profile_values` (es mirrors nq)
+  holds.
 - **NB-6 (inherited, pre-registered):** a day is kept only with at least 300 regular
   bars, a count known only at the day's end (the source rule's own lookahead). Printed
   in the report.
@@ -1299,3 +1303,210 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     take a 1-day option that fits both);
     `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
     `risk.position_cap`.
+
+## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)
+
+Lets the real backtest (`footprint.backtest`: the pipeline, the agents, sizing, exits,
+the runner) run on the NQ 1-minute history 2010-06 to 2024-09 (Databento, raw
+unadjusted front month, `ts` = bar open, UTC). The live trading path does not change:
+the calendar loader only gained optional rule fields and a period list (the 2026-27
+dates are untouched), and everything else is in `footprint.backtest`. **No result on
+history has been read or reported: the full 2010-2024 run is a pre-registered test
+Andre signs first.** Only two short smoke windows were run, to prove it runs end to end.
+
+Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
+
+- **BH-1 (calendar window).** `calendar_from` moves from 2026-01-01 to 2010-06-01; the
+  lists carry every holiday, no-trade day, early close, option early-close date and
+  Easter Sunday from then, and the loader's completeness check runs over the whole
+  window. Two rule refinements make the check exact for history: `first_year`
+  (Juneteenth counts from 2022: the stock market and CME equity first observed it in
+  2022; in the data June 19 was a full session before, and 2022-06-20, 2023-06-19,
+  2024-06-19 halted at 12:00 CT) and `weekdays` (a new required rule, "Independence Day
+  eve": the stock market's July 3 half day, only Monday to Thursday; on a Friday July 3
+  is the observed holiday itself). The completeness check for early-close rules counts
+  only LISTED early closes, never a BH-3 period day (found while building: the routine
+  13:15 halt would otherwise hide a missing half day, e.g. 2019-07-03; a test pins it).
+  One-off closures: 2012-10-29 and 2012-10-30 (Hurricane Sandy), 2018-12-05 (G.H.W. Bush
+  mourning day), 2025-01-09 (Carter mourning day, UNVERIFIED: after the data).
+- **How the history dates were verified.** Derived from the shipped `holiday_rules`
+  (with the refinements above), then checked day by day against the data with the
+  repo's own loader and calendar functions: every weekday 2010-06-07..2024-09-27 was
+  classed by the data (bars in the prime session or not; where the last bar before a
+  halt was; any gap of 10+ minutes inside the calendar's prime session). Result: no
+  calendar trading day ends earlier in the data than the calendar says (by more than
+  15 minutes); no holiday has a bar at or after 06:30 PT; every no-trade day's halt is
+  where the data's last bar is. The remaining differences are not calendar items:
+  data gaps (no bars at all on 2014-06-12, 2014-06-13, 2014-09-23..25, 2014-12-31; late
+  start 2014-09-26) and the March 2020 circuit-breaker halts (13 to 32 minutes on
+  2020-03-09, -12, -16, -18). Dates after 2024-09-27 (2024-11-28 on, all of 2025) have
+  no data: **UNVERIFIED**, from the CME/NYSE pattern, with the shipped earlier closes.
+  The early closes were checked only against this one data set, not against CME notices.
+- **BH-2 (price-level rescaling, backtest only): `option_model.reference_price: 20000`.**
+  The model's fixed premium means something only near the level it was set for (GV-3):
+  without this, 2010's NQ (about 1,800) was refused by the model guard (it refuses below
+  about 7,300). Now options are modelled as if the future traded at the reference:
+  - rescaled: the futures price the option model is quoted at, F x reference / anchor,
+    where the anchor is the futures price at the last moment nothing was live (no
+    working entry, no position, no reconcile): the price the trade's entry was decided
+    at, fixed until the trade is closed and reconciled. While idle the model sees the
+    reference itself, so every entry is EXACTLY at the money (the nearest strike is the
+    reference; live, the offset is 0-12.5 points): that leans the delta, vega and theta
+    verdicts slightly toward at-the-money (review round 1, I1). Since review round 1
+    (L1) a decision made in the same step a working entry ended unfilled is re-anchored
+    too: the chain it sees is rebuilt at the price then, and put in the book. Strikes
+    are listed and rounded at the reference level (25-point strike_step there), never
+    rounded at the data's level and scaled (that would magnify the rounding about 11x
+    in 2010);
+  - not rescaled: premiums (`atm_premium_points`), spread, option ticks, every dollar
+    amount (stops, targets, trail, fees, caps, loss limits: option and account values,
+    already at the model's level), and the bars the readers see;
+  - converted back: the levels room N (futures points that make the profit target, G4,
+    about 111 points) is compared with the bars at the data's level, N x anchor /
+    reference (BH-4);
+  - the model guard checks the model at the reference (at the moments of the lowest and
+    highest traded prime bars), and names reference_price when the reference itself is
+    outside the band;
+  - `reference_price: null` turns all of it off: the model at the data's own price, as
+    before. The readout lists the reference and a "price level" line.
+  Proved by tests: where the anchor equals the reference, a trade's dollars (entry,
+  exit, net P&L, final equity, marked drawdown, worst open loss) equal the un-rescaled
+  run's, and the golden run's trade record and ledger are byte-identical; the same
+  percentage path at 2x, 0.5x and 0.075x the level gives the same dollars (and,
+  unscaled, does not). The reference is not checked against any real option chain.
+- **BH-3 (the CME maintenance halt).** Until 2021-06-25 CME equity futures halted
+  15:15-15:30 CT (13:15-13:30 PT) every day, inside Footprint's prime session (and until
+  late 2012 Fridays closed at 15:15 CT outright). New instrument key
+  `early_close_periods`: from 2010-06-01 through 2021-06-25 the prime session ends at
+  13:15 PT every trading day (an earlier listed close wins; holidays skipped). So in
+  that span no entry after 13:10 and everything flat by 13:10 (close_lead 5), never a
+  position held into a 15-minute halt with no quotes. It costs the 13:30-14:00 PT
+  minutes of those years. Verified in the data: before 2021-06-28 no bar starts in
+  13:16-13:28 PT on any day; 80 days have one single bar at the halt's edges (76 at
+  13:15, e.g. 2010-08-24 and most days 2018-05-07..08-03; 4 at 13:29: 2020-03-30..04-01
+  and 2020-06-30); from 2021-06-28 a bar starts in every minute of it. (Corrected in
+  review round 1, L2: the first text said no bar at all in 13:15-13:29.)
+- **BH-4 (levels room at the data's level).** With BH-2, the option reaches the $1,000
+  target after a data-level move of N x anchor / reference (about 10 points in 2010, not
+  111). The console's levels room is judged with that converted N, through a
+  backtest-only wrapper (`price_level.LevelConsole`) on the pipeline's existing console
+  seam; nothing else in the decision changes. Without it, 2010 entries would need about
+  11x the room 2024 entries need. Round numbers stay reported only (not walls); they
+  are at the data's level. Andre: accept, or say if N should stay unconverted.
+- **BH-5 (the stock market's half days).** Day after Thanksgiving, Christmas Eve
+  (weekdays) and July 3 (Monday to Thursday): the futures halted 12:15 CT; prime close
+  10:15 PT (the data's last bar before the halt is 10:14; 2015-11-27 has one at 10:15;
+  2012-07-03 reopened at 13:30 PT, ignored). Options stop at 10:00 PT those days
+  (`option_expiry.early_close_dates`, all 34 listed). After the data: 10:00 PT.
+- **BH-6 (US-holiday sessions).** No-trade days as before; their halt: 08:30 PT (10:30 CT)
+  in 2010-2012 and 10:00 PT (12:00 CT) from 2014-05-26, as in the data; after it 10:00.
+- **BH-7 (days closed in the data are holidays).** Where the data shows the exchange
+  closed through the cash open, the day is a `holiday`, not a no-trade day: Thanksgiving
+  2012, the 2013 US holidays and MLK/Presidents Day 2014 (no prime bar at all), the Good
+  Fridays with an 08:15 CT jobs-report session (2012, 2015, 2021, 2023), Sandy, Bush, and
+  Carter (UNVERIFIED). Then no option expiry is modelled on them and their evening
+  session is closed (Footprint does not trade overnight in v1).
+- **BH-8 (a counterfactual instrument; for Andre).** The model lists a European option
+  expiring every trading day, 1-3 days out. NQ did not list daily expiries in most of
+  2010-2024 (Friday weeklies first, other weekdays added over the years; exact dates
+  NOT verified here). A history run therefore trades an option that did not exist in
+  those years, priced by a model never checked against real NQ option quotes (GV-4).
+  Andre: accept for the pre-registered run, or restrict the window to years with daily
+  expiries.
+- **BH-9 (the raw splice; corrected in review round 1, M1).** The series switches to
+  the next contract at a session open (the builder rolls by session volume: 58 rolls
+  2010-06..2024-09, each on a Friday or a Monday session, no fixed calendar rule). No
+  position crosses it: v1 flattens before the prime close and does not trade overnight.
+  The readers' look-back does, and the jump is NOT small (the first text said "tens of
+  points"): the reviewer measured the largest session-open jump in each roll window as
+  +111.75 (2022-09) to +258.5 (2024-06) points, 1.2-3.5 N at the data's level; the
+  builder measured the jump at the first bar of each roll session (open minus the
+  previous bar's close) as +111.75, +118.5, +121.5, +168.25, +188.75, +207.25, +245.5,
+  +258.5 and +229.5 for 2022-09-12 .. 2024-09-16, 1.6-2.4 N (N about 111 x price /
+  20,000: 65-111 points then). Earlier rolls (2010-06 .. 2022-06) are smaller: by the
+  builder's measure all under 60 points in size except 2020-03-16 (+96.75) and
+  2020-06-15 (-118.00); the reviewer's measure gives about -120 and -130 for 2020-03 and
+  2020-06. On a roll day prior-day
+  levels, the VWAP side and the multi-session averages are off by that much: enough to
+  flip the levels room (wall below 1 N, full support from 1.5 N).
+  **Built (fail closed), DEFAULT (draft, Andre BH-9): `rolls.block_first_session: true`
+  in backtest.yaml.** No new entry on the trading day whose session is the first on a new
+  contract (a failed `roll_session` console gate, journalled); a run must name those
+  sessions (`--rolls FILE`: a CSV, `session` header, one date per line; or `--rolls none`)
+  or it is refused (exit 2). The roll file for nq_raw.csv is in the repo (review round
+  2, R2-1): `data/rolls/nq_raw_rolls.csv`, 58 sessions 2010-06-11 .. 2024-09-16, built by
+  `scripts/build_rolls.py` (the history builder's own rule; tests/test_build_rolls.py
+  pins the rule and the file's hash). Provenance (sha256):
+  - `data/rolls/nq_raw_rolls.csv`: e6d86612552b0fd755e0196ac79d309b408ed36bede0aa24fa16702c8675c116
+  - the bars, /home/claude/data/nq/nq_raw.csv: 0e597f0365fee644ab14158e2e34b1e00ff5246b127a581c0c99f1f9b7d4eb72
+  - the Databento source, /home/claude/data/nq/nq.csv.zst: 5ce4da84e18db2b0cc6d5b9f2b5d0bba3743ff96f684d5d8e7892e7a4732079c
+    (decompressed, nq.csv: 78582eba1fd072ab43b0e6ff2394fb68b4388e5bb2ef731fc6c63a72199d2fae;
+    the script reads the decompressed file and reproduced the committed file byte for
+    byte on 2026-10-25)
+  The reviewer independently matched every bar of nq_raw.csv to its contract in the
+  source: the same 58 switches, each at a session open. Two guards (review round 2):
+  a listed roll session outside the bars' span (the first to the last bar's local date)
+  is refused (R2-3: a list for other data, or for a longer span; a run on a window of
+  the history therefore needs the file cut to that window), and a roll session on a
+  day Footprint does not trade blocks the next tradable day instead (R2-4; none of the
+  58 does). The readout names the count, the file, and the first and last roll. It
+  costs about four trading days a year.
+  **Alternative for Andre (not built):** back-adjust the look-back across the splice
+  (shift every bar before the roll by the splice difference when a decision's window
+  spans it), which keeps the roll days tradable. Andre decides before the pre-registered
+  run: keep the block, switch it off, or have the back-adjustment built.
+- **BH-10 (halts and gaps the calendar cannot know).** A trade open during a data gap or
+  an unannounced halt (March 2020) sees no quotes: the engine steps through, as on a dead
+  feed; the trade-management alarms or a halt may end the run early, and the readout
+  says why. Not handled further.
+- **BH-11 (cost of a full run; not measured).** The command line loads every bar into
+  memory (4.8 million bars for 2010-2024) and decides every prime minute. Neither memory
+  nor run time of a full run is measured. Smoke runs (below): about 8,300-9,000
+  decisions in 4,481-4,769 s each, about 2 decisions a second, on a shared 2-core box
+  (two runs, the full gate and the mutation run at once). At that rate a 2010-2024 run
+  (about 3,600 sessions of about 555 prime minutes) would take days; measure on the
+  machine that runs it before the pre-registered run.
+- **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
+  2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
+  (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
+  bars, traded from 2024-07-15: ran to the end, 0 trades, exit 1, same. No P&L is
+  reported (none exists); the full run waits for the pre-registration.
+- **BH-14 (found by the smoke run; measured in review round 1, M2; Andre's decision):
+  the early years' overnight data is too thin for the levels reader.** On 14 of the 15 traded 2010 days the levels (and so VWAP side and the
+  confirmer score) were unavailable all session: "overnight session before today: N of
+  780 minutes", N about 450-650, under `data.min_session_coverage_pct` 90 (a minute with
+  no trade has no bar in this data). In 2024 levels were available on every traded day.
+  So with the live strategy rules the early years can make almost no entries, by data
+  density, not by market behaviour. Not changed (a strategy number, and fail closed):
+  Andre to decide, before the pre-registered run, whether history uses another coverage
+  rule (for example counting a quiet minute as covered), starts later, or stays as is.
+  The reviewer's count (share of weekdays whose overnight session, 15:00-03:59 PT, has at
+  least 702 of 780 one-minute bars = the 90% rule; approximate: the reviewer's own
+  counter, not the repo's reader, holidays not excluded):
+
+  | Year | 2010 | 2011 | 2012 | 2013 | 2014 | 2015 | 2016 | 2017 | 2018-2024 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Overnight sessions passing | 7% | 32% | 20% | 18% | 29% | 48% | 72% | 98% | 98-100% |
+
+  So with the live rules a "2010-2024" run mostly tests 2017-2024. **Andre's decision
+  (nothing is implemented):** (a) a history-only coverage rule (for example a quiet
+  minute counts as covered, or a lower share for the backtest only); (b) a later start
+  year (2017 is the first year that passes on almost every session); or (c) keep the
+  rule and state in the pre-registration that the early years barely trade.
+- **BH-12 (fail closed, expiries).** The model lists no expiry after calendar_through
+  (no holiday known there): near the end fewer expiries, possibly none in 1-3 days, so no
+  entry.
+- **BH-13 (fail closed, look-back).** A backtest whose bars start before calendar_from
+  is refused, look-back bars included (was allowed: delta review 2): the readers take
+  sessions from look-back bars, and before calendar_from a holiday stub could be read as
+  a session.
+- Unchanged and still open: BT-FRI (late Friday entries refused at sizing; the
+  reference level changes the premium nothing), GV-4 (how to price the model).
+- Tests: the pre-existing engine tests now pin the unscaled model (the backtest test
+  fixture `settings` sets reference_price null); the golden run (seam_default) uses a
+  copy of the shipped config with reference_price null: its journal and ledger are
+  byte-identical, and its readout gained one assumption line ("option model
+  reference_price: None") in readout.md, readout.json and the printed readout. The
+  calendar tests written for the 2026-27 calendar run on that slice of the shipped file
+  (a fixture cuts it; several option-expiry refusal tests would otherwise have passed
+  for the wrong reason, on a missing 2010 date).

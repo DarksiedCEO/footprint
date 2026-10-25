@@ -123,7 +123,8 @@ def test_a_hole_on_a_holiday_is_not_a_gap(nq: InstrumentProfile) -> None:
 @pytest.mark.parametrize(
     ("first", "last"),
     [
-        (datetime(2025, 12, 31, 15, 0, tzinfo=UTC), datetime(2025, 12, 31, 15, 5, tzinfo=UTC)),
+        # the day before calendar_from (2010-06-01 since backtest-history-v1; was 2025-12-31)
+        (datetime(2010, 5, 31, 15, 0, tzinfo=UTC), datetime(2010, 5, 31, 15, 5, tzinfo=UTC)),
         (datetime(2027, 4, 1, 15, 0, tzinfo=UTC), datetime(2027, 4, 1, 15, 5, tzinfo=UTC)),
     ],
     ids=["before calendar_from", "after calendar_through"],

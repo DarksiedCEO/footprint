@@ -79,7 +79,10 @@ def test_the_backtest_engine_hands_the_manager_a_decay_exit(tmp_path: Path) -> N
     csv = tmp_path / "bars.csv"
     write_bars(csv)
     bars = list(CsvBarSource(csv, profiles.instrument.symbol).bars())
-    engine = Backtest(profiles, settings, bars, tmp_path / "run", trade_from=TRADE_FROM)
+    # these bars have no contract roll (BH-9, backtest-history-v1): --rolls none
+    engine = Backtest(
+        profiles, settings, bars, tmp_path / "run", trade_from=TRADE_FROM, roll_sessions=frozenset()
+    )
     watch = engine.runner._manager._decay_exit
     assert isinstance(watch, DecayExit)
     assert watch._chain == engine._chain
@@ -93,7 +96,13 @@ def test_a_backtest_with_a_named_exit_rule_keeps_the_decay_exit(tmp_path: Path) 
     bars = list(CsvBarSource(csv, profiles.instrument.symbol).bars())
     rule = EXIT_RULES["target"](profiles, settings.rules)
     engine = Backtest(
-        profiles, settings, bars, tmp_path / "run", trade_from=TRADE_FROM, exit_rule=rule
+        profiles,
+        settings,
+        bars,
+        tmp_path / "run",
+        trade_from=TRADE_FROM,
+        exit_rule=rule,
+        roll_sessions=frozenset(),  # these bars have no contract roll (BH-9): --rolls none
     )
     manager = engine.runner._manager
     assert manager._exit_rule is rule

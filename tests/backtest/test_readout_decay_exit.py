@@ -48,6 +48,8 @@ def _run(tmp_path: Path, config: Path, *extra: str) -> tuple[Path, str]:
                 str(config),
                 "--trade-from",
                 TRADE_FROM.isoformat(),
+                "--rolls",
+                "none",  # these bars have no contract roll (BH-9, backtest-history-v1)
                 *extra,
             ]
         )

@@ -60,7 +60,7 @@ def _compare(bars: Path, out: Path, *extra: str) -> tuple[int, str, str]:
     printed, errors = io.StringIO(), io.StringIO()
     argv = ["--bars", str(bars), "--out", str(out), "--config", str(CONFIG)]
     with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(errors):
-        code = main([*argv, "--trade-from", TRADE_FROM.isoformat(), *extra])
+        code = main([*argv, "--trade-from", TRADE_FROM.isoformat(), "--rolls", "none", *extra])
     return code, printed.getvalue(), errors.getvalue()
 
 
@@ -200,7 +200,7 @@ def test_a_pair_run_alone_equals_the_same_pair_inside_compare(
     with contextlib.redirect_stdout(io.StringIO()):
         single_main(
             ["--bars", str(bars), "--out", str(alone), "--config", str(CONFIG),
-             "--trade-from", TRADE_FROM.isoformat(),
+             "--trade-from", TRADE_FROM.isoformat(), "--rolls", "none",
              "--entry", "stairstep", "--exit", "target"]
         )  # fmt: skip
     files = _files(alone)
@@ -239,7 +239,8 @@ def test_options_reach_every_run(
     assert seen == [
         ["--bars", str(bars), "--out", str(out / "breakout__target"), "--config", str(CONFIG),
          "--instrument", "other.yaml", "--blackouts", str(blackouts),
-         "--trade-from", TRADE_FROM.isoformat(), "--entry", "breakout", "--exit", "target"]
+         "--trade-from", TRADE_FROM.isoformat(), "--rolls", "none",
+         "--entry", "breakout", "--exit", "target"]
     ]  # fmt: skip
 
 

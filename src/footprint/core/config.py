@@ -75,6 +75,16 @@ class OptionExpiry:
 
 
 @dataclass(frozen=True, slots=True)
+class EarlyClosePeriod:
+    """Every trading day from `start` through `through` (inclusive), the prime session
+    ends at `close` (prime_session timezone), unless that day closes earlier still."""
+
+    start: date
+    through: date
+    close: time
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentProfile:
     symbol: str
     exchange: str
@@ -91,7 +101,13 @@ class InstrumentProfile:
     option_expiry: OptionExpiry
     trading_days: frozenset[int]
     holidays: frozenset[date]
-    early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
+    # The prime session ends early (prime_session timezone): the listed dates, merged with
+    # every trading day of each early_close_period (the earlier close wins).
+    early_closes: Mapping[date, time]
+    # Spans in which the prime session ends at one time every trading day (an exchange
+    # halt inside the prime session, e.g. the exchange's former daily equity maintenance halt;
+    # backtest-history-v1, BH-3). Holidays are skipped; already merged into early_closes.
+    early_close_periods: tuple[EarlyClosePeriod, ...]
     # Open at the exchange, but Footprint treats them as closed (no session, no entry)
     # until they are reviewed and approved (US-holiday sessions, remediation item 8).
     no_trade_days: frozenset[date]
@@ -302,6 +318,8 @@ _RULE_KEYS = {
     "days_from_easter",
     "days_after",
     "kind",
+    "first_year",
+    "weekdays",
 }
 
 
@@ -333,6 +351,11 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             raise ConfigError(
                 f"{where}: {key} {name}: month, day, nth, days_from_easter are integers"
             )
+        first_year = item.get("first_year")
+        if first_year is not None and (
+            not isinstance(first_year, int) or isinstance(first_year, bool)
+        ):
+            raise ConfigError(f"{where}: {key} {name}: first_year must be a year (an integer)")
         rule = HolidayRule(
             name=str(name),
             month=numbers["month"],
@@ -343,6 +366,8 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             days_from_easter=numbers["days_from_easter"],
             days_after=numbers["days_after"] or 0,
             kind=str(kind),
+            first_year=first_year,
+            weekdays=_rule_weekdays(item, where, f"{key} {name}"),
         )
         by_easter = rule.days_from_easter is not None
         by_weekday = rule.weekday is not None and rule.nth is not None and rule.month is not None
@@ -356,6 +381,70 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             raise ConfigError(f"{where}: {key} {name}: nth must be 1-5, or -1 for the last")
         rules.append(rule)
     return tuple(rules)
+
+
+def _rule_weekdays(item: Mapping[str, object], where: str, what: str) -> frozenset[int] | None:
+    """A rule's `weekdays`: absent (any weekday), or a non-empty list of distinct days."""
+    if "weekdays" not in item:
+        return None
+    value = item["weekdays"]
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(v, str) or v not in _WEEKDAYS for v in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ConfigError(
+            f"{where}: {what}: weekdays must be a non-empty list of distinct days from {_WEEKDAYS}"
+        )
+    return frozenset(_WEEKDAYS.index(v) for v in value)
+
+
+_PERIOD_KEYS = {"from", "through", "close"}
+
+
+def _early_close_periods(
+    raw: Mapping[str, object], key: str, where: str
+) -> tuple[EarlyClosePeriod, ...]:
+    value = raw[key]
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: {key} must be a list (empty for none)")
+    periods = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != _PERIOD_KEYS:
+            raise ConfigError(f"{where}: {key}: each period has exactly from, through and close")
+        start, through = item["from"], item["through"]
+        if any(not isinstance(d, date) or isinstance(d, datetime) for d in (start, through)):
+            raise ConfigError(f"{where}: {key}: from and through must be dates (YYYY-MM-DD)")
+        if start > through:
+            raise ConfigError(f"{where}: {key}: from is after through ({start} > {through})")
+        text = item["close"]
+        try:
+            close = time.fromisoformat(text) if isinstance(text, str) else None
+        except ValueError:
+            close = None
+        if close is None or close.second or close.microsecond or close.tzinfo is not None:
+            raise ConfigError(f"{where}: {key} {start}: close must be HH:MM, got {text!r}")
+        periods.append(EarlyClosePeriod(start, through, close))
+    return tuple(periods)
+
+
+def _merged_early_closes(
+    listed: Mapping[date, time],
+    periods: tuple[EarlyClosePeriod, ...],
+    trading_days: frozenset[int],
+    holidays: frozenset[date],
+) -> Mapping[date, time]:
+    """The listed early closes plus every trading day of every period (holidays and
+    non-trading weekdays skipped); where two apply, the earlier close."""
+    closes = dict(listed)
+    for period in periods:
+        day = period.start
+        while day <= period.through:
+            if day.weekday() in trading_days and day not in holidays:
+                closes[day] = min(closes.get(day, period.close), period.close)
+            day += timedelta(days=1)
+    return MappingProxyType(closes)
 
 
 def _clock(body: Mapping[str, object], key: str, where: str) -> time:
@@ -444,6 +533,10 @@ def _date(raw: Mapping[str, object], key: str, where: str) -> date:
 def load_instrument(path: Path) -> InstrumentProfile:
     where = str(path)
     raw = _read_mapping(path, {f.name for f in fields(InstrumentProfile)})
+    trading_days = _trading_days(raw, "trading_days", where)
+    holidays = _holidays(raw, "holidays", where)
+    periods = _early_close_periods(raw, "early_close_periods", where)
+    listed_early = _early_closes(raw, "early_closes", where)
     profile = InstrumentProfile(
         symbol=_text(raw, "symbol", where),
         exchange=_text(raw, "exchange", where),
@@ -458,9 +551,10 @@ def load_instrument(path: Path) -> InstrumentProfile:
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
         option_expiry=_option_expiry(raw, "option_expiry", where),
-        trading_days=_trading_days(raw, "trading_days", where),
-        holidays=_holidays(raw, "holidays", where),
-        early_closes=_early_closes(raw, "early_closes", where),
+        trading_days=trading_days,
+        holidays=holidays,
+        early_closes=_merged_early_closes(listed_early, periods, trading_days, holidays),
+        early_close_periods=periods,
         no_trade_days=_holidays(raw, "no_trade_days", where),
         holiday_rules=_holiday_rules(raw, "holiday_rules", where),
         easter_sundays=_holidays(raw, "easter_sundays", where),
@@ -520,6 +614,15 @@ def load_instrument(path: Path) -> InstrumentProfile:
     early = [d for d in dated if d < profile.calendar_from]
     if early:
         raise ConfigError(f"{where}: {sorted(early)[0]} is before calendar_from")
+    for period in profile.early_close_periods:
+        if period.start < profile.calendar_from:
+            raise ConfigError(
+                f"{where}: early_close_periods {period.start} is before calendar_from"
+            )
+        if period.through > profile.calendar_through:
+            raise ConfigError(
+                f"{where}: early_close_periods {period.through} is after calendar_through"
+            )
     # Complete from calendar_from through calendar_through: every standard US exchange
     # holiday in that window must be listed (closed, early close or no-trade day), so
     # moving calendar_through forward over a standard closure alone is refused (D34).
@@ -542,7 +645,9 @@ def load_instrument(path: Path) -> InstrumentProfile:
             profile.holiday_rules,
             profile.easter_sundays,
             {*profile.holidays, *profile.no_trade_days},
-            set(profile.early_closes),
+            # only the LISTED early closes: a period's routine halt (BH-3) is not the
+            # exchange's early close for a rule's day, and must not hide a missing one
+            set(listed_early),
             profile.calendar_from,
             profile.calendar_through,
         )

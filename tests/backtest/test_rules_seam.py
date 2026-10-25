@@ -12,6 +12,11 @@ risk.position_cap line after them, and review M1 of decay-exit-v1 added the thre
 decay-exit lines (theta.decay_exit.enabled, window_minutes, max_pct_of_open_profit)
 after that, in the same three places; with the decay exit shipped off, nothing else
 in the golden moved.
+Since backtest-history-v1 (BH-2) the run uses the shipped config with price-level
+rescaling OFF (option_model.reference_price: null), the model it was written with; its
+readout lists that setting as one more assumption line ("option model reference_price:
+None"), in readout.md, readout.json and the printed readout. Its journal and ledger are
+unchanged byte for byte.
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score
 from footprint.decision.pipeline import Decision, Pipeline
 from footprint.decision.risk.gate import AccountState
-from tests.backtest.conftest import TRADE_FROM
+from tests.backtest.conftest import TRADE_FROM, config_copy
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
 from tests.decision.plays import open_play
@@ -134,7 +139,7 @@ def _run(tmp_path: Path, *extra: str) -> tuple[Path, str]:
                 "--out",
                 str(out),
                 "--config",
-                str(REPO_ROOT / "config"),
+                str(config_copy(tmp_path / "config", None)),
                 "--trade-from",
                 TRADE_FROM.isoformat(),
                 *extra,

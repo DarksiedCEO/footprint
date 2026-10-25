@@ -15,12 +15,15 @@ import argparse
 import json
 import sys
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from footprint.backtest.engine import Backtest
 from footprint.backtest.model_check import BacktestRefused
 from footprint.backtest.readout import read_out, to_json, to_markdown
+from footprint.backtest.rolls import NONE as ROLLS_NONE
+from footprint.backtest.rolls import load_roll_sessions
 from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.rules import (
     ENTRY_RULES,
@@ -62,10 +65,22 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="a named exit rule (backtest only); omitted: the live exit, unchanged",
     )
+    parser.add_argument(
+        "--rolls",
+        default=None,
+        help="the bars' contract roll sessions (BH-9): a CSV with a 'session' header and "
+        f"one date per line, or '{ROLLS_NONE}' for bars with no roll; required while "
+        "rolls.block_first_session is on",
+    )
     args = parser.parse_args(argv)
 
     profiles = load_profiles(args.config, args.instrument)
     settings = load_backtest(args.config / "backtest.yaml")
+    try:
+        rolls = None if args.rolls is None else load_roll_sessions(args.rolls)
+    except ValueError as bad:
+        print(f"backtest: {bad}", file=sys.stderr)
+        return _INVALID
     bars = list(CsvBarSource(args.bars, profiles.instrument.symbol).bars())
     try:
         backtest = Backtest(
@@ -86,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.entry in GATELESS_ENTRY_RULES
                 else None
             ),
+            roll_sessions=rolls,
         )
     except BacktestRefused as refused:
         print(f"backtest: {refused}", file=sys.stderr)
@@ -108,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
         "theta.decay_exit.enabled": "true" if decay_exit.enabled else "false",
         "theta.decay_exit.window_minutes": str(decay_exit.window_minutes),
         "theta.decay_exit.max_pct_of_open_profit": str(decay_exit.max_pct_of_open_profit),
+        **_price_level(settings.option_model.reference_price),
+        **_rolls(settings.rolls.block_first_session, args.rolls, rolls),
         "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),
@@ -128,6 +146,33 @@ def main(argv: list[str] | None = None) -> int:
     (args.out / "readout.json").write_text(json.dumps(to_json(readout), indent=2), encoding="utf-8")
     print(to_markdown(readout))
     return {"PASS": 0, "FAIL": 1, "NOT ENOUGH TRADES": 1}.get(readout.verdict, _INVALID)
+
+
+def _price_level(reference: Decimal | None) -> dict[str, str]:
+    """BH-2: say how option prices were put at one level (nothing when they were not)."""
+    if reference is None:
+        return {}
+    return {
+        "price level": (
+            f"options modelled as if the future traded at {reference}: each trade's futures "
+            f"moves rescaled by {reference} / (the futures price its entry was decided at); "
+            "strikes listed at that level; the bars the readers see NOT rescaled; the levels "
+            "room N converted to the data's level"
+        )
+    }
+
+
+def _rolls(block: bool, source: str | None, sessions: frozenset[date] | None) -> dict[str, str]:
+    """BH-9: say which roll sessions were kept free of new entries (nothing when off)."""
+    if not block or sessions is None:
+        return {}
+    if source == ROLLS_NONE:
+        listed = "none declared"
+    elif sessions:
+        listed = f"{len(sessions)} listed ({source}), first {min(sessions)}, last {max(sessions)}"
+    else:
+        listed = f"0 listed ({source})"
+    return {"roll sessions": f"no new entry on the first session on a new contract: {listed}"}
 
 
 if __name__ == "__main__":

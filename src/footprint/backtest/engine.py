@@ -37,6 +37,11 @@ has all the history the data holds (it is asked once a trading day). The crew ke
 its `history_minutes` window, unchanged. Each day's label is in the journal (plays)
 and counted in the readout: a run whose days were never labelled TREND (warm-up after
 calendar_from, too little data before the traded window, ...) says so.
+
+With `option_model.reference_price` set (BH-2), the option model is quoted at the
+reference level: each trade's futures moves are rescaled from the price its entry was
+decided at, and the console judges the levels room at the data's level (see
+price_level.py for exactly what is and is not rescaled).
 """
 
 from __future__ import annotations
@@ -44,15 +49,17 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from footprint.agents.theta import DecayExit
-from footprint.backtest.model_check import check_model_vol
+from footprint.backtest.model_check import BacktestRefused, check_model_vol
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
+from footprint.backtest.price_level import PriceLevel, level_console
+from footprint.backtest.rolls import roll_console
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.calendar import SessionKind, local_minute, session_at
 from footprint.core.config import _PERCENT_MAX, Profiles
@@ -112,6 +119,7 @@ class Backtest:
         exit_rule: ExitRule | None = None,
         console: Gatekeeper | None = None,
         play: PlayGate | None = None,
+        roll_sessions: frozenset[date] | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
         clock starts at the first bar at or after it. None: start at the first bar.
@@ -119,7 +127,21 @@ class Backtest:
         the live entry, unchanged. `exit_rule`: a named exit rule; None is the live
         exit, unchanged. `console`: a rule's console (footprint.backtest.rule_console);
         None is the live console, unchanged. `play`: tests only (a stand-in play caller);
-        None is the live play caller on every closed bar since the start of the data."""
+        None is the live play caller on every closed bar since the start of the data.
+        `roll_sessions`: the trading days whose
+        session is the first on a new contract (BH-9, footprint.backtest.rolls); None:
+        not given, refused when settings.rolls.block_first_session is on."""
+        if settings.rolls.block_first_session and roll_sessions is None:
+            raise BacktestRefused(
+                "refused: rolls.block_first_session is on (BH-9) but the bars' contract "
+                "roll sessions were not given: pass --rolls FILE (or --rolls none for bars "
+                "with no contract roll), or set block_first_session: false"
+            )
+        blocked = (
+            roll_sessions
+            if settings.rolls.block_first_session and roll_sessions is not None
+            else frozenset()
+        )
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -131,17 +153,31 @@ class Backtest:
         workdir.mkdir(parents=True, exist_ok=True)
         if any(workdir.iterdir()):
             raise FileExistsError(f"{workdir} is not empty: every backtest starts fresh")
+        if blocked:  # review R2-3: a roll list must belong to these bars
+            prime = profiles.instrument.prime_session
+            first = local_minute(self._bars[0].ts, prime)[0]
+            last = local_minute(self._bars[-1].ts, prime)[0]
+            outside = sorted(d for d in blocked if not first <= d <= last)
+            if outside:
+                raise BacktestRefused(
+                    f"refused: roll session {outside[0]} is outside the bars ({first} to "
+                    f"{last}): the roll list is for other data, or for a longer span; give "
+                    "the rolls of these bars only"
+                )
         self._starts = [bar.ts for bar in self._bars]
         self._first = 0 if trade_from is None else bisect_left(self._starts, trade_from)
         if self._first >= len(self._bars):
             raise ValueError("trade_from is after the last bar")
-        self._inside_calendar(self._bars[self._first].ts, self._bars[-1].ts)
+        self._inside_calendar(self._bars[0].ts, self._bars[self._first].ts, self._bars[-1].ts)
         self._model = OptionModel(
             settings.option_model, profiles.instrument, profiles.strategy.options.assumed_delta
         )
+        reference = settings.option_model.reference_price
         # Review H1 (GV-4 open): refuse, loudly, prices the model cannot be traded at.
-        check_model_vol(self._model, profiles, self._bars[self._first :])
+        check_model_vol(self._model, profiles, self._bars[self._first :], reference)
         self._price = self._bars[0].open
+        self._level = PriceLevel(reference)  # BH-2: the futures level options are quoted at
+        self._level.anchor(self._price)
         self._published: OptionChain | None = None
         self._window_end = -1
         self._window: tuple[Bar, ...] = ()
@@ -155,6 +191,7 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
+        console = roll_console(level_console(console, p, self._level), p, blocked)
         if play is None:
             play = PlayCaller(
                 p.regime, p.play, p.strategy.data, p.instrument, history=self._history_bars
@@ -213,9 +250,18 @@ class Backtest:
         return self._bars[: bisect_right(self._starts, now - _MINUTE)]
 
     def _chain(self, now: datetime) -> OptionChain:
+        """The chain a decision sees. Nothing live (review round 1, L1): at the price now,
+        re-anchored, and in the book (R12): this step's publish may have run while an
+        entry was still working, which ended inside the step."""
+        if self._idle() and not (
+            self._published is not None
+            and self._published.ts == now
+            and self._level.anchored_at(self._price)
+        ):
+            self._publish(now, full_chain=True)  # re-anchors: nothing is live
         if self._published is not None and self._published.ts == now:
             return self._published
-        return self._model.chain(now, self._price)
+        return self._model.chain(now, self._level.model_price(self._price))
 
     # --- the clock ------------------------------------------------------------------
 
@@ -292,13 +338,23 @@ class Backtest:
             plays=self.journal.plays(),
         )
 
-    def _inside_calendar(self, first: datetime, last: datetime) -> None:
+    def _inside_calendar(self, oldest: datetime, first: datetime, last: datetime) -> None:
         """The traded window must lie inside the maintained exchange calendar. Outside
         it every day is closed (fail closed: no holiday or early close is known there),
         so a backtest over it would run without an error and trade nothing (delta review
-        2, N-2). Look-back bars before `trade_from` may lie anywhere: they are never
-        traded."""
+        2, N-2). Look-back bars before `trade_from` are never traded, but the readers
+        take sessions from them (prior-day levels, multi-session averages): one before
+        calendar_from could be a holiday stub read as a session, so it is refused too
+        (BH-13)."""
         instrument = self._p.instrument
+        before = local_minute(oldest, instrument.prime_session)[0]
+        if before < instrument.calendar_from:
+            raise ValueError(
+                f"the backtest's bars start on {before}, before calendar_from "
+                f"{instrument.calendar_from}: no holiday is known there, so the readers "
+                "could take a closed day for a session. Drop those bars, or extend the "
+                "calendar back first"
+            )
         start = local_minute(first, instrument.prime_session)[0]
         end = local_minute(last, instrument.prime_session)[0]
         if start < instrument.calendar_from:
@@ -385,13 +441,16 @@ class Backtest:
         return None
 
     def _publish(self, t: datetime, *, full_chain: bool) -> None:
+        if self._idle():
+            self._level.anchor(self._price)  # BH-2: the next trade is measured from here
+        price = self._level.model_price(self._price)
         if full_chain:
-            self._published = self._model.chain(t, self._price)
+            self._published = self._model.chain(t, price)
             for quote in self._model.broker_quotes(self._published):
                 self.book.publish(quote)
             return
         for contract_id in self._live_contracts():
-            self.book.publish(self._model.quote(contract_id, t, self._price))
+            self.book.publish(self._model.quote(contract_id, t, price))
 
     def _live_contracts(self) -> set[str]:
         position = self.runner.position

@@ -363,6 +363,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "word Day after Thanksgiving": 1,
         "word Good Friday": 1,
         "word Independence Day": 1,
+        "word Independence Day eve": 1,  # BH-1: a required rule's name (REQUIRED_RULES)
         "word Juneteenth": 1,
         "word Labor Day": 1,
         "word Martin Luther King Jr. Day": 1,
@@ -370,7 +371,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "word New Year's Day": 1,
         "word Presidents Day": 1,
         "word Thanksgiving": 1,
-        "word early_close": 4,
+        "word early_close": 5,  # BH-1: +1, the kind REQUIRED_RULES gives Independence Day eve
         "word not_saturday": 3,
         "word weekday_only": 3,
         "word weekend": 5,
