@@ -444,3 +444,35 @@ def test_bars_ending_in_an_evening_session_end_on_their_local_date(
             trade_from=TRADE_FROM,
             roll_sessions=sessions,
         )
+
+
+def test_bars_starting_in_an_evening_session_start_on_their_local_date(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review round 3, T1: a first bar at 17:30 PT is already the next date in UTC; the
+    bars' span starts on its local (PT) date, so a roll listed on that date is inside."""
+    from datetime import UTC, datetime
+
+    start = datetime(2026, 8, 11, 0, 30, tzinfo=UTC)  # 17:30 PT on Monday 2026-08-10
+    b = [bar for bar in bars(history) if bar.ts >= start]
+    assert b[0].ts == start
+    Backtest(
+        profiles,
+        blocking(settings),
+        b,
+        workdir(tmp_path),
+        trade_from=TRADE_FROM,
+        roll_sessions=frozenset({date(2026, 8, 10), LAST_DAY}),
+    )
+
+
+def test_a_closed_roll_day_whose_next_tradable_day_ends_the_calendar_is_accepted(
+    profiles: Profiles,
+) -> None:
+    """Review round 3, T4: the last maintained day is inside the calendar. A roll on
+    Labor Day 2026 (a no-trade day) blocks Tuesday 2026-09-08; with the calendar ending
+    on exactly that Tuesday the block is still found, not refused."""
+    end = date(2026, 9, 8)
+    cut = replace(profiles.instrument, calendar_through=end)
+    console = RollConsole(Go(), frozenset({date(2026, 9, 7)}), cut)
+    assert console.days == frozenset({end})
