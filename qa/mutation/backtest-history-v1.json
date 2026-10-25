@@ -1,0 +1,463 @@
+{
+ "groups": {
+  "calendar": [
+   "tests/test_calendar_history.py",
+   "tests/test_config.py"
+  ],
+  "settings": [
+   "tests/backtest/test_reference_price_settings.py"
+  ],
+  "level": [
+   "tests/backtest/test_price_level.py"
+  ],
+  "engine": [
+   "tests/backtest/test_backtest_history.py"
+  ],
+  "guard": [
+   "tests/backtest/test_backtest_history.py"
+  ]
+ },
+ "mutants": [
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    if rule.first_year is not None and year < rule.first_year:",
+   "    if rule.first_year is not None and year <= rule.first_year:",
+   "first year itself excluded"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    if rule.first_year is not None and year < rule.first_year:",
+   "    if False:",
+   "first_year ignored"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "rule.weekdays is not None and day.weekday() not in rule.weekdays",
+   "rule.weekdays is not None and day.weekday() in rule.weekdays",
+   "weekday filter inverted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    if day is None or (rule.weekdays is not None and day.weekday() not in rule.weekdays):",
+   "    if day is None:",
+   "weekday filter ignored"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    \"Independence Day eve\": \"early_close\",\n",
+   "",
+   "July 3 rule not required"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    \"Independence Day eve\": \"early_close\",",
+   "    \"Independence Day eve\": \"closed\",",
+   "July 3 rule required as a closure"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    \"first_year\",\n    \"weekdays\",\n}",
+   "    \"weekdays\",\n}",
+   "first_year key refused"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if first_year is not None and (\n            not isinstance(first_year, int) or isinstance(first_year, bool)\n        ):",
+   "        if False:",
+   "first_year type unchecked"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            not isinstance(first_year, int) or isinstance(first_year, bool)\n",
+   "            not isinstance(first_year, int)\n",
+   "a boolean first_year accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            first_year=first_year,\n",
+   "            first_year=None,\n",
+   "first_year dropped"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            weekdays=_rule_weekdays(item, where, f\"{key} {name}\"),",
+   "            weekdays=None,",
+   "weekdays dropped"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    if \"weekdays\" not in item:\n        return None",
+   "    if \"weekdays\" not in item:\n        return frozenset()",
+   "no weekdays = no day"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        or not value\n        or any(",
+   "        or any(",
+   "empty weekdays accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        or len(set(value)) != len(value)\n    ):",
+   "    ):",
+   "duplicate weekdays accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "or any(not isinstance(v, str) or v not in _WEEKDAYS for v in value)",
+   "or any(not isinstance(v, str) for v in value)",
+   "unknown weekday names accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        raise ConfigError(f\"{where}: {key} must be a list (empty for none)\")",
+   "        value = []",
+   "a non-list period value read as none"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if not isinstance(item, dict) or set(item) != _PERIOD_KEYS:",
+   "        if not isinstance(item, dict) or not set(item) >= _PERIOD_KEYS:",
+   "extra period keys accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if start > through:",
+   "        if start >= through:",
+   "a one-day period refused"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if start > through:",
+   "        if False:",
+   "a backwards period accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if close is None or close.second or close.microsecond or close.tzinfo is not None:",
+   "        if close is None or close.microsecond or close.tzinfo is not None:",
+   "seconds in a period close accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            if day.weekday() in trading_days and day not in holidays:",
+   "            if day.weekday() in trading_days:",
+   "period lists a holiday"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            if day.weekday() in trading_days and day not in holidays:",
+   "            if day not in holidays:",
+   "period lists weekends"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "                closes[day] = min(closes.get(day, period.close), period.close)",
+   "                closes[day] = period.close",
+   "period overrides an earlier close"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "                closes[day] = min(closes.get(day, period.close), period.close)",
+   "                closes[day] = max(closes.get(day, period.close), period.close)",
+   "the later close wins"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        while day <= period.through:",
+   "        while day < period.through:",
+   "period's last day dropped"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        day = period.start\n",
+   "        day = period.start + timedelta(days=1)\n",
+   "period's first day dropped"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "            set(listed_early),\n",
+   "            set(profile.early_closes),\n",
+   "a period day hides a missing half day"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if period.start < profile.calendar_from:",
+   "        if period.start <= profile.calendar_from:",
+   "period on calendar_from refused"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if period.start < profile.calendar_from:",
+   "        if False:",
+   "period before calendar_from accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if period.through > profile.calendar_through:",
+   "        if period.through >= profile.calendar_through:",
+   "period to calendar_through refused"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if period.through > profile.calendar_through:",
+   "        if False:",
+   "period past calendar_through accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        early_closes=_merged_early_closes(listed_early, periods, trading_days, holidays),",
+   "        early_closes=listed_early,",
+   "periods not merged"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "        if o[\"reference_price\"] is None\n",
+   "        if False\n",
+   "null reference refused"
+  ],
+  [
+   "settings",
+   "src/footprint/backtest/settings.py",
+   "        reference_price=None\n        if o[\"reference_price\"] is None\n        else _positive_decimal(o, \"reference_price\", o_where),",
+   "        reference_price=None,",
+   "reference ignored"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        if self._reference is None:\n            return price\n        return price * self._reference / self._anchored()",
+   "        return price * self._reference / self._anchored()",
+   "unscaled path rescales"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        return price * self._reference / self._anchored()",
+   "        return price * self._anchored() / self._reference",
+   "model price inverted"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        return price * self._reference / self._anchored()",
+   "        return price",
+   "model price not rescaled"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        if self._reference is None:\n            return points\n",
+   "",
+   "unscaled path converts N"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        return points * self._anchored() / self._reference",
+   "        return points * self._reference / self._anchored()",
+   "N converted the wrong way"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        return points * self._anchored() / self._reference",
+   "        return points",
+   "N not converted"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:",
+   "    if not isinstance(value, Decimal) or not value.is_finite() or value < 0:",
+   "zero price accepted"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:",
+   "    if not isinstance(value, Decimal) or value <= 0:",
+   "infinite price accepted"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        _require_price(price, \"anchor price\")\n",
+   "",
+   "anchor unchecked"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        if reference is not None:\n            _require_price(reference, \"reference price\")\n",
+   "",
+   "reference unchecked"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "        if self._anchor is None:\n            raise ValueError",
+   "        if False:\n            raise ValueError",
+   "rescaling with no anchor"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "            replace(inputs, n_points=self._level.data_points(inputs.n_points))",
+   "            inputs",
+   "console sees unconverted N"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "    if level.reference is None:\n        return console",
+   "    if False:\n        return console",
+   "wrapped with no reference"
+  ],
+  [
+   "level",
+   "src/footprint/backtest/price_level.py",
+   "    if console is None:\n        s, inst",
+   "    if False:\n        s, inst",
+   "no live console built"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        if self._idle():\n            self._level.anchor(self._price)",
+   "        if False:\n            self._level.anchor(self._price)",
+   "anchor never moves"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        if self._idle():\n            self._level.anchor(self._price)",
+   "        if True:\n            self._level.anchor(self._price)",
+   "anchor moves inside a trade"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        price = self._level.model_price(self._price)\n",
+   "        price = self._price\n",
+   "published quotes not rescaled"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        return self._model.chain(now, self._level.model_price(self._price))",
+   "        return self._model.chain(now, self._price)",
+   "fallback chain not rescaled"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        console = level_console(console, p, self._level)\n",
+   "",
+   "console never converts N"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        check_model_vol(self._model, profiles, self._bars[self._first :], reference)",
+   "        check_model_vol(self._model, profiles, self._bars[self._first :])",
+   "guard at the data's level"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        self._inside_calendar(self._bars[0].ts, self._bars[self._first].ts, self._bars[-1].ts)",
+   "        self._inside_calendar(self._bars[self._first].ts, self._bars[self._first].ts, self._bars[-1].ts)",
+   "look-back not checked"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        if before < instrument.calendar_from:",
+   "        if before <= instrument.calendar_from:",
+   "first calendar day refused"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        if before < instrument.calendar_from:",
+   "        if False:",
+   "look-back before the calendar accepted"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        problem = model_problem(model, profiles, bar.ts, price if reference is None else reference)",
+   "        problem = model_problem(model, profiles, bar.ts, price)",
+   "guard ignores the reference"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        if problem is not None and reference is not None:",
+   "        if problem is not None and False:",
+   "reference refusal not named"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/options_model.py",
+   "            if day > self._instrument.calendar_through:\n                break",
+   "            if day >= self._instrument.calendar_through:\n                break",
+   "last calendar day not an expiry"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/options_model.py",
+   "            if day > self._instrument.calendar_through:\n                break",
+   "            if False:\n                break",
+   "expiries past the calendar"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/__main__.py",
+   "    if reference is None:\n        return {}",
+   "    if False:\n        return {}",
+   "price level line with no reference"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/__main__.py",
+   "        **_price_level(settings.option_model.reference_price),\n",
+   "",
+   "price level line missing"
+  ]
+ ]
+}
