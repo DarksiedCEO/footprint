@@ -1,0 +1,5 @@
+source: 027f47c53d682b9e0e67e0c5c0ad781c39318b22 tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] src/footprint/backtest/engine.py: greeks-veto-v1-r2 #4 re-targeted after #47 (reviewer R25): first traded bar skipped by the model guard
+1 mutants, 0 survived or errored
+exit=0

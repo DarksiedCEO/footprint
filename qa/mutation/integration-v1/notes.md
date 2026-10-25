@@ -37,3 +37,18 @@ In `on-fb7dc7c/`, clean clone (`tree-dirty: 0 files`), specs unchanged.
 | decay-exit-v1-round2 | 78, 1 errored | 78, 0 | BAD 76: integration-caused (#45's position_cap line now sits between stop_loss and the decay lines). Re-targeted both ways in `integration-v1-retarget-2.json`: 2 of 2 KILLED. Re-run because two #42 tests were adapted in the #45 and #47 merges. |
 
 No mutant killed on its own branch survives after integration.
+
+## Review round 1 fixes: on 027f47c
+
+Both specs were run in this worktree on a clean tree (`tree-dirty: 0 files`).
+
+| Spec | Result | Non-kills and why |
+|---|---|---|
+| integration-v1-retarget-3 (C1) | 1, 0 | none. This is greeks-veto-v1-r2 #4, which went BAD after #47 rewrote its line to `check_model_vol(..., self._bars[self._first :], reference)`. It is re-targeted here as the reviewer's R25 (`self._first + 1 :`), and test_model_vol_guard.py kills it. |
+| integration-v1-round1 (L1, L2) | 13, 1 | 5 SURVIVED: X5 is a no-op control (`* 1` on a Decimal), equivalent by construction. |
+
+What the round-1 spec covers:
+- **X1–X4, tests/backtest/test_integration_cross.py.** It catches each of these: the roll gate dropped from the combined engine, the roll console never blocking, the live exit losing the decay exit, and option-model rescaling removed.
+- **E1–E8, tests/test_es_profile_refused.py.** It catches each of these: the loader's stop_max check removed (es.yaml then loads), and each of the six trading entry points ignoring `--instrument` (live, check, kill_switch, backtest, history, record_chain). It also catches the live runner carrying on after a refusal.
+
+With this, greeks-veto-v1-r2 has no unaccounted BAD mutant on the integrated tree. Its three survivors (1, 2, 17) are the ones #43 argued equivalent.

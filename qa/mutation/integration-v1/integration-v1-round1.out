@@ -1,0 +1,18 @@
+source: 027f47c53d682b9e0e67e0c5c0ad781c39318b22 tree-dirty: 0 files
+baseline [cross]: passed
+baseline [es]: passed
+  1 KILLED   [cross] src/footprint/backtest/engine.py: X1 roll gate dropped in the combined engine (a roll session trades on a TREND play)
+  2 KILLED   [cross] src/footprint/backtest/rolls.py: X2 the roll console never blocks
+  3 KILLED   [cross] src/footprint/backtest/engine.py: X3 live exit loses the decay exit
+  4 KILLED   [cross] src/footprint/backtest/price_level.py: X4 the option model is quoted at the data's level (no rescaling)
+  5 SURVIVED [cross] src/footprint/backtest/price_level.py: X5 no-op control (EXPECTED SURVIVOR: equivalent)
+  6 KILLED   [es] src/footprint/core/config.py: E1 the stop_max consistency check dropped: es.yaml loads
+  7 KILLED   [es] src/footprint/live/__main__.py: E2 the live runner ignores --instrument (loads the trading profile)
+  8 KILLED   [es] src/footprint/live/__main__.py: E3 the live runner goes on after the profile is refused
+  9 KILLED   [es] src/footprint/brokers/ibkr/check.py: E4 check ignores --instrument
+ 10 KILLED   [es] src/footprint/live/kill_switch.py: E5 kill switch ignores --instrument
+ 11 KILLED   [es] src/footprint/backtest/__main__.py: E6 backtest ignores --instrument
+ 12 KILLED   [es] src/footprint/brokers/ibkr/history.py: E7 history ignores --instrument
+ 13 KILLED   [es] src/footprint/brokers/ibkr/record_chain.py: E8 record_chain ignores --instrument
+13 mutants, 1 survived or errored
+exit=1
