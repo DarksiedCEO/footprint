@@ -208,6 +208,20 @@ def test_the_decision_sees_a_chain_at_the_reference_level(
     assert str(trade["contract_id"]).startswith(f"CALL{REF}-")
 
 
+def test_a_chain_asked_for_between_publishes_is_rescaled_too(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Mutation survivor 52: the runner can decide in a step whose full chain was not
+    published (a working entry ends inside that step, then it decides); the chain it
+    then gets is built on the spot, and must be at the model's level as well."""
+    bars = times(stopped(history), D("0.075"))
+    bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    chain = bt._chain(TRADE_FROM)  # nothing published yet
+    assert chain.underlying_price == REF  # the anchor is the first bar's open, the price too
+    bt._level.anchor(bars[0].open * 2)
+    assert bt._chain(TRADE_FROM).underlying_price == REF / 2
+
+
 def test_a_live_trade_is_quoted_at_its_frozen_scale(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
