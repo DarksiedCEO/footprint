@@ -110,6 +110,7 @@ def test_a_pullback_run_uses_and_records_the_lifetime_of_the_named_config(
             [
                 *("--bars", str(bars), "--out", str(out), "--config", str(config)),
                 *("--trade-from", TRADE_FROM.isoformat(), "--entry", "pullback"),
+                *("--rolls", "none"),
             ]
         )
     assert [t._lifetime for t in built] == [PullbackSettings(lifetime_minutes=7).lifetime]

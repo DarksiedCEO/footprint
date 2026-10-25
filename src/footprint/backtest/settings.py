@@ -67,11 +67,19 @@ class RuleSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RollSettings:
+    """Contract rolls in a raw front-month history (BH-9; footprint.backtest.rolls)."""
+
+    block_first_session: bool  # no entry on the first session on a new contract
+
+
+@dataclass(frozen=True, slots=True)
 class BacktestSettings:
     option_model: OptionModelSettings
     engine: EngineSettings
     gates: GateSettings
     rules: RuleSettings
+    rolls: RollSettings
 
 
 def _trading_class(raw: Mapping[str, object], key: str, where: str) -> str:
@@ -130,7 +138,18 @@ def load_backtest(path: Path) -> BacktestSettings:
         raise ConfigError(
             f"{e_where}: history_minutes must cover the bollinger rules ({need} minutes)"
         )
-    return BacktestSettings(option_model=option_model, engine=engine, gates=gates, rules=rules)
+    r_where = f"{where}: rolls"
+    r = _check_keys(raw["rolls"], {f.name for f in fields(RollSettings)}, r_where)
+    block = r["block_first_session"]
+    if not isinstance(block, bool):
+        raise ConfigError(f"{r_where}: block_first_session must be true or false, got {block!r}")
+    return BacktestSettings(
+        option_model=option_model,
+        engine=engine,
+        gates=gates,
+        rules=rules,
+        rolls=RollSettings(block_first_session=block),
+    )
 
 
 def _rules(raw: object, where: str) -> RuleSettings:

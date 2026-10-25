@@ -96,6 +96,7 @@ def test_a_time_run_uses_and_records_the_numbers_of_the_named_config(
             [
                 *("--bars", str(bars), "--out", str(out), "--config", str(config)),
                 *("--trade-from", TRADE_FROM.isoformat(), "--exit", "time"),
+                *("--rolls", "none"),  # no contract roll in these bars (BH-9)
             ]
         )
     assert len(handed) == 1  # one rule for the whole run: its verdicts live there

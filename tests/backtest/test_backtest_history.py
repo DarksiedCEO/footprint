@@ -208,18 +208,75 @@ def test_the_decision_sees_a_chain_at_the_reference_level(
     assert str(trade["contract_id"]).startswith(f"CALL{REF}-")
 
 
-def test_a_chain_asked_for_between_publishes_is_rescaled_too(
+def test_a_chain_asked_for_while_something_is_live_keeps_the_frozen_anchor(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    """Mutation survivor 52: the runner can decide in a step whose full chain was not
-    published (a working entry ends inside that step, then it decides); the chain it
-    then gets is built on the spot, and must be at the model's level as well."""
+    """Mutation survivor 52 (round 0): a chain built on the spot while something is live
+    is at the model's level too, at the trade's frozen anchor."""
     bars = times(stopped(history), D("0.075"))
     bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
-    chain = bt._chain(TRADE_FROM)  # nothing published yet
-    assert chain.underlying_price == REF  # the anchor is the first bar's open, the price too
+    bt._idle = lambda: False  # type: ignore[method-assign]
     bt._level.anchor(bars[0].open * 2)
     assert bt._chain(TRADE_FROM).underlying_price == REF / 2
+
+
+def test_a_decision_in_the_step_a_working_entry_ended_uses_a_fresh_anchor(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review round 1, L1: the step's publish ran while an entry was still working (so it
+    did not re-anchor, and published only that contract); inside the step the entry
+    ended unfilled and the runner, idle again, decides. The chain it gets must be
+    re-anchored at the price now (the reference itself, R12: and in the book), not at
+    the old anchor."""
+    bars = times(stopped(history), D("0.075"))
+    bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    old = bars[0].open
+    now = TRADE_FROM + timedelta(seconds=35)
+    # the state the step left: an earlier full chain (published at the old anchor, a
+    # minute before), the anchor still the old price, the futures price moved since
+    bt._level.anchor(old)
+    bt._published = bt._model.chain(now - timedelta(minutes=1), REF)
+    bt._price = old * D("1.01")
+    bt._idle = lambda: True  # type: ignore[method-assign]  # the entry ended: nothing live
+    chain = bt._chain(now)
+    assert chain.underlying_price == REF  # at the reference: re-anchored to the price now
+    assert chain.ts == now
+    assert bt._level.model_price(bt._price) == REF
+    quote = next(q for q in chain.quotes)
+    booked = bt.book.latest(quote.contract_id)
+    assert booked is not None
+    assert (booked.bid, booked.ask, booked.ts) == (quote.bid, quote.ask, now)  # R12
+    # the same moment again: the published chain itself, not a new one
+    assert bt._chain(now) is chain
+
+
+def test_an_older_chain_is_never_handed_to_a_decision(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """The anchor is already the price, but the chain in hand is from an earlier moment:
+    a fresh one is published now (R12), not the old one, not one outside the book."""
+    bars = times(stopped(history), D("0.075"))
+    bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    bt._idle = lambda: True  # type: ignore[method-assign]
+    now = TRADE_FROM + timedelta(seconds=20)
+    bt._level.anchor(bt._price)
+    bt._published = bt._model.chain(now - timedelta(minutes=1), REF)
+    chain = bt._chain(now)
+    assert chain.ts == now
+    assert chain is bt._published
+    booked = bt.book.latest(chain.quotes[0].contract_id)
+    assert booked is not None
+    assert booked.ts == now
+
+
+def test_a_chain_already_published_now_at_the_current_anchor_is_reused(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    bars = times(stopped(history), D("0.075"))
+    bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    bt._publish(TRADE_FROM, full_chain=True)
+    published = bt._published
+    assert bt._chain(TRADE_FROM) is published
 
 
 def test_a_live_trade_is_quoted_at_its_frozen_scale(

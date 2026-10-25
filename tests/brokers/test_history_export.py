@@ -335,9 +335,8 @@ def test_the_backtest_runs_on_an_exported_file_unchanged(
     out = tmp_path / "nq_1m.csv"
     assert run(nq, Source(bars), out, Clock())[0] == 0
     run_dir = tmp_path / "run"
-    code = backtest(
-        ["--bars", str(out), "--out", str(run_dir), "--config", str(REPO_ROOT / "config")]
-    )
+    argv = ["--bars", str(out), "--out", str(run_dir), "--config", str(REPO_ROOT / "config")]
+    code = backtest([*argv, "--rolls", "none"])  # six hours of one contract: no roll (BH-9)
     capsys.readouterr()
     assert code in (0, 1)  # PASS / FAIL / NOT ENOUGH TRADES; 2 would be INVALID
     assert (run_dir / "readout.json").exists()

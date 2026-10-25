@@ -38,15 +38,21 @@ def settings(shipped_settings: BacktestSettings) -> BacktestSettings:
     before it pin that model; the rescaled one has its own tests
     (test_price_level.py, test_backtest_history.py)."""
     model = replace(shipped_settings.option_model, reference_price=None)
-    return replace(shipped_settings, option_model=model)
+    # and with roll sessions not blocked (BH-9): those tests' bars have no contract roll
+    rolls = replace(shipped_settings.rolls, block_first_session=False)
+    return replace(shipped_settings, option_model=model, rolls=rolls)
 
 
 _REFERENCE_LINE = re.compile(r"^(  reference_price: )\S+", re.MULTILINE)
 
 
-def config_copy(target: Path, reference: Decimal | None) -> Path:
+_ROLLS_LINE = re.compile(r"^(  block_first_session: )\S+", re.MULTILINE)
+
+
+def config_copy(target: Path, reference: Decimal | None, *, block_rolls: bool = False) -> Path:
     """A copy of config/ with option_model.reference_price set to `reference` (None:
-    rescaling off); every other byte is the shipped file's."""
+    rescaling off) and rolls.block_first_session set to `block_rolls` (off unless asked:
+    the tests' bars have no contract roll); every other byte is the shipped file's."""
     shutil.copytree(REPO_ROOT / "config", target)
     path = target / "backtest.yaml"
     text, n = _REFERENCE_LINE.subn(
@@ -54,6 +60,8 @@ def config_copy(target: Path, reference: Decimal | None) -> Path:
         path.read_text(encoding="utf-8"),
     )
     assert n == 1, "backtest.yaml must carry exactly one reference_price line"
+    text, n = _ROLLS_LINE.subn(lambda m: m.group(1) + str(block_rolls).lower(), text)
+    assert n == 1, "backtest.yaml must carry exactly one block_first_session line"
     path.write_text(text, encoding="utf-8")
     return target
 

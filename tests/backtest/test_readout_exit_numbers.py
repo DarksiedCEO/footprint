@@ -42,6 +42,8 @@ def _run(tmp_path: Path, config: Path, *extra: str) -> Path:
                 str(config),
                 "--trade-from",
                 TRADE_FROM.isoformat(),
+                "--rolls",
+                "none",  # these bars have no contract roll (BH-9)
                 *extra,
             ]
         )

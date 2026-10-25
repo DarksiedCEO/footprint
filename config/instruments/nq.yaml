@@ -418,8 +418,9 @@ easter_sundays: [2010-04-04, 2011-04-24, 2012-04-08, 2013-03-31, 2014-04-20, 201
                  2022-04-17, 2023-04-09, 2024-03-31, 2025-04-20, 2026-04-05, 2027-03-28]
 # Spans in which the prime session ends at `close` (PT) on every trading day (BH-3): CME's
 # daily equity maintenance halt, 15:15-15:30 CT (13:15-13:30 PT), was inside the prime
-# session until 2021-06-25 (in the data no bar starts in 13:15-13:29 PT on any day before
-# 2021-06-28, and on every day from then on); Fridays and the days before holidays closed
+# session until 2021-06-25 (in the data, before 2021-06-28 no bar starts in 13:16-13:28 PT
+# on any day, and 80 days have one single bar at the halt's edges, 76 at 13:15 and 4 at
+# 13:29; from 2021-06-28 a bar starts in every minute of it); Fridays and the days before holidays closed
 # at 15:15 CT outright until late 2012. Footprint ends the prime session at the halt: no
 # position is held into it (the earlier close, as above). An earlier listed close wins.
 early_close_periods:

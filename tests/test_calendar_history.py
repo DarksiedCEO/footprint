@@ -11,9 +11,9 @@ check exact for history:
   observed Independence Day itself).
 `early_close_periods` ends the prime session at one time on every trading day of a
 span: CME's 15:15-15:30 CT equity maintenance halt (13:15 PT) inside the prime session,
-until it was removed after 2021-06-25 (seen in the 1-minute NQ data: no bar starts in
-13:15-13:29 PT on any day before 2021-06-28, and a bar starts in every minute of it
-from then on).
+until it was removed after 2021-06-25. Seen in the 1-minute NQ data: before 2021-06-28
+no bar starts in 13:16-13:28 PT on any day; 80 days have a single bar at the halt's
+edges (76 at 13:15, 4 at 13:29); from 2021-06-28 a bar starts in every minute of it.
 
 The listed dates were checked against the NQ 1-minute data (2010-06-06 to 2024-09-27):
 see docs/decisions-pending.md, "BH-* backtest on history". The pins below are spot
@@ -370,6 +370,9 @@ def test_a_period_over_a_holiday_skips_it(instrument_path: Path, tmp_path: Path)
         ([_period(**{"from": "2015-03-02"})], "dates"),
         ([_period(through=date(2015, 3, 1))], "from is after through"),
         ([_period(close="12:00:30")], "HH:MM"),
+        ([_period(close="12:00+00:00")], "HH:MM"),  # RV7: a time zone would be dropped
+        ([_period(**{"from": datetime(2015, 3, 2, 9, 0, tzinfo=UTC)})], "dates"),  # RV6
+        ([_period(through=datetime(2015, 3, 6, 9, 0, tzinfo=UTC))], "dates"),  # RV6
         ([_period(close="ten")], "HH:MM"),
         ([_period(close=1200)], "HH:MM"),
         ([_period(close="06:30")], "after the cash open"),
@@ -425,3 +428,140 @@ def test_the_july_3_rule_is_required(instrument_path: Path, tmp_path: Path) -> N
     ]
     with pytest.raises(ConfigError, match="no rule for Independence Day eve"):
         load_instrument(rewrite(instrument_path, tmp_path, holiday_rules=rules))
+
+
+# Review round 1, L3 (RV15): EVERY listed early close 2010-06-01..2024-12-31, with its time.
+# Stock half days (day after Thanksgiving, Christmas Eve, July 3): 10:15 PT in the data;
+# US-holiday sessions: 08:30 PT 2010-2012, 10:00 PT from 2014-05-26; after the data
+# (2024-09-28 on): 10:00 PT. The 13:15 maintenance-halt days (a period) are not listed here.
+HISTORY_EARLY_CLOSES = {
+    "2010-07-05": "08:30",
+    "2010-09-06": "08:30",
+    "2010-11-25": "08:30",
+    "2010-11-26": "10:15",
+    "2011-01-17": "08:30",
+    "2011-02-21": "08:30",
+    "2011-05-30": "08:30",
+    "2011-07-04": "08:30",
+    "2011-09-05": "08:30",
+    "2011-11-24": "08:30",
+    "2011-11-25": "10:15",
+    "2012-01-16": "08:30",
+    "2012-02-20": "08:30",
+    "2012-05-28": "08:30",
+    "2012-07-03": "10:15",
+    "2012-07-04": "08:30",
+    "2012-09-03": "08:30",
+    "2012-11-23": "10:15",
+    "2012-12-24": "10:15",
+    "2013-07-03": "10:15",
+    "2013-11-29": "10:15",
+    "2013-12-24": "10:15",
+    "2014-05-26": "10:00",
+    "2014-07-03": "10:15",
+    "2014-07-04": "10:00",
+    "2014-09-01": "10:00",
+    "2014-11-27": "10:00",
+    "2014-11-28": "10:15",
+    "2014-12-24": "10:15",
+    "2015-01-19": "10:00",
+    "2015-02-16": "10:00",
+    "2015-05-25": "10:00",
+    "2015-07-03": "10:00",
+    "2015-09-07": "10:00",
+    "2015-11-26": "10:00",
+    "2015-11-27": "10:15",
+    "2015-12-24": "10:15",
+    "2016-01-18": "10:00",
+    "2016-02-15": "10:00",
+    "2016-05-30": "10:00",
+    "2016-07-04": "10:00",
+    "2016-09-05": "10:00",
+    "2016-11-24": "10:00",
+    "2016-11-25": "10:15",
+    "2017-01-16": "10:00",
+    "2017-02-20": "10:00",
+    "2017-05-29": "10:00",
+    "2017-07-03": "10:15",
+    "2017-07-04": "10:00",
+    "2017-09-04": "10:00",
+    "2017-11-23": "10:00",
+    "2017-11-24": "10:15",
+    "2018-01-15": "10:00",
+    "2018-02-19": "10:00",
+    "2018-05-28": "10:00",
+    "2018-07-03": "10:15",
+    "2018-07-04": "10:00",
+    "2018-09-03": "10:00",
+    "2018-11-22": "10:00",
+    "2018-11-23": "10:15",
+    "2018-12-24": "10:15",
+    "2019-01-21": "10:00",
+    "2019-02-18": "10:00",
+    "2019-05-27": "10:00",
+    "2019-07-03": "10:15",
+    "2019-07-04": "10:00",
+    "2019-09-02": "10:00",
+    "2019-11-28": "10:00",
+    "2019-11-29": "10:15",
+    "2019-12-24": "10:15",
+    "2020-01-20": "10:00",
+    "2020-02-17": "10:00",
+    "2020-05-25": "10:00",
+    "2020-07-03": "10:00",
+    "2020-09-07": "10:00",
+    "2020-11-26": "10:00",
+    "2020-11-27": "10:15",
+    "2020-12-24": "10:15",
+    "2021-01-18": "10:00",
+    "2021-02-15": "10:00",
+    "2021-05-31": "10:00",
+    "2021-07-05": "10:00",
+    "2021-09-06": "10:00",
+    "2021-11-25": "10:00",
+    "2021-11-26": "10:15",
+    "2022-01-17": "10:00",
+    "2022-02-21": "10:00",
+    "2022-05-30": "10:00",
+    "2022-06-20": "10:00",
+    "2022-07-04": "10:00",
+    "2022-09-05": "10:00",
+    "2022-11-24": "10:00",
+    "2022-11-25": "10:15",
+    "2023-01-16": "10:00",
+    "2023-02-20": "10:00",
+    "2023-05-29": "10:00",
+    "2023-06-19": "10:00",
+    "2023-07-03": "10:15",
+    "2023-07-04": "10:00",
+    "2023-09-04": "10:00",
+    "2023-11-23": "10:00",
+    "2023-11-24": "10:15",
+    "2024-01-15": "10:00",
+    "2024-02-19": "10:00",
+    "2024-05-27": "10:00",
+    "2024-06-19": "10:00",
+    "2024-07-03": "10:15",
+    "2024-07-04": "10:00",
+    "2024-09-02": "10:00",
+    "2024-11-28": "10:00",
+    "2024-11-29": "10:00",
+    "2024-12-24": "10:00",
+}
+
+
+def test_every_history_early_close_time_is_pinned(instrument_path: Path) -> None:
+    listed = {
+        d.isoformat(): t
+        for d, t in _yaml(instrument_path)["early_closes"].items()
+        if d.year <= 2024
+    }
+    assert listed == HISTORY_EARLY_CLOSES
+
+
+def test_every_history_half_day_is_an_option_early_close_and_vice_versa(
+    instrument: InstrumentProfile,
+) -> None:
+    half_days = {d for d, t in HISTORY_EARLY_CLOSES.items() if t == "10:15"}
+    option = {d.isoformat() for d in instrument.option_expiry.early_close_dates}
+    assert half_days == {d for d in option if d <= "2024-09-27"}  # up to the data's end

@@ -671,7 +671,7 @@ def test_with_no_console_named_the_pipeline_builds_the_live_console(profiles: Pr
 # --- the CLI --------------------------------------------------------------------------
 
 
-FROM = ["--trade-from", TRADE_FROM.isoformat()]
+FROM = ["--trade-from", TRADE_FROM.isoformat(), "--rolls", "none"]  # no contract roll (BH-9)
 
 
 def test_a_bollinger_run_records_that_the_confirmers_are_off(tmp_path: Path) -> None:

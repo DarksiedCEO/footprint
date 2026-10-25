@@ -373,6 +373,7 @@ def test_the_command_line_refuses_a_run_with_no_prime_bar_with_exit_2(
             writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
     out = tmp_path / "run"
     argv = ["--bars", str(path), "--out", str(out), "--config", str(REPO_ROOT / "config")]
+    argv += ["--rolls", "none"]
     assert main([*argv, "--trade-from", evening.isoformat()]) == 2
     assert "no traded bar is in the prime session" in capsys.readouterr().err
     assert not (out / "readout.json").exists()

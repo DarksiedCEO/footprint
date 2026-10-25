@@ -63,3 +63,12 @@ rules:                        # Q5 backtest rule library (docs/strategy-rules.md
     walk_window: 10           # DEFAULT: bars after the touch in which the entry may come
     slope_bars: 5             # DEFAULT: middle line compared with this many bars ago
     bounce_window: 5          # DEFAULT: bars after the band touch in which the entry may come
+rolls:                        # contract rolls in a RAW front-month history (BH-9)
+  block_first_session: true   # DEFAULT (draft, Andre BH-9): no new entry on the trading day
+                              #   whose session is the first on a new contract (the readers'
+                              #   look-back then mixes two contracts: +112 to +259 points at
+                              #   the 2022-09..2024-09 rolls, 1.6-2.4 N). A run must then say
+                              #   which sessions those are (--rolls FILE, or --rolls none) or
+                              #   it is refused. false: trade them. The alternative, back-
+                              #   adjusting the look-back across the splice, is Andre's to
+                              #   choose; it is not built

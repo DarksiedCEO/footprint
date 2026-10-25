@@ -63,6 +63,10 @@ class PriceLevel:
         _require_price(price, "anchor price")
         self._anchor = price
 
+    def anchored_at(self, price: Decimal) -> bool:
+        """True when the anchor is `price`: anchoring at it again would change nothing."""
+        return self._anchor == price
+
     def model_price(self, price: Decimal) -> Decimal:
         """The futures price the option model is quoted at, for the data's `price`."""
         if self._reference is None:
@@ -104,9 +108,13 @@ def level_console(
     console built as the pipeline builds it) wrapped in a LevelConsole."""
     if level.reference is None:
         return console
-    if console is None:
-        s, inst = profiles.strategy, profiles.instrument
-        console = Console(
-            s.console, inst, LevelsReader(s.levels, s.trend, s.data, inst), RangeReader(s.range)
-        )
-    return LevelConsole(console, level)
+    return LevelConsole(live_console(profiles) if console is None else console, level)
+
+
+def live_console(profiles: Profiles) -> Console:
+    """The live console (Desmond), built as the pipeline builds it, for a backtest-only
+    wrapper to wrap."""
+    s, inst = profiles.strategy, profiles.instrument
+    return Console(
+        s.console, inst, LevelsReader(s.levels, s.trend, s.data, inst), RangeReader(s.range)
+    )

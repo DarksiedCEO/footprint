@@ -64,6 +64,8 @@ def _single_argv(args: argparse.Namespace, entry: str, exit_: str) -> list[str]:
         argv += ["--blackouts", str(args.blackouts)]
     if args.trade_from is not None:
         argv += ["--trade-from", args.trade_from]
+    if args.rolls is not None:
+        argv += ["--rolls", args.rolls]
     return [*argv, "--entry", entry, "--exit", exit_]
 
 
@@ -169,6 +171,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--trade-from",
         type=_iso_moment,
+        default=None,
+        help="passed to every run unchanged (see python -m footprint.backtest --help)",
+    )
+    parser.add_argument(
+        "--rolls",
         default=None,
         help="passed to every run unchanged (see python -m footprint.backtest --help)",
     )

@@ -824,9 +824,14 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
     where the anchor is the futures price at the last moment nothing was live (no
     working entry, no position, no reconcile): the price the trade's entry was decided
     at, fixed until the trade is closed and reconciled. While idle the model sees the
-    reference itself. Strikes are listed and rounded at the reference level (25-point
-    strike_step there), never rounded at the data's level and scaled (that would
-    magnify the rounding about 11x in 2010);
+    reference itself, so every entry is EXACTLY at the money (the nearest strike is the
+    reference; live, the offset is 0-12.5 points): that leans the delta, vega and theta
+    verdicts slightly toward at-the-money (review round 1, I1). Since review round 1
+    (L1) a decision made in the same step a working entry ended unfilled is re-anchored
+    too: the chain it sees is rebuilt at the price then, and put in the book. Strikes
+    are listed and rounded at the reference level (25-point strike_step there), never
+    rounded at the data's level and scaled (that would magnify the rounding about 11x
+    in 2010);
   - not rescaled: premiums (`atm_premium_points`), spread, option ticks, every dollar
     amount (stops, targets, trail, fees, caps, loss limits: option and account values,
     already at the model's level), and the bars the readers see;
@@ -850,8 +855,11 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   13:15 PT every trading day (an earlier listed close wins; holidays skipped). So in
   that span no entry after 13:10 and everything flat by 13:10 (close_lead 5), never a
   position held into a 15-minute halt with no quotes. It costs the 13:30-14:00 PT
-  minutes of those years. Verified in the data: no bar starts in 13:15-13:29 PT on any
-  day before 2021-06-28, and one starts in every minute of it from then on.
+  minutes of those years. Verified in the data: before 2021-06-28 no bar starts in
+  13:16-13:28 PT on any day; 80 days have one single bar at the halt's edges (76 at
+  13:15, e.g. 2010-08-24 and most days 2018-05-07..08-03; 4 at 13:29: 2020-03-30..04-01
+  and 2020-06-30); from 2021-06-28 a bar starts in every minute of it. (Corrected in
+  review round 1, L2: the first text said no bar at all in 13:15-13:29.)
 - **BH-4 (levels room at the data's level).** With BH-2, the option reaches the $1,000
   target after a data-level move of N x anchor / reference (about 10 points in 2010, not
   111). The console's levels room is judged with that converted N, through a
@@ -879,11 +887,34 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   those years, priced by a model never checked against real NQ option quotes (GV-4).
   Andre: accept for the pre-registered run, or restrict the window to years with daily
   expiries.
-- **BH-9 (the raw splice).** The series switches to the next contract at a session open
-  (the builder rolls by session volume). No position crosses it: v1 flattens before the
-  prime close and does not trade overnight. The readers' look-back does: on a roll day
-  the prior day's levels and the multi-session averages mix two contracts (a roll gap of
-  tens of points). Not corrected; a known small bias, about four days a year.
+- **BH-9 (the raw splice; corrected in review round 1, M1).** The series switches to
+  the next contract at a session open (the builder rolls by session volume: 58 rolls
+  2010-06..2024-09, each on a Friday or a Monday session, no fixed calendar rule). No
+  position crosses it: v1 flattens before the prime close and does not trade overnight.
+  The readers' look-back does, and the jump is NOT small (the first text said "tens of
+  points"): the reviewer measured the largest session-open jump in each roll window as
+  +111.75 (2022-09) to +258.5 (2024-06) points, 1.2-3.5 N at the data's level; the
+  builder measured the jump at the first bar of each roll session (open minus the
+  previous bar's close) as +111.75, +118.5, +121.5, +168.25, +188.75, +207.25, +245.5,
+  +258.5 and +229.5 for 2022-09-12 .. 2024-09-16, 1.6-2.4 N (N about 111 x price /
+  20,000: 65-111 points then). Earlier rolls (2010-06 .. 2022-06) are smaller: by the
+  builder's measure all under 60 points in size except 2020-03-16 (+96.75) and
+  2020-06-15 (-118.00); the reviewer's measure gives about -120 and -130 for 2020-03 and
+  2020-06. On a roll day prior-day
+  levels, the VWAP side and the multi-session averages are off by that much: enough to
+  flip the levels room (wall below 1 N, full support from 1.5 N).
+  **Built (fail closed), DEFAULT (draft, Andre BH-9): `rolls.block_first_session: true`
+  in backtest.yaml.** No new entry on the trading day whose session is the first on a new
+  contract (a failed `roll_session` console gate, journalled); a run must name those
+  sessions (`--rolls FILE`: a CSV, `session` header, one date per line; or `--rolls none`)
+  or it is refused (exit 2). The roll file for nq_raw.csv (58 sessions, from the
+  Databento source by the builder's own rule) is
+  /tmp/claude-0/-home-claude/f2cf3b17-ea24-5ac3-a7fa-41e6238c74a7/scratchpad/bh/nq_raw_rolls.csv
+  (script: .../scratchpad/bh/rolls.py). It costs about four trading days a year.
+  **Alternative for Andre (not built):** back-adjust the look-back across the splice
+  (shift every bar before the roll by the splice difference when a decision's window
+  spans it), which keeps the roll days tradable. Andre decides before the pre-registered
+  run: keep the block, switch it off, or have the back-adjustment built.
 - **BH-10 (halts and gaps the calendar cannot know).** A trade open during a data gap or
   an unannounced halt (March 2020) sees no quotes: the engine steps through, as on a dead
   feed; the trade-management alarms or a halt may end the run early, and the readout
@@ -900,8 +931,8 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
   bars, traded from 2024-07-15: ran to the end, 0 trades, exit 1, same. No P&L is
   reported (none exists); the full run waits for the pre-registration.
-- **BH-14 (found by the smoke run; for Andre): 2010's overnight data is too thin for the
-  levels reader.** On 14 of the 15 traded 2010 days the levels (and so VWAP side and the
+- **BH-14 (found by the smoke run; measured in review round 1, M2; Andre's decision):
+  the early years' overnight data is too thin for the levels reader.** On 14 of the 15 traded 2010 days the levels (and so VWAP side and the
   confirmer score) were unavailable all session: "overnight session before today: N of
   780 minutes", N about 450-650, under `data.min_session_coverage_pct` 90 (a minute with
   no trade has no bar in this data). In 2024 levels were available on every traded day.
@@ -909,7 +940,19 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   density, not by market behaviour. Not changed (a strategy number, and fail closed):
   Andre to decide, before the pre-registered run, whether history uses another coverage
   rule (for example counting a quiet minute as covered), starts later, or stays as is.
-  How many years are affected is NOT measured (only this one 2010 window was run).
+  The reviewer's count (share of weekdays whose overnight session, 15:00-03:59 PT, has at
+  least 702 of 780 one-minute bars = the 90% rule; approximate: the reviewer's own
+  counter, not the repo's reader, holidays not excluded):
+
+  | Year | 2010 | 2011 | 2012 | 2013 | 2014 | 2015 | 2016 | 2017 | 2018-2024 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Overnight sessions passing | 7% | 32% | 20% | 18% | 29% | 48% | 72% | 98% | 98-100% |
+
+  So with the live rules a "2010-2024" run mostly tests 2017-2024. **Andre's decision
+  (nothing is implemented):** (a) a history-only coverage rule (for example a quiet
+  minute counts as covered, or a lower share for the backtest only); (b) a later start
+  year (2017 is the first year that passes on almost every session); or (c) keep the
+  rule and state in the pre-registration that the early years barely trade.
 - **BH-12 (fail closed, expiries).** The model lists no expiry after calendar_through
   (no holiday known there): near the end fewer expiries, possibly none in 1-3 days, so no
   entry.

@@ -39,15 +39,16 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from footprint.backtest.model_check import check_model_vol
+from footprint.backtest.model_check import BacktestRefused, check_model_vol
 from footprint.backtest.options_model import OptionModel
 from footprint.backtest.path import path_price
 from footprint.backtest.price_level import PriceLevel, level_console
+from footprint.backtest.rolls import roll_console
 from footprint.backtest.settings import BacktestSettings
 from footprint.core.calendar import SessionKind, local_minute, session_at
 from footprint.core.config import _PERCENT_MAX, Profiles
@@ -104,13 +105,27 @@ class Backtest:
         trigger: EntryTrigger | None = None,
         exit_rule: ExitRule | None = None,
         console: Gatekeeper | None = None,
+        roll_sessions: frozenset[date] | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
         clock starts at the first bar at or after it. None: start at the first bar.
         `trigger`: a named entry rule's trigger (footprint.backtest.rules); None is
         the live entry, unchanged. `exit_rule`: a named exit rule; None is the live
         exit, unchanged. `console`: a rule's console (footprint.backtest.rule_console);
-        None is the live console, unchanged."""
+        None is the live console, unchanged. `roll_sessions`: the trading days whose
+        session is the first on a new contract (BH-9, footprint.backtest.rolls); None:
+        not given, refused when settings.rolls.block_first_session is on."""
+        if settings.rolls.block_first_session and roll_sessions is None:
+            raise BacktestRefused(
+                "refused: rolls.block_first_session is on (BH-9) but the bars' contract "
+                "roll sessions were not given: pass --rolls FILE (or --rolls none for bars "
+                "with no contract roll), or set block_first_session: false"
+            )
+        blocked = (
+            roll_sessions
+            if settings.rolls.block_first_session and roll_sessions is not None
+            else frozenset()
+        )
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -149,7 +164,7 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
-        console = level_console(console, p, self._level)
+        console = roll_console(level_console(console, p, self._level), p, blocked)
         pipeline = (
             Pipeline(p) if trigger is None and console is None else Pipeline(p, trigger, console)
         )
@@ -189,6 +204,15 @@ class Backtest:
         return self._window
 
     def _chain(self, now: datetime) -> OptionChain:
+        """The chain a decision sees. Nothing live (review round 1, L1): at the price now,
+        re-anchored, and in the book (R12): this step's publish may have run while an
+        entry was still working, which ended inside the step."""
+        if self._idle() and not (
+            self._published is not None
+            and self._published.ts == now
+            and self._level.anchored_at(self._price)
+        ):
+            self._publish(now, full_chain=True)  # re-anchors: nothing is live
         if self._published is not None and self._published.ts == now:
             return self._published
         return self._model.chain(now, self._level.model_price(self._price))
