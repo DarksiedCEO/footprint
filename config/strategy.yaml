@@ -29,7 +29,9 @@ levels:
   wall_multiple: 1           # nearest opposing level closer than this many N: veto
   swing_lookback_bars: 96    # DEFAULT: trend-timeframe bars searched for swing levels
 options:
-  assumed_delta: 0.45        # G4: fixed, pessimistic delta until a greeks agent exists
+  assumed_delta: 0.45        # G4: the fixed delta in N (levels room) and in the backtest
+                             #   model; kept until Andre decides GV-2. Pessimistic only while
+                             #   delta.min_abs_delta >= this (the loader enforces it; GV-5)
 # Theta (decay veto, decision B76-1): before an entry, the chosen option is valued with
 # Black-76 at its implied volatility (solved from the quote's mid) now and at the end of
 # the planned hold, in CALENDAR time; the difference is the modelled decay. Every value
@@ -52,6 +54,22 @@ theta:
     enabled: false              # DEFAULT (draft, Andre DX-2): off until Andre rules on DX-2
     window_minutes: 30          # DEFAULT (draft, Andre DX-1): decay valued over this window
     max_pct_of_open_profit: 50  # DEFAULT (draft, Andre DX-1): close above this % of open profit
+# Greeks vetoes (decision GV-1, Andre 2026-10-22): veto only, never scored. After Theta,
+# each values the chosen option with Black-76 at the implied volatility of its mid
+# (solved inside the vega band, at theta.rate, calendar time to its expiry moment) and
+# blocks the entry only on its own hard danger; otherwise it is silent. Every value is
+# a DRAFT default, untested on any data; Andre to confirm.
+vega:
+  min_implied_vol: 0.08         # DEFAULT (draft, Andre GV-1): below this the quote is not
+                                #   believable; must sit inside theta's bounds
+  max_implied_vol: 1.0          # DEFAULT (draft, Andre GV-1): extreme implied volatility
+delta:
+  min_abs_delta: 0.45           # DEFAULT (draft, Andre GV-1, GV-5): a far out-of-the-money option;
+                                #   the loader requires >= options.assumed_delta (review M1)
+  max_abs_delta: 0.7            # DEFAULT (draft, Andre GV-1): a deep in-the-money option
+gamma:
+  min_hours_to_expiry: 6        # DEFAULT (draft, Andre GV-1): the danger zone near expiry;
+                                #   no entry with less time than this to its expiry moment
 zeroday:
   lookback_sessions: 20      # G9: "typical" = average of the same metric on these sessions
   trip_multiple: 4           # G9: range, volatility and price-jump tripwires

@@ -1,0 +1,299 @@
+{
+ "groups": {
+  "guard": [
+   "tests/backtest/test_model_vol_guard.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    if today is None:\n        return None  # the market",
+   "    if True:\n        return None  # the market",
+   "guard never checks"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "if (q.expiry - today).days >= inst.dte_min}",
+   "if (q.expiry - today).days > inst.dte_min}",
+   "dte_min excluded"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "if (q.expiry - today).days >= inst.dte_min}",
+   "if inst.dte_min <= (q.expiry - today).days <= inst.dte_max}",
+   "only inside dte_max (holiday gap skipped)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    expiry = ahead[0]",
+   "    expiry = ahead[-1]",
+   "farthest expiry"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    if not ahead:\n        return None",
+   "    if not ahead or True:\n        return None",
+   "no expiry ever checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    for right in Right:",
+   "    for right in (Right.CALL,):",
+   "puts not checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        quote = min(quotes, key=lambda q: _nearest(q, price, right))",
+   "        quote = max(quotes, key=lambda q: _nearest(q, price, right))",
+   "farthest strike"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        if problem is not None:\n            return problem\n    return None",
+   "        if problem is not None:\n            return None\n    return None",
+   "problem swallowed"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    prime = [b for b in traded if session_at(b.ts, profiles.instrument) is SessionKind.PRIME]",
+   "    prime = list(traded)",
+   "overnight bars checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    prime = [b for b in traded if session_at(b.ts, profiles.instrument) is SessionKind.PRIME]",
+   "    prime = [b for b in traded if session_at(b.ts, profiles.instrument) is SessionKind.PRIME][:1]",
+   "only the first bar"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    low = min(prime, key=lambda b: (b.low, b.ts))",
+   "    low = max(prime, key=lambda b: (b.low, b.ts))",
+   "highest low"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    high = max(prime, key=lambda b: (b.high, -b.ts.timestamp()))",
+   "    high = min(prime, key=lambda b: (b.high, -b.ts.timestamp()))",
+   "lowest high"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "((low, low.low, \"lowest\"), (high, high.high, \"highest\"))",
+   "((low, low.close, \"lowest\"), (high, high.close, \"highest\"))",
+   "closes, not extremes"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "((low, low.low, \"lowest\"), (high, high.high, \"highest\"))",
+   "((low, low.low, \"lowest\"),)",
+   "high side not checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "((low, low.low, \"lowest\"), (high, high.high, \"highest\"))",
+   "((high, high.high, \"highest\"),)",
+   "low side not checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "                f\"refused: the backtest's option model cannot be traded at {symbol} {price}, \"",
+   "                f\"refused: the backtest's option model cannot be traded at {symbol}, \"",
+   "price not named"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "                f\"{problem}. The model prices",
+   "                f\". The model prices",
+   "problem not named"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    return abs(q.strike - price), q.strike if right is Right.CALL else -q.strike",
+   "    return abs(q.strike - price), q.strike",
+   "tie rule ignored for puts"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "_YEAR = timedelta(days=365)",
+   "_YEAR = timedelta(days=36)",
+   "years wrong"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "    if years <= 0:\n        return None",
+   "    if years <= 1:\n        return None",
+   "valid options skipped"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "            forward=float(price),",
+   "            forward=float(quote.strike),",
+   "forward = strike"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "            rate=float(s.theta.rate),",
+   "            rate=0.0,",
+   "rate dropped"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "            price=float(quote.mid),",
+   "            price=float(quote.bid),",
+   "bid not mid"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "            low=float(s.theta.min_implied_vol),",
+   "            low=float(s.vega.min_implied_vol),",
+   "solved in vega band: theta side lost"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "            high=float(s.theta.max_implied_vol),",
+   "            high=float(s.vega.max_implied_vol),",
+   "solved in vega band (high)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        key = \"min_implied_vol\" if exc.side == \"below\" else \"max_implied_vol\"",
+   "        key = \"max_implied_vol\"",
+   "theta bound misnamed"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        (\"below\", \"min_implied_vol\", vol < float(s.vega.min_implied_vol)),",
+   "        (\"below\", \"min_implied_vol\", False),",
+   "vega floor ignored"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        (\"above\", \"max_implied_vol\", vol > float(s.vega.max_implied_vol)),",
+   "        (\"above\", \"max_implied_vol\", False),",
+   "vega ceiling ignored"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "        (\"above\", \"max_implied_vol\", vol > float(s.vega.max_implied_vol)),",
+   "        (\"above\", \"max_implied_vol\", vol > float(s.theta.max_implied_vol)),",
+   "vega ceiling = theta's"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "theta would veto every entry here",
+   "vega would veto every entry here",
+   "wrong agent named (theta)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/model_check.py",
+   "vega would veto every entry here",
+   "theta would veto every entry here",
+   "wrong agent named (vega)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/engine.py",
+   "        check_model_vol(self._model, profiles, self._bars[self._first :])\n",
+   "",
+   "guard not called"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/engine.py",
+   "        check_model_vol(self._model, profiles, self._bars[self._first :])",
+   "        check_model_vol(self._model, profiles, self._bars)",
+   "history checked"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/__main__.py",
+   "        return _INVALID\n",
+   "        return 1\n",
+   "refusal exits 1 (FAIL)"
+  ],
+  [
+   "guard",
+   "src/footprint/backtest/__main__.py",
+   "        print(f\"backtest: {refused}\", file=sys.stderr)\n",
+   "",
+   "refusal silent"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.min_abs_delta < options.assumed_delta:",
+   "    if delta.min_abs_delta < options.assumed_delta - 1:",
+   "M1 rule off"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.min_abs_delta < options.assumed_delta:",
+   "    if delta.min_abs_delta <= options.assumed_delta:",
+   "M1 edge refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    _check_gamma_reachable(\n",
+   "    (lambda *a: None)(\n",
+   "L1 check not called"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)",
+   "    longest = timedelta(days=instrument.dte_max + 2) / timedelta(hours=1)",
+   "bound one day late"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)",
+   "    longest = timedelta(days=instrument.dte_max) / timedelta(hours=1)",
+   "bound one day early"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if gamma.min_hours_to_expiry >= Decimal(str(longest)):",
+   "    if gamma.min_hours_to_expiry > Decimal(str(longest)):",
+   "bound edge accepted"
+  ]
+ ]
+}

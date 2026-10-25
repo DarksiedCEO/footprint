@@ -4,7 +4,9 @@
 
 Writes readout.md and readout.json (plus the run's ledger and journal) into --out,
 which must not exist yet or be empty. Exit code: 0 PASS, 1 FAIL or NOT ENOUGH
-TRADES, 2 INVALID.
+TRADES, 2 INVALID (also: refused before it ran, because the option model cannot be
+traded at the data's prices or no traded bar is in the prime session; see
+backtest/model_check.py).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from footprint.backtest.engine import Backtest
+from footprint.backtest.model_check import BacktestRefused
 from footprint.backtest.readout import read_out, to_json, to_markdown
 from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.rules import (
@@ -30,6 +33,8 @@ from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
 from footprint.data.news import blackouts_from
+
+_INVALID = 2  # the exit code of a run that is not valid (and of a refused one)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,21 +67,30 @@ def main(argv: list[str] | None = None) -> int:
     profiles = load_profiles(args.config, args.instrument)
     settings = load_backtest(args.config / "backtest.yaml")
     bars = list(CsvBarSource(args.bars, profiles.instrument.symbol).bars())
-    run = Backtest(
-        profiles,
-        settings,
-        bars,
-        args.out,
-        blackouts=blackouts_from(args.blackouts),
-        trade_from=args.trade_from,
-        trigger=None if args.entry is None else ENTRY_RULES[args.entry](profiles, settings.rules),
-        exit_rule=None if args.exit is None else EXIT_RULES[args.exit](profiles, settings.rules),
-        console=(
-            RuleConsole(profiles.strategy.console, profiles.instrument)
-            if args.entry in GATELESS_ENTRY_RULES
-            else None
-        ),
-    ).run()
+    try:
+        backtest = Backtest(
+            profiles,
+            settings,
+            bars,
+            args.out,
+            blackouts=blackouts_from(args.blackouts),
+            trade_from=args.trade_from,
+            trigger=None
+            if args.entry is None
+            else ENTRY_RULES[args.entry](profiles, settings.rules),
+            exit_rule=None
+            if args.exit is None
+            else EXIT_RULES[args.exit](profiles, settings.rules),
+            console=(
+                RuleConsole(profiles.strategy.console, profiles.instrument)
+                if args.entry in GATELESS_ENTRY_RULES
+                else None
+            ),
+        )
+    except BacktestRefused as refused:
+        print(f"backtest: {refused}", file=sys.stderr)
+        return _INVALID
+    run = backtest.run()
     decay_exit = profiles.strategy.theta.decay_exit
     assumptions = {
         "option prices": "MODELLED from the futures price (no options history)",
@@ -111,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     (args.out / "readout.md").write_text(to_markdown(readout), encoding="utf-8")
     (args.out / "readout.json").write_text(json.dumps(to_json(readout), indent=2), encoding="utf-8")
     print(to_markdown(readout))
-    return {"PASS": 0, "FAIL": 1, "NOT ENOUGH TRADES": 1}.get(readout.verdict, 2)
+    return {"PASS": 0, "FAIL": 1, "NOT ENOUGH TRADES": 1}.get(readout.verdict, _INVALID)
 
 
 if __name__ == "__main__":

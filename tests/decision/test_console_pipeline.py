@@ -223,6 +223,9 @@ def test_only_the_pipeline_can_approve_an_entry(profiles: Profiles, up_market: l
             approved.entry,
             approved.risk,
             approved.theta,
+            approved.vega,
+            approved.delta,
+            approved.gamma,
             object(),
         )
 

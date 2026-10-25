@@ -464,6 +464,9 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.theta.max_decay_pct_of_target == Decimal(25)
     assert s.theta.rate == Decimal("0.04")
     assert (s.theta.min_implied_vol, s.theta.max_implied_vol) == (Decimal("0.05"), Decimal("1.5"))
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (Decimal("0.08"), Decimal("1.0"))
+    assert (s.delta.min_abs_delta, s.delta.max_abs_delta) == (Decimal("0.45"), Decimal("0.7"))
+    assert s.gamma.min_hours_to_expiry == Decimal(6)
 
 
 @pytest.mark.parametrize(
@@ -506,6 +509,24 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("theta", {"max_implied_vol": 0.05}),  # == min_implied_vol
         ("theta", {"max_implied_vol": 0.01}),  # below min_implied_vol
         ("theta", {"extra": 1}),
+        ("vega", {"min_implied_vol": 0}),
+        ("vega", {"min_implied_vol": "0.08"}),
+        ("vega", {"max_implied_vol": 0.08}),  # == min_implied_vol
+        ("vega", {"max_implied_vol": 0.07}),  # below min_implied_vol
+        ("vega", {"min_implied_vol": 0.04}),  # below theta's min_implied_vol
+        ("vega", {"max_implied_vol": 1.6}),  # above theta's max_implied_vol
+        ("vega", {"extra": 1}),
+        ("delta", {"min_abs_delta": 0}),
+        ("delta", {"min_abs_delta": -0.3}),
+        ("delta", {"max_abs_delta": 0.45}),  # == min_abs_delta
+        ("delta", {"max_abs_delta": 0.44}),  # below min_abs_delta
+        ("delta", {"max_abs_delta": 1.01}),  # no |delta| above 1 is a band
+        ("delta", {"max_abs_delta": True}),
+        ("delta", {"extra": 1}),
+        ("gamma", {"min_hours_to_expiry": 0}),
+        ("gamma", {"min_hours_to_expiry": -1}),
+        ("gamma", {"min_hours_to_expiry": "6"}),
+        ("gamma", {"extra": 1}),
     ],
 )
 def test_bad_strategy_values_are_rejected(
@@ -760,6 +781,142 @@ def test_theta_accepts_a_negative_rate_and_a_full_budget(
     target.write_text(yaml.safe_dump(data))
     theta = load_strategy(target).theta
     assert (theta.rate, theta.max_decay_pct_of_target) == (Decimal("-0.01"), Decimal(100))
+
+
+def test_the_greeks_bands_accept_their_edges(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    theta = data["theta"]
+    data["vega"].update(
+        {"min_implied_vol": theta["min_implied_vol"], "max_implied_vol": theta["max_implied_vol"]}
+    )
+    data["delta"].update({"max_abs_delta": 1})
+    data["gamma"].update({"min_hours_to_expiry": 0.5})
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    s = load_strategy(target)
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (
+        s.theta.min_implied_vol,
+        s.theta.max_implied_vol,
+    )
+    assert s.delta.max_abs_delta == 1
+    assert s.gamma.min_hours_to_expiry == Decimal("0.5")
+
+
+def _strategy_with(strategy_path: Path, tmp_path: Path, **sections: dict[str, Any]) -> Path:
+    data = yaml.safe_load(strategy_path.read_text())
+    for section, changes in sections.items():
+        data[section].update(changes)
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
+@pytest.mark.parametrize(
+    ("min_abs_delta", "assumed_delta"),
+    [(0.44, 0.45), (0.3, 0.45), (0.45, 0.46), (0.5, 0.6)],
+)
+def test_the_delta_floor_may_not_be_below_the_assumed_delta(
+    strategy_path: Path, tmp_path: Path, min_abs_delta: float, assumed_delta: float
+) -> None:
+    # Review round 1, M1 (interim until Andre decides GV-5): N, the levels room check,
+    # assumes options.assumed_delta. It is only pessimistic while every entry Delta lets
+    # through has at least that delta, so the band's floor may not be below it.
+    from footprint.core.config import load_strategy
+
+    target = _strategy_with(
+        strategy_path,
+        tmp_path,
+        delta={"min_abs_delta": min_abs_delta},
+        options={"assumed_delta": assumed_delta},
+    )
+    with pytest.raises(ConfigError, match=r"delta: min_abs_delta .* options.assumed_delta"):
+        load_strategy(target)
+
+
+@pytest.mark.parametrize(("min_abs_delta", "assumed_delta"), [(0.45, 0.45), (0.5, 0.45)])
+def test_a_delta_floor_at_or_above_the_assumed_delta_loads(
+    strategy_path: Path, tmp_path: Path, min_abs_delta: float, assumed_delta: float
+) -> None:
+    from footprint.core.config import load_strategy
+
+    target = _strategy_with(
+        strategy_path,
+        tmp_path,
+        delta={"min_abs_delta": min_abs_delta},
+        options={"assumed_delta": assumed_delta},
+    )
+    s = load_strategy(target)
+    assert s.delta.min_abs_delta == Decimal(str(min_abs_delta))
+    assert s.options.assumed_delta == Decimal(str(assumed_delta))
+
+
+def _profiles_with_gamma(tmp_path: Path, hours: float, dte_max: int | None = None) -> Path:
+    import shutil
+
+    from tests.conftest import REPO_ROOT
+
+    config = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", config)
+    strategy = config / "strategy.yaml"
+    data = yaml.safe_load(strategy.read_text())
+    data["gamma"]["min_hours_to_expiry"] = hours
+    strategy.write_text(yaml.safe_dump(data))
+    if dte_max is not None:
+        instrument = config / "instruments" / "nq.yaml"
+        raw = yaml.safe_load(instrument.read_text())
+        raw["dte_max"] = dte_max
+        raw["dte_min"] = min(raw["dte_min"], dte_max)
+        instrument.write_text(yaml.safe_dump(raw))
+    return config
+
+
+@pytest.mark.parametrize(
+    ("hours", "dte_max"), [(1e30, None), (1e300, None), (82.01, 3), (96, 3), (9.01, 0)]
+)
+def test_a_gamma_minimum_no_option_could_meet_is_a_config_error(
+    tmp_path: Path, hours: float, dte_max: int | None
+) -> None:
+    # Review round 1, L1: a huge minimum used to crash Pipeline construction with an
+    # OverflowError. Round 2, R2-4: the bound is the longest any entry can wait. Entries
+    # are made only in the prime session (from 04:00 PT) and Felix never takes an option
+    # more than dte_max days from the trading day, expiring at 13:00 PT: dte_max days +
+    # 9 hours, plus the hour the clocks go back (2026-10-30 to 11-02: 82 hours at
+    # dte_max 3); 9 hours at dte_max 0. A longer minimum refuses every entry.
+    from footprint.core.config import load_profiles
+    from footprint.decision.pipeline import Pipeline
+
+    config = _profiles_with_gamma(tmp_path, hours, dte_max)
+    with pytest.raises(ConfigError, match=r"gamma: min_hours_to_expiry .* dte_max"):
+        Pipeline(load_profiles(config, "nq.yaml"))
+
+
+@pytest.mark.parametrize(("hours", "dte_max"), [(82, 3), (81.99, 3), (9, 0)])
+def test_a_gamma_minimum_under_the_longest_possible_wait_loads(
+    tmp_path: Path, hours: float, dte_max: int
+) -> None:
+    from footprint.core.config import load_profiles
+    from footprint.decision.pipeline import Pipeline
+
+    config = _profiles_with_gamma(tmp_path, hours, dte_max)
+    profiles = load_profiles(config, "nq.yaml")
+    assert profiles.strategy.gamma.min_hours_to_expiry == Decimal(str(hours))
+    Pipeline(profiles)
+
+
+@pytest.mark.parametrize("section", ["vega", "delta", "gamma"])
+def test_a_missing_greeks_section_is_refused(
+    strategy_path: Path, tmp_path: Path, section: str
+) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    del data[section]
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="missing"):
+        load_strategy(target)
 
 
 def test_the_option_expiry_rules_load(instrument_path: Path) -> None:

@@ -153,6 +153,9 @@ def test_an_approval_cannot_carry_a_vetoed_theta(profiles: Profiles, up_market: 
             approved.entry,
             approved.risk,
             vetoed,
+            approved.vega,
+            approved.delta,
+            approved.gamma,
             pipeline._APPROVAL,
         )
 
@@ -173,6 +176,9 @@ def test_an_approval_cannot_carry_another_plans_theta(
             approved.entry,
             approved.risk,
             other,
+            approved.vega,
+            approved.delta,
+            approved.gamma,
             pipeline._APPROVAL,
         )
 
@@ -192,6 +198,9 @@ def test_an_approval_cannot_carry_a_theta_for_another_size(
             approved.entry,
             approved.risk,
             other,
+            approved.vega,
+            approved.delta,
+            approved.gamma,
             pipeline._APPROVAL,
         )
 
