@@ -890,7 +890,26 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   says why. Not handled further.
 - **BH-11 (cost of a full run; not measured).** The command line loads every bar into
   memory (4.8 million bars for 2010-2024) and decides every prime minute. Neither memory
-  nor run time of a full run is measured; see the smoke runs for minutes per second.
+  nor run time of a full run is measured. Smoke runs (below): about 8,300-9,000
+  decisions in 4,481-4,769 s each, about 2 decisions a second, on a shared 2-core box
+  (two runs, the full gate and the mutation run at once). At that rate a 2010-2024 run
+  (about 3,600 sessions of about 555 prime minutes) would take days; measure on the
+  machine that runs it before the pre-registered run.
+- **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
+  2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
+  (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
+  bars, traded from 2024-07-15: ran to the end, 0 trades, exit 1, same. No P&L is
+  reported (none exists); the full run waits for the pre-registration.
+- **BH-14 (found by the smoke run; for Andre): 2010's overnight data is too thin for the
+  levels reader.** On 14 of the 15 traded 2010 days the levels (and so VWAP side and the
+  confirmer score) were unavailable all session: "overnight session before today: N of
+  780 minutes", N about 450-650, under `data.min_session_coverage_pct` 90 (a minute with
+  no trade has no bar in this data). In 2024 levels were available on every traded day.
+  So with the live strategy rules the early years can make almost no entries, by data
+  density, not by market behaviour. Not changed (a strategy number, and fail closed):
+  Andre to decide, before the pre-registered run, whether history uses another coverage
+  rule (for example counting a quiet minute as covered), starts later, or stays as is.
+  How many years are affected is NOT measured (only this one 2010 window was run).
 - **BH-12 (fail closed, expiries).** The model lists no expiry after calendar_through
   (no holiday known there): near the end fewer expiries, possibly none in 1-3 days, so no
   entry.
