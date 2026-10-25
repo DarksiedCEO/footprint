@@ -250,6 +250,28 @@ def test_a_decision_in_the_step_a_working_entry_ended_uses_a_fresh_anchor(
     assert bt._chain(now) is chain
 
 
+def test_a_chain_published_this_moment_at_the_old_anchor_is_rebuilt(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Round-1 mutation survivors 3 and 6: the bar's open published the full chain at
+    this very moment while an entry was still working (so at the old anchor); the entry
+    ended inside the step. The decision gets a chain re-anchored at the price now."""
+    bars = times(stopped(history), D("0.075"))
+    bt = Backtest(profiles, scaled(settings, REF), bars, workdir(tmp_path), trade_from=TRADE_FROM)
+    old = bars[0].open
+    now = TRADE_FROM
+    bt._level.anchor(old)
+    bt._price = old * D("1.01")
+    stale = bt._model.chain(now, bt._level.model_price(bt._price))  # at the old anchor
+    assert stale.underlying_price != REF
+    bt._published = stale
+    bt._idle = lambda: True  # type: ignore[method-assign]
+    chain = bt._chain(now)
+    assert chain is not stale
+    assert chain.underlying_price == REF
+    assert bt._level.anchored_at(bt._price)
+
+
 def test_an_older_chain_is_never_handed_to_a_decision(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
