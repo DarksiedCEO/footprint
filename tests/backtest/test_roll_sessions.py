@@ -411,3 +411,36 @@ def test_the_readout_names_the_first_and_last_roll(
     assert "2 listed" in line
     assert "first 2026-09-14" in line
     assert f"last {LAST_DAY}" in line
+
+
+def test_a_closed_moment_on_a_blocked_date_is_not_a_roll_session(profiles: Profiles) -> None:
+    """Round-2 mutation survivor (r1 #14): 14:30 PT is between the prime close and the
+    evening open, so no session; its UTC date is the blocked day all the same."""
+    from datetime import UTC, datetime
+
+    console = RollConsole(Go(), frozenset({LAST_DAY}), profiles.instrument)
+    closed = datetime(2026, 9, 15, 21, 30, tzinfo=UTC)  # 14:30 PT on LAST_DAY
+    assert console.evaluate(_inputs(closed)).go
+
+
+def test_bars_ending_in_an_evening_session_end_on_their_local_date(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Round-2 mutation survivor (r2 #6): a last bar at 17:30 PT is already the next
+    date in UTC; the bars' span ends on its local date, so a roll on the UTC date is
+    outside it."""
+    from dataclasses import replace as copy
+    from datetime import UTC, datetime
+
+    b = bars(history)
+    evening = copy(b[-1], ts=datetime(2026, 9, 16, 0, 30, tzinfo=UTC))  # 17:30 PT 09-15
+    sessions = frozenset({LAST_DAY, date(2026, 9, 16)})
+    with pytest.raises(BacktestRefused, match="2026-09-16"):
+        Backtest(
+            profiles,
+            blocking(settings),
+            [*b, evening],
+            workdir(tmp_path),
+            trade_from=TRADE_FROM,
+            roll_sessions=sessions,
+        )
