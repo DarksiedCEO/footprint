@@ -22,17 +22,63 @@ option:                       # UNVERIFIED: the index level is used as the optio
   days_per_year: 365          # calendar days per year for Black-76's time
   rate: 0                     # UNVERIFIED: continuously compounded rate (immaterial for
                               #   options held minutes to hours)
-  reference_price: 20000      # every forward and strike is rescaled to this futures level
+instruments:                  # values that depend on the instrument, keyed by the profile
+                              #   file the run uses (--instrument); a profile not listed
+                              #   here is refused (never a silent fallback to another's)
+  nq.yaml:
+    reference_price: 20000    # every forward and strike is rescaled to this futures level
                               #   so fixed dollar costs mean the same thing in every year;
                               #   null turns the rescaling off
-costs:
-  round_trip_per_contract: 170  # UNVERIFIED: measured NQ overnight round trip (spread,
-                                #   slippage, fees) in dollars per contract
+    round_trip_per_contract: 170  # UNVERIFIED: measured NQ overnight round trip (spread,
+                                  #   slippage, fees) in dollars per contract
+    strike_step: null         # null: backtest.yaml option_model.strike_step
+    vol_index: VXN            # the --vol file must be this Cboe index's history: its file
+                              #   name's first part (before "_" or ".") must be this name
+  es.yaml:                    # noiseband-es-v1 (docs/research/noiseband-es-v1.md)
+    reference_price: 7700     # DEFAULT (draft, Andre NB-2): about the ES level when the
+                              #   pre-registration was signed (2026-10-23)
+    round_trip_per_contract: 45   # PRE-REGISTERED (signed): the judged cost; the signed
+                                  #   sensitivities are run with --cost (NB-3). UNVERIFIED
+    strike_step: 5            # DEFAULT (draft, Andre NB-4): ES option strikes near the
+                              #   money, in index points. UNVERIFIED against CME's listing.
+                              #   No effect on this run: with moneyness 0 the strike is the
+                              #   reference price, a multiple of the step (review L-1)
+    vol_index: VIX            # PRE-REGISTERED (signed): the VIX for ES (review L-4)
 exits:                        # numbers come from risk.yaml (stop_loss, profit_target,
                               #   trail_keep_pct); only the contract counts live here
   booker: {contracts: 1}
   scale_out: {contracts: 2}
+  adr_bracket:                # noiseband-es-v1 N2 (tournament.py vol_stop25_tgt50): futures
+                              #   stop and target at fractions of the rule's average daily
+                              #   range; nothing else (no option-dollar stop or lock)
+    contracts: 1              # PRE-REGISTERED (signed)
+    stop_range_fraction: 0.25     # PRE-REGISTERED (signed): stop this share of the range
+                                  #   against the entry
+    target_range_fraction: 0.5    # PRE-REGISTERED (signed): target this share in favour
 judging:
   time_parts: 3               # trades split by order into this many parts
   min_positive_parts: 2       # ... at least this many must be net positive to pass
-rules: {}                     # per-rule settings, read by each rule (none in the harness)
+  min_t_stat:                 # per rule: the t statistic must also be at least this; a rule
+                              #   not listed has no t bar
+    noise_band: 2.3           # PRE-REGISTERED (signed): two scenarios tested
+rules:                        # per-rule settings, read by each rule
+  london_orb:                 # PRE-REGISTERED (docs/research/london-v1.md); New York time
+    range_start: "03:00"      # range = high/low of the bars opening in [start, end)
+    range_end: "03:15"
+    entry_start: "03:15"      # trigger bars open in [start, end); entry at their close
+    entry_end: "07:00"
+    flat: "08:25"             # hard flat: everything closed at the first bar from here
+    max_trades_per_session: 2
+    green_stop_dollars: [500, 1000]  # grid: no new entry once the session's realized
+                              #   net is at or above the chosen value; both are reported
+  noise_band:                 # PRE-REGISTERED (docs/research/noiseband-es-v1.md); New York
+                              #   time; tournament.py noise_band(1.5, 15), first signal only
+    rth_start: "09:30"        # regular session bars open in [rth_start, rth_end) on weekdays
+    rth_end: "16:00"
+    min_rth_bars: 300         # a day with fewer regular-session bars is skipped (not kept)
+    warmup_days: 14       # sigma and the range average over this many kept days before
+    band_multiple: 1.5        # bands sit this many sigmas beyond the open / previous close
+    first_check_minute: 30    # checked at closes of bars at session minute m >= this ...
+    check_every_minutes: 15   #   ... with (m + 1) a multiple of this
+    flat: "15:55"             # hard flat: everything closed at the first bar from here
+    max_trades_per_session: 1 # first signal of the day only

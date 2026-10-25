@@ -1087,3 +1087,99 @@ For Andre:
   runs. The CLI prints this as a known limit; it cannot check it.
 - **R-2:** costs (170 per contract round trip) and the vol index as implied vol stay
   UNVERIFIED until checked against real quotes.
+
+## London session test (branch london-v1, PR 38; 2026-10-21)
+
+Pre-registered in `docs/research/london-v1.md` (committed before the rule). The rule is
+`research/rules/london_orb.py`, settings in `config/research.yaml` `rules.london_orb`.
+Not run on real data yet.
+
+Changed after hostile review round 1 (a2edcbb, CERTIFIED WITH CONDITIONS):
+- **38-M1 (fixed):** a test with a trigger bar whose high (or low) pokes outside the
+  range but closes inside it: no entry. The reviewer's mutant is in the spec.
+- **38-M2 (fixed):** the report prints the sessions not traded for want of a full
+  03:00-03:15 range, per year, so the sample selection (thin early years) is visible.
+- **38-I1 (documented):** the results state that in the weeks when US and UK clocks
+  change on different dates, the window sits an hour differently against London.
+- PR 37's fixes, including 37-H1 (strike chosen at the reference level), are in this
+  branch, so every L1 dollar figure now goes through the corrected strike.
+
+For Andre:
+- **L-1:** run the 8 pre-registered scenarios only after R-1 (unadjusted bars) is
+  settled; each is judged once.
+
+## Noise-band ES test (branch noiseband-v1; 2026-10-23)
+
+Pre-registered and signed in `docs/research/noiseband-es-v1.md` (implementation notes and
+the ES run commands: `docs/research/noiseband-es-v1-implementation.md`; committed before the
+rule). The rule is `research/rules/noise_band.py`; the N2 exit is the new `adr_bracket`
+kind in `research/exits.py`; the engine gained a next-bar-open entry and a rule
+`prepare(days)` hook. Research only. NOT run on ES data; built and tested on synthetic
+data, signal parity checked on NQ (1437 of 1437 first-signal days agree with
+tournament.py). Not certified: independent review pending.
+
+For Andre:
+- **NB-1 (flat and gaps, harness semantics kept):** flat at the OPEN of the first bar
+  opening at or after 15:55 ET; tournament.py exits at the CLOSE of the 15:55 bar (one
+  minute later). A stop or target the price opens through fills at the open's value
+  (tournament.py: at the level). Both make the harness slightly more conservative; the
+  signals are unaffected.
+- **NB-2 (DEFAULT, draft):** ES reference price 7700 (research.yaml
+  `instruments.es.yaml.reference_price`), about the ES level at signing.
+- **NB-3:** the cost sensitivities 30 and 90 run through the new CLI flag `--cost`; the
+  judged 45 is config. The report says when `--cost` was given.
+- **NB-4 (DEFAULT, draft, UNVERIFIED; corrected after review L-1):** ES strike step 5
+  index points (`instruments.es.yaml.strike_step`). It has NO effect on this run: with
+  moneyness 0 the entry price is rescaled to exactly the reference price (7700), and
+  7700 is a multiple of 5 and of 25 alike, so the strike is 7700 either way (the
+  reviewer checked several entry prices, both directions). The earlier reason given
+  here (25 would put the strike up to 12.5 points from the money) was wrong. The value
+  matters only if moneyness or the reference price changes. Confirm against CME's ES
+  options listing before then.
+- **NB-5 (UNVERIFIED, unused by research):** every es.yaml value other than symbol,
+  exchange, point value (50) and tick (0.25) is copied from nq.yaml so the profile loads.
+  Nothing on the trading path loads es.yaml.
+  Integration (integration-v1, 2026-10-24): theta-v1 (PR 40) made `option_expiry` a
+  required instrument key after this branch was cut; it is copied from nq.yaml into
+  es.yaml under the same rule (UNVERIFIED for ES, unused by research; NQ's class lists
+  refuse every ES option class, so it fails closed if anything ever read it).
+- **NB-6 (inherited, pre-registered):** a day is kept only with at least 300 regular
+  bars, a count known only at the day's end (the source rule's own lookahead). Printed
+  in the report.
+- **NB-7 (config restructure):** the reference price and round trip cost moved from
+  research.yaml `option`/`costs` to `instruments.<profile>`; a profile not listed is
+  refused. NQ's values (20000, 170, backtest strike step) are unchanged.
+- **NB-8:** the t bar is per rule (`judging.min_t_stat`); only noise_band has one (2.3).
+  London's pre-registered verdict is unchanged.
+- **NB-9 (A-18 reviewed entry):** channels.py's E.164 regex `{7,14}` became a forbidden
+  value when the warm-up 14 entered config; listed as REVIEWED (not a trading value).
+- **NB-10 (data, not verified):** the ES file's format and adjustment were not opened or
+  checked by the builder (by design). Like R-1, it must be UNADJUSTED (raw) bars.
+
+Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
+- **M-1 (fixed):** `judging.min_t_stat` names are checked twice. At load, every name
+  must have a section under `rules` (a typo such as `noise_bnad` is refused). At the
+  CLI, every name must be a registered rule, and a rule registered with
+  `t_bar_required` (noise_band) is refused when it has no t bar. The report prints the
+  bar in use ("t bar: 2.3 (judging.min_t_stat.noise_band)" or "none configured").
+- **L-1 (fixed):** NB-4's reason corrected above and in research.yaml.
+- **L-3 (fixed, report only, rule unchanged):** the rule notes list every weekday the
+  keep rule drops whose regular bars still run to the close (last bar opening in the
+  session's last minute), so a mid-day data gap (true lookahead from the bar count) is
+  visible with its date. Announced early closes are not listed.
+- **L-4 (fixed):** `instruments.<profile>.vol_index` names the vol index (nq VXN, es VIX).
+  The CLI refuses a `--vol` file whose name's first part (before the first "_" or ".",
+  case aside) is not that index: `VIX_History.csv` passes for ES, `VXN_History.csv` and
+  `VIX9D_History.csv` are refused. The content cannot tell (same header), so the file
+  name is the check: fail closed. The report prints the index and the file name.
+- **L-2 (no change):** the reviewer's three equivalent mutants are noted in
+  qa/mutation/noiseband-v1-r1.notes.md.
+- **NB-11 (new, fail closed):** a signal whose next bar opens at or after 15:55 (a data
+  gap) is refused and the day is not traded. tournament.py would still enter. The rule
+  notes print the count and the dates. 0 on NQ.
+- **NB-12 (new, fail closed):** a kept day whose last regular bar opens before 15:55 is
+  not traded. tournament.py would trade it and exit at the last regular close; the
+  harness can only flat at a bar from 15:55 on, which may be after the session. Like
+  the keep rule (NB-6), this is known only at the day's end; it only removes trades.
+  The rule notes print the count and the dates. 0 on NQ
+  (qa/research/noiseband-nq-parity.out: NB-11 0, NB-12 0, L-3 0; parity 1437 of 1437).

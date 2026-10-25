@@ -25,6 +25,16 @@ HEADER = ("DATE", "OPEN", "HIGH", "LOW", "CLOSE")
 _DATE_FORMAT = "%m/%d/%Y"
 
 
+def vol_matches(path: Path, index: str) -> bool:
+    """Whether a Cboe history file is that of `index` (research.yaml
+    instruments.<profile>.vol_index): its file name's first part, up to the first "_"
+    or ".", must be the index's name, case aside (Cboe names its files that way). The
+    CSV content cannot tell one index from another (same header), so the name is the
+    check; a file named otherwise is refused, never guessed (review L-4)."""
+    first = path.name.split(".")[0].split("_")[0]
+    return first.upper() == index.upper()
+
+
 @dataclass(frozen=True, slots=True)
 class VolIndex:
     dates: tuple[date, ...]

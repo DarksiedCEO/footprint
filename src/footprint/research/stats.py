@@ -19,7 +19,9 @@ run's drawdown gate takes the worse of the realized curve and the curve marked i
 every trade (here: marked to the model value at every path point, not to a bid).
 Pass also needs at least `min_positive_parts` of the `time_parts` parts with positive
 net, and no ruin: equity must never reach zero or below (the run is not stopped there;
-the verdict fails and the report says at which trade).
+the verdict fails and the report says at which trade). With `min_t_stat` (a rule's
+pre-registered t bar, research.yaml judging.min_t_stat) the whole run's t statistic must
+also be at least that; without a t statistic that check fails.
 """
 
 from __future__ import annotations
@@ -126,7 +128,7 @@ class Verdict:
     checks: tuple[tuple[str, str, bool], ...]  # (gate, "actual vs required", passed)
 
 
-def _at_least(value: float | None, floor: Decimal) -> tuple[str, bool]:
+def _at_least(value: float | None, floor: Decimal | float) -> tuple[str, bool]:
     if value is None:
         return f"n/a vs >= {floor}", False
     return f"{value:.4g} vs >= {floor}", value >= float(floor)
@@ -140,6 +142,7 @@ def judge(
     min_positive_parts: int,
     *,
     marks: Sequence[Sequence[float]] | None = None,
+    min_t_stat: float | None = None,
 ) -> Verdict:
     """`marks`: each trade's marked open profit (see `marked_drawdown`); when given, the
     whole run's drawdown gate uses the worse of the realized and marked curves."""
@@ -196,4 +199,7 @@ def judge(
             positive >= min_positive_parts,
         )
     )
+    if min_t_stat is not None:
+        text, ok = _at_least(whole.t_stat, min_t_stat)
+        checks.append(("t statistic", text, ok))
     return Verdict(all(ok for _, _, ok in checks), tuple(checks))

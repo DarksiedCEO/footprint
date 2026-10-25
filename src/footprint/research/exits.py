@@ -23,6 +23,13 @@ Kinds:
 - `scale_out` (`scale_out_contracts`, more than one): one contract is sold when net
   open profit reaches `first_target_dollars` (risk.profit_target); the rest ride the
   booker's stop and lock. Before the target every contract is on the stop.
+- `adr_bracket` (research.yaml exits.adr_bracket; noiseband-es-v1 N2): a FUTURES stop
+  and target, each a configured fraction of the rule's average daily range from the
+  entry price, and nothing else (no option-dollar stop, no lock). The engine turns the
+  two futures prices into option values at each path point and hands them in as
+  `bracket` (stop value, target value); every open contract is sold at the first one
+  reached. The stop is checked first at every point; with the adverse-first path a
+  bar that reaches both stops out. A rule's own futures stop, if any, still competes.
 
 The caller hands the exit one price point at a time, in the order the minute is assumed
 to trade (research/engine.py: open, then the extreme AGAINST the trade, then the one for
@@ -40,14 +47,16 @@ from dataclasses import dataclass
 
 from footprint.research.settings import ExitSettings
 
-KINDS = ("booker", "scale_out")
+KINDS = ("booker", "scale_out", "adr_bracket")
+BRACKET = "adr_bracket"
 
 
 @dataclass(frozen=True, slots=True)
 class Fill:
     contracts: int
     value: float  # option value (points) the contracts were sold at
-    reason: str  # stop, lock, futures_stop, target, or the caller's flat reason
+    reason: str  # stop, lock, futures_stop, target, range_stop, range_target, or the
+    # caller's flat reason
 
 
 class OptionExit:
@@ -61,9 +70,14 @@ class OptionExit:
         self._ex = ex
         self._pv = point_value
         self._cost = cost
-        self.contracts = ex.booker_contracts if kind == "booker" else ex.scale_out_contracts
+        if kind == BRACKET:
+            if ex.adr_bracket is None:
+                raise ValueError(f"{BRACKET}: no settings for this exit")
+            self.contracts = ex.adr_bracket.contracts
+        else:
+            self.contracts = ex.booker_contracts if kind == "booker" else ex.scale_out_contracts
         self.open = self.contracts
-        self._target_taken = kind == "booker"
+        self._target_taken = kind != "scale_out"
         self._peak_net: float | None = None
         self._fills: list[Fill] = []
 
@@ -82,10 +96,20 @@ class OptionExit:
             return None
         return self._value_at_net(self._peak_net * self._ex.lock_fraction)
 
-    def check(self, value: float, *, gap: bool, futures_level: float | None = None) -> list[Fill]:
-        """Fills caused by the option trading at `value` (in path order)."""
+    def check(
+        self,
+        value: float,
+        *,
+        gap: bool,
+        futures_level: float | None = None,
+        bracket: tuple[float, float] | None = None,
+    ) -> list[Fill]:
+        """Fills caused by the option trading at `value` (in path order). `bracket` is
+        the `adr_bracket` exit's (stop, target) as option values at this point."""
         if self.done:
             return []
+        if self.kind == BRACKET:
+            return self._bracket(value, gap, futures_level, bracket)
         net = self._net(value)
         if self._peak_net is None or net > self._peak_net:
             self._peak_net = net
@@ -115,6 +139,29 @@ class OptionExit:
                 self._fills.append(first)
                 return [first]
         return []
+
+    def _bracket(
+        self,
+        value: float,
+        gap: bool,
+        futures_level: float | None,
+        bracket: tuple[float, float] | None,
+    ) -> list[Fill]:
+        if bracket is None:
+            raise ValueError(f"{BRACKET}: the exit needs its bracket levels at every point")
+        stop, target = bracket
+        level, reason = stop, "range_stop"
+        if futures_level is not None and futures_level > level:
+            level, reason = futures_level, "futures_stop"
+        if value <= level:
+            fill = Fill(self.open, value if gap else level, reason)
+        elif value >= target:
+            fill = Fill(self.open, value if gap else target, "range_target")
+        else:
+            return []
+        self.open = 0
+        self._fills.append(fill)
+        return [fill]
 
     def marked(self, value: float) -> float:
         """Open profit in net dollars if the option is worth `value` now: the contracts
