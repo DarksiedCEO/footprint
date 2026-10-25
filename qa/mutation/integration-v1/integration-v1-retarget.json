@@ -1,0 +1,17 @@
+{
+  "groups": {
+    "pipeline": [
+      "tests/decision/test_pipeline_play.py",
+      "tests/decision/test_console_pipeline.py"
+    ]
+  },
+  "mutants": [
+    [
+      "pipeline",
+      "src/footprint/decision/pipeline.py",
+      "                gamma=found.get(\"gamma\"),\n                play=play,\n            )",
+      "                gamma=found.get(\"gamma\"),\n                play=None,\n            )",
+      "decision does not carry the play (playcaller-wire-v1 #40, re-targeted: after merging #43 the play is passed by keyword)"
+    ]
+  ]
+}

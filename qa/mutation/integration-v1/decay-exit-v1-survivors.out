@@ -1,0 +1,10 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [exit]: passed
+baseline [malik]: passed
+baseline [wiring]: passed
+  1 KILLED   [exit] src/footprint/agents/theta.py: valued at the chain's time, not now
+  2 KILLED   [malik] src/footprint/execution/management/malik.py: contracts not passed
+  3 KILLED   [malik] src/footprint/execution/management/malik.py: note kept after use
+  4 KILLED   [malik] src/footprint/execution/management/malik.py: note written for another reason's exit
+  5 KILLED   [wiring] src/footprint/backtest/engine.py: backtest with a named exit rule loses the decay exit
+5 mutants, 0 survived or errored

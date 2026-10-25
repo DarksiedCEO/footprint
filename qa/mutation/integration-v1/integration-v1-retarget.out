@@ -1,0 +1,4 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [pipeline]: passed
+  1 KILLED   [pipeline] src/footprint/decision/pipeline.py: decision does not carry the play (playcaller-wire-v1 #40, re-targeted: after merging #43 the play is passed by keyword)
+1 mutants, 0 survived or errored

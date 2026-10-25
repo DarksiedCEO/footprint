@@ -1,0 +1,67 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [agents]: passed
+baseline [config]: passed
+baseline [journal]: passed
+baseline [pipeline]: passed
+  1 KILLED   [agents] src/footprint/agents/greeks.py: American class valued
+  2 KILLED   [agents] src/footprint/agents/greeks.py: unknown class valued
+  3 KILLED   [agents] src/footprint/agents/greeks.py: option at its expiry moment valued
+  4 KILLED   [agents] src/footprint/agents/greeks.py: expired option valued
+  5 KILLED   [agents] src/footprint/agents/greeks.py: wrong year length
+  6 KILLED   [agents] src/footprint/agents/greeks.py: years off
+  7 KILLED   [agents] src/footprint/agents/greeks.py: put valued as call
+  8 KILLED   [agents] src/footprint/agents/greeks.py: forward is the strike
+  9 KILLED   [agents] src/footprint/agents/greeks.py: rate ignored in the solve
+ 10 KILLED   [agents] src/footprint/agents/greeks.py: rate ignored in greeks
+ 11 KILLED   [agents] src/footprint/agents/greeks.py: ask, not mid
+ 12 KILLED   [agents] src/footprint/agents/greeks.py: band low widened
+ 13 KILLED   [agents] src/footprint/agents/greeks.py: band high widened
+ 14 KILLED   [agents] src/footprint/agents/greeks.py: bad input raises
+ 15 KILLED   [agents] src/footprint/agents/greeks.py: non-UTC accepted
+ 16 KILLED   [agents] src/footprint/agents/greeks.py: before-valuing veto ignored
+ 17 KILLED   [agents] src/footprint/agents/greeks.py: vega refusal wording skipped
+ 18 KILLED   [agents] src/footprint/agents/greeks.py: contracts not carried
+ 19 KILLED   [agents] src/footprint/agents/greeks.py: delta sign flipped in record
+ 20 KILLED   [agents] src/footprint/agents/greeks.py: gamma recorded wrong
+ 21 KILLED   [agents] src/footprint/agents/greeks.py: vega recorded wrong
+ 22 KILLED   [agents] src/footprint/agents/greeks.py: vol not recorded
+ 23 KILLED   [agents] src/footprint/agents/greeks.py: years not recorded
+ 24 KILLED   [agents] src/footprint/agents/greeks.py: vega names the wrong bound
+ 25 KILLED   [agents] src/footprint/agents/greeks.py: vega wording never used
+ 26 KILLED   [agents] src/footprint/agents/greeks.py: vega veto drops expiry
+ 27 KILLED   [agents] src/footprint/agents/greeks.py: vega always vetoes
+ 28 KILLED   [agents] src/footprint/agents/greeks.py: min edge excluded
+ 29 KILLED   [agents] src/footprint/agents/greeks.py: max edge excluded
+ 30 KILLED   [agents] src/footprint/agents/greeks.py: signed delta compared
+ 31 KILLED   [agents] src/footprint/agents/greeks.py: no minimum
+ 32 KILLED   [agents] src/footprint/agents/greeks.py: no maximum
+ 33 KILLED   [agents] src/footprint/agents/greeks.py: delta never vetoes
+ 34 KILLED   [agents] src/footprint/agents/greeks.py: exact minimum vetoed
+ 35 KILLED   [agents] src/footprint/agents/greeks.py: gamma never vetoes
+ 36 KILLED   [agents] src/footprint/agents/greeks.py: minutes, not hours
+ 37 KILLED   [agents] src/footprint/agents/greeks.py: fractional hours truncated
+ 38 KILLED   [agents] src/footprint/agents/greeks.py: gamma veto drops years
+ 39 KILLED   [agents] src/footprint/agents/greeks.py: gamma reason loses hours
+ 40 KILLED   [pipeline] src/footprint/decision/pipeline.py: misplaced check accepted
+ 41 KILLED   [pipeline] src/footprint/decision/pipeline.py: vetoed greek approved
+ 42 KILLED   [pipeline] src/footprint/decision/pipeline.py: contract mismatch accepted
+ 43 KILLED   [pipeline] src/footprint/decision/pipeline.py: size mismatch accepted
+ 44 KILLED   [pipeline] src/footprint/decision/pipeline.py: gamma slot unchecked
+ 45 KILLED   [pipeline] src/footprint/decision/pipeline.py: greek veto not a reason
+ 46 KILLED   [pipeline] src/footprint/decision/pipeline.py: gamma veto not a reason
+ 47 KILLED   [pipeline] src/footprint/decision/pipeline.py: greek veto ignored in decide
+ 48 KILLED   [pipeline] src/footprint/decision/pipeline.py: delta agent dropped
+ 49 KILLED   [pipeline] src/footprint/decision/pipeline.py: order swapped
+ 50 KILLED   [pipeline] src/footprint/decision/pipeline.py: wrong forward
+ 51 KILLED   [pipeline] src/footprint/decision/pipeline.py: gamma not on the decision
+ 52 KILLED   [pipeline] src/footprint/decision/pipeline.py: veto checks dropped from record
+ 53 KILLED   [pipeline] src/footprint/decision/pipeline.py: checks dropped on risk veto
+ 54 KILLED   [journal] src/footprint/execution/journal/josephine.py: journal drops gamma
+ 55 KILLED   [config] src/footprint/core/config.py: equal vega band accepted
+ 56 KILLED   [config] src/footprint/core/config.py: vega min below theta accepted
+ 57 KILLED   [config] src/footprint/core/config.py: vega max above theta accepted
+ 58 KILLED   [config] src/footprint/core/config.py: theta edges refused
+ 59 KILLED   [config] src/footprint/core/config.py: equal delta band accepted
+ 60 KILLED   [config] src/footprint/core/config.py: delta max 1 refused
+ 61 KILLED   [config] src/footprint/core/config.py: delta above 1 accepted
+61 mutants, 0 survived or errored
