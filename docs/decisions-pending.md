@@ -622,9 +622,19 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
       underlying of 24,012.50, so a narrower range than the review's): Friday 40 of 40 are
       3-day options costing $5,372.50-$5,617.50 and **all 40 fit at $6,000**;
       Monday-Thursday 180 of 180 are 1-day options ($3,212.50-$3,557.50), all fit. The
-      review's highest Friday cost ($5,702) leaves about $298 of room under $6,000. On the
-      live estimates below (2-3 day options roughly $5,000-$7,500), **some real Friday
-      entries would still be refused at $6,000**; the real-data backtest will show how many.
+      review's highest Friday cost ($5,702) leaves about $298 of room under $6,000.
+    - **Backtest vs live gap on Fridays (review round 3, R3-1).** On the live-quote
+      estimates below, a Friday 3-day at-the-money option costs more than $6,000 (about
+      $6,430-$7,440 at exactly 3 days, and a Friday prime-session option has 3.04-3.375
+      days left, so more), so at current implied volatility **most or all live Friday
+      entries would be refused at $6,000**. The backtest takes them only because its option
+      model (`atm_premium_points` 150 per root-day, UNVERIFIED) is cheaper: at 158 every
+      modelled Friday entry still fits (max $5,962.50), at 160 it starts refusing them (8 of
+      120), at 165 52 of 120. Live quotes imply 184-214 points per root-day. The real-data
+      backtest cannot settle this (it uses real futures bars but still models option
+      prices); only paper trading on real quotes (or recorded chains, once they carry the
+      trading class, TC-1) will. Until then, read backtest Friday trades as possibly not
+      available live.
     - **Results from the backtest engine (`footprint.backtest`) on the default config
       before CAP-1, such as the Bollinger results, excluded all Fridays and are not
       comparable with engine runs after CAP-1.** Treat them as "Fridays excluded
