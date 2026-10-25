@@ -41,3 +41,14 @@ R10 (`cap > bankroll` -> `>=`, a pre-existing gap the reviewer found) is now kil
 
 32 mutants: 29 killed, 3 survived: R1, R3 and R7, each argued equivalent or
 by-design above. #24 is now killed. Evidence: qa/mutation/cap10k-v1-r1.out.
+
+## Round-2 spec, cap 6000 after M2 (b) (source b475202, clean tree)
+
+qa/mutation/cap10k-v1-r2.json is the round-1 spec moved to the 6000 boundaries, plus 6
+new cap mutants (#33-#38: one $5 step above and below, the superseded 10000 in three
+groups, and 5600 between the modelled Friday cost and 6000).
+
+38 mutants: 35 killed, 3 survived: R1, R3 and R7, with the same arguments as above.
+R1 is now `position_cap: 5998`: every cap in [5,997.50, 6,002.50) admits and refuses
+the same contracts, and #33/#34 (6005/5995, one step either side) are killed. Evidence:
+qa/mutation/cap10k-v1-r2.out.
