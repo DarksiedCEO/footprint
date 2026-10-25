@@ -1050,3 +1050,40 @@ Built on playcaller-v1 (PR 39, cherry-picked) and trading-class-v1 (PR 41). Code
   (small lookbacks) on the scenario: the day is labelled trend and the breakout trades.
 - Not done: a chop play; persisting the day's label across a restart (PC-6); verifying the
   95-day history load against IBKR's pacing (paper checklist).
+
+## Research harness (branch research-v1, PR 37; 2026-10-21)
+
+Research only: nothing on the trading path imports `footprint.research` (AST test), and
+it does not import `footprint.backtest` (the rules-seam guard). Settings in
+`config/research.yaml`; the exits read `risk.yaml`, the gates `backtest.yaml`.
+
+Changed after hostile review round 1 (24be374, NOT CERTIFIED):
+- **37-H1 (fixed):** the strike is now chosen and rounded at the reference price level,
+  after rescaling. Before, it was rounded at the data's own level and the rounding error
+  was magnified by the scale (up to about 125 points of moneyness at 2010 levels). Tests:
+  the same percentage path at several levels, rounding on, gives equal dollars (the
+  reviewer's 0.1x / 0.1003x / 0.1006x case included); moneyness at the reference level is
+  within half a strike step.
+- **37-M1 (fixed):** an engine test pins that the session day's vol (the close dated
+  before it) prices the trade.
+- **37-M2 (fixed):** a report test pins that the verdict reads trades in order.
+- **37-M3 (fixed):** each trade now records its open profit at every path point; the
+  whole run's drawdown gate takes the worse of the realized curve and that marked curve,
+  as the backtest readout does. Difference kept: research marks to the model mid, the
+  backtest to the bid.
+- **37-L1 (fixed):** the green-stop input is pinned with three trades in a day.
+- **37-L2 (fixed):** a "not ruined" gate fails the verdict when equity reaches zero or
+  below, and the report prints the trade. The run itself is not stopped there.
+- **37-L3 (fixed):** a futures stop at the entry price is refused (test).
+- **37-L4 (documented):** research judges the stop and lock on the model mid, net of the
+  whole modelled round trip (170). Live judges the stop on the bid and its lock net of
+  fees only. In `research/exits.py` and in every report.
+
+For Andre:
+- **R-1 (data, blocking any result):** the harness needs UNADJUSTED bars (raw contract
+  prices; ratio-adjusted is also acceptable). It rescales by the entry price, so a
+  difference (Panama) back-adjusted series distorts every number. The project's
+  `build_continuous.py` has a `raw` mode that writes unadjusted prices; use it for these
+  runs. The CLI prints this as a known limit; it cannot check it.
+- **R-2:** costs (170 per contract round trip) and the vol index as implied vol stay
+  UNVERIFIED until checked against real quotes.

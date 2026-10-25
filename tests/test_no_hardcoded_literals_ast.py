@@ -250,6 +250,17 @@ REVIEWED: dict[str, dict[str, int]] = {
     "footprint/agents/contract_picker.py": {
         "code 2": 1,
     },
+    # 365 (integration of #37 with #40/#43): config/research.yaml lists days_per_year: 365
+    # (research's own Black-76 time unit), which made every 365 in src/ forbidden. In the
+    # trading path 365 is the length of a calendar year: B76-1 (Andre, 2026-10-22) fixes
+    # time as CALENDAR time, and `_YEAR = timedelta(days=365)` converts a span to years
+    # for Black-76 (theta.py, greeks.py, model_check.py; plus one docstring each in
+    # theta.py and greeks.py saying so). A unit conversion, not an instrument, money or
+    # strategy value; research keeps its own setting and the trading path never reads it.
+    "footprint/agents/greeks.py": {
+        "code 365": 1,
+        "text 365": 1,
+    },
     "footprint/agents/levels.py": {
         "code -2": 2,
         "code 3": 1,
@@ -261,6 +272,10 @@ REVIEWED: dict[str, dict[str, int]] = {
     },
     "footprint/agents/range_reader.py": {
         "code -2": 4,
+    },
+    "footprint/agents/theta.py": {
+        "code 365": 1,
+        "text 365": 1,
     },
     "footprint/agents/trend_reader.py": {
         "code -2": 4,
@@ -276,6 +291,9 @@ REVIEWED: dict[str, dict[str, int]] = {
     "footprint/backtest/engine.py": {
         "code 2": 1,
         "text 2": 1,
+    },
+    "footprint/backtest/model_check.py": {
+        "code 365": 1,
     },
     "footprint/backtest/options_model.py": {
         "code 2": 1,
