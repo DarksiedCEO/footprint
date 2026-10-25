@@ -1,0 +1,13 @@
+{
+ "groups": {
+  "config": ["tests/test_config.py"],
+  "sizing": ["tests/agents/test_contract_sizing_stop.py"]
+ },
+ "mutants": [
+  ["config", "config/risk.yaml", "position_cap: 10000 ", "position_cap: 5000 ", "the old cap restored"],
+  ["sizing", "config/risk.yaml", "position_cap: 10000 ", "position_cap: 9997 ", "cap just under the 9,997.50 boundary"],
+  ["sizing", "config/risk.yaml", "position_cap: 10000 ", "position_cap: 10003 ", "cap just over the 10,002.50 boundary"],
+  ["sizing", "src/footprint/decision/sizing.py", "    cap = risk.position_cap\n", "    cap = risk.overnight_position_cap\n", "Ezra sizes against the wrong cap"],
+  ["config", "src/footprint/core/config.py", "    if profile.overnight_position_cap > profile.position_cap:", "    if profile.overnight_position_cap > profile.bankroll:", "overnight cap checked against the bankroll, not the day cap"]
+ ]
+}

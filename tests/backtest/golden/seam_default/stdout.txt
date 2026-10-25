@@ -64,6 +64,7 @@ Drawdown marked to the bid: 3.08% (770.00). Worst open loss in any trade: -770.0
 - risk.profit_target: 1000
 - risk.trail_keep_pct: 50
 - risk.stop_loss: 750
+- risk.position_cap: 6000
 - theta.decay_exit.enabled: false
 - theta.decay_exit.window_minutes: 30
 - theta.decay_exit.max_pct_of_open_profit: 50

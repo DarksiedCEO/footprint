@@ -103,3 +103,26 @@ def test_the_exit_numbers_follow_the_fees_line_in_the_readout(tmp_path: Path) ->
     keys = list(json.loads((out / "readout.json").read_text())["assumptions"])
     at = keys.index("fees per contract per side")
     assert keys[at + 1 : at + 4] == list(_KEYS)
+
+
+def test_the_readout_records_the_position_cap_after_the_exit_numbers(tmp_path: Path) -> None:
+    """CAP-1 review L1: the cap decides whether Friday entries trade, so every readout
+    names the cap it ran with, from the config the run loaded."""
+    config = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", config)
+    risk = config / "risk.yaml"
+    shipped = load_profiles(REPO_ROOT / "config", "nq.yaml").risk
+    moved = str(shipped.position_cap - 1)  # inside its validated range
+    risk.write_text(
+        _replace_number(risk.read_text(encoding="utf-8"), "position_cap", moved),
+        encoding="utf-8",
+    )
+    for out, cap in (
+        (_run(tmp_path, REPO_ROOT / "config"), str(shipped.position_cap)),
+        (_run(tmp_path, config, "--exit", sorted(EXIT_RULES)[0]), moved),
+    ):
+        assumptions = json.loads((out / "readout.json").read_text())["assumptions"]
+        assert assumptions["risk.position_cap"] == cap
+        assert f"\n- risk.position_cap: {cap}\n" in (out / "readout.md").read_text()
+        keys = list(assumptions)
+        assert keys[keys.index("risk.stop_loss") + 1] == "risk.position_cap"

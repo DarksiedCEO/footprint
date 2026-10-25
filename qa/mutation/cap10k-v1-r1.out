@@ -1,0 +1,40 @@
+source: 1e70c695b835daf9aa83a825afa27f6294126d4e tree-dirty: 0 files
+baseline [config]: passed
+baseline [fridays]: passed
+baseline [l3]: passed
+baseline [readout]: passed
+baseline [risk]: passed
+baseline [sizing]: passed
+  1 SURVIVED [sizing] config/risk.yaml: R1 cap inside the 5-dollar step (reviewer: equivalent at test resolution; see notes)
+  2 KILLED   [sizing] config/risk.yaml: R2 cap far above
+  3 SURVIVED [risk] config/risk.yaml: R3 cap far above, risk/decision tests only (reviewer: survives by design; see notes)
+  4 KILLED   [risk] src/footprint/decision/risk/gate.py: R4 gate: at-cap refused
+  5 KILLED   [risk] src/footprint/decision/risk/gate.py: R5 gate: prime cap is the bankroll
+  6 KILLED   [sizing] src/footprint/decision/sizing.py: R6 cap judged at the floor, not the worst fill
+  7 SURVIVED [sizing] src/footprint/decision/sizing.py: R7 true division (reviewer: equivalent for positive values; see notes)
+  8 KILLED   [sizing] src/footprint/decision/sizing.py: R8 Ezra sizes against the bankroll
+  9 KILLED   [config] src/footprint/core/config.py: R9 cap allowed above the bankroll
+ 10 KILLED   [config] src/footprint/core/config.py: R10 cap equal to the bankroll refused (new test)
+ 11 KILLED   [config] config/risk.yaml: cap at the bankroll
+ 12 KILLED   [sizing] src/footprint/decision/sizing.py: entry fee subtracted from the cost
+ 13 KILLED   [l3] src/footprint/decision/sizing.py: L3 hard stop at stop_max
+ 14 KILLED   [l3] src/footprint/decision/stop.py: L3 resting limit one tick narrower
+ 15 KILLED   [l3] src/footprint/decision/stop.py: L3 resting limit one tick wider
+ 16 KILLED   [l3] src/footprint/decision/stop.py: L3 trail arms only past the target
+ 17 KILLED   [l3] src/footprint/decision/stop.py: L3 trail arms on gross, not net
+ 18 KILLED   [l3] src/footprint/decision/stop.py: L3 trail keeps one tick less
+ 19 KILLED   [l3] src/footprint/decision/stop.py: L3 trail forgets the fees
+ 20 KILLED   [sizing] src/footprint/decision/stop.py: trail target rounded down
+ 21 KILLED   [sizing] src/footprint/decision/sizing.py: hard stop rounded toward a bigger loss
+ 22 KILLED   [fridays] config/risk.yaml: M1 old cap: Friday refused at the shipped cap
+ 23 KILLED   [fridays] config/risk.yaml: M1 cap just under the modelled Friday cost
+ 24 KILLED   [fridays] src/footprint/agents/contract_picker.py: M1 Felix takes the farthest expiry
+ 25 KILLED   [fridays] src/footprint/agents/contract_picker.py: M1 Felix only ever takes 1-day options
+ 26 KILLED   [fridays] src/footprint/decision/sizing.py: M1 a contract over the cap is not refused
+ 27 KILLED   [fridays] src/footprint/decision/sizing.py: M1 Ezra sizes against the bankroll
+ 28 KILLED   [readout] src/footprint/backtest/__main__.py: L1 readout prints the bankroll as the cap
+ 29 KILLED   [readout] src/footprint/backtest/__main__.py: L1 readout prints the overnight cap
+ 30 KILLED   [readout] src/footprint/backtest/__main__.py: L1 cap line dropped
+ 31 KILLED   [readout] src/footprint/backtest/__main__.py: L1 cap line renamed
+ 32 KILLED   [readout] src/footprint/backtest/__main__.py: L1 cap printed with trailing text
+32 mutants, 3 survived or errored

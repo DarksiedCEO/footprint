@@ -114,4 +114,7 @@ def test_the_decay_exit_lines_follow_the_exit_numbers(tmp_path: Path) -> None:
     out, _ = _run(tmp_path, REPO_ROOT / "config")
     keys = list(json.loads((out / "readout.json").read_text())["assumptions"])
     at = keys.index("risk.stop_loss")
-    assert keys[at + 1 : at + 4] == list(_KEYS)
+    # Integration (cap10k-v1, #45): risk.position_cap sits right after the exit numbers
+    # (its own test pins that); the decay-exit lines follow it, in this order.
+    assert keys[at + 1] == "risk.position_cap"
+    assert keys[at + 2 : at + 5] == list(_KEYS)

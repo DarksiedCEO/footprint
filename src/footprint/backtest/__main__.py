@@ -101,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         "risk.profit_target": str(profiles.risk.profit_target),
         "risk.trail_keep_pct": str(profiles.risk.trail_keep_pct),
         "risk.stop_loss": str(profiles.risk.stop_loss),
+        # The cap decides which entries Ezra can afford (CAP-1 review L1).
+        "risk.position_cap": str(profiles.risk.position_cap),
         # Theta's decay exit (DX-1) runs in every backtest it is enabled for, named exit
         # rule or not: research runs name it so they can be compared (review M1).
         "theta.decay_exit.enabled": "true" if decay_exit.enabled else "false",
