@@ -1,0 +1,15 @@
+source: 5ea708301d5a04042ca2ef1749c9b9c33bafea56 tree-dirty: 0 files
+baseline [guards]: passed
+  1 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: a list outside the bars accepted
+  2 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: a roll on the first bar's day refused
+  3 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: a roll on the last bar's day refused
+  4 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: a roll before the bars accepted
+  5 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: a roll after the bars accepted
+  6 KILLED   [guards] src/footprint/backtest/engine.py: R2-3: the last day in UTC
+  7 KILLED   [guards] src/footprint/backtest/rolls.py: R2-4: a closed roll day not moved
+  8 KILLED   [guards] src/footprint/backtest/rolls.py: R2-4: a no-trade day kept
+  9 SURVIVED [guards] src/footprint/backtest/rolls.py: R2-4: the search runs past the calendar
+ 10 KILLED   [guards] src/footprint/backtest/rolls.py: R2-4: the roll day blocked, not the moved one
+ 11 KILLED   [guards] src/footprint/backtest/rolls.py: R2-4: the roll session not named
+ 12 KILLED   [guards] src/footprint/backtest/__main__.py: R2-3: first and last not printed
+12 mutants, 1 survived or errored
