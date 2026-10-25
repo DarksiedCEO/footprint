@@ -137,6 +137,17 @@ class Backtest:
         workdir.mkdir(parents=True, exist_ok=True)
         if any(workdir.iterdir()):
             raise FileExistsError(f"{workdir} is not empty: every backtest starts fresh")
+        if blocked:  # review R2-3: a roll list must belong to these bars
+            prime = profiles.instrument.prime_session
+            first = local_minute(self._bars[0].ts, prime)[0]
+            last = local_minute(self._bars[-1].ts, prime)[0]
+            outside = sorted(d for d in blocked if not first <= d <= last)
+            if outside:
+                raise BacktestRefused(
+                    f"refused: roll session {outside[0]} is outside the bars ({first} to "
+                    f"{last}): the roll list is for other data, or for a longer span; give "
+                    "the rolls of these bars only"
+                )
         self._starts = [bar.ts for bar in self._bars]
         self._first = 0 if trade_from is None else bisect_left(self._starts, trade_from)
         if self._first >= len(self._bars):

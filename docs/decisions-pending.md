@@ -907,10 +907,24 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   in backtest.yaml.** No new entry on the trading day whose session is the first on a new
   contract (a failed `roll_session` console gate, journalled); a run must name those
   sessions (`--rolls FILE`: a CSV, `session` header, one date per line; or `--rolls none`)
-  or it is refused (exit 2). The roll file for nq_raw.csv (58 sessions, from the
-  Databento source by the builder's own rule) is
-  /tmp/claude-0/-home-claude/f2cf3b17-ea24-5ac3-a7fa-41e6238c74a7/scratchpad/bh/nq_raw_rolls.csv
-  (script: .../scratchpad/bh/rolls.py). It costs about four trading days a year.
+  or it is refused (exit 2). The roll file for nq_raw.csv is in the repo (review round
+  2, R2-1): `data/rolls/nq_raw_rolls.csv`, 58 sessions 2010-06-11 .. 2024-09-16, built by
+  `scripts/build_rolls.py` (the history builder's own rule; tests/test_build_rolls.py
+  pins the rule and the file's hash). Provenance (sha256):
+  - `data/rolls/nq_raw_rolls.csv`: e6d86612552b0fd755e0196ac79d309b408ed36bede0aa24fa16702c8675c116
+  - the bars, /home/claude/data/nq/nq_raw.csv: 0e597f0365fee644ab14158e2e34b1e00ff5246b127a581c0c99f1f9b7d4eb72
+  - the Databento source, /home/claude/data/nq/nq.csv.zst: 5ce4da84e18db2b0cc6d5b9f2b5d0bba3743ff96f684d5d8e7892e7a4732079c
+    (decompressed, nq.csv: 78582eba1fd072ab43b0e6ff2394fb68b4388e5bb2ef731fc6c63a72199d2fae;
+    the script reads the decompressed file and reproduced the committed file byte for
+    byte on 2026-10-25)
+  The reviewer independently matched every bar of nq_raw.csv to its contract in the
+  source: the same 58 switches, each at a session open. Two guards (review round 2):
+  a listed roll session outside the bars' span (the first to the last bar's local date)
+  is refused (R2-3: a list for other data, or for a longer span; a run on a window of
+  the history therefore needs the file cut to that window), and a roll session on a
+  day Footprint does not trade blocks the next tradable day instead (R2-4; none of the
+  58 does). The readout names the count, the file, and the first and last roll. It
+  costs about four trading days a year.
   **Alternative for Andre (not built):** back-adjust the look-back across the splice
   (shift every bar before the roll by the splice difference when a decision's window
   spans it), which keeps the roll days tradable. Andre decides before the pre-registered

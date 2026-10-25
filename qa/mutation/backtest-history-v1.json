@@ -350,9 +350,9 @@
   [
    "level",
    "src/footprint/backtest/price_level.py",
-   "    if console is None:\n        s, inst",
-   "    if False:\n        s, inst",
-   "no live console built"
+   "    return LevelConsole(live_console(profiles) if console is None else console, level)",
+   "    return LevelConsole(console, level)",
+   "no live console built (re-targeted, review R2-2)"
   ],
   [
    "engine",
@@ -385,9 +385,9 @@
   [
    "engine",
    "src/footprint/backtest/engine.py",
-   "        console = level_console(console, p, self._level)\n",
-   "",
-   "console never converts N"
+   "        console = roll_console(level_console(console, p, self._level), p, blocked)",
+   "        console = roll_console(console, p, blocked)",
+   "console never converts N (re-targeted, review R2-2)"
   ],
   [
    "engine",

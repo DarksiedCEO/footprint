@@ -158,7 +158,12 @@ def _rolls(block: bool, source: str | None, sessions: frozenset[date] | None) ->
     """BH-9: say which roll sessions were kept free of new entries (nothing when off)."""
     if not block or sessions is None:
         return {}
-    listed = "none declared" if source == ROLLS_NONE else f"{len(sessions)} listed ({source})"
+    if source == ROLLS_NONE:
+        listed = "none declared"
+    elif sessions:
+        listed = f"{len(sessions)} listed ({source}), first {min(sessions)}, last {max(sessions)}"
+    else:
+        listed = f"0 listed ({source})"
     return {"roll sessions": f"no new entry on the first session on a new contract: {listed}"}
 
 

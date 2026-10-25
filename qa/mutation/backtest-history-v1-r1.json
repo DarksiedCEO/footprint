@@ -78,16 +78,16 @@
   [
    "rolls",
    "src/footprint/backtest/rolls.py",
-   "        if day is None or day not in self._sessions:\n            return verdict",
+   "        if day is None or day not in self._blocked:\n            return verdict",
    "        if True:\n            return verdict",
-   "the gate never added"
+   "the gate never added (re-targeted, review round 2)"
   ],
   [
    "rolls",
    "src/footprint/backtest/rolls.py",
-   "        if day is None or day not in self._sessions:\n            return verdict",
+   "        if day is None or day not in self._blocked:\n            return verdict",
    "        if day is None:\n            return verdict",
-   "every session blocked"
+   "every session blocked (re-targeted, review round 2)"
   ],
   [
    "rolls",
@@ -204,9 +204,9 @@
   [
    "rolls",
    "src/footprint/backtest/__main__.py",
-   "    listed = \"none declared\" if source == ROLLS_NONE else f\"{len(sessions)} listed ({source})\"",
-   "    listed = f\"{len(sessions)} listed ({source})\"",
-   "none not said"
+   "    if source == ROLLS_NONE:\n        listed = \"none declared\"",
+   "    if False:\n        listed = \"none declared\"",
+   "none not said (re-targeted, review round 2)"
   ],
   [
    "rolls",

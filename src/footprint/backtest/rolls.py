@@ -8,7 +8,9 @@ by that jump, enough to flip the levels room. With `rolls.block_first_session` t
 new entry on the trading day whose session is the first on a new contract (an
 overnight session belongs to the trading day it leads into): RollConsole adds a failed
 gate there, journalled like any other. Positions are never held across the roll
-itself (v1 is flat before the prime close and does not trade overnight).
+itself (v1 is flat before the prime close and does not trade overnight). A roll session
+on a day Footprint does not trade (a holiday, a no-trade day) blocks the next tradable
+day instead: its prior-day levels are the old contract's (review R2-4).
 
 Which sessions those are is a fact of the data, not of the instrument: the run is
 given them (`--rolls FILE`, a CSV with a `session` header and one date per line, in
@@ -21,11 +23,11 @@ from __future__ import annotations
 import calendar
 import csv
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from footprint.backtest.price_level import live_console
-from footprint.core.calendar import trading_day_at
+from footprint.core.calendar import is_tradable_day, trading_day_at
 from footprint.core.config import InstrumentProfile, Profiles
 from footprint.decision.console.desmond import ConsoleInputs, ConsoleVerdict, Gate
 from footprint.decision.pipeline import Gatekeeper
@@ -66,27 +68,50 @@ def load_roll_sessions(source: str) -> frozenset[date]:
     return frozenset(found)
 
 
+def blocked_days(sessions: frozenset[date], instrument: InstrumentProfile) -> dict[date, date]:
+    """Each roll session's blocked day (the first tradable day on or after it), mapped to
+    the roll session it stands for. A roll with no tradable day after it inside the
+    calendar is refused."""
+    found: dict[date, date] = {}
+    for session in sorted(sessions):
+        day = session
+        while not is_tradable_day(day, instrument):
+            day += timedelta(days=1)
+            if day > instrument.calendar_through:
+                raise ValueError(
+                    f"rolls: no tradable day on or after the roll session {session} inside "
+                    f"the calendar (calendar_through {instrument.calendar_through})"
+                )
+        found[day] = session
+    return found
+
+
 class RollConsole:
-    """The wrapped console's verdict, with a failed `roll_session` gate added on a roll
-    session's trading day."""
+    """The wrapped console's verdict, with a failed `roll_session` gate added on each
+    roll session's blocked day."""
 
     def __init__(
         self, inner: Gatekeeper, sessions: frozenset[date], instrument: InstrumentProfile
     ) -> None:
         self.inner = inner
-        self._sessions = sessions
+        self._blocked = blocked_days(sessions, instrument)
         self._instrument = instrument
+
+    @property
+    def days(self) -> frozenset[date]:
+        """The trading days with no new entry."""
+        return frozenset(self._blocked)
 
     def evaluate(self, inputs: ConsoleInputs) -> ConsoleVerdict:
         verdict = self.inner.evaluate(inputs)
         day = trading_day_at(inputs.as_of, self._instrument)
-        if day is None or day not in self._sessions:
+        if day is None or day not in self._blocked:
             return verdict
         gate = Gate(
             "roll_session",
             False,
-            f"{day} is the first session on a new contract: the look-back spans the "
-            "contract roll (BH-9)",
+            f"{day} is the first tradable session on a new contract (roll session "
+            f"{self._blocked[day]}): the look-back spans the contract roll (BH-9)",
         )
         return replace(verdict, gates=(*verdict.gates, gate))
 

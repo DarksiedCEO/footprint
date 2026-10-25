@@ -306,3 +306,108 @@ def test_with_blocking_off_the_readout_says_nothing_of_rolls(
     readout = json.loads((out / "readout.json").read_text())
     assert readout["whole"]["trades"] == 1  # not blocked
     assert "roll sessions" not in readout["assumptions"]
+
+
+# --- review round 2: R2-3 (the list must fit the bars), R2-4 (a roll on a closed day) ------
+
+
+@pytest.mark.parametrize(
+    "outside",
+    [date(2026, 8, 7), date(2026, 9, 16)],  # before the first bar's day; after the last
+)
+def test_a_roll_session_outside_the_bars_is_refused(
+    profiles: Profiles,
+    settings: BacktestSettings,
+    history: tuple[Bar, ...],
+    tmp_path: Path,
+    outside: date,
+) -> None:
+    sessions = frozenset({LAST_DAY, outside})
+    with pytest.raises(BacktestRefused, match=str(outside)):
+        Backtest(
+            profiles,
+            blocking(settings),
+            bars(history),
+            workdir(tmp_path),
+            trade_from=TRADE_FROM,
+            roll_sessions=sessions,
+        )
+
+
+def test_roll_sessions_on_the_bars_first_and_last_days_are_accepted(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    from footprint.core.calendar import local_minute
+
+    b = bars(history)
+    session = profiles.instrument.prime_session
+    first, last = local_minute(b[0].ts, session)[0], local_minute(b[-1].ts, session)[0]
+    Backtest(
+        profiles,
+        blocking(settings),
+        b,
+        workdir(tmp_path),
+        trade_from=TRADE_FROM,
+        roll_sessions=frozenset({first, last}),
+    )
+
+
+def test_with_blocking_off_a_list_outside_the_bars_is_ignored(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    Backtest(
+        profiles,
+        blocking(settings, False),
+        bars(history),
+        workdir(tmp_path),
+        trade_from=TRADE_FROM,
+        roll_sessions=frozenset({date(2010, 6, 11)}),
+    )
+
+
+@pytest.mark.parametrize(
+    ("roll", "blocked"),
+    [
+        (date(2026, 9, 15), date(2026, 9, 15)),  # a trading day: itself
+        (date(2026, 9, 7), date(2026, 9, 8)),  # Labor Day, a no-trade day: the next day
+        (date(2026, 12, 25), date(2026, 12, 28)),  # Christmas (Fri), a holiday: Monday
+        (date(2026, 11, 26), date(2026, 11, 27)),  # Thanksgiving: the half day after it
+    ],
+)
+def test_a_roll_on_a_closed_day_blocks_the_next_tradable_day(
+    profiles: Profiles, roll: date, blocked: date
+) -> None:
+    console = RollConsole(Go(), frozenset({roll}), profiles.instrument)
+    assert console.days == frozenset({blocked})
+
+
+def test_the_moved_block_is_named_in_the_gate(profiles: Profiles) -> None:
+    from datetime import UTC, datetime
+
+    console = RollConsole(Go(), frozenset({date(2026, 9, 7)}), profiles.instrument)
+    at = datetime(2026, 9, 8, 14, 1, tzinfo=UTC)  # 07:01 PT on Tuesday 2026-09-08
+    (failed,) = console.evaluate(_inputs(at)).failed
+    assert failed.name == "roll_session"
+    assert "2026-09-08" in failed.detail
+    assert "2026-09-07" in failed.detail  # the roll session it stands for
+
+
+def test_a_roll_with_no_tradable_day_after_it_is_refused(profiles: Profiles) -> None:
+    through = profiles.instrument.calendar_through
+    from datetime import timedelta
+
+    with pytest.raises(ValueError, match="no tradable day"):
+        RollConsole(Go(), frozenset({through + timedelta(days=1)}), profiles.instrument)
+
+
+def test_the_readout_names_the_first_and_last_roll(
+    history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    rolls = tmp_path / "rolls.csv"
+    rolls.write_text(f"session\n2026-09-14\n{LAST_DAY}\n", encoding="utf-8")
+    code, out = _cli(tmp_path, history, "--rolls", str(rolls))
+    assert code == 1
+    line = json.loads((out / "readout.json").read_text())["assumptions"]["roll sessions"]
+    assert "2 listed" in line
+    assert "first 2026-09-14" in line
+    assert f"last {LAST_DAY}" in line
