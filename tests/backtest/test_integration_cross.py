@@ -12,6 +12,7 @@ Each PR certified its own behaviour; these pin how two of them combine:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -56,23 +57,71 @@ def test_with_the_decay_exit_on_a_trade_at_the_reference_has_the_unscaled_dollar
     assert at_ref.final_equity == plain.final_equity
 
 
-@pytest.mark.parametrize("k", [D("0.1"), D("0.5"), D(2)])
-def test_with_the_decay_exit_on_the_same_percentage_path_has_the_same_dollars(
+LEVELS = [D(1), D("0.1"), D("0.5"), D(2)]
+
+
+def _share(profiles: Profiles, pct: str) -> Profiles:
+    """The decay exit's share of the open profit (DX-1) moved, to bracket the threshold."""
+    theta = profiles.strategy.theta
+    rule = replace(theta.decay_exit, max_pct_of_open_profit=D(pct))
+    return replace(
+        profiles, strategy=replace(profiles.strategy, theta=replace(theta, decay_exit=rule))
+    )
+
+
+# The ridden path at REF: the entry fills at 170.75 and the first decay-exit check sees
+# an open profit of 5.00 with a modelled decay over the window of 28.53 (journaled).
+# At the shipped 50% the limit is 2.50: out at 171.25. Measured, and the same at every
+# price level, because the decay exit is quoted at the reference.
+_FIRST_CHECK = ("DECAY_EXIT", "170.75", "171.25", "5.00", "CALL20000-20260916")
+
+
+@pytest.mark.parametrize("k", LEVELS)
+def test_with_the_decay_exit_on_the_dollars_are_pinned_at_every_level(
     profiles: Profiles,
     settings: BacktestSettings,
     history: tuple[Bar, ...],
     tmp_path: Path,
     k: Decimal,
 ) -> None:
-    p = with_decay_exit(profiles)
-    bars = ridden(history)
-    s = scaled(settings, REF)
-    _, here = run(p, s, bars, tmp_path / "here")
-    _, there = run(p, s, times(bars, k), tmp_path / "there")
-    assert _decay(there) == _decay(here)
-    net = D(str(here.trades[0]["net_pnl"]))
-    assert D(0) < net < profiles.risk.profit_target  # a small gain, closed by the decay exit
-    assert there.final_equity == here.final_equity
+    _, result = run(
+        with_decay_exit(profiles), scaled(settings, REF), times(ridden(history), k), tmp_path
+    )
+    assert _decay(result) == [_FIRST_CHECK]
+    assert result.final_equity == result.bankroll + D("5.00")
+    [note] = [e for e in result.trades[0]["events"] if "decay exit:" in str(e)]
+    assert "decay over the next 30 minutes 28.53" in str(note)
+    assert "open profit 5.00 (limit 2.50)" in str(note)
+
+
+@pytest.mark.parametrize("k", LEVELS)
+def test_just_under_the_threshold_the_decay_exit_fires(
+    profiles: Profiles,
+    settings: BacktestSettings,
+    history: tuple[Bar, ...],
+    tmp_path: Path,
+    k: Decimal,
+) -> None:
+    """560% of 5.00 is a limit of 28.00, just under the decay of 28.53: out."""
+    p = _share(with_decay_exit(profiles), "560")
+    _, result = run(p, scaled(settings, REF), times(ridden(history), k), tmp_path)
+    assert _decay(result) == [_FIRST_CHECK]
+
+
+@pytest.mark.parametrize("k", LEVELS)
+def test_just_over_the_threshold_the_decay_exit_stays(
+    profiles: Profiles,
+    settings: BacktestSettings,
+    history: tuple[Bar, ...],
+    tmp_path: Path,
+    k: Decimal,
+) -> None:
+    """580% of 5.00 is a limit of 29.00, just over the decay of 28.53: the trade is
+    ridden and the trailed resting stop takes it out, at the same dollars at every level."""
+    p = _share(with_decay_exit(profiles), "580")
+    _, result = run(p, scaled(settings, REF), times(ridden(history), k), tmp_path)
+    assert dollars(result) == [("STOP", "170.75", "200.25", "585.00", "CALL20000-20260916")]
+    assert not [e for e in result.trades[0]["events"] if "decay exit:" in str(e)]
 
 
 # --- play caller (#44) x roll gate (#47) ------------------------------------------------
@@ -106,7 +155,7 @@ def test_off_a_roll_session_a_trend_play_trades(
     assert len(result.trades) == 1
 
 
-@pytest.mark.parametrize("cause", [PlayCause.TREND, PlayCause.CHOP, PlayCause.RULES])
+@pytest.mark.parametrize("cause", list(PlayCause))
 def test_a_roll_session_is_blocked_whatever_the_play(
     profiles: Profiles,
     settings: BacktestSettings,

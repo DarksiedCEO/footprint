@@ -1,21 +1,26 @@
 """config/instruments/es.yaml is research only (NB-5): every trading entry point refuses it
-(integration-v1, review round 1, L2).
+(integration-v1, review rounds 1 and 2: L2, R2-1, R2-2).
 
-Today the refusal comes from the profile loader's own consistency checks (a stop filled at
-its limit would lose more than stop_max at ES's point value), not from a flag that says
-"research only". This test pins the outcome, whatever produces it: `load_profiles` with
-es.yaml raises ConfigError, and each command that takes `--instrument` refuses it before
-any broker connection. If a future change to es.yaml or to the stop numbers made it
-loadable, this fails, and the explicit research-only switch (an open option for Andre)
-has to be decided first.
+Today the refusal comes from the profile loader's own consistency check: a stop filled
+at its limit would lose more than stop_max at ES's point value ("... over stop_max ...",
+core/config.py). There is no flag that says "research only". These tests pin that exact
+refusal at the loader and at each command that takes `--instrument`, and that it comes
+before any broker connection. Each command is also run with nq.yaml, the same argv, as
+the control: that run must NOT show the refusal, so the es.yaml refusal is the
+instrument's, not some other start-up stop. If a future change to es.yaml or to the
+stop numbers made it loadable, these fail, and the explicit research-only switch (an
+open option for Andre) has to be decided first.
 
 The research harness reads es.yaml with `load_instrument` only; that is not a trading
 path and is tested in tests/research.
 
 The commands that import IBKR's ibapi (the live runner, check, record_chain, history)
 run in a child process with a stand-in ibapi whose every class, if ever built, ends the
-child with a marker, and with socket connects blocked the same way: so a refusal
-"before any broker connection" is checked here, where the real ibapi is not installed.
+child with a marker (exit 97), with socket connects blocked the same way, and with a
+filled stand-in .env (a paper DU account, nothing real), so the profile is the only
+thing that can stop the es.yaml run. Under nq.yaml, check, record_chain and history do
+reach the stand-in (the harness is live); the live runner stops earlier, at its alarm
+channels, which this sandbox has no terminal for.
 """
 
 from __future__ import annotations
@@ -35,6 +40,13 @@ from tests.conftest import REPO_ROOT
 
 CONFIG = REPO_ROOT / "config"
 ES = "es.yaml"
+NQ = "nq.yaml"
+# The profile loader's stop_max consistency refusal (core/config.py check_consistency).
+REFUSAL = "over stop_max"
+LIVE = "footprint.live.__main__"
+CHECK = "footprint.brokers.ibkr.check"
+RECORD_CHAIN = "footprint.brokers.ibkr.record_chain"
+HISTORY = "footprint.brokers.ibkr.history"
 TOUCHED = "BROKER TOUCHED"
 _TOUCHED_EXIT = 97
 
@@ -128,6 +140,17 @@ def _stub_ibapi(root: Path) -> Path:
     return root
 
 
+def _env(tmp: Path) -> Path:
+    """A filled stand-in .env: a paper DU account id that is not a real one."""
+    path = tmp / ".env"
+    path.write_text(
+        "BROKER_HOST=127.0.0.1\nBROKER_PORT=4002\nBROKER_ACCOUNT_ID=DU0000000\n"
+        "BROKER_CLIENT_ID=0\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _child(tmp: Path, module: str, argv: list[str]) -> subprocess.CompletedProcess[str]:
     stub = _stub_ibapi(tmp / "stub")
     env = dict(os.environ)
@@ -145,47 +168,77 @@ def _child(tmp: Path, module: str, argv: list[str]) -> subprocess.CompletedProce
     )
 
 
+def _argv(module: str, tmp: Path, instrument: str) -> list[str]:
+    common = ["--config", str(CONFIG), "--instrument", instrument, "--env", str(_env(tmp))]
+    if module == LIVE:
+        return [*common, "--no-blackouts", "--state", str(tmp / "state")]
+    if module == RECORD_CHAIN:
+        return [*common, "--out", str(tmp / "chains")]
+    if module == HISTORY:
+        return [*common, "--out", str(tmp / "bars.csv")]
+    return common
+
+
 # --- the loader ----------------------------------------------------------------------------
 
 
-def test_the_profile_loader_refuses_es() -> None:
-    with pytest.raises(ConfigError):
+def test_the_profile_loader_refuses_es_for_its_stop() -> None:
+    with pytest.raises(ConfigError, match=REFUSAL):
         load_profiles(CONFIG, ES)
 
 
 def test_the_profile_loader_accepts_nq() -> None:
     """The control: the same loader, the same config directory, the trading profile."""
-    assert load_profiles(CONFIG, "nq.yaml").instrument.symbol == "NQ"
+    assert load_profiles(CONFIG, NQ).instrument.symbol == "NQ"
 
 
 # --- the commands that need no ibapi -----------------------------------------------------
 
 
-def test_the_kill_switch_refuses_es_before_touching_the_ledger(tmp_path: Path) -> None:
-    state = tmp_path / "state"
-    with pytest.raises(ConfigError):
-        kill_switch_main(
-            ["--config", str(CONFIG), "--instrument", ES, "--state", str(state), "status"]
-        )
-    assert not state.exists()
+def _kill_switch(tmp: Path, instrument: str) -> None:
+    kill_switch_main(
+        ["--config", str(CONFIG), "--instrument", instrument, "--state", str(tmp / "s"), "status"],
+        say=lambda _: None,
+    )
 
 
-def test_the_backtest_refuses_es_before_reading_bars(tmp_path: Path) -> None:
-    out = tmp_path / "out"
-    with pytest.raises(ConfigError):
-        backtest_main(
-            [
-                "--bars",
-                str(tmp_path / "no-such-bars.csv"),
-                "--out",
-                str(out),
-                "--config",
-                str(CONFIG),
-                "--instrument",
-                ES,
-            ]
-        )
-    assert not out.exists()
+def _backtest(tmp: Path, instrument: str) -> None:
+    out = tmp / "out"
+    backtest_main(
+        [
+            "--bars",
+            str(tmp / "no-such-bars.csv"),
+            "--out",
+            str(out),
+            "--config",
+            str(CONFIG),
+            "--instrument",
+            instrument,
+        ]
+    )
+
+
+_IN_PROCESS = {"kill_switch": _kill_switch, "backtest": _backtest}
+
+
+@pytest.mark.parametrize("name", sorted(_IN_PROCESS))
+def test_the_in_process_commands_refuse_es_for_its_stop(tmp_path: Path, name: str) -> None:
+    with pytest.raises(ConfigError, match=REFUSAL):
+        _IN_PROCESS[name](tmp_path, ES)
+    assert not (tmp_path / "s").exists()  # the kill switch never opened a ledger
+    assert not (tmp_path / "out").exists()  # the backtest never wrote a result
+
+
+def test_with_nq_the_kill_switch_gets_past_the_profile(tmp_path: Path) -> None:
+    """The control: the same argv with nq.yaml loads and reports (no refusal at all)."""
+    _kill_switch(tmp_path, NQ)
+
+
+def test_with_nq_the_backtest_gets_past_the_profile(tmp_path: Path) -> None:
+    """The control: the same argv with nq.yaml loads the profile and stops only at the
+    missing bars file, never with the stop_max refusal."""
+    with pytest.raises(FileNotFoundError, match="no-such-bars"):
+        _backtest(tmp_path, NQ)
 
 
 # --- the commands that connect to IB Gateway ---------------------------------------------
@@ -211,69 +264,51 @@ def test_the_stand_in_ibapi_catches_a_broker_connection(tmp_path: Path) -> None:
     assert TOUCHED in done.stdout
 
 
-def test_the_live_runner_refuses_es_before_any_broker_connection(tmp_path: Path) -> None:
-    state = tmp_path / "state"
-    done = _child(
-        tmp_path,
-        "footprint.live.__main__",
-        [
-            "--config",
-            str(CONFIG),
-            "--instrument",
-            ES,
-            "--no-blackouts",
-            "--env",
-            str(tmp_path / ".env"),
-            "--state",
-            str(state),
-        ],
-    )
+def test_the_live_runner_refuses_es_for_its_stop(tmp_path: Path) -> None:
+    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, ES))
     assert done.returncode == 0, done.stderr
     assert TOUCHED not in done.stdout
     assert "EXIT 2" in done.stdout
-    assert "REFUSED:" in done.stderr
-    assert not state.exists()
+    assert "REFUSED: " in done.stderr
+    assert REFUSAL in done.stderr
+    assert not (tmp_path / "state").exists()
 
 
-def test_the_check_refuses_es_before_any_broker_connection(tmp_path: Path) -> None:
-    done = _child(
-        tmp_path,
-        "footprint.brokers.ibkr.check",
-        ["--config", str(CONFIG), "--instrument", ES, "--env", str(tmp_path / ".env")],
-    )
+def test_the_check_refuses_es_for_its_stop(tmp_path: Path) -> None:
+    done = _child(tmp_path, CHECK, _argv(CHECK, tmp_path, ES))
     assert done.returncode == 0, done.stderr
     assert TOUCHED not in done.stdout
     assert "CONFIG_REFUSED" in done.stdout
+    assert REFUSAL in done.stdout
     assert "EXIT config" in done.stdout
 
 
-@pytest.mark.parametrize(
-    ("module", "out"),
-    [
-        ("footprint.brokers.ibkr.record_chain", "chains"),
-        ("footprint.brokers.ibkr.history", "bars.csv"),
-    ],
-)
-def test_the_recorders_refuse_es_before_any_broker_connection(
-    tmp_path: Path, module: str, out: str
-) -> None:
-    target = tmp_path / out
-    done = _child(
-        tmp_path,
-        module,
-        [
-            "--out",
-            str(target),
-            "--config",
-            str(CONFIG),
-            "--instrument",
-            ES,
-            "--env",
-            str(tmp_path / ".env"),
-        ],
-    )
+@pytest.mark.parametrize(("module", "out"), [(RECORD_CHAIN, "chains"), (HISTORY, "bars.csv")])
+def test_the_recorders_refuse_es_for_its_stop(tmp_path: Path, module: str, out: str) -> None:
+    done = _child(tmp_path, module, _argv(module, tmp_path, ES))
     assert done.returncode == 0, done.stderr
     assert TOUCHED not in done.stdout
-    assert "EXIT 2" in done.stdout  # argparse's error exit: the loader's ConfigError
-    assert "error:" in done.stderr
-    assert not target.exists()
+    assert "EXIT 2" in done.stdout  # argparse's error exit, with the loader's message
+    assert REFUSAL in done.stderr
+    assert not (tmp_path / out).exists()
+
+
+@pytest.mark.parametrize("module", [CHECK, RECORD_CHAIN, HISTORY])
+def test_with_nq_the_broker_commands_reach_the_stand_in_broker(tmp_path: Path, module: str) -> None:
+    """The control (R2-2): the same argv with nq.yaml gets past the profile and builds
+    the broker client, which the stand-in catches. So the harness is live, and the es.yaml
+    runs above stop before that point because of the profile alone."""
+    done = _child(tmp_path, module, _argv(module, tmp_path, NQ))
+    assert done.returncode == _TOUCHED_EXIT, (done.stdout, done.stderr)
+    assert TOUCHED in done.stdout
+    assert REFUSAL not in done.stdout + done.stderr
+
+
+def test_with_nq_the_live_runner_never_shows_that_refusal(tmp_path: Path) -> None:
+    """The control: with nq.yaml the live runner gets past the profile. It then stops at
+    its alarm channels (the stand-in .env has none), never with the stop_max refusal."""
+    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, NQ))
+    assert done.returncode == 0, done.stderr
+    assert TOUCHED not in done.stdout
+    assert REFUSAL not in done.stdout + done.stderr
+    assert "phone alarms are not set up" in done.stderr

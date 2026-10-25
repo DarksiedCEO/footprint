@@ -1,0 +1,17 @@
+{
+  "groups": {
+    "cross": ["tests/backtest/test_integration_cross.py"],
+    "es": ["tests/test_es_profile_refused.py"]
+  },
+  "mutants": [
+    ["cross", "src/footprint/agents/theta.py", "        fire = decay > limit\n", "        fire = decay > limit * 2\n", "Q1 decay exit fires at twice the limit"],
+    ["cross", "src/footprint/agents/theta.py", "        limit = open_profit * rule.max_pct_of_open_profit / _PERCENT_MAX\n", "        limit = open_profit * rule.max_pct_of_open_profit / _PERCENT_MAX / 2\n", "Q2 decay exit limit halved (fires earlier)"],
+    ["cross", "src/footprint/backtest/engine.py", "        return self._model.chain(now, self._level.model_price(self._price))", "        return self._model.chain(now, self._price)", "Q3 in-trade chain (decay exit's chain) quoted at the data level"],
+    ["cross", "src/footprint/backtest/price_level.py", "        return points * self._anchored() / self._reference", "        return points", "Q4 data_points not rescaled"],
+    ["cross", "src/footprint/agents/theta.py", "        decay = Decimal(str(valued.decay_points)) * self._instrument.point_value * contracts\n", "        decay = Decimal(str(valued.decay_points)) * self._instrument.point_value * contracts * 0\n", "Q5 decay exit never fires (decay zeroed)"],
+    ["es", "src/footprint/brokers/ibkr/history.py", "with_days(load_profiles(args.config, args.instrument), args.days)", "with_days(load_profiles(args.config, \"nq.yaml\") if not parser.error(\"unrelated\") else None, args.days)", "Q6 history refuses for an unrelated argparse reason, never loads es (EXPECTED SURVIVOR: shows weak marker)"],
+    ["es", "src/footprint/brokers/ibkr/record_chain.py", "        profiles = load_profiles(args.config, args.instrument)", "        profiles = load_profiles(args.config, \"nq.yaml\") if not parser.error(\"unrelated\") else None", "Q7 record_chain refuses for an unrelated argparse reason (EXPECTED SURVIVOR: weak marker)"],
+    ["es", "src/footprint/brokers/ibkr/check.py", "    profiles = load_profiles(args.config, args.instrument)", "    profiles = load_profiles(args.config, \"no-such.yaml\")", "Q8 check loads some other (missing) profile: any ConfigError passes"],
+    ["es", "src/footprint/live/__main__.py", "        profiles = load_profiles(args.config, args.instrument)\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2", "        profiles = load_profiles(args.config, \"no-such.yaml\")\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2", "Q9 live loads some other (missing) profile: any REFUSED passes"]
+  ]
+}
