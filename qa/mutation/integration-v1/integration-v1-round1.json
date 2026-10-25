@@ -1,0 +1,103 @@
+{
+  "groups": {
+    "cross": [
+      "tests/backtest/test_integration_cross.py"
+    ],
+    "es": [
+      "tests/test_es_profile_refused.py"
+    ]
+  },
+  "mutants": [
+    [
+      "cross",
+      "src/footprint/backtest/engine.py",
+      "        console = roll_console(level_console(console, p, self._level), p, blocked)",
+      "        console = level_console(console, p, self._level)",
+      "X1 roll gate dropped in the combined engine (a roll session trades on a TREND play)"
+    ],
+    [
+      "cross",
+      "src/footprint/backtest/rolls.py",
+      "        if day is None or day not in self._blocked:\n            return verdict",
+      "        if True:\n            return verdict",
+      "X2 the roll console never blocks"
+    ],
+    [
+      "cross",
+      "src/footprint/backtest/engine.py",
+      "            Manager(p, tracked, stops, self.ledger, self.halt, self.book, decay_exit=decay)\n",
+      "            Manager(p, tracked, stops, self.ledger, self.halt, self.book)\n",
+      "X3 live exit loses the decay exit"
+    ],
+    [
+      "cross",
+      "src/footprint/backtest/price_level.py",
+      "        return price * self._reference / self._anchored()",
+      "        return price",
+      "X4 the option model is quoted at the data's level (no rescaling)"
+    ],
+    [
+      "cross",
+      "src/footprint/backtest/price_level.py",
+      "        return price * self._reference / self._anchored()",
+      "        return price * self._reference / self._anchored() * 1",
+      "X5 no-op control (EXPECTED SURVIVOR: equivalent)"
+    ],
+    [
+      "es",
+      "src/footprint/core/config.py",
+      "    if worst > risk.stop_max:",
+      "    if False:",
+      "E1 the stop_max consistency check dropped: es.yaml loads"
+    ],
+    [
+      "es",
+      "src/footprint/live/__main__.py",
+      "        profiles = load_profiles(args.config, args.instrument)\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2",
+      "        profiles = load_profiles(args.config, \"nq.yaml\")\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2",
+      "E2 the live runner ignores --instrument (loads the trading profile)"
+    ],
+    [
+      "es",
+      "src/footprint/live/__main__.py",
+      "        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2\n    env = read_env_file",
+      "        print(f\"REFUSED: {exc}\", file=sys.stderr)\n    env = read_env_file",
+      "E3 the live runner goes on after the profile is refused"
+    ],
+    [
+      "es",
+      "src/footprint/brokers/ibkr/check.py",
+      "    profiles = load_profiles(args.config, args.instrument)\n    ibkr = profiles.execution.ibkr",
+      "    profiles = load_profiles(args.config, \"nq.yaml\")\n    ibkr = profiles.execution.ibkr",
+      "E4 check ignores --instrument"
+    ],
+    [
+      "es",
+      "src/footprint/live/kill_switch.py",
+      "    profiles = load_profiles(args.config, args.instrument)",
+      "    profiles = load_profiles(args.config, \"nq.yaml\")",
+      "E5 kill switch ignores --instrument"
+    ],
+    [
+      "es",
+      "src/footprint/backtest/__main__.py",
+      "    profiles = load_profiles(args.config, args.instrument)",
+      "    profiles = load_profiles(args.config, \"nq.yaml\")",
+      "E6 backtest ignores --instrument"
+    ],
+    [
+      "es",
+      "src/footprint/brokers/ibkr/history.py",
+      "        profiles = with_days(load_profiles(args.config, args.instrument), args.days)",
+      "        profiles = with_days(load_profiles(args.config, \"nq.yaml\"), args.days)",
+      "E7 history ignores --instrument"
+    ],
+    [
+      "es",
+      "src/footprint/brokers/ibkr/record_chain.py",
+      "        profiles = load_profiles(args.config, args.instrument)",
+      "        profiles = load_profiles(args.config, \"nq.yaml\")",
+      "E8 record_chain ignores --instrument"
+    ]
+  ]
+}
