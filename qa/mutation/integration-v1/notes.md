@@ -52,3 +52,14 @@ What the round-1 spec covers:
 - **E1–E8, tests/test_es_profile_refused.py.** It catches each of these: the loader's stop_max check removed (es.yaml then loads), and each of the six trading entry points ignoring `--instrument` (live, check, kill_switch, backtest, history, record_chain). It also catches the live runner carrying on after a refusal.
 
 With this, greeks-veto-v1-r2 has no unaccounted BAD mutant on the integrated tree. Its three survivors (1, 2, 17) are the ones #43 argued equivalent.
+
+## Review round 2 fixes: on 541c774
+
+Clean tree (`tree-dirty: 0 files`). The `.r2.out` files are re-runs on this commit.
+
+| Spec | Result | Non-kills and why |
+|---|---|---|
+| integration-v1-round1 | 13, 1 | 5 SURVIVED: X5, the no-op control, equivalent by construction. |
+| reviewer-r2 (the reviewer's spec, copied unchanged) | 9, 1 | 4 SURVIVED: Q4, `data_points` not rescaled. That is #47's level-console path, which the cross tests do not exercise: their ridden path's levels room does not depend on N. It is KILLED by #47's own level tests (integration-v1-q4-suite: 1 of 1). Q1, Q2, Q3, Q5 and Q6–Q9 are KILLED. |
+| reviewer-r2b (the reviewer's spec, copied unchanged) | 2, 0 | none |
+| integration-v1-q4-suite | 1, 0 | none |

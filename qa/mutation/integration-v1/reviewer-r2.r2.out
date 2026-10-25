@@ -1,0 +1,14 @@
+source: 541c774438eb9bd00f2d35aab2af6d3982bc411d tree-dirty: 0 files
+baseline [cross]: passed
+baseline [es]: passed
+  1 KILLED   [cross] src/footprint/agents/theta.py: Q1 decay exit fires at twice the limit
+  2 KILLED   [cross] src/footprint/agents/theta.py: Q2 decay exit limit halved (fires earlier)
+  3 KILLED   [cross] src/footprint/backtest/engine.py: Q3 in-trade chain (decay exit's chain) quoted at the data level
+  4 SURVIVED [cross] src/footprint/backtest/price_level.py: Q4 data_points not rescaled
+  5 KILLED   [cross] src/footprint/agents/theta.py: Q5 decay exit never fires (decay zeroed)
+  6 KILLED   [es] src/footprint/brokers/ibkr/history.py: Q6 history refuses for an unrelated argparse reason, never loads es (EXPECTED SURVIVOR: shows weak marker)
+  7 KILLED   [es] src/footprint/brokers/ibkr/record_chain.py: Q7 record_chain refuses for an unrelated argparse reason (EXPECTED SURVIVOR: weak marker)
+  8 KILLED   [es] src/footprint/brokers/ibkr/check.py: Q8 check loads some other (missing) profile: any ConfigError passes
+  9 KILLED   [es] src/footprint/live/__main__.py: Q9 live loads some other (missing) profile: any REFUSED passes
+9 mutants, 1 survived or errored
+exit=1

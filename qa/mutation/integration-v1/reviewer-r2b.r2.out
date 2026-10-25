@@ -1,0 +1,6 @@
+source: 541c774438eb9bd00f2d35aab2af6d3982bc411d tree-dirty: 0 files
+baseline [bt]: passed
+  1 KILLED   [bt] src/footprint/backtest/engine.py: Q3 fallback chain at data level (full backtest suite)
+  2 KILLED   [bt] src/footprint/agents/theta.py: Q1 decay threshold doubled (full backtest suite)
+2 mutants, 0 survived or errored
+exit=0
