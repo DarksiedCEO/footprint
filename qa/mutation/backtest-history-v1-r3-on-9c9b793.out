@@ -1,0 +1,5 @@
+source: 9c9b79380ae4641bab4f7246396529399067b2d4 tree-dirty: 0 files
+baseline [guards]: passed
+  1 KILLED   [guards] src/footprint/backtest/engine.py: T1 (review round 3): the bars' first day in UTC
+  2 KILLED   [guards] src/footprint/backtest/rolls.py: T4 (review round 3): calendar_through itself refused
+2 mutants, 0 survived or errored
