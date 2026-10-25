@@ -20,3 +20,20 @@ sibling's own spec unchanged: `uv run python qa/mutation/mutate.py qa/mutation/<
 | research-v1 | 80, 5 errored | 80, 0 (on 8f30bc2, research-v1's own tree) | BAD 30 (2 matches), 35, 37, 43, 66: noiseband-v1 rewrote these lines in research/exits.py, engine.py and __main__.py; the files here are byte-identical to origin/noiseband-v1, so the same 5 are BAD at noiseband's tip. Not caused by integration; research-v1.json was never re-targeted after noiseband (its own spec covers the new code). Open for the noiseband reviewer. |
 
 No mutant that was killed on its own branch survives here.
+
+## After merging #45 (cap10k-v1) and #47 (backtest-history-v1): on fb7dc7c
+
+In `on-fb7dc7c/`, clean clone (`tree-dirty: 0 files`), specs unchanged.
+
+| Spec | Result here | Branch's own last evidence | Non-kills and why |
+|---|---|---|---|
+| backtest-history-v1 | 63, 0 | 63, 0 (on 1ce3730) | none |
+| backtest-history-v1-r1 | 32, 0 | 32, 0 (on 5ea7083) | none |
+| backtest-history-v1-r2 | 12, 1 | 12, 1 (on 5ea7083) | 9 SURVIVED: the one #47 argued equivalent (backtest-history-v1-r2.notes.md). |
+| backtest-history-v1-r3 | 2, 0 | 2, 0 | none |
+| cap10k-v1 | 5, 3 errored | 5, 0 (on 397aaec, cap 10000) | BAD 1-3: `position_cap: 10000` is not in risk.yaml at #45's own tip (6000 since b475202); superseded by cap10k-v1-r2. |
+| cap10k-v1-r1 | 32, 7 | 32, 3 (on 1e70c69, cap 10000) | BAD 1, 2, 3, 11, 22, 23: same stale 10000 text; 7 SURVIVED: #45's argued equivalent (cap10k-v1.notes.md). |
+| cap10k-v1-r2 | 38, 3 | 38, 3 (on b475202) | 1, 3, 7: the same three #45 argued (cap10k-v1.notes.md). |
+| decay-exit-v1-round2 | 78, 1 errored | 78, 0 | BAD 76: integration-caused (#45's position_cap line now sits between stop_loss and the decay lines). Re-targeted both ways in `integration-v1-retarget-2.json`: 2 of 2 KILLED. Re-run because two #42 tests were adapted in the #45 and #47 merges. |
+
+No mutant killed on its own branch survives after integration.

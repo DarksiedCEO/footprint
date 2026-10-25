@@ -1,0 +1,5 @@
+source: fb7dc7c2c5d4d4140d521a3352753e3f7001cb95 tree-dirty: 0 files
+baseline [readout]: passed
+  1 KILLED   [readout] src/footprint/backtest/__main__.py: decay-exit-v1-round2 #76 re-targeted: stop_loss line dropped (after #45 the cap line sits between stop_loss and the decay lines)
+  2 KILLED   [readout] src/footprint/backtest/__main__.py: decay-exit-v1-round2 #76 re-targeted, cap side: the position_cap line dropped, so the decay lines no longer follow it
+2 mutants, 0 survived or errored

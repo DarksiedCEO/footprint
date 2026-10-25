@@ -1,0 +1,23 @@
+{
+  "groups": {
+    "readout": [
+      "tests/backtest/test_readout_decay_exit.py"
+    ]
+  },
+  "mutants": [
+    [
+      "readout",
+      "src/footprint/backtest/__main__.py",
+      "        \"risk.stop_loss\": str(profiles.risk.stop_loss),\n        # The cap",
+      "        # The cap",
+      "decay-exit-v1-round2 #76 re-targeted: stop_loss line dropped (after #45 the cap line sits between stop_loss and the decay lines)"
+    ],
+    [
+      "readout",
+      "src/footprint/backtest/__main__.py",
+      "        \"risk.position_cap\": str(profiles.risk.position_cap),\n        # Theta",
+      "        # Theta",
+      "decay-exit-v1-round2 #76 re-targeted, cap side: the position_cap line dropped, so the decay lines no longer follow it"
+    ]
+  ]
+}
