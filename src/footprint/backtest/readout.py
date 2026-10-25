@@ -11,6 +11,11 @@ the held-out trades.
 
 The verdict is INVALID if the ledger's equity and the journal's trades disagree by
 even a cent: then the run proves nothing.
+
+The play caller's labels are counted per trading day (one journal record a day, by
+cause). Only a TREND day runs the entry, so a run with no TREND day says why in the
+verdict's reasons (warm-up after calendar_from, too little data, late, ...) rather than
+reading as a strategy that simply never fired.
 """
 
 from __future__ import annotations
@@ -23,8 +28,13 @@ from typing import Any
 from footprint.backtest.engine import BacktestRun
 from footprint.backtest.settings import BacktestSettings, GateSettings
 from footprint.core.config import _PERCENT_MAX
+from footprint.decision.play import PlayCause
 
 _CENT = Decimal("0.01")
+_WARM_UP_NOTE = (
+    " (warm_up: the regime reader's history would reach before calendar_from; those "
+    "days can never be labelled, PC-3)"
+)
 _PCT = _PERCENT_MAX
 
 
@@ -143,6 +153,7 @@ class Readout:
     gates: tuple[GateCheck, ...]
     ledger_matches_journal: bool
     exit_reasons: dict[str, int]
+    play_days: dict[str, int]  # trading days by the play caller's cause (one label a day)
     run: dict[str, Any]
     assumptions: dict[str, Any]
 
@@ -190,6 +201,13 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
         why += [
             f"{g.segment} {g.gate}: {g.actual} (need {g.required})" for g in gates if not g.passed
         ]
+    play_days = dict(sorted(Counter(str(p["cause"]) for p in run.plays).items()))
+    if play_days and not play_days.get(PlayCause.TREND.value):
+        why.append(
+            "no trading day was labelled TREND, so the entry never ran: "
+            + ", ".join(f"{cause} {count}" for cause, count in play_days.items())
+            + _WARM_UP_NOTE * (PlayCause.WARM_UP.value in play_days)
+        )
     return Readout(
         verdict=verdict,
         why=tuple(why),
@@ -199,6 +217,7 @@ def read_out(run: BacktestRun, settings: BacktestSettings, assumptions: dict[str
         gates=tuple(gates),
         ledger_matches_journal=matches,
         exit_reasons=dict(Counter(str(t["exit_reason"]) for t in trades)),
+        play_days=play_days,
         run={
             "first_bar": run.first_bar.isoformat(),
             "last_bar": run.last_bar.isoformat(),
@@ -280,6 +299,10 @@ def to_markdown(readout: Readout) -> str:
         lines.append(f"| {name} | " + " | ".join(_fmt(v) for v in values) + " |")
     lines += ["", "## Exit reasons", ""]
     lines += [f"- {reason}: {count}" for reason, count in sorted(r.exit_reasons.items())]
+    lines += ["", "## Play caller (one label per trading day; only TREND trades)", ""]
+    lines += [f"- {cause}: {count}" for cause, count in r.play_days.items()]
+    if not r.play_days:
+        lines.append("- no day's label was journaled")
     lines += ["", "## Assumptions (read every result through these)", ""]
     lines += [f"- {key}: {value}" for key, value in r.assumptions.items()]
     return "\n".join(lines) + "\n"

@@ -144,6 +144,17 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     IBKR's contract details for NQ options expiring 2026-11-26 and 2026-11-27 and confirm
     the last trade times (noon CT on the 27th; on the 26th the futures halt at 12:00 CT,
     and the model caps option expiry at any futures halt).
+30. Play caller history and timing (playcaller-wire-v1, review round 1 L4; NOT VERIFIED):
+    (a) time the start-up history load with `market_data.history_days` at 95 (about 80
+    one-day requests): does it stay inside IBKR's historical-data pacing limits (no 162
+    pacing violations), and how long does it take? A start, or a roll-day reload, that
+    finishes after 10:00:59 ET means no new entries that day (LATE), so start before
+    about 09:50 ET until this is measured. (b) For 5+ days, read journal `plays.jsonl`:
+    `as_of` of each day's record should be well inside 10:00:00-10:00:59 ET, and no day
+    should be `no_data` because the 09:59 ET bar arrived late. (c) Run
+    `tests/live/test_live_app.py` with ibapi installed (its play-caller tests cannot run
+    in the build sandbox). (d) On the real-data backtest, count the no_data days and the
+    "PLAY CALLER: ... history session ... is unusable" alarms (PC-7) before paper.
 
 ## Known open items (not fixed; recorded so nothing is hidden)
 
@@ -887,3 +898,155 @@ years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismat
   Options: (a) keep the floor at `assumed_delta` (the interim rule); (b) a lower floor,
   with GV-2 deciding how N uses the live delta (then drop the loader rule); (c) another
   number.
+
+## Play caller: regime reader (branch playcaller-v1; 2026-10-21)
+
+- **PC-1 (Andre): sign off the draft rules** in
+  `claude/playcaller-preregistration-draft-2026-10-21.md` (config/regime.yaml holds them as
+  DEFAULTs). Nothing has been run on data; once signed, the rules are judged once.
+  **SIGNED by Andre 2026-10-22 (Q&A): the rules as written** (see B76 "Also decided that
+  night"). config/regime.yaml still says DEFAULT (draft) on each number: the numbers are
+  the signed rules, untested on any data.
+- **PC-2 (integration, before wiring): history.** A call needs `history_sessions` trading
+  days of bars (61 with the defaults). The backtest hands decisions
+  `history_minutes: 43200` (about 30 sessions), so wired as is the reader would always
+  stand aside. Wiring must raise the history (or feed the reader its own longer series)
+  and check it at start-up (built on playcaller-wire-v1: see that section). Also: a day that
+  fails closed is recomputed on every call (about 20 ms each); with too little history
+  that is several seconds per simulated day. Labels are kept per reader, keyed on today's
+  bars: one reader per run (a replay of corrected history needs a new reader). A kept
+  label costs a bisect of the input per call (review round 3 measured a full scan at
+  6-16 ms per call before this; now only today's slice is copied).
+- **PC-3 (research): the calendar.** The reader refuses history before the maintained
+  calendar (`calendar_from`, 2026-01-01), so in live/paper it cannot label a day until
+  about 60 sessions into the calendar (warm-up), and it cannot run on 2010-2024 data.
+  Research labels days with the pure `opening_efficiency` and `classify` functions on its
+  own session days, so both use exactly the same rules.
+- **PC-4 (Andre to confirm):** CHOP does not use the overnight, but an unusable overnight
+  still stands aside (fail-closed on every input). And: data failures are not kept, so a
+  day can first be labelled after the decision time once late bars arrive (no lookahead);
+  should the console act on a late label, or only on one made at the decision minute?
+  **Andre 2026-10-22: only on time; a bad overnight stands aside. Built on
+  playcaller-wire-v1.**
+- Independent review of e83e96d (branch regime-v1): NOT CERTIFIED. Reworked here: label
+  kept for the day once made from sound data (data failures are not kept); bars out of
+  order, duplicated or off the whole minute refused; history before the calendar refused;
+  the calendar's search failure stands aside; decision_minutes must end inside the cash
+  session; all surviving mutants tested (qa/mutation/playcaller-v1.notes.md).
+
+## Play caller wired to the entries (branch playcaller-wire-v1; 2026-10-22)
+
+Built on playcaller-v1 (PR 39, cherry-picked) and trading-class-v1 (PR 41). Code:
+`src/footprint/decision/play.py`, called by the pipeline on every decision.
+
+- **Signed by Andre on 2026-10-22 (Q&A; project notes decisions-2026-10-22-qa and
+  -greeks-wiring):** PC-1 (the rules as written), PC-4 (a late label means stand aside; a
+  bad overnight stands aside), PC-5 (below). Still open for Andre: PC-2 (95 days), the
+  60-second window number in PC-4, the M1 reading of PC-4 below, PC-6, PC-7, and the
+  behaviour change below (explicit acknowledgement).
+- **PC-5 (Andre, 2026-10-22), built:** a TREND day runs the existing breakout entry (the
+  live momentum entry and console, unchanged). A CHOP day and a STAND ASIDE day take no new
+  entries. There is no chop play.
+- **Behaviour change, for Andre: no new entries before the decision time, on any day.**
+  With the defaults that is 10:00 ET (07:00 PT). Before this branch the breakout could fire
+  from the prime open (04:00 PT) and through 09:30-10:00 ET; now nothing enters before
+  10:00 ET, and after it only on a TREND day. Entries end where they did (the close lead).
+
+  | Merge-time behaviour change (review round 1, I2) | Andre acknowledges |
+  |---|---|
+  | No new entries before 10:00 ET on any day, and after it only on a TREND day. Every earlier backtest result of the breakout (entries from 04:00 PT) no longer describes the system. PC-1/PC-4/PC-5 are signed, but PC-2 (95 days) and the 60 s window are DEFAULT drafts; none of the rules has been run on real data. | PENDING: Andre, in writing, before merge |
+- **Exits never depend on the label.** The runner asks the pipeline for a decision only
+  with nothing open or working; managing an open position never reads the play. A test runs
+  the same trade with the label turning CHOP while it is open: same exit, same P&L.
+- **PC-4, built:** the on-time window is `play.on_time_seconds` from the decision time
+  (config/play.yaml, **DEFAULT (draft, Andre PC-4): 60, the decision minute**).
+  - Inside it, while the opening's final minute (09:59 ET) has not arrived yet (no closed
+    bar at or after it among the bars read), nothing is fixed: the play is `waiting` (no
+    new entries) and the next decision asks again (review round 1, M1: one minute bar
+    arriving a few seconds late, which IBKR's poll can do, no longer burns the day).
+  - Inside it, once that minute (or a later one) is there, the reader's label stands for
+    the whole trading day, whatever it is: TREND, CHOP or the rules' STAND ASIDE at
+    once, and a data failure is NOT retried (with a later minute already there the final
+    minute is missing, not late).
+  - After it the reader is never asked (PC-4: a label first available after the window
+    never counts). A day still waiting is fixed `no_data` ("the opening's final minute
+    ... had not arrived by the end of the on-time window"); a day never asked inside the
+    window (data late, broker away or reconciling, a restart after the decision minute)
+    is `late`.
+  - **For Andre (M1, builder's reading of PC-4, confirm or reject): a bar that arrives
+    inside the window is not a late label.** Rejecting it means going back to "the first
+    decision at or after 10:00:00 ET fixes the day", where one stale minute stands the
+    whole day aside. **For Andre (PC-6): a
+  restart after 10:00 ET means no new entries for the rest of that day** (the label is kept
+  in memory only). Persisting it in the ledger would avoid that; not built.
+- Causes (journal `plays.jsonl`, one record per trading day, and the backtest readout):
+  trend, chop, rules (neither), no_data, warm_up, late, reader_failed. A label the rules
+  made always has its rank; a data failure never does (that is how no_data is told apart).
+  `waiting`, `before_decision` and `outside_prime` fix nothing and are not journaled as
+  the day's label (they show as "play:" reasons on the decision records).
+  The day's record is written from the decision that fixed it; if that write fails it is
+  alarmed (as before) and retried on every later decision until written (review round
+  1, L3). The decision record is written first, so it is never lost to it. The retry is
+  in memory: a restart fixes and journals the day afresh (usually `late`).
+- **PC-7 (for Andre; review round 1, M2): one bad history session blocks many days.**
+  Any unusable history session in the reader's lookback (an opening of the previous 60
+  sessions, a night of the previous 20) stands the day aside, by the signed rules, for
+  every day it stays in the lookback: up to about 3 months for one opening. Built now:
+  alarm only. On the decision that fixes such a day, the runner alarms once ("PLAY
+  CALLER: no new entries on <day>: history session <date> is unusable (<reason>) ...
+  (PC-7)"), so the bad date is in front of Andre; the rule is unchanged. Options for
+  Andre: (a) alarm only (now); (b) skip a bad history session and rank against the
+  remaining ones, or replace it with the next older one; (c) a shorter lookback. NOT
+  VERIFIED how often IBKR's 1-minute history has holes long enough (max_gap_minutes) on
+  real data; measure on the real-data backtest (paper checklist 30d). (The reviewer's
+  label for this was PC-6; PC-6 was already taken by the restart item, so it is PC-7.)
+- **Start-up refusals (review round 1, L1 and L4).** `load_profiles` refuses
+  (ConfigError) `market_data.bar_poll_delay_seconds` at or above `play.on_time_seconds`
+  (the 09:59 ET bar could never be read on time: every live day would stand aside), and a
+  `regime.decision_minutes` that does not end inside the cash session (the reader's own
+  check, now made at load). `python -m footprint.live` prints any ConfigError as
+  "REFUSED: ..." and exits 2 (before: a traceback), and `check_live_history` turns a
+  regime config the reader refuses into the same REFUSED exit (PlayRefused). The exit
+  code and message of `main` are checked by AST only here (it imports ibapi): NOT
+  VERIFIED by running it.
+- **PC-2, built (history):** the reader reads `history_sessions` (61 with the defaults).
+  - Live: the reader reads the bars handed to each decision, which are market data's whole
+    spliced history. `market_data.history_days` raised 35 -> **95 (DEFAULT, draft, Andre
+    PC-2)**. `check_live_history` computes, over every labellable day of the maintained
+    calendar, the calendar days the reader needs (its oldest bar: the opening of the 60th
+    previous session; worst case 91 days) and the live start is
+    refused (exit 2, "REFUSED: ... Raise market_data.history_days to at least N") when
+    history_days is less. Consequences, NOT VERIFIED on IBKR: the history load at start
+    grows from ~30 to ~80 one-day requests (~3 min at 2 s apart); the crew now also reads 95
+    days instead of 35 (every reader is lookback-bounded except the trend EMAs, whose seed is
+    further back: values should match to many decimals but are not bit-identical). The
+    back-adjusted splice barely changes labels: a constant shift inside a window cancels
+    (efficiency is a ratio of price differences, the overnight range a difference), but a
+    window that straddles the splice mixes two contracts, so it picks up the basis drift
+    between them across the cut (small, not zero; review round 1, I1). The `history`
+    export also loads 95 days now.
+  - Backtest: the reader gets its own source, every closed bar from the start of the data,
+    instead of raising `history_minutes` for the whole crew (which would make every reader
+    of every simulated minute read ~2x more bars and change the crew's inputs). It is read
+    once a trading day, so the cost is one pass a day. `history_minutes` stays 43200: the
+    crew's inputs and every pre-wiring golden are unchanged.
+- **PC-3, built (reported):** a day whose 60 previous sessions reach before calendar_from
+  (2026-01-01) is WARM_UP: stand aside. The first labellable day of the calendar is
+  2026-03-31, so a backtest over Jan-Mar 2026 cannot trade; its readout says "no trading
+  day was labelled TREND, so the entry never ran: warm_up N (...PC-3)". The same line names
+  the causes whenever a run had labels but no TREND day (e.g. too little data before the
+  traded window: no_data).
+- Goldens: `golden/seam_default` (the backtest tests' stand-in play caller says TREND every
+  day: journal, trades and ledger byte-identical to before; the readout gains its play
+  caller section, `play_days: {}`). New `golden/seam_real_play`: the real play caller on
+  the 26-session scenario labels the day no_data at the decision minute, nothing trades
+  (17 decisions instead of 11, since nothing is open), plays.jsonl has the one record.
+- Tests that check the crew, execution or exits on the short synthetic market hand the
+  pipeline a stand-in play (tests/decision/plays.py); production code has no way to switch
+  the play caller off. Backtest tests get the stand-in by an autouse fixture unless marked
+  `real_play`. The stand-in keeps the real clock (review round 1, L2): before the decision
+  time it says before_decision, outside prime outside_prime, so no test passes on an entry
+  production could never make. An end-to-end backtest test runs the REAL play caller
+  (small lookbacks) on the scenario: the day is labelled trend and the breakout trades.
+- Not done: a chop play; persisting the day's label across a restart (PC-6); verifying the
+  95-day history load against IBKR's pacing (paper checklist).

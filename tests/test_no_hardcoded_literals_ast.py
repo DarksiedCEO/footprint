@@ -415,7 +415,10 @@ REVIEWED: dict[str, dict[str, int]] = {
         "text 4": 1,
     },
     "footprint/live/__main__.py": {
-        "code 2": 3,
+        # Process exit code 2 (refused), not a trading value; the 4th is the play
+        # caller's refusals (playcaller-wire-v1, PC-2), the 5th a config error at load
+        # (playcaller-wire-v1 review round 1, L4).
+        "code 2": 5,
     },
     "footprint/live/alarm_setup.py": {
         "code 2": 6,

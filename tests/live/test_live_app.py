@@ -360,3 +360,30 @@ def test_the_calendar_alarm_is_said_once_a_day_as_it_runs_out(
 def with_runner_quiet(live: Live) -> None:
     live.runner.step = lambda now: None  # type: ignore[method-assign]
     live.market.step = lambda now: None  # type: ignore[method-assign]
+
+
+# --- the play caller's history (PC-2) ------------------------------------------------------
+
+
+def test_a_history_too_short_for_the_play_caller_refuses_the_build(
+    profiles: Profiles, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from footprint.decision.play import PlayHistoryTooShort, history_days_needed
+
+    need = history_days_needed(profiles)
+    market = replace(profiles.execution.market_data, history_days=need - 1)
+    short = replace(profiles, execution=replace(profiles.execution, market_data=market))
+    with pytest.raises(PlayHistoryTooShort, match="history_days"):
+        make(short, tmp_path)
+    assert not (tmp_path / "state").exists()  # refused before anything was made
+    market = replace(market, history_days=need)
+    make(replace(profiles, execution=replace(profiles.execution, market_data=market)), tmp_path)
+
+
+def test_the_live_pipeline_is_the_real_play_caller(profiles: Profiles, tmp_path: Path) -> None:
+    from footprint.decision.play import PlayCaller
+
+    live, _ = make(profiles, tmp_path)
+    assert isinstance(live.runner._pipeline._play, PlayCaller)

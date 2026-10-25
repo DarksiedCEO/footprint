@@ -17,6 +17,7 @@ from footprint.decision.pipeline import ApprovedEntry, Decision, Pipeline
 from footprint.decision.risk.gate import AccountState
 from footprint.execution.journal.josephine import Journal
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
 D = Decimal
@@ -40,7 +41,9 @@ def clean(profiles: Profiles) -> AccountState:
 def decide(profiles: Profiles, bars: list[Bar]) -> Decision:
     closed = [b for b in bars if b.ts + timedelta(minutes=1) <= DECISION_TIME]
     chain = chain_for(closed[-1].close, DECISION_TIME)
-    return Pipeline(profiles).decide(bars, chain, clean(profiles), (), DECISION_TIME)
+    return Pipeline(profiles, play=open_play()).decide(
+        bars, chain, clean(profiles), (), DECISION_TIME
+    )
 
 
 def stingy(profiles: Profiles) -> Profiles:
@@ -85,7 +88,9 @@ def test_theta_values_against_the_chains_underlying_price(
 
     closed = [b for b in up_market if b.ts + timedelta(minutes=1) <= DECISION_TIME]
     chain = chain_for(closed[-1].close, DECISION_TIME)
-    decision = Pipeline(profiles).decide(up_market, chain, clean(profiles), (), DECISION_TIME)
+    decision = Pipeline(profiles, play=open_play()).decide(
+        up_market, chain, clean(profiles), (), DECISION_TIME
+    )
     assert decision.approved is not None
     direct = ThetaAgent(profiles.strategy.theta, profiles.instrument, profiles.risk).assess(
         decision.approved.plan, chain.underlying_price, DECISION_TIME
@@ -135,7 +140,9 @@ def test_a_theta_veto_stops_the_entry_before_the_full_risk_check(
 
 
 def test_no_theta_check_runs_without_a_contract(profiles: Profiles, up_market: list[Bar]) -> None:
-    decision = Pipeline(profiles).decide(up_market, None, clean(profiles), (), DECISION_TIME)
+    decision = Pipeline(profiles, play=open_play()).decide(
+        up_market, None, clean(profiles), (), DECISION_TIME
+    )
     assert decision.theta is None
     assert not any(r.startswith("theta") for r in decision.reasons())
 
@@ -156,6 +163,7 @@ def test_an_approval_cannot_carry_a_vetoed_theta(profiles: Profiles, up_market: 
             approved.vega,
             approved.delta,
             approved.gamma,
+            approved.play,
             pipeline._APPROVAL,
         )
 
@@ -179,6 +187,7 @@ def test_an_approval_cannot_carry_another_plans_theta(
             approved.vega,
             approved.delta,
             approved.gamma,
+            approved.play,
             pipeline._APPROVAL,
         )
 
@@ -201,6 +210,7 @@ def test_an_approval_cannot_carry_a_theta_for_another_size(
             approved.vega,
             approved.delta,
             approved.gamma,
+            approved.play,
             pipeline._APPROVAL,
         )
 
@@ -230,7 +240,9 @@ def test_a_quarterly_or_unknown_class_never_reaches_an_approved_entry(
     # or an unrecognised class, and the record says why.
     closed = [b for b in up_market if b.ts + timedelta(minutes=1) <= DECISION_TIME]
     chain = chain_for(closed[-1].close, DECISION_TIME, trading_class)
-    decision = Pipeline(profiles).decide(up_market, chain, clean(profiles), (), DECISION_TIME)
+    decision = Pipeline(profiles, play=open_play()).decide(
+        up_market, chain, clean(profiles), (), DECISION_TIME
+    )
     assert not decision.fired
     assert decision.approved is None
     assert decision.theta is not None

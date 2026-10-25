@@ -18,6 +18,7 @@ from footprint.decision.pipeline import ApprovedEntry, Decision, Pipeline
 from footprint.decision.risk.gate import AccountState, Veto
 from footprint.decision.session import NewsBlackout
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import (
     DECISION_TIME,
     LAST_DAY,
@@ -57,7 +58,9 @@ def decide(
 ) -> Decision:
     closed = [b for b in bars if b.ts + timedelta(minutes=1) <= as_of]
     chain = chain_for(closed[-1].close, as_of) if with_chain and closed else None
-    return Pipeline(profiles).decide(bars, chain, account or clean(profiles), blackouts, as_of)
+    return Pipeline(profiles, play=open_play()).decide(
+        bars, chain, account or clean(profiles), blackouts, as_of
+    )
 
 
 # --- end to end -----------------------------------------------------------------
@@ -226,6 +229,7 @@ def test_only_the_pipeline_can_approve_an_entry(profiles: Profiles, up_market: l
             approved.vega,
             approved.delta,
             approved.gamma,
+            approved.play,
             object(),
         )
 
@@ -419,7 +423,7 @@ def test_a_negative_range_read_subtracts(desmond: Console) -> None:
 
 
 def approved_and_pipeline(profiles: Profiles, bars: list[Bar]) -> tuple[ApprovedEntry, Pipeline]:
-    pipeline = Pipeline(profiles)
+    pipeline = Pipeline(profiles, play=open_play())
     decision = pipeline.decide(bars, chain_for(bars[-1].close), clean(profiles), (), DECISION_TIME)
     assert decision.approved is not None
     return decision.approved, pipeline
@@ -468,7 +472,7 @@ def test_after_the_cash_close_today_extends_to_the_live_price(profiles: Profiles
     late = 569  # 13:29: spike, 13:30 follow-through, decide at 13:31
     bars = market(spike_minute=late)
     as_of = decision_time(late)
-    pipeline = Pipeline(profiles)
+    pipeline = Pipeline(profiles, play=open_play())
     days = pipeline._range_days(bars, as_of)
     assert days is not None
     today = days[-1]

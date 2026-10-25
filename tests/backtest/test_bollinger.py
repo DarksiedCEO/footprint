@@ -41,6 +41,7 @@ from footprint.decision.risk.gate import AccountState
 from tests.backtest.conftest import TRADE_FROM
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
 D = Decimal
@@ -589,7 +590,9 @@ def account(profiles: Profiles) -> AccountState:
 def decide(profiles: Profiles, score: Score, console: bool, bars: list[Bar]) -> object:
     closed = [b for b in bars if b.ts + MIN <= DECISION_TIME]
     rule_console = RuleConsole(profiles.strategy.console, profiles.instrument)
-    pipeline = Pipeline(profiles, Always(score), rule_console if console else None)
+    pipeline = Pipeline(
+        profiles, Always(score), rule_console if console else None, play=open_play()
+    )
     return pipeline.decide(
         bars, chain_for(closed[-1].close, DECISION_TIME), account(profiles), (), DECISION_TIME
     )

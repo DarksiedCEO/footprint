@@ -19,6 +19,7 @@ from footprint.decision.pipeline import ApprovedEntry, Decision, Pipeline
 from footprint.decision.risk.gate import AccountState
 from footprint.execution.journal.josephine import Journal
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
 D = Decimal
@@ -46,7 +47,9 @@ def chain(bars: list[Bar]) -> Any:
 
 
 def decide(profiles: Profiles, bars: list[Bar]) -> Decision:
-    return Pipeline(profiles).decide(bars, chain(bars), clean(profiles), (), DECISION_TIME)
+    return Pipeline(profiles, play=open_play()).decide(
+        bars, chain(bars), clean(profiles), (), DECISION_TIME
+    )
 
 
 def strict(profiles: Profiles, agent: str) -> Profiles:
@@ -100,7 +103,9 @@ def test_the_greeks_value_against_the_chains_underlying_price(
     profiles: Profiles, up_market: list[Bar]
 ) -> None:
     c = chain(up_market)
-    decision = Pipeline(profiles).decide(up_market, c, clean(profiles), (), DECISION_TIME)
+    decision = Pipeline(profiles, play=open_play()).decide(
+        up_market, c, clean(profiles), (), DECISION_TIME
+    )
     assert decision.approved is not None
     s, inst = profiles.strategy, profiles.instrument
     plan = decision.approved.plan
@@ -146,7 +151,9 @@ def test_a_theta_veto_runs_no_greeks_check(profiles: Profiles, up_market: list[B
 
 
 def test_no_greeks_check_runs_without_a_contract(profiles: Profiles, up_market: list[Bar]) -> None:
-    decision = Pipeline(profiles).decide(up_market, None, clean(profiles), (), DECISION_TIME)
+    decision = Pipeline(profiles, play=open_play()).decide(
+        up_market, None, clean(profiles), (), DECISION_TIME
+    )
     for name in GREEKS:
         assert getattr(decision, name) is None
     assert not any(r.split(":")[0] in GREEKS for r in decision.reasons())
@@ -190,6 +197,7 @@ def _approve(approved: ApprovedEntry, **changes: GreekCheck) -> ApprovedEntry:
         checks["vega"],
         checks["delta"],
         checks["gamma"],
+        approved.play,
         pipeline._APPROVAL,
     )
 

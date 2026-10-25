@@ -45,6 +45,10 @@ Drawdown marked to the bid: 3.08% (770.00). Worst open loss in any trade: -770.0
 
 - STOP: 1
 
+## Play caller (one label per trading day; only TREND trades)
+
+- no day's label was journaled
+
 ## Assumptions (read every result through these)
 
 - option prices: MODELLED from the futures price (no options history)

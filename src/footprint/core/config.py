@@ -933,6 +933,49 @@ def load_strategy(path: Path) -> StrategyProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class RegimeSettings:
+    """The play caller's regime reader (config/regime.yaml)."""
+
+    decision_minutes: int
+    efficiency_lookback_sessions: int
+    trend_rank_pct: Decimal
+    chop_rank_pct: Decimal
+    overnight_lookback_sessions: int
+
+
+def load_regime(path: Path) -> RegimeSettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(RegimeSettings)})
+    settings = RegimeSettings(
+        decision_minutes=_integer(raw, "decision_minutes", where, minimum=1),
+        efficiency_lookback_sessions=_integer(
+            raw, "efficiency_lookback_sessions", where, minimum=1
+        ),
+        trend_rank_pct=_positive_decimal(raw, "trend_rank_pct", where),
+        chop_rank_pct=_positive_decimal(raw, "chop_rank_pct", where),
+        overnight_lookback_sessions=_integer(raw, "overnight_lookback_sessions", where, minimum=1),
+    )
+    if settings.trend_rank_pct > _PERCENT_MAX:
+        raise ConfigError(f"{where}: trend_rank_pct must be <= {_PERCENT_MAX}")
+    if settings.chop_rank_pct >= settings.trend_rank_pct:
+        raise ConfigError(f"{where}: chop_rank_pct must be < trend_rank_pct")
+    return settings
+
+
+@dataclass(frozen=True, slots=True)
+class PlaySettings:
+    """The play caller (config/play.yaml): which play runs on the day's label (PC-5)."""
+
+    on_time_seconds: int
+
+
+def load_play(path: Path) -> PlaySettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(PlaySettings)})
+    return PlaySettings(on_time_seconds=_integer(raw, "on_time_seconds", where, minimum=1))
+
+
+@dataclass(frozen=True, slots=True)
 class QuoteSettings:
     max_age_seconds: int
     greeks_max_age_seconds: int
@@ -1198,6 +1241,8 @@ class Profiles:
     risk: RiskProfile
     strategy: StrategyProfile
     execution: ExecutionProfile
+    regime: RegimeSettings
+    play: PlaySettings
 
 
 def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
@@ -1207,11 +1252,14 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         risk=load_risk(config_dir / "risk.yaml"),
         strategy=load_strategy(config_dir / "strategy.yaml"),
         execution=load_execution(config_dir / "execution.yaml"),
+        regime=load_regime(config_dir / "regime.yaml"),
+        play=load_play(config_dir / "play.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
     _check_gamma_reachable(
         profiles.strategy.gamma, profiles.instrument, config_dir / "strategy.yaml"
     )
+    check_play_timing(profiles.instrument, profiles.execution, profiles.regime, profiles.play)
     return profiles
 
 
@@ -1240,4 +1288,36 @@ def _check_gamma_reachable(gamma: GammaSettings, instrument: InstrumentProfile, 
             f"{hours:g} hours, the longest any entry can wait for its expiry (prime "
             f"session start to option_expiry.time, dte_max {instrument.dte_max} days "
             "later): no option Felix may pick could meet it"
+        )
+
+
+def check_play_timing(
+    instrument: InstrumentProfile,
+    execution: ExecutionProfile,
+    regime: RegimeSettings,
+    play: PlaySettings,
+) -> None:
+    """The play caller's timing rules that span profiles. Raises ConfigError.
+
+    - The day's label is made `regime.decision_minutes` after the cash open, so that
+      moment must fall inside the cash session (the regime reader's own check, made at
+      load so a bad config is refused at start-up).
+    - The opening's final minute bar is polled `bar_poll_delay_seconds` after it closes;
+      at or past `play.on_time_seconds` it could never arrive on time and every live day
+      would stand aside (review round 1, L1).
+    """
+    cash = instrument.cash_session
+    start = datetime.combine(date.min, cash.start)
+    cash_minutes = (datetime.combine(date.min, cash.end) - start) // timedelta(minutes=1)
+    if cash.end <= cash.start or regime.decision_minutes >= cash_minutes:
+        raise ConfigError(
+            f"regime.decision_minutes ({regime.decision_minutes}) must end inside the cash "
+            f"session ({cash.start} to {cash.end})"
+        )
+    delay = execution.market_data.bar_poll_delay_seconds
+    if delay >= play.on_time_seconds:
+        raise ConfigError(
+            f"market_data.bar_poll_delay_seconds ({delay}) must be below "
+            f"play.on_time_seconds ({play.on_time_seconds}): the opening's final minute "
+            "could never be read on time"
         )
