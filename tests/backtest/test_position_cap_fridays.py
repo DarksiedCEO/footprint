@@ -3,8 +3,9 @@
 Felix takes the nearest expiry inside 1-3 days, so Monday to Thursday he buys a 1-day
 option and only on a Friday (Monday expiry, 3 days) a pricier one. On the modelled
 chain (config/backtest.yaml) a Friday at-the-money option costs more than the old
-$5,000 cap and less than CAP-1's $10,000, so the old cap refused every Friday entry
-and the shipped cap takes it. A Monday-Thursday entry (a 1-day option, even on a
+$5,000 cap and less than the shipped $6,000 (CAP-1 amended by M2 (b), Andre
+2026-10-24; this test's Friday costs $5,567.50), so the old cap refused every Friday
+entry and the shipped cap takes it. A Monday-Thursday entry (a 1-day option, even on a
 Monday when 2- and 3-day expiries are also listed) fits under both.
 """
 
@@ -28,6 +29,7 @@ from footprint.decision.sizing import EntryPlan, NoSize, size
 D = Decimal
 PT = ZoneInfo("America/Los_Angeles")
 OLD_CAP = D(5000)  # the cap before CAP-1
+SHIPPED_CAP = D(6000)  # CAP-1 amended by M2 (b), Andre 2026-10-24
 UNDERLYING = D("24012.5")
 MONDAY = datetime(2026, 9, 14, 7, 0, tzinfo=PT).astimezone(UTC)  # 1-, 2- and 3-day expiries
 THURSDAY = datetime(2026, 9, 17, 7, 0, tzinfo=PT).astimezone(UTC)
@@ -52,7 +54,7 @@ def _size(profiles: Profiles, choice: ContractChoice, cap: Decimal) -> EntryPlan
 
 
 @pytest.mark.parametrize("direction", [Direction.LONG, Direction.SHORT])
-def test_a_friday_entry_is_refused_at_the_old_cap_and_taken_at_cap1(
+def test_a_friday_entry_is_refused_at_5000_and_taken_at_the_shipped_6000(
     profiles: Profiles, settings: BacktestSettings, direction: Direction
 ) -> None:
     choice = _choice(profiles, settings, FRIDAY, direction)
@@ -60,10 +62,11 @@ def test_a_friday_entry_is_refused_at_the_old_cap_and_taken_at_cap1(
     old = _size(profiles, choice, OLD_CAP)
     assert isinstance(old, NoSize)
     assert "over the 5000 cap" in old.reason
+    assert profiles.risk.position_cap == SHIPPED_CAP
     new = _size(profiles, choice, profiles.risk.position_cap)  # the shipped cap
     assert isinstance(new, EntryPlan)
     assert new.contracts == 1
-    assert OLD_CAP < new.cost <= profiles.risk.position_cap
+    assert OLD_CAP < new.cost <= SHIPPED_CAP
 
 
 @pytest.mark.parametrize("now", [MONDAY, THURSDAY], ids=["monday", "thursday"])

@@ -38,7 +38,7 @@ that round numbers are not walls.
 
 **#5 `contract-sizing-stop`: contract choice (Felix), sizing (Ezra), stop and trail
 (Booker).** **CERTIFIED** (round 4). Look at: 1–3 DTE, never falls back to another
-contract, the position cap (now $10,000, CAP-1) held at the worst allowed fill, the $750 hard stop.
+contract, the position cap (now $6,000: CAP-1 amended by M2 (b)) held at the worst allowed fill, the $750 hard stop.
 
 **#6 `console-pipeline`: console (Desmond) and the end-to-end entry pipeline.**
 **CERTIFIED** (round 3). Look at: the hard gates in order, and that only an

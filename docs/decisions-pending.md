@@ -598,13 +598,17 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
 
-## Position cap raised to $10,000 (branch cap10k-v1; Andre, 2026-10-23)
+## Position cap raised to $6,000 (branch cap10k-v1; CAP-1 $10,000 on 2026-10-23, amended by M2 (b) on 2026-10-24; Andre)
 
 - **CAP-1 (Andre, decided 2026-10-23 08:38 PT): `risk.position_cap` 5000 -> 10000.** A
   config change; the only code change in the PR is that the backtest readout now prints
   `risk.position_cap` among its assumptions (review L1). Ezra still buys one contract
   (`max_contracts: 1`) and refuses any contract whose worst allowed fill plus the entry fee
   is over the cap. `overnight_position_cap` (2500) is unchanged; v1 does not trade overnight.
+  - **2026-10-24 (Andre, 22:39 PT): M2 decided (b): cap 6000. Worst gap-through-stop is now
+    about $6,000, 1.2x the kill-switch drawdown.** `risk.position_cap` is 6000, not 10000.
+    The figures below are restated for 6000 where they depend on the cap; the $10,000
+    figures are kept only where marked as the original CAP-1 analysis.
   - **What it actually changes: Friday entries.** Felix always takes the NEAREST expiry
     inside 1-3 days, so Monday to Thursday he buys a 1-day option. A 2- or 3-day option is
     chosen only when no 1-day one exists: on Fridays (Monday expiry, 3 days) and on the day
@@ -614,6 +618,13 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
       2026-09-14 to 2026-11-12, five times a day): Monday-Thursday, 180 of 180 entries fit
       under both caps ($3,127-$3,692). Friday, **0 of 40 fit at $5,000; 40 of 40 fit at
       $10,000** ($5,322-$5,702).
+    - Rechecked at 6000 (builder, 2026-10-24; same window, five times a day, long, a fixed
+      underlying of 24,012.50, so a narrower range than the review's): Friday 40 of 40 are
+      3-day options costing $5,372.50-$5,617.50 and **all 40 fit at $6,000**;
+      Monday-Thursday 180 of 180 are 1-day options ($3,212.50-$3,557.50), all fit. The
+      review's highest Friday cost ($5,702) leaves about $298 of room under $6,000. On the
+      live estimates below (2-3 day options roughly $5,000-$7,500), **some real Friday
+      entries would still be refused at $6,000**; the real-data backtest will show how many.
     - **Results from the backtest engine (`footprint.backtest`) on the default config
       before CAP-1, such as the Bollinger results, excluded all Fridays and are not
       comparable with engine runs after CAP-1.** Treat them as "Fridays excluded
@@ -641,46 +652,54 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
     also have refused some Monday-Thursday entries at the open.
   - **Unchanged:** the $750 hard stop, `stop_min`/`stop_max`, the $1,000 target, the daily
     ($2,000) and weekly ($3,500) loss limits and the kill switch. The planned loss per trade
-    in dollars is the same. All exit maths is dollars per contract: at a 499.75-point fill
-    (the largest under the cap) the hard stop is 462.25, the resting limit 457.25 (worst
-    stop fill plus fees $855, inside `stop_max`), and the trail arms at a bid of 550.00 and
-    moves the stop to 525.00 (pinned by a test).
+    in dollars is the same. All exit maths is dollars per contract: at a 299.75-point fill
+    (the largest under the 6000 cap) the hard stop is 262.25, the resting limit 257.25 (worst
+    stop fill plus fees $855, inside `stop_max`), and the trail arms at a bid of 350.00 and
+    moves the stop to 325.00 (pinned by a test).
   - **Other effects:**
-    - Up to 40% of the $25,000 bankroll can sit in one option, up from 20%.
-    - $750 is a smaller share of a pricier option (7.5-12.5% of $6,000-$10,000), so ordinary
+    - Up to 24% of the $25,000 bankroll can sit in one option, up from 20% (40% at the
+      original $10,000).
+    - $750 is a smaller share of a pricier option (12.5% of $6,000, against 15% of $5,000), so ordinary
       noise reaches the stop more often. The real-data backtest is what measures this.
     - Line 12 of this file (the withdrawal policy) says position size steps up toward $10,000
       "only at the same percent-of-bankroll risk". The dollar risk per trade is unchanged;
       the premium held is not. Andre's call that this is consistent with that policy.
-  - **M2: one trade's worst case now exceeds the kill switch. AWAITING ANDRE'S SIGN-OFF.**
+  - **M2: one trade's worst case now exceeds the kill switch. DECIDED (b), cap 6000 (Andre,
+    2026-10-24).**
     If the price gaps through the resting stop-limit and the position is then flattened
-    lower, one trade can lose up to the premium paid: now up to **$10,000** (40% of the
-    bankroll). That is 2x the kill-switch drawdown ($5,000 = 20% of $25,000), 2.9x the
-    weekly limit ($3,500), 5x the daily limit ($2,000) and 2.7x the 15% go-live drawdown
-    gate ($3,750). At the old cap the worst case ($5,000) equalled the kill-switch amount.
+    lower, one trade can lose up to the premium paid. At the original $10,000 that was 40% of
+    the bankroll: 2x the kill-switch drawdown, 2.9x the weekly limit, 5x the daily limit and
+    2.7x the go-live drawdown gate. **At 6000 the worst case is about $6,000 (the largest
+    allowed cost is $5,997.50), 24% of the bankroll: 1.2x the kill-switch drawdown ($5,000 =
+    20% of $25,000), 1.7x the weekly limit ($3,500), 3x the daily limit ($2,000) and 1.6x the
+    15% go-live drawdown gate ($3,750).** At the old cap the worst case ($5,000) equalled the
+    kill-switch amount.
     The limits only veto the NEXT entry; they cannot cap a loss in progress. A realistic
     intraday gap is far smaller than the whole premium (positions are flat at the close),
     but the exposure is real.
     - (a) Accept the $10,000 worst case.
     - (b) Lower the cap (for example to the kill-switch amount, $5,000-$6,000, accepting
-      fewer or no Friday entries).
-  - **M3: the spread filter scales with the premium. AWAITING ANDRE'S SIGN-OFF.**
-    `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread: about 25 points
-    ($500) at a ~500-point premium, against about 12.5 points at ~250. Code-checked case: a
-    477.75/502.25 quote (spread 5.0% of mid, the most Felix allows) is accepted; Ezra's
-    worst allowed fill is 496.00 (cost $9,922.50) and its stop 458.50 sits only **~$385**
-    above the bid. For a ~$5,000 entry (243.75/256.25, fill 253.00) the same room is
-    **~$565**. So stop-outs from noise rise beyond the 7.5-12.5% effect above. Real quotes
+      fewer or no Friday entries). **Chosen: 6000.**
+  - **M3: the spread filter scales with the premium. STILL AWAITING ANDRE'S SIGN-OFF.**
+    `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread. Restated for the
+    6000 cap (code-checked 2026-10-24): at the largest fill under the cap, a 288.75/303.50
+    quote (spread 14.75 points, $295, 4.98% of mid) is accepted; Ezra's worst allowed fill
+    is 299.75 (cost $5,997.50) and its stop 262.25 sits **~$530** above the bid. At exactly
+    5.0% (282.75/297.25, fill 293.50, cost $5,872.50) the room is **~$535**. For a ~$5,000
+    entry (243.75/256.25, fill 253.00, spread 12.5 points) the same room is **~$565**. So at
+    6000 the extra noise exposure from the spread filter is about $30-$35 of stop room, far
+    smaller than at $10,000 (a 477.75/502.25 quote is now refused: cost $9,922.50, over the
+    cap; at $10,000 its room was ~$385). Real quotes
     seen: Oct 30 NQ spread 9 points on ~500 (1.8%, fine); Oct 23 weekly 28 points on 178
     (refused).
     - (a) Accept the percent-of-mid filter as is.
     - (b) Add an absolute spread cap in points to `config/execution.yaml` (a draft number
       for Andre to set; NOT built in this PR).
-  - **Tests:** `tests/test_config.py` pins 10000 and accepts a cap equal to the bankroll;
-    the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 9,997.50 (fits) /
-    10,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
-    at a 499.75 fill; `tests/backtest/test_position_cap_fridays.py` shows a modelled Friday
-    entry refused at $5,000 and taken at the shipped cap (Monday and Thursday take a
-    1-day option that fits both);
+  - **Tests:** `tests/test_config.py` pins 6000 and accepts a cap equal to the bankroll;
+    the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 5,997.50 (fits) /
+    6,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
+    at a 299.75 fill; `tests/backtest/test_position_cap_fridays.py` shows a modelled Friday
+    entry ($5,567.50) refused at $5,000 and taken at the shipped $6,000 (Monday and Thursday
+    take a 1-day option that fits both);
     `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
     `risk.position_cap`.

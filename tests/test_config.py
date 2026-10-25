@@ -48,7 +48,7 @@ def test_instrument_profile_loads(instrument_path: Path) -> None:
 def test_risk_profile_loads(risk_path: Path) -> None:
     profile = load_risk(risk_path)
     assert profile.bankroll == Decimal("25000")
-    assert profile.position_cap == Decimal("10000")  # CAP-1, Andre 2026-10-23
+    assert profile.position_cap == Decimal("6000")  # CAP-1 amended by M2 (b), Andre 2026-10-24
     assert profile.overnight_position_cap == Decimal("2500")
     assert profile.profit_target == Decimal("1000")
     assert (profile.stop_min, profile.stop_max) == (Decimal("750"), Decimal("1000"))
@@ -161,7 +161,7 @@ def test_instrument_rejects_sessions_in_different_timezones(
         {"bankroll": "lots"},
         {"bankroll": ...},
         {"position_cap": 30000},  # above bankroll
-        {"overnight_position_cap": 12000},  # above position_cap (10000), below bankroll
+        {"overnight_position_cap": 7000},  # above position_cap (6000), below bankroll
         {"profit_target": 0},
         {"stop_min": 1500},  # above stop_max
         {"stop_max": -1},

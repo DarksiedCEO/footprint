@@ -267,9 +267,9 @@ def test_ezra_cost_includes_the_entry_fee(
     ("bid", "ask", "fits"),
     [
         (249.75, 249.75, True),  # 249.75 x 20 + 2.50 = 4997.50
-        (250, 250, True),  # 5002.50: over the old 5000 cap, inside CAP-1's 10000
-        (499.75, 499.75, True),  # 499.75 x 20 + 2.50 = 9997.50
-        (500, 500, False),  # 10002.50: over the 10000 cap (CAP-1)
+        (250, 250, True),  # 5002.50: over the old 5000 cap, inside CAP-1's 6000
+        (299.75, 299.75, True),  # 299.75 x 20 + 2.50 = 5997.50
+        (300, 300, False),  # 6002.50: over the 6000 cap (CAP-1, M2 (b))
     ],
 )
 def test_ezra_never_exceeds_the_position_cap(
@@ -464,26 +464,26 @@ def test_resting_stop_limit_and_gap_watchdog(booker: StopKeeper) -> None:
 def test_stop_limit_and_trail_at_a_cap1_premium(
     booker: StopKeeper, risk: RiskProfile, instrument: InstrumentProfile
 ) -> None:
-    """CAP-1 review L3: the exit numbers are dollars per contract, so a ~$10,000 premium
-    (499.75 points, the largest fill under the 10,000 cap) keeps the same $750 stop,
+    """CAP-1 review L3: the exit numbers are dollars per contract, so a ~$6,000 premium
+    (299.75 points, the largest fill under the 6,000 cap) keeps the same $750 stop,
     the same resting limit width and the same trail as a ~$3,000 one."""
-    entry = D("499.75")
+    entry = D("299.75")
     stop = booker.open("t", entry, 1)
-    assert (stop.price, stop.trailing) == (D("462.25"), False)  # 499.75 - 750/20
+    assert (stop.price, stop.trailing) == (D("262.25"), False)  # 299.75 - 750/20
     order = booker.resting_order("t")
-    assert (order.trigger, order.limit) == (D("462.25"), D("457.25"))  # 20 ticks below
+    assert (order.trigger, order.limit) == (D("262.25"), D("257.25"))  # 20 ticks below
     fees = 2 * risk.fee_per_contract_per_side
     worst = (entry - order.limit) * instrument.point_value + fees
     assert worst == D(855)
     assert worst <= risk.stop_max
     feed = Feed(booker)
-    feed.settle("t", 549.75)  # $1,000 gross, $995 net: not yet
-    assert (booker.current("t").price, booker.current("t").trailing) == (D("462.25"), False)
-    feed.settle("t", 550)  # $1,000 net: lock $500 net
-    assert (booker.current("t").price, booker.current("t").trailing) == (D("525.00"), True)
-    assert booker.resting_order("t") == replace(order, trigger=D(525), limit=D(520))
-    assert feed.check("t", 525.25) is StopCheck.CLEAR
-    assert feed.check("t", 525) is StopCheck.HIT
+    feed.settle("t", 349.75)  # $1,000 gross, $995 net: not yet
+    assert (booker.current("t").price, booker.current("t").trailing) == (D("262.25"), False)
+    feed.settle("t", 350)  # $1,000 net: lock $500 net
+    assert (booker.current("t").price, booker.current("t").trailing) == (D("325.00"), True)
+    assert booker.resting_order("t") == replace(order, trigger=D(325), limit=D(320))
+    assert feed.check("t", 325.25) is StopCheck.CLEAR
+    assert feed.check("t", 325) is StopCheck.HIT
 
 
 def test_requests_are_ratcheted_on_the_tick_and_logged(

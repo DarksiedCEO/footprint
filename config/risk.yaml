@@ -1,7 +1,8 @@
 # Money model. Amounts are in account currency.
 bankroll: 25000
-position_cap: 10000            # CAP-1 (Andre, 2026-10-23): was 5000. Mainly turns on
-                               # Friday entries (3-day options); the dollar stop and loss
+position_cap: 6000             # CAP-1 (Andre, 2026-10-23): was 5000, set to 10000;
+                               # amended by M2 (b) (Andre, 2026-10-24): 6000. Mainly turns
+                               # on Friday entries (3-day options); the dollar stop and loss
                                # limits are unchanged, but one trade's gap risk is now up to
                                # the cap. See docs/decisions-pending.md (CAP-1, M2, M3).
 overnight_position_cap: 2500
