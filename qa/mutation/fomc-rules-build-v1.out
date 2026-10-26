@@ -1,4 +1,4 @@
-source: fad94c9888a6c46b5780d82a47ded507dfffe74f tree-dirty: 0 files
+source: 90b714d981f01249decd7ccc0c7bf15e09e7c8b8 tree-dirty: 0 files
 baseline [exits]: passed
 baseline [rules]: passed
 baseline [wiring]: passed
@@ -13,35 +13,50 @@ baseline [wiring]: passed
   9 KILLED   [rules] src/footprint/decision/news_rules.py: expiry a day early
  10 KILLED   [rules] src/footprint/decision/news_rules.py: start a day late
  11 KILLED   [rules] src/footprint/decision/news_rules.py: start a day early
- 12 KILLED   [rules] src/footprint/decision/news_rules.py: UNVERIFIED treated as verified
- 13 KILLED   [rules] src/footprint/decision/news_rules.py: verified treated as UNVERIFIED
- 14 KILLED   [rules] src/footprint/decision/news_rules.py: FOMC windows never listed
- 15 KILLED   [rules] src/footprint/decision/news_rules.py: whole day on the prime clock
- 16 KILLED   [rules] src/footprint/decision/news_rules.py: whole day ends on the prime clock
- 17 KILLED   [rules] src/footprint/decision/news_rules.py: N5 on the meeting's first day
- 18 KILLED   [rules] src/footprint/decision/news_rules.py: expired alarm a day late
- 19 KILLED   [rules] src/footprint/decision/news_rules.py: ending warning a day late
- 20 KILLED   [rules] src/footprint/decision/news_rules.py: no warning horizon
- 21 KILLED   [rules] src/footprint/decision/news_rules.py: unverified warning stops on the day itself
- 22 KILLED   [rules] src/footprint/decision/news_rules.py: unverified warning with no horizon
- 23 KILLED   [rules] src/footprint/decision/news_rules.py: warns of verified dates
- 24 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest before the calendar allowed
- 25 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest past the calendar allowed
- 26 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest on the first valid day refused
- 27 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest on the last valid day refused
- 28 KILLED   [wiring] src/footprint/backtest/engine.py: backtest span not checked
- 29 KILLED   [wiring] src/footprint/live/app.py: live never alarms the FOMC calendar
- 30 KILLED   [wiring] src/footprint/execution/channels.py: expired FOMC calendar does not ring
- 31 KILLED   [rules] src/footprint/core/config.py: any source accepted
- 32 KILLED   [rules] src/footprint/core/config.py: any http source accepted
- 33 KILLED   [rules] src/footprint/core/config.py: first_day after decision_day accepted
- 34 KILLED   [rules] src/footprint/core/config.py: duplicate meeting accepted
- 35 KILLED   [rules] src/footprint/core/config.py: inverted span accepted
- 36 KILLED   [rules] src/footprint/core/config.py: meeting outside the span accepted
- 37 KILLED   [rules] src/footprint/core/config.py: incomplete year accepted
- 38 KILLED   [rules] src/footprint/core/config.py: partial years counted
- 39 KILLED   [rules] src/footprint/core/config.py: partial first year counted
- 40 KILLED   [rules] src/footprint/core/config.py: zero meetings a year accepted
- 41 KILLED   [rules] src/footprint/core/config.py: negative warn days accepted
- 42 KILLED   [exits] src/footprint/decision/news_rules.py: held position not closed on an FOMC day
-42 mutants, 0 survived or errored
+ 12 KILLED   [rules] src/footprint/decision/news_rules.py: FOMC windows never listed
+ 13 KILLED   [rules] src/footprint/decision/news_rules.py: whole day on the prime clock
+ 14 KILLED   [rules] src/footprint/decision/news_rules.py: whole day ends on the prime clock
+ 15 KILLED   [rules] src/footprint/decision/news_rules.py: N5 on the meeting's first day
+ 16 KILLED   [rules] src/footprint/decision/news_rules.py: expired alarm a day late
+ 17 KILLED   [rules] src/footprint/decision/news_rules.py: ending warning a day late
+ 18 KILLED   [rules] src/footprint/decision/news_rules.py: no warning horizon
+ 19 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest before the calendar allowed
+ 20 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest past the calendar allowed
+ 21 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest on the first valid day refused
+ 22 KILLED   [wiring] src/footprint/decision/news_rules.py: backtest on the last valid day refused
+ 23 KILLED   [wiring] src/footprint/backtest/engine.py: backtest span not checked
+ 24 KILLED   [wiring] src/footprint/live/app.py: live never alarms the FOMC calendar
+ 25 KILLED   [wiring] src/footprint/execution/channels.py: expired FOMC calendar does not ring
+ 26 KILLED   [rules] src/footprint/core/config.py: any source accepted
+ 27 KILLED   [rules] src/footprint/core/config.py: any http source accepted
+ 28 KILLED   [rules] src/footprint/core/config.py: first_day after decision_day accepted
+ 29 KILLED   [rules] src/footprint/core/config.py: duplicate meeting accepted
+ 30 KILLED   [rules] src/footprint/core/config.py: inverted span accepted
+ 31 KILLED   [rules] src/footprint/core/config.py: incomplete year accepted
+ 32 KILLED   [rules] src/footprint/core/config.py: partial years counted
+ 33 KILLED   [rules] src/footprint/core/config.py: partial first year counted
+ 34 KILLED   [rules] src/footprint/core/config.py: zero meetings a year accepted
+ 35 KILLED   [rules] src/footprint/core/config.py: negative warn days accepted
+ 36 KILLED   [exits] src/footprint/decision/news_rules.py: held position not closed on an FOMC day
+ 37 KILLED   [rules] src/footprint/decision/news_rules.py: intermeeting days not blacked out
+ 38 KILLED   [rules] src/footprint/decision/news_rules.py: unverified action not named
+ 39 KILLED   [rules] src/footprint/decision/news_rules.py: cancelled day not blacked out
+ 40 KILLED   [rules] src/footprint/decision/news_rules.py: cancelled blackout on the first day
+ 41 KILLED   [rules] src/footprint/decision/news_rules.py: action blackout a day late
+ 42 KILLED   [rules] src/footprint/decision/news_rules.py: unverified actions not warned
+ 43 KILLED   [rules] src/footprint/core/config.py: non-Fed source accepted anywhere
+ 44 KILLED   [rules] src/footprint/core/config.py: cancelled on a held day accepted
+ 45 KILLED   [rules] src/footprint/core/config.py: intermeeting outside the span accepted
+ 46 KILLED   [rules] src/footprint/core/config.py: cancelled not counted in its year
+ 47 KILLED   [rules] src/footprint/core/config.py: duplicate action accepted
+ 48 KILLED   [rules] src/footprint/core/config.py: out-of-order actions accepted
+ 49 KILLED   [rules] src/footprint/core/config.py: non-bool action verified accepted
+ 50 KILLED   [rules] src/footprint/core/config.py: empty meetings list accepted
+ 51 KILLED   [rules] src/footprint/core/config.py: empty optional lists refused
+ 52 KILLED   [rules] src/footprint/decision/news_rules.py: UNVERIFIED treated as verified
+ 53 KILLED   [rules] src/footprint/decision/news_rules.py: verified treated as UNVERIFIED
+ 54 KILLED   [rules] src/footprint/decision/news_rules.py: unverified warning stops on the day itself
+ 55 KILLED   [rules] src/footprint/decision/news_rules.py: unverified warning with no horizon
+ 56 KILLED   [rules] src/footprint/decision/news_rules.py: warns of verified dates
+ 57 KILLED   [rules] src/footprint/core/config.py: meeting outside the span accepted
+57 mutants, 0 survived or errored
