@@ -1146,7 +1146,8 @@ class FomcCalendar:
     valid_from: date
     valid_through: date
     meetings_per_year: int
-    max_gap_days: int  # review M1: no longer gap between the span's edges and meetings
+    max_gap_days: int  # review M1: no longer gap between two meetings
+    max_edge_days: int  # review R2-M1: no longer gap at the span's edges
     meetings: tuple[FomcMeeting, ...]
     cancelled: tuple[FomcMeeting, ...]
     intermeeting: tuple[FomcAction, ...]
@@ -1240,6 +1241,7 @@ def load_fomc(path: Path) -> FomcCalendar:
         valid_through=_date(raw, "valid_through", where),
         meetings_per_year=_integer(raw, "meetings_per_year", where, minimum=1),
         max_gap_days=_integer(raw, "max_gap_days", where, minimum=1),
+        max_edge_days=_integer(raw, "max_edge_days", where, minimum=1),
         meetings=_fomc_meetings(raw, "meetings", where, cancelled=False),
         cancelled=_fomc_meetings(raw, "cancelled", where, cancelled=True),
         intermeeting=_fomc_actions(raw, where),
@@ -1274,16 +1276,30 @@ def load_fomc(path: Path) -> FomcCalendar:
                 "copy the year from the Federal Reserve's calendar"
             )
     # Review M1: a year the span only partly covers cannot be counted, so no gap between
-    # the span's edges and its meetings (held or cancelled) may be longer than
-    # max_gap_days: extending the span without its meetings is refused.
-    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]
-    for before, after in pairwise(edges):
-        if (after - before).days > calendar.max_gap_days:
+    # two meetings (held or cancelled; an intermeeting day never fills one) may be longer
+    # than max_gap_days. Review R2-M1: the edges get their own, shorter limit, below
+    # the shortest real gap between meetings, so neither edge can reach past an unlisted
+    # meeting: valid_from to the first meeting's first day, and the last decision day to
+    # valid_through. Extending the span without its meetings is refused.
+    anchors = sorted((*calendar.meetings, *calendar.cancelled), key=lambda m: m.decision_day)
+    for earlier, later in pairwise(anchors):
+        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days:
             raise ConfigError(
-                f"{where}: {before} to {after} lists no FOMC meeting, longer than "
-                f"max_gap_days {calendar.max_gap_days}: list the Fed's meetings in it, or "
-                "end (or start) the span earlier"
+                f"{where}: {earlier.decision_day} to {later.decision_day} lists no FOMC "
+                f"meeting, longer than max_gap_days {calendar.max_gap_days}: list the Fed's "
+                "meetings in it"
             )
+    if anchors:
+        for before, after in (
+            (calendar.valid_from, anchors[0].first_day),
+            (anchors[-1].decision_day, calendar.valid_through),
+        ):
+            if (after - before).days > calendar.max_edge_days:
+                raise ConfigError(
+                    f"{where}: {before} to {after} lists no FOMC meeting, longer than "
+                    f"max_edge_days {calendar.max_edge_days} at the span's edge: list the "
+                    "Fed's meetings in it, or end (or start) the span nearer its meetings"
+                )
     return calendar
 
 

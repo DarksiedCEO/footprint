@@ -34,6 +34,11 @@ max_gap_days: 60    # DEFAULT (draft, review M1): the loader refuses a gap longe
                     #   cancelled) and valid_through, so a span cannot be extended past
                     #   meetings it does not list (the longest gap listed, 2017-2027, is 56:
                     #   late July to late September)
+max_edge_days: 35   # DEFAULT (draft, review round 2 R2-M1): the loader refuses more than
+                    #   this from valid_from to the first meeting's first day, or from the
+                    #   last decision day to valid_through. Below the shortest gap between
+                    #   two meetings (41 days), so neither edge can reach past an unlisted
+                    #   meeting. Shipped edges: 30 and 23
 meetings:
   - {first_day: 2017-01-31, decision_day: 2017-02-01, verified: true,
      source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}

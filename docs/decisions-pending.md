@@ -471,7 +471,7 @@ Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the
 
 ## News, open and Fed rules (Andre, 2026-10-14)
 
-Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **N1-N4 are built on branch news-rules-build-v1, N5/N6 on fomc-rules-build-v1 stacked on it (see their sections below); N8 and N9 are not built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
+Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **N1-N4 are built and merged (#52, merged into main as 214019a); N5/N6 are built on fomc-rules-build-v1 (#54, based on main; see their sections below); N8 and N9 are not built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
 
 | ID | Rule | Status |
 |---|---|---|
@@ -1810,12 +1810,15 @@ question of its own, below in that PR's section).
   window always carries it); reworded above. The live `--no-blackouts` help now says
   "no CSV news calendar (the scheduled windows in config/news.yaml stay on)".
 
-## FOMC rules built (branch fomc-rules-build-v1, stacked on news-rules-build-v1; N5, N6; 2026-10-26)
+## FOMC rules built (branch fomc-rules-build-v1, PR #54 on main; N5, N6; 2026-10-26)
 
 Code: `decision/news_rules.py` (`_fed`, `fomc_warning`, `check_fomc_span`), config
 `config/fomc.yaml` and `fomc_flat_from` / `fomc_warn_days` in `config/news.yaml`; live
 `Live.check_calendar` alarms daily; "FOMC CALENDAR EXPIRED" is a critical marker (rings).
-Review not done.
+Review: round 1 and round 2 CERTIFIED WITH CONDITIONS (independent hostile review);
+round-2 fixes (R2-M1, R2-L1, R2-L2) below, re-review pending; Andre's review and the
+sign-offs D-A, FOMC-INTER and L6 still open. #52 (N1-N4) is merged into main as 214019a;
+this branch is based on main.
 
 - **N5:** on each FOMC decision day (the meeting's second day, when the 2 p.m. ET
   statement comes), a blackout from 13:55 ET (10:55 PT, `fomc_flat_from`, DEFAULT) to
@@ -1883,6 +1886,16 @@ Review not done.
   cancelled meeting must be two days (decision day = first day + 1), end on a weekday
   and not overlap the meeting before. `verified` must be written `true` or `false`
   (YAML's yes/no/on/off are refused in this file).
+- **Review round 2 fix (R2-M1, loader edges):** the gap limit (60) is above the
+  shortest real gap between two meetings (41 days), so a span edge could still reach one
+  meeting past what is listed (valid_from 2016-12-03, valid_through 2028-02-06 loaded).
+  Now the edges have their own limit, `max_edge_days` (config/fomc.yaml, **DEFAULT
+  (draft, review R2-M1): 35**, below 41): valid_from to the first meeting's first day,
+  and the last decision day to valid_through (shipped: 30 and 23). `max_gap_days` now
+  applies between meetings only (held and cancelled; an intermeeting day never fills a
+  gap, R2-L2, tested). R2-L1: a test pins that the last valid day gives the "calendar
+  ends ... (0 days)" warning, not the critical EXPIRED alarm. Noted only: qa/ is outside
+  the mypy gate config (R2-I1).
 - **Review round 1, noted only (not changed):** (L6) the live FOMC alarm is dated on the
   PT calendar day, the blackouts on the ET day: the EXPIRED alarm can come up to 3 hours
   after the blackout starts (the blackout itself is right). (I1) inside the last

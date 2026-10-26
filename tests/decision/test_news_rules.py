@@ -205,6 +205,10 @@ def test_n6_warning_and_critical_alarm(profiles: Profiles) -> None:
     assert soon is not None
     assert "FOMC calendar ends 2027-12-31 (30 days)" in soon
     assert not is_critical(soon)
+    last = fomc_warning(through, s)  # the last valid day: not expired yet (R2-L1)
+    assert last is not None
+    assert last.startswith("FOMC calendar ends 2027-12-31 (0 days)")
+    assert not is_critical(last)
     expired = fomc_warning(through + timedelta(days=1), s)
     assert expired is not None
     assert expired.startswith("FOMC CALENDAR EXPIRED on 2027-12-31")

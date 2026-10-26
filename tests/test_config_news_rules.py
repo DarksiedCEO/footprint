@@ -215,12 +215,12 @@ def test_a_span_ending_inside_a_year_is_checked_by_its_gaps(tmp_path: Path) -> N
 def test_m1_a_span_extended_past_its_meetings_is_refused(tmp_path: Path) -> None:
     """Review M1: extending valid_through without listing the new year's meetings
     (the edit the expiry alarm asks for) must fail, not leave FOMC days unprotected."""
-    with pytest.raises(ConfigError, match="max_gap_days"):
+    with pytest.raises(ConfigError, match="max_edge_days"):
         load_fomc(_write(tmp_path, FOMC, valid_through=date(2028, 6, 30)))
 
 
 def test_m1_a_span_started_before_its_meetings_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="max_gap_days"):
+    with pytest.raises(ConfigError, match="max_edge_days"):
         load_fomc(_write(tmp_path, FOMC, valid_from=date(2016, 7, 1)))
 
 
@@ -243,10 +243,57 @@ def test_m1_the_gap_limit_is_config(tmp_path: Path) -> None:
         load_fomc(_write(tmp_path, FOMC, max_gap_days=0))
 
 
+def test_r2_m1_the_shipped_edges_load_under_the_edge_limit() -> None:
+    """Shipped: 2017-01-01 to the first meeting's first day (2017-01-31) is 30 days;
+    the last decision day (2027-12-08) to 2027-12-31 is 23."""
+    fomc = load_fomc(FOMC)
+    assert fomc.max_edge_days == 35
+    assert (fomc.meetings[0].first_day - fomc.valid_from).days == 30
+    assert (fomc.valid_through - fomc.meetings[-1].decision_day).days == 23
+
+
+def test_r2_m1_a_start_one_meeting_early_is_refused(tmp_path: Path) -> None:
+    """Review round 2: 2016-12-03 would cover the unlisted 2016-12-13/14 meeting."""
+    with pytest.raises(ConfigError, match="max_edge_days 35"):
+        load_fomc(_write(tmp_path, FOMC, valid_from=date(2016, 12, 3)))
+
+
+def test_r2_m1_an_end_one_meeting_late_is_refused(tmp_path: Path) -> None:
+    """Review round 2: 2028-02-06 would cover an unlisted late-January 2028 meeting."""
+    with pytest.raises(ConfigError, match="max_edge_days 35"):
+        load_fomc(_write(tmp_path, FOMC, valid_through=date(2028, 2, 6)))
+
+
+def test_r2_m1_the_edge_limit_is_config(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="max_edge_days 29"):
+        load_fomc(_write(tmp_path, FOMC, max_edge_days=29))  # the shipped start edge is 30
+    assert load_fomc(_write(tmp_path, FOMC, max_edge_days=30)).max_edge_days == 30
+    with pytest.raises(ConfigError, match="max_edge_days must be >= 1"):
+        load_fomc(_write(tmp_path, FOMC, max_edge_days=0))
+
+
+def test_r2_l2_an_intermeeting_day_does_not_fill_a_gap(tmp_path: Path) -> None:
+    """Only held and cancelled meetings anchor the gap rule: a gap of over
+    max_gap_days with only an intermeeting day in it is still refused."""
+    data = _calendar()
+    data["valid_through"] = date(2027, 6, 30)
+    data["meetings"] = [
+        m
+        for m in data["meetings"]
+        if m["decision_day"] <= date(2027, 6, 30) and m["decision_day"] != date(2027, 4, 28)
+    ]
+    data["intermeeting"] = [
+        *data["intermeeting"],
+        {"day": date(2027, 4, 28), "verified": True, "source": FED_PAGE},
+    ]
+    with pytest.raises(ConfigError, match="max_gap_days"):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
 def test_partial_first_year_is_not_counted(tmp_path: Path) -> None:
-    """valid_from after 1 January: that year cannot be checked (seven meetings left)."""
-    meetings = [m for m in _meetings() if m["decision_day"] >= date(2017, 2, 2)]
-    fomc = load_fomc(_write(tmp_path, FOMC, valid_from=date(2017, 2, 2), meetings=meetings))
+    """valid_from after 1 January: that year cannot be counted (seven meetings left)."""
+    meetings = [m for m in _meetings() if m["decision_day"] >= date(2017, 2, 15)]
+    fomc = load_fomc(_write(tmp_path, FOMC, valid_from=date(2017, 2, 15), meetings=meetings))
     assert fomc.meetings[0].decision_day == date(2017, 3, 15)
 
 

@@ -388,34 +388,6 @@
   [
    "rules",
    "src/footprint/core/config.py",
-   "        if (after - before).days > calendar.max_gap_days:",
-   "        if False:",
-   "M1: no gap check"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
-   "        if (after - before).days > calendar.max_gap_days:",
-   "        if (after - before).days > calendar.max_gap_days + 1:",
-   "M1: gap limit off by one"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
-   "    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]",
-   "    edges = [calendar.valid_from, *sorted(days)]",
-   "M1: span end not checked"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
-   "    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]",
-   "    edges = [*sorted(days), calendar.valid_through]",
-   "M1: span start not checked"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
    "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=1),",
    "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=0),",
    "M1: zero gap limit accepted"
@@ -489,6 +461,90 @@
    "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)}, _StrictBoolLoader)",
    "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})",
    "yes/on read as true"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days:",
+   "        if False:",
+   "M1: no gap check between meetings"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days:",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days + 1:",
+   "M1: gap limit off by one"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if False:",
+   "R2-M1: no edge check"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if (after - before).days > calendar.max_gap_days:",
+   "R2-M1: edges use the gap limit"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if (after - before).days > calendar.max_edge_days + 1:",
+   "R2-M1: edge limit off by one"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (calendar.valid_from, anchors[0].first_day),\n",
+   "",
+   "R2-M1: start edge not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (anchors[-1].decision_day, calendar.valid_through),\n",
+   "",
+   "R2-M1: end edge not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (calendar.valid_from, anchors[0].first_day),",
+   "            (calendar.valid_from, anchors[0].decision_day),",
+   "R2-M1: start edge to the decision day"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        max_edge_days=_integer(raw, \"max_edge_days\", where, minimum=1),",
+   "        max_edge_days=_integer(raw, \"max_edge_days\", where, minimum=0),",
+   "R2-M1: zero edge limit accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled), key=lambda m: m.decision_day)",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled, *(FomcMeeting(a.day - _ONE_DAY, a.day, True, a.source) for a in calendar.intermeeting)), key=lambda m: m.decision_day)",
+   "R2-L2: intermeeting days fill gaps"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled), key=lambda m: m.decision_day)",
+   "    anchors = sorted(calendar.meetings, key=lambda m: m.decision_day)",
+   "M1: cancelled meetings not gap anchors"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    if today > fomc.valid_through:",
+   "    if today >= fomc.valid_through:",
+   "R2-L1: EXPIRED alarm a day early"
   ]
  ]
 }
