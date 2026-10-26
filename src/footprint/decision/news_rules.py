@@ -15,8 +15,9 @@ backtest and the live program both add these windows to the CSV ones through
   to the end of the `pre_news_until` event's window.
 - N-OPEN-3 (DEFAULT, pending Andre): from `overnight_flat_from` to the overnight
   session's end (its whole end minute).
-- N-OPEN-2 (DEFAULT, pending Andre): the daily windows (N1, N3, N4) start the news time
-  stop only when `time_stop_after_daily` is on; every other window always does.
+- N-OPEN-2 (DEFAULT, pending Andre): each daily window (N1, N3) starts the news time
+  stop only when its own `time_stop` switch is on, and N4 only when `pre_news_time_stop`
+  is; every other window (overnight, CSV) always does.
 
 Times are config; this module knows no clock time, zone or length of its own.
 """
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from footprint.core.config import (
@@ -92,7 +94,7 @@ class NewsRules:
             event.name,
             at - _MINUTE * self._s.lead_minutes,
             _end_of_minute(at + _MINUTE * self._s.lag_minutes),
-            time_stop=self._s.time_stop_after_daily,
+            time_stop=event.time_stop,
         )
 
     def _pre_news(self, day: date) -> NewsBlackout:
@@ -108,7 +110,7 @@ class NewsRules:
             pre_news_name(self._until.name),
             start,
             end,
-            time_stop=self._s.time_stop_after_daily,
+            time_stop=self._s.pre_news_time_stop,
         )
 
     def _overnight(self, day: date) -> NewsBlackout:
@@ -141,6 +143,49 @@ class NewsRules:
         require_utc(now, "now")
         today = now.astimezone(self._zone).date()
         return (*self.day(today - _DAY), *self.day(today), *self.day(today + _DAY))
+
+
+def _clock_text(clock: time, shift: timedelta = timedelta(0)) -> str:
+    """`clock` moved by `shift`, as HH:MM (a lead or lag is shorter than a day)."""
+    return (datetime.combine(date.min + _DAY, clock) + shift).strftime("%H:%M")
+
+
+def _stop_text(on: bool) -> str:
+    return "time stop after: " + ("on" if on else "off")
+
+
+def news_assumptions(profiles: Profiles, source: Path) -> dict[str, str]:
+    """The backtest readout's record of the scheduled rules in force (review round 1
+    C3): the file, each value it was read with, and every window as built, so runs on
+    different news.yaml values can be told apart."""
+    s = profiles.news_rules
+    lead, lag = _MINUTE * s.lead_minutes, _MINUTE * s.lag_minutes
+    prime = profiles.instrument.prime_session
+    night = profiles.instrument.overnight_session
+    until = next(e for e in s.daily_events if e.name == s.pre_news_until)
+    lines = {
+        "news rules": f"{source} (always on, every calendar day, beside any CSV)",
+        "news.timezone": s.timezone,
+        "news.lead_minutes": str(s.lead_minutes),
+        "news.lag_minutes": str(s.lag_minutes),
+        "news.pre_news_until": s.pre_news_until,
+        "news.pre_news_time_stop": "true" if s.pre_news_time_stop else "false",
+        "news.overnight_flat_from": _clock_text(s.overnight_flat_from),
+    }
+    for e in s.daily_events:
+        lines[f"news window {e.name}"] = (
+            f"{_clock_text(e.at, -lead)}-{_clock_text(e.at, lag)} {s.timezone} "
+            f"(whole end minute); {_stop_text(e.time_stop)}"
+        )
+    lines[f"news window {pre_news_name(until.name)}"] = (
+        f"{_clock_text(prime.start)} {prime.timezone}-{_clock_text(until.at, lag)} "
+        f"{s.timezone} (whole end minute); {_stop_text(s.pre_news_time_stop)}"
+    )
+    lines[f"news window {OVERNIGHT_NAME}"] = (
+        f"{_clock_text(s.overnight_flat_from)}-{_clock_text(night.end)} {night.timezone} "
+        f"(whole end minute); {_stop_text(True)}"
+    )
+    return lines
 
 
 def with_news_rules(

@@ -36,6 +36,7 @@ from footprint.backtest.settings import load_backtest
 from footprint.core.config import load_profiles
 from footprint.data.file_source import CsvBarSource
 from footprint.data.news import blackouts_from
+from footprint.decision.news_rules import news_assumptions
 
 _INVALID = 2  # the exit code of a run that is not valid (and of a refused one)
 
@@ -126,7 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         "theta.decay_exit.max_pct_of_open_profit": str(decay_exit.max_pct_of_open_profit),
         **_price_level(settings.option_model.reference_price),
         **_rolls(settings.rolls.block_first_session, args.rolls, rolls),
-        "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
+        "news blackouts CSV": str(args.blackouts) if args.blackouts else "NONE supplied",
+        # The scheduled windows run in every backtest: name them and their values (C3).
+        **news_assumptions(profiles, args.config / "news.yaml"),
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),
     }

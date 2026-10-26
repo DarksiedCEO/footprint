@@ -94,3 +94,51 @@ def test_n_open_2_a_daily_window_with_the_switch_starts_the_time_stop(stack: Sta
     closed = stack.step(position, stack.quote(*up, ten), (window,), ten)
     assert closed is not None
     assert closed.reason is ExitReason.NEWS_TIME_STOP
+
+
+# --- review round 1: the time stop's look-back edge (R12) and N-OPEN-2 per window -----
+
+
+def test_an_entry_exactly_at_the_end_of_the_time_stop_window_gets_it(stack: Stack) -> None:
+    """R12: an entry `news.window_minutes` after a window's end is still inside the time
+    stop's look-back (inclusive); one microsecond later it is not."""
+    news = stack.profiles.execution.news
+    position = filled_position(stack)
+    up = (D("161.5"), D("162.5"))  # short of the time stop's gain
+    done = position.entry_ts + timedelta(minutes=news.time_stop_minutes)
+    edge = position.entry_ts - timedelta(minutes=news.window_minutes)
+    past = NewsBlackout("CPI", edge - 60 * SEC, edge - timedelta.resolution)
+    assert stack.step(position, stack.quote(*up, done), (past,), done) is None
+    inside = NewsBlackout("CPI", edge - 60 * SEC, edge)
+    closed = stack.step(position, stack.quote(*up, done), (inside,), done)
+    assert closed is not None
+    assert closed.reason is ExitReason.NEWS_TIME_STOP
+
+
+def _held_from(stack: Stack, entry: datetime) -> Position:
+    return replace(filled_position(stack), entry_ts=entry)
+
+
+def test_n_open_2_built_default_a_1005_et_entry_gets_the_time_stop(stack: Stack) -> None:
+    rules = NewsRules(stack.profiles.news_rules, stack.profiles.instrument)
+    position = _held_from(stack, pt(7, 5))  # 10:05 ET, after the 10:00 window
+    done = position.entry_ts + timedelta(minutes=stack.profiles.execution.news.time_stop_minutes)
+    closed = stack.step(
+        position, stack.quote(D("161.5"), D("162.5"), done), rules.windows(done), done
+    )
+    assert closed is not None
+    assert closed.reason is ExitReason.NEWS_TIME_STOP
+
+
+def test_n_open_2_narrow_reading_a_1005_et_entry_gets_no_time_stop(stack: Stack) -> None:
+    """Only the 8:30 ET window carries it: the 10:00 window and N4 (both end 10:02 ET)
+    do not, so the same trade is left to its other exits."""
+    s = stack.profiles.news_rules
+    events = tuple(replace(e, time_stop=e.name == "8:30 ET releases (N1)") for e in s.daily_events)
+    rules = NewsRules(
+        replace(s, daily_events=events, pre_news_time_stop=False), stack.profiles.instrument
+    )
+    position = _held_from(stack, pt(7, 5))
+    done = position.entry_ts + timedelta(minutes=stack.profiles.execution.news.time_stop_minutes)
+    up = stack.quote(D("161.5"), D("162.5"), done)
+    assert stack.step(position, up, rules.windows(done), done) is None

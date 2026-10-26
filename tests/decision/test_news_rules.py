@@ -8,7 +8,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from footprint.core.config import ConfigError, Profiles, load_profiles
+from footprint.core.config import (
+    ConfigError,
+    DailyEvent,
+    NewsRulesSettings,
+    Profiles,
+    Session,
+    load_profiles,
+)
 from footprint.decision.news_rules import NewsRules, with_news_rules
 from footprint.decision.session import NewsBlackout, in_news_blackout
 from tests.conftest import REPO_ROOT
@@ -156,16 +163,54 @@ def test_n_open_3_a_start_outside_the_overnight_session_is_refused(
         NewsRules(settings, profiles.instrument)
 
 
-# --- N-OPEN-2: the news time stop after the daily windows ------------------------------
+# --- N-OPEN-2: which daily windows start the news time stop (per window) ------------
 
 
-def test_n_open_2_daily_windows_carry_the_time_stop_switch(profiles: Profiles) -> None:
-    for switch in (True, False):
-        settings = replace(profiles.news_rules, time_stop_after_daily=switch)
-        rules = NewsRules(settings, profiles.instrument)
-        for w in rules.day(SUMMER):
-            daily = "(N1)" in w.name or "(N3)" in w.name or "(N4)" in w.name
-            assert w.time_stop is (switch if daily else True), w.name
+EIGHT_THIRTY = "8:30 ET releases (N1)"
+OVERNIGHT = "overnight flat window (N-OPEN-3)"
+
+
+def narrow(settings: NewsRulesSettings) -> NewsRulesSettings:
+    """N-OPEN-2's narrow reading: the time stop only after the 8:30 ET window."""
+    events = tuple(replace(e, time_stop=e.name == EIGHT_THIRTY) for e in settings.daily_events)
+    return replace(settings, daily_events=events, pre_news_time_stop=False)
+
+
+def test_n_open_2_built_default_every_daily_window_carries_the_time_stop(
+    rules: NewsRules,
+) -> None:
+    assert {w.name: w.time_stop for w in rules.day(SUMMER)} == {
+        EIGHT_THIRTY: True,
+        "cash open (N3)": True,
+        "10:00 ET releases (N1)": True,
+        "no entries before news (N4) until 10:00 ET releases (N1)": True,
+        OVERNIGHT: True,
+    }
+
+
+def test_n_open_2_narrow_reading_only_the_eight_thirty_window_carries_it(
+    profiles: Profiles,
+) -> None:
+    rules = NewsRules(narrow(profiles.news_rules), profiles.instrument)
+    assert {w.name: w.time_stop for w in rules.day(SUMMER)} == {
+        EIGHT_THIRTY: True,
+        "cash open (N3)": False,
+        "10:00 ET releases (N1)": False,
+        "no entries before news (N4) until 10:00 ET releases (N1)": False,
+        OVERNIGHT: True,  # not a daily window: always carries it
+    }
+
+
+def test_n_open_2_each_daily_window_follows_its_own_switch(profiles: Profiles) -> None:
+    for k, event in enumerate(profiles.news_rules.daily_events):
+        events = tuple(
+            replace(e, time_stop=j == k) for j, e in enumerate(profiles.news_rules.daily_events)
+        )
+        settings = replace(profiles.news_rules, daily_events=events, pre_news_time_stop=k == 0)
+        found = {w.name: w.time_stop for w in NewsRules(settings, profiles.instrument).day(SUMMER)}
+        assert [found[e.name] for e in events] == [j == k for j in range(len(events))], event
+        assert found["no entries before news (N4) until 10:00 ET releases (N1)"] is (k == 0)
+        assert found[OVERNIGHT] is True
 
 
 # --- windows at a moment, and the combination with a CSV -------------------------------
@@ -221,3 +266,87 @@ def test_a_blackout_time_stop_must_be_a_bool() -> None:
     with pytest.raises(TypeError, match="time_stop must be a bool"):
         NewsBlackout("x", at(SUMMER, 8, 0), at(SUMMER, 8, 1), time_stop=1)  # type: ignore[arg-type]
     assert NewsBlackout("x", at(SUMMER, 8, 0), at(SUMMER, 8, 1)).time_stop is True
+
+
+# --- review round 1 M2: survivors R1, R2, R3, R5 ---------------------------------
+
+
+def _tokyo(profiles: Profiles) -> NewsRules:
+    """A news clock east of UTC (its date runs ahead of UTC's), with one event late in
+    the Tokyo evening so N4 (from 04:00 PT) is never empty."""
+    late = DailyEvent("late", time(23, 30), True)
+    settings = replace(
+        profiles.news_rules,
+        timezone="Asia/Tokyo",
+        daily_events=(late,),
+        pre_news_until="late",
+    )
+    return NewsRules(settings, profiles.instrument)
+
+
+@pytest.mark.parametrize(
+    ("which", "moment", "news_day"),
+    [
+        # 23:30 ET on 7 Jul is 03:30 UTC on 8 Jul: the news day is the 7th
+        ("shipped", datetime(2026, 7, 8, 3, 30, tzinfo=UTC), date(2026, 7, 7)),
+        # 08:00 JST on 8 Jul is 23:00 UTC on 7 Jul: the news day is the 8th
+        ("tokyo", datetime(2026, 7, 7, 23, 0, tzinfo=UTC), date(2026, 7, 8)),
+    ],
+)
+def test_windows_are_the_news_clock_days_around_the_moment(
+    profiles: Profiles, rules: NewsRules, which: str, moment: datetime, news_day: date
+) -> None:
+    """R1: the day before, of and after `now` on the NEWS clock, not on UTC's."""
+    r = rules if which == "shipped" else _tokyo(profiles)
+    one = timedelta(days=1)
+    expected = (*r.day(news_day - one), *r.day(news_day), *r.day(news_day + one))
+    assert r.windows(moment) == expected
+
+
+def test_an_overnight_session_not_crossing_midnight(profiles: Profiles) -> None:
+    """R2: an overnight session inside one calendar day: a flat window may start at its
+    first minute, and ends that same day."""
+    night = Session(time(0, 0), time(3, 59), "America/Los_Angeles")
+    inst = replace(profiles.instrument, overnight_session=night)
+    settings = replace(profiles.news_rules, overnight_flat_from=time(0, 0))
+    w = named(NewsRules(settings, inst), SUMMER, OVERNIGHT)
+    assert (w.start, w.end) == (at(SUMMER, 0, 0, PT), end_of_minute(SUMMER, 3, 59, PT))
+    for outside in (time(23, 0), time(4, 0)):
+        with pytest.raises(ConfigError, match="overnight_flat_from"):
+            NewsRules(replace(settings, overnight_flat_from=outside), inst)
+
+
+def test_the_scheduled_windows_come_before_the_csv_ones(profiles: Profiles) -> None:
+    """R3: where a CSV window overlaps a scheduled one, the scheduled one is listed
+    first, so it is the one the precheck and the NEWS exit name (pinned order)."""
+    csv = NewsBlackout("CPI", at(SUMMER, 8, 29), at(SUMMER, 8, 40))
+    now = at(SUMMER, 8, 30)
+    found = with_news_rules(profiles, lambda t: (csv,))(now)
+    scheduled = NewsRules(profiles.news_rules, profiles.instrument).windows(now)
+    assert found == (*scheduled, csv)
+    hit = in_news_blackout(now, found)
+    assert hit is not None
+    assert hit.name == EIGHT_THIRTY
+
+
+def _london(profiles: Profiles, through: date) -> None:
+    """A news clock whose summer time starts on another day than the US's: 11:30 London
+    is after 04:00 PT only between the US change (8 Mar 2026) and the UK one (29 Mar)."""
+    event = DailyEvent("london", time(11, 30), True)
+    settings = replace(
+        profiles.news_rules,
+        timezone="Europe/London",
+        lead_minutes=0,
+        lag_minutes=0,
+        daily_events=(event,),
+        pre_news_until="london",
+    )
+    inst = replace(profiles.instrument, calendar_from=date(2026, 3, 8), calendar_through=through)
+    NewsRules(settings, inst)
+
+
+def test_the_last_calendar_day_is_checked_at_start_up(profiles: Profiles) -> None:
+    """R5: N4 is empty only on 29 Mar 2026 (the calendar's last day here): refused."""
+    _london(profiles, date(2026, 3, 28))  # every day sound
+    with pytest.raises(ConfigError, match="2026-03-29"):
+        _london(profiles, date(2026, 3, 29))

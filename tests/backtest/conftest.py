@@ -53,12 +53,22 @@ def no_scheduled_news(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     inside N1's 09:55-10:02 ET window, to test the crew, the exits, the CLI and the
     readout. For them the backtest runs the CSV windows alone (as before N1-N6), so
     they keep testing what they were written for. Tests marked `real_news` run the real
-    rules; tests/backtest/test_engine_news_rules.py covers them in the backtest."""
+    rules; tests/backtest/test_engine_news_rules.py covers them in the backtest. The
+    readout then says the rules were OFF, not the windows a real run would list."""
     if request.node.get_closest_marker("real_news") is not None:
         return
+    from footprint.backtest import __main__ as cli
     from footprint.backtest import engine
 
     monkeypatch.setattr(engine, "with_news_rules", lambda profiles, extra: extra)
+    monkeypatch.setattr(
+        cli,
+        "news_assumptions",
+        lambda profiles, source: {"news rules": f"OFF ({STAND_IN})"},
+    )
+
+
+STAND_IN = "test stand-in tests/backtest/conftest.py no_scheduled_news"
 
 
 @pytest.fixture(scope="session")

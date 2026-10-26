@@ -1087,6 +1087,7 @@ class DailyEvent:
 
     name: str
     at: time
+    time_stop: bool  # N-OPEN-2: an entry just after this window gets the news time stop
 
 
 @dataclass(frozen=True, slots=True)
@@ -1098,9 +1099,9 @@ class NewsRulesSettings:
     timezone: str
     lead_minutes: int  # N2: a daily window starts this long before its event
     lag_minutes: int  # N2: ... and ends this long after it (its whole end minute)
-    daily_events: tuple[DailyEvent, ...]  # N1, N3
+    daily_events: tuple[DailyEvent, ...]  # N1, N3 (each with its N-OPEN-2 switch)
     pre_news_until: str  # N4 / N-OPEN-1: the daily event whose window ends it
-    time_stop_after_daily: bool  # N-OPEN-2
+    pre_news_time_stop: bool  # N-OPEN-2 for the N4 window
     overnight_flat_from: time  # N-OPEN-3, on the overnight session's clock
 
 
@@ -1110,8 +1111,13 @@ def _daily_events(raw: Mapping[str, object], key: str, where: str) -> tuple[Dail
         raise ConfigError(f"{where}: {key} must be a non-empty list")
     events: list[DailyEvent] = []
     for item in items:
-        body = _check_keys(item, {"name", "at"}, f"{where}: {key}")
-        event = DailyEvent(_text(body, "name", f"{where}: {key}"), _clock(body, "at", where))
+        inner = f"{where}: {key}"
+        body = _check_keys(item, {f.name for f in fields(DailyEvent)}, inner)
+        event = DailyEvent(
+            _text(body, "name", inner),
+            _clock(body, "at", where),
+            _boolean(body, "time_stop", inner),
+        )
         if any(e.name == event.name for e in events):
             raise ConfigError(f"{where}: {key}: {event.name!r} is listed twice")
         events.append(event)
@@ -1125,13 +1131,21 @@ def load_news_rules(path: Path) -> NewsRulesSettings:
     until = _text(raw, "pre_news_until", where)
     if until not in {e.name for e in events}:
         raise ConfigError(f"{where}: pre_news_until {until!r} is not one of the daily_events")
+    lead = _integer(raw, "lead_minutes", where, minimum=0)
+    lag = _integer(raw, "lag_minutes", where, minimum=0)
+    # The rules look for windows on the day before, of and after a moment only: a window
+    # of a day or more could hide the one the news time stop must look back to.
+    if timedelta(minutes=lead + lag) >= timedelta(days=1):
+        raise ConfigError(
+            f"{where}: lead_minutes + lag_minutes ({lead} + {lag}) must be shorter than one day"
+        )
     return NewsRulesSettings(
         timezone=_timezone(raw, "timezone", where),
-        lead_minutes=_integer(raw, "lead_minutes", where, minimum=0),
-        lag_minutes=_integer(raw, "lag_minutes", where, minimum=0),
+        lead_minutes=lead,
+        lag_minutes=lag,
         daily_events=events,
         pre_news_until=until,
-        time_stop_after_daily=_boolean(raw, "time_stop_after_daily", where),
+        pre_news_time_stop=_boolean(raw, "pre_news_time_stop", where),
         overnight_flat_from=_clock(raw, "overnight_flat_from", where),
     )
 
