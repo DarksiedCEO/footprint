@@ -1,0 +1,250 @@
+{
+ "groups": {
+  "d41": [
+   "tests/execution/test_d41_stop_wait_alarm.py",
+   "tests/execution/test_pending_entry_stop.py",
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_grind_g7_3.py"
+  ]
+ },
+ "mutants": [
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if pid in self._wait_stop_alarmed:\n            return\n",
+   "        if False:\n            return\n",
+   "once-per-position check removed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._wait_stop_alarmed.add(pid)\n",
+   "        pass\n",
+   "position never recorded as alarmed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "f\"{pid}: stop {gone} was {state.value.lower()}",
+   "f\"stop {gone} was {state.value.lower()}",
+   "position id dropped from the alarm"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "was {state.value.lower()} at the broker",
+   "was cancelled at the broker",
+   "state always worded cancelled"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "was {state.value.lower()} at the broker",
+   "was {state.value} at the broker",
+   "state not lower-cased"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "at the broker during the price \"\n",
+   "at the broker \"\n",
+   "'during the price wait' wording lost"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "a new stop {_wait_stop_id(pid)} was {outcome}",
+   "a new stop was {outcome}",
+   "new stop id dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "a new stop {_wait_stop_id(pid)} was {outcome}",
+   "a new stop {_attached_stop_id(pid)} was {outcome}",
+   "wrong new stop id named"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "a new stop {_wait_stop_id(pid)} was {outcome}",
+   "a new stop {_wait_stop_id(pid)} was placed",
+   "outcome always 'placed'"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        log.critical(message)\n        if self._alarm_sink",
+   "        if self._alarm_sink",
+   "alarm text not logged critical"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if self._alarm_sink is None:\n            return\n",
+   "        if self._alarm_sink is not None:\n            return\n",
+   "sink check inverted"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if self._alarm_sink is None:\n            return\n",
+   "",
+   "sink None check removed (None call raises TypeError, caught)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        try:\n            self._alarm_sink(message)\n        except Exception:\n            log.exception(\"could not deliver an alarm\")\n",
+   "        self._alarm_sink(message)\n",
+   "a broken alarm line raises out of the stop check"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_sink = sink\n",
+   "        pass\n",
+   "route_alarms does nothing"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "            self._alarm_wait_stop(\n                pid, stop_id, held.state, f\"sent, but its outcome is unknown: {exc!r}\"\n            )\n            raise",
+   "            raise",
+   "no alarm when the send outcome is unknown"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "f\"sent, but its outcome is unknown: {exc!r}\"",
+   "\"placed\"",
+   "unknown outcome claimed placed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "its outcome is unknown: {exc!r}",
+   "its outcome is unknown: {exc}",
+   "error type dropped from unknown-outcome alarm"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "            \"placed\"\n            if placed.protects\n",
+   "            \"placed\"\n            if True\n",
+   "refused replacement claimed placed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "            \"placed\"\n            if placed.protects\n",
+   "            \"placed\"\n            if not placed.protects\n",
+   "outcome condition inverted"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "not protecting at the broker ({placed.state.value})",
+   "not protecting at the broker ()",
+   "broker state dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "sent, but it is not protecting at the broker",
+   "sent, but it is at the broker",
+   "'not protecting' wording lost"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
+   "",
+   "no alarm on a successful replacement"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
+   "        self._alarm_wait_stop(pid, replacement, held.state, outcome)\n",
+   "alarm names the new stop as the gone one"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
+   "        self._alarm_wait_stop(pid, stop_id, OrderState.CANCELLED, outcome)\n",
+   "gone stop's real state ignored"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        ticket.stop_order_id = replacement  # before the send: never a second beside it\n        try:\n",
+   "        ticket.stop_order_id = replacement  # before the send: never a second beside it\n        self._alarm_wait_stop(pid, stop_id, held.state, \"placed\")\n        try:\n",
+   "alarm sent before the send (NotSent would still alarm)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "            ticket.stop_order_id = stop_id\n            raise\n",
+   "            ticket.stop_order_id = stop_id\n            self._alarm_wait_stop(pid, stop_id, held.state, \"placed\")\n            raise\n",
+   "NotSent alarms 'placed'"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "            ticket.stop_order_id = stop_id\n            raise\n",
+   "            raise\n",
+   "G6-2: NotSent keeps the replacement id (regression)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:  # it sold part, then ended",
+   "        if held.filled > 1:  # it sold part, then ended",
+   "G6-1 partly-filled guard weakened (regression)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.protects or held.state is OrderState.FILLED:\n            return\n        if held.state is OrderState.WORKING:",
+   "        if held.protects:\n            return\n        if held.state is OrderState.WORKING:",
+   "filled stop treated as gone (would replace and alarm)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.protects or held.state is OrderState.FILLED:\n            return\n        if held.state is OrderState.WORKING:",
+   "        if held.state is OrderState.FILLED:\n            return\n        if held.state is OrderState.WORKING:",
+   "protecting stop not left alone"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/runner.py",
+   "        executor.route_alarms(lambda message: self._alarm(self._now, message))\n",
+   "",
+   "runner never routes the executor's alarms"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/runner.py",
+   "executor.route_alarms(lambda message: self._alarm(self._now, message))",
+   "executor.route_alarms(lambda message: None)",
+   "runner routes executor alarms nowhere"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/runner.py",
+   "executor.route_alarms(lambda message: self._alarm(self._now, message))",
+   "executor.route_alarms(lambda message: self._alarm(self._now, \"HALT: \" + message))",
+   "D41 alarm sent as a HALT"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/runner.py",
+   "executor.route_alarms(lambda message: self._alarm(self._now, message))",
+   "executor.route_alarms(self._halt.trip)",
+   "D41 alarm trips the halt (option (c)-like)"
+  ]
+ ]
+}
