@@ -1,0 +1,16 @@
+source: fd64867fbd1e68fdaa535fd7023b73e064b95f30 tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] src/footprint/backtest/exits.py: Q56-1: exactly +250 at the mark closes
+  2 KILLED   [t] src/footprint/backtest/exits.py: Q56-2: comparison reversed
+  3 KILLED   [t] src/footprint/backtest/exits.py: Q56-3: exactly at the mark is not judged
+  4 KILLED   [t] src/footprint/backtest/exits.py: Q56-4: no wait for the mark
+  5 KILLED   [t] src/footprint/backtest/exits.py: Q56-5: judged again on every quote (keep not final, out not held)
+  6 KILLED   [t] src/footprint/backtest/exits.py: Q56-6: verdict not remembered
+  7 KILLED   [t] src/footprint/backtest/exits.py: Q56-7: an out is not held
+  8 KILLED   [t] src/footprint/backtest/exits.py: Q56-8: verdicts not per position
+  9 KILLED   [t] src/footprint/backtest/exits.py: Q56-9: the mark in the wrong unit
+ 10 KILLED   [t] src/footprint/backtest/settings.py: Q56-10: zero minutes accepted
+ 11 KILLED   [t] src/footprint/backtest/settings.py: Q56-11: one minute refused
+ 12 KILLED   [t] src/footprint/backtest/settings.py: Q56-12: min_gain read from another key
+ 13 KILLED   [t] src/footprint/backtest/settings.py: Q56-13: unknown keys accepted
+13 mutants, 0 survived or errored

@@ -1,0 +1,9 @@
+source: 809190eb0cadc121fb644c8edc87ea77fbc9ad6f tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] src/footprint/backtest/exits.py: H1-0: no latch (the old Q5.5-b reading)
+  2 KILLED   [t] src/footprint/backtest/exits.py: H1-0: the verdict is never held
+  3 KILLED   [t] src/footprint/backtest/exits.py: H1-0: one verdict for every position (not per position)
+  4 KILLED   [t] src/footprint/backtest/exits.py: Q5.5-a: exactly at the target does not reach it
+  5 KILLED   [t] src/footprint/backtest/exits.py: H1-0: out below the target
+  6 KILLED   [t] src/footprint/backtest/exits.py: H1-0: a position starts latched
+6 mutants, 0 survived or errored

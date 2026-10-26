@@ -5,7 +5,8 @@ An entry rule is a factory: Profiles and the rule library's numbers (config/back
 only the momentum read inside the decision pipeline; every other gate (trend
 agreement, session, risk, kill switch, levels, sizing, the hard stop) still decides.
 
-An exit rule is a factory: Profiles in, an ExitRule (or None) out. Trade management
+An exit rule is a factory: Profiles and the rule library's numbers in, an ExitRule (or
+None) out; it is built once per run and handed to the run's one trade management. Trade management
 asks the ExitRule last, on a fresh quote, after every existing reason to get out (hard
 stop and gap first); it can only add a way out and never moves or loosens the hard
 stop. None adds no way out: trade management is built exactly as the live runner
@@ -23,7 +24,7 @@ from dataclasses import fields
 from datetime import timedelta
 
 from footprint.agents.momentum_reader import MomentumReader
-from footprint.backtest.exits import TargetExit
+from footprint.backtest.exits import TargetExit, TimeExit, TimeExitSettings
 from footprint.backtest.pullback import PullbackSettings, PullbackTrigger
 from footprint.backtest.settings import RuleSettings
 from footprint.backtest.stairstep import StairSettings, StairTrigger
@@ -32,7 +33,7 @@ from footprint.decision.pipeline import EntryTrigger
 from footprint.execution.management.malik import ExitRule
 
 EntryRule = Callable[[Profiles, RuleSettings], EntryTrigger]
-ExitRuleFactory = Callable[[Profiles], ExitRule | None]
+ExitRuleFactory = Callable[[Profiles, RuleSettings], ExitRule | None]
 
 
 _ENTRY_BARS = timedelta(minutes=1)  # the pipeline's entry timeframe: completed 1-min bars
@@ -97,7 +98,7 @@ def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]
     return {}
 
 
-def trail(profiles: Profiles) -> ExitRule | None:
+def trail(profiles: Profiles, rule_settings: RuleSettings) -> ExitRule | None:
     """Q5.4 "trail", the BASELINE: the existing exit, unchanged (the hard loss stop and
     every existing reason to get out; from the profit target, net of fees, the stop
     locks a fixed share of the peak net gain and follows it). That trail has no volume
@@ -108,13 +109,33 @@ def trail(profiles: Profiles) -> ExitRule | None:
     return None
 
 
-def target(profiles: Profiles) -> ExitRule | None:
+def target(profiles: Profiles, rule_settings: RuleSettings) -> ExitRule | None:
     """Q5.5 "target": close the whole position when its open profit reaches the
     configured profit target (risk.profit_target). See TargetExit."""
     return TargetExit(profiles.risk.profit_target)
 
 
+def time(profiles: Profiles, rule_settings: RuleSettings) -> ExitRule | None:
+    """Q5.6 "time": the configured minutes after the entry fill, close the whole
+    position if its open profit is below the configured gain; otherwise the baseline
+    "trail" carries on (config/backtest.yaml `rules: time:`). See TimeExit."""
+    return TimeExit(rule_settings.time)
+
+
 EXIT_RULES: dict[str, ExitRuleFactory] = {
     "target": target,
+    "time": time,
     "trail": trail,
 }
+
+
+def exit_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]:
+    """The rule-library numbers the named exit rule runs with, for the readout's
+    assumptions ("rule <section> <key>" -> value), as entry_rule_numbers. "trail" and
+    "target" read none of them (target is the existing risk.profit_target)."""
+    if name == "time":
+        numbers = rule_settings.time
+        return {
+            f"rule time {f.name}": str(getattr(numbers, f.name)) for f in fields(TimeExitSettings)
+        }
+    return {}

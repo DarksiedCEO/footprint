@@ -1,0 +1,23 @@
+{
+ "groups": {
+  "t": [
+   "tests/execution/test_exit_time_rule.py",
+   "tests/backtest/test_time_exit_settings.py"
+  ]
+ },
+ "mutants": [
+  ["t", "src/footprint/backtest/exits.py", "        verdict = net_open < self._settings.min_gain\n", "        verdict = net_open <= self._settings.min_gain\n", "Q56-1: exactly +250 at the mark closes"],
+  ["t", "src/footprint/backtest/exits.py", "        verdict = net_open < self._settings.min_gain\n", "        verdict = net_open > self._settings.min_gain\n", "Q56-2: comparison reversed"],
+  ["t", "src/footprint/backtest/exits.py", "        if now - position.entry_ts < self._settings.after:\n", "        if now - position.entry_ts <= self._settings.after:\n", "Q56-3: exactly at the mark is not judged"],
+  ["t", "src/footprint/backtest/exits.py", "        if now - position.entry_ts < self._settings.after:\n            return False\n", "", "Q56-4: no wait for the mark"],
+  ["t", "src/footprint/backtest/exits.py", "        if verdict is not None:\n            return verdict\n", "", "Q56-5: judged again on every quote (keep not final, out not held)"],
+  ["t", "src/footprint/backtest/exits.py", "        self._verdicts[pid] = verdict\n", "", "Q56-6: verdict not remembered"],
+  ["t", "src/footprint/backtest/exits.py", "        self._verdicts[pid] = verdict\n", "        self._verdicts[pid] = False\n", "Q56-7: an out is not held"],
+  ["t", "src/footprint/backtest/exits.py", "        pid = position.position_id\n        verdict = self._verdicts.get(pid)\n", "        pid = \"one\"\n        verdict = self._verdicts.get(pid)\n", "Q56-8: verdicts not per position"],
+  ["t", "src/footprint/backtest/exits.py", "        return timedelta(minutes=self.minutes)\n", "        return timedelta(seconds=self.minutes)\n", "Q56-9: the mark in the wrong unit"],
+  ["t", "src/footprint/backtest/settings.py", "        minutes=_integer(t, \"minutes\", t_where, minimum=1),\n", "        minutes=_integer(t, \"minutes\", t_where, minimum=0),\n", "Q56-10: zero minutes accepted"],
+  ["t", "src/footprint/backtest/settings.py", "        minutes=_integer(t, \"minutes\", t_where, minimum=1),\n", "        minutes=_integer(t, \"minutes\", t_where, minimum=2),\n", "Q56-11: one minute refused"],
+  ["t", "src/footprint/backtest/settings.py", "        min_gain=_positive_decimal(t, \"min_gain\", t_where),\n", "        min_gain=_positive_decimal(t, \"minutes\", t_where),\n", "Q56-12: min_gain read from another key"],
+  ["t", "src/footprint/backtest/settings.py", "    t = _check_keys(r[\"time\"], {f.name for f in fields(TimeExitSettings)}, t_where)\n", "    t = r[\"time\"]\n", "Q56-13: unknown keys accepted"]
+ ]
+}
