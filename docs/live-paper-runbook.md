@@ -65,9 +65,16 @@ clears with a restart, after you have looked at why.
   an alarm channel is chosen (D20), this terminal and file are the only places alarms
   reach you.
 
+## Holidays and early closes
+
+`instruments/nq.yaml` lists the exchange's closed days and early closes through
+`calendar_through`. On an early-close day the system stops new entries and flattens
+5 minutes before that day's close (e.g. 09:55 PT for a 10:00 close). A month before
+the list runs out it alarms once a day until it is extended (checklist 23).
+
 ## Alarms you should expect at first
 
-- `STARTED WITHOUT HOLIDAYS`: until the CME holidays are filled in (D34).
+- `exchange calendar ends ...`: a month before `calendar_through`; extend nq.yaml.
 - `MARKET DATA: ... failed (IBKR 354 ...)`: no real-time subscription.
 - `no option on the ... future expires in 1-3 days`: in a roll week (D27).
 - `IBKR SESSION KEEPS FAILING`: Gateway closed, logged out, or the Mac asleep (D32).

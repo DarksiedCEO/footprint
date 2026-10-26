@@ -36,9 +36,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from zoneinfo import ZoneInfo
 
-from footprint.core.calendar import SessionKind, session_at
+from footprint.core.calendar import SessionKind, entry_cutoff, session_at
 from footprint.core.config import Profiles
 from footprint.core.models import require_utc
 from footprint.decision.session import NewsBlackout, in_news_blackout
@@ -234,13 +233,8 @@ class Manager:
 
     def _past_close(self, now: datetime) -> bool:
         p = self._p
-        prime = p.instrument.prime_session
-        zone = ZoneInfo(prime.timezone)
-        local = now.astimezone(zone)
-        cutoff = datetime.combine(local.date(), prime.end, zone) - timedelta(
-            minutes=p.strategy.console.close_lead_minutes
-        )
-        return session_at(now, p.instrument) is not SessionKind.PRIME or local >= cutoff
+        cutoff = entry_cutoff(now, p.instrument, p.strategy.console.close_lead_minutes)
+        return session_at(now, p.instrument) is not SessionKind.PRIME or now >= cutoff
 
     def _must_exit(
         self,

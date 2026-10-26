@@ -29,6 +29,46 @@ def previous_trading_day(day: date, instrument: InstrumentProfile) -> date:
     raise ValueError(f"no trading day in the {_MAX_SEARCH_DAYS} days before {day}")
 
 
+def prime_close(day: date, instrument: InstrumentProfile) -> time:
+    """When the prime session of `day` ends: its early close, or the normal end."""
+    return instrument.early_closes.get(day, instrument.prime_session.end)
+
+
+def cash_close(day: date, instrument: InstrumentProfile) -> time:
+    """When the cash session of `day` ends (an early close cuts it short)."""
+    return min(instrument.cash_session.end, prime_close(day, instrument))
+
+
+def entry_cutoff(moment: datetime, instrument: InstrumentProfile, lead_minutes: int) -> datetime:
+    """`lead_minutes` before the prime close of `moment`'s local day (an early close
+    included): from then on no new entries, and anything open is flattened."""
+    require_utc(moment, "moment")
+    prime = instrument.prime_session
+    zone = ZoneInfo(prime.timezone)
+    day = moment.astimezone(zone).date()
+    close = datetime.combine(day, prime_close(day, instrument), zone)
+    return close - timedelta(minutes=lead_minutes)
+
+
+def calendar_warning(today: date, instrument: InstrumentProfile) -> str | None:
+    """What to tell Andre when the exchange calendar (holidays, early closes) is about
+    to run out, or has: past `calendar_through` a holiday or early close would be
+    traded as a normal day."""
+    through = instrument.calendar_through
+    if today > through:
+        return (
+            f"EXCHANGE CALENDAR EXPIRED on {through}: holidays and early closes after it "
+            "are unknown and would be traded as normal days. Extend instruments/nq.yaml now"
+        )
+    left = (through - today).days
+    if left <= instrument.calendar_warn_days:
+        return (
+            f"exchange calendar ends {through} ({left} days): add the exchange's next holidays and "
+            "early closes to instruments/nq.yaml"
+        )
+    return None
+
+
 class SessionKind(Enum):
     PRIME = "PRIME"
     OVERNIGHT = "OVERNIGHT"
@@ -51,9 +91,9 @@ def _classify(moment: datetime, instrument: InstrumentProfile) -> tuple[SessionK
     prime, overnight = instrument.prime_session, instrument.overnight_session
     day, clock = local_minute(moment, prime)
     if _covers(prime, clock):
-        if is_trading_day(day, instrument):
+        if is_trading_day(day, instrument) and clock <= prime_close(day, instrument):
             return SessionKind.PRIME, day
-        return SessionKind.CLOSED, None
+        return SessionKind.CLOSED, None  # a holiday, or after an early close
     day, clock = local_minute(moment, overnight)
     if _covers(overnight, clock):
         crosses_midnight = overnight.start > overnight.end
