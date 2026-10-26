@@ -285,15 +285,15 @@
   [
    "d41",
    "src/footprint/execution/executor/diego.py",
-   "    if placed.state is OrderState.FILLED:\n        return (",
-   "    if False:\n        return (",
+   "    if placed.state is OrderState.FILLED:\n        # The count",
+   "    if False:\n        # The count",
    "F2: filled replacement worded as another state"
   ],
   [
    "d41",
    "src/footprint/execution/executor/diego.py",
-   "(sold {placed.filled}): the position is sold; \"",
-   "(sold {placed.filled}); \"",
+   "filled{sold}: the position is sold; \"",
+   "filled{sold}; \"",
    "F2: 'the position is sold' dropped"
   ],
   [
@@ -404,8 +404,8 @@
   [
    "d41",
    "src/footprint/execution/executor/diego.py",
-   "f\"placed and has already filled (sold {placed.filled})",
-   "f\"placed and has already filled (sold {placed.order.quantity})",
+   "sold = f\" (sold {placed.filled})\"",
+   "sold = f\" (sold {placed.order.quantity})\"",
    "N4 FILLED qty from order (equiv) (reviewer round 2)"
   ],
   [
@@ -414,6 +414,13 @@
    "    if placed.state is OrderState.FILLED:\n",
    "    if placed.state is not OrderState.WORKING and placed.filled > 0 and placed.state is not OrderState.CANCELLED:\n",
    "N5 FILLED test broadened to REJECTED+filled (reviewer round 2)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "if placed.filled > 0 else \"\"\n",
+   "if placed.filled >= 0 else \"\"\n",
+   "R3-F1: \"sold 0\" shown when the count lags"
   ]
  ]
 }

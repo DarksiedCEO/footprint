@@ -40,8 +40,7 @@ The other three are argued below, as the reviewer described them. They SURVIVE i
   `cancelling` is true. The IBKR adapter sets `cancelling = unable and not held_back`
   (adapter.py, reviewer cites lines 924-925), so the two flags are never both true. With
   exactly one true, both conditions pick the same word.
-- **N4** (`sold {placed.filled}` -> `sold {placed.order.quantity}` on FILLED): equivalent.
-  IBKR "Filled" means nothing remains, so filled == quantity. At `max_contracts: 1` both are 1.
+- **N4** (`sold {placed.filled}` -> `sold {placed.order.quantity}` on FILLED): **the equivalence argued here in round 2 was WRONG** (review round 3, R3-F1). The IBKR adapter can answer FILLED with filled 0 when the open-order message arrives before the status message (adapter.py:600-607): `place()` returns on the first update. The alarm then read "sold 0". Fixed in the source (alarm text only): with filled 0 the count is omitted, and the alarm still says "the position is sold; do not place a stop by hand". `test_a_replacement_reported_filled_before_its_count_never_says_sold_0` kills the new mutant "`> 0` -> `>= 0`" (which would show "sold 0"). It does NOT kill N4: on 65fa788 N4 still survived (run 5, kept as `d41-stop-alarm-v1.run5.out`), because with a count above 0 every test had count == quantity. `test_a_filled_replacement_names_the_count_the_broker_reported` (FILLED reported with 1 of 2 counted) kills it: the alarm names the broker's count, never the order's size.
 - **N1** (`placed.protects` -> `placed.protects and placed.filled == 0`): unreachable at
   `max_contracts: 1` (config/risk.yaml; above 1 is refused). With quantity 1, any fill
   makes the stop FILLED, so a protecting (WORKING) replacement always has filled == 0.
@@ -54,3 +53,10 @@ The other three are argued below, as the reviewer described them. They SURVIVE i
   pins the live wording for scaling.
 - Run 4, on beb7f2e with a clean tree (`d41-stop-alarm-v1.out`): 58 mutants, 55 killed,
   3 survived (54 N1, 56 N3, 57 N4, each argued above), 0 errors.
+
+## PR #53 review round 3 (CERTIFIED WITH CONDITIONS, R3-F1)
+
+- The N4 note above is corrected and N4 is now killed. The spec gets one new mutant ("sold 0" shown when the count lags). The mutants on the FILLED wording are re-targeted to the new text: "the position is sold" dropped, the count dropped, the FILLED branch removed, N4. The spec now has 59 mutants.
+- Run 6, on 36e217c with a clean tree (`d41-stop-alarm-v1.out`): 59 mutants, 57 killed,
+  2 survived (54 N1, unreachable at 1 contract and needing a test before scaling; 56 N3,
+  equivalent by construction), 0 errors.
