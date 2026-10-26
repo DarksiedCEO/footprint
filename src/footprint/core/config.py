@@ -485,12 +485,18 @@ class NewsSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RunnerSettings:
+    max_unmanaged_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionProfile:
     quotes: QuoteSettings
     contract: ContractSettings
     entry: EntrySettings
     stop_order: StopOrderSettings
     news: NewsSettings
+    runner: RunnerSettings
 
 
 def load_execution(path: Path) -> ExecutionProfile:
@@ -539,8 +545,18 @@ def load_execution(path: Path) -> ExecutionProfile:
         time_stop_min_gain=_positive_decimal(n, "time_stop_min_gain", n_where),
         window_minutes=_integer(n, "window_minutes", n_where, minimum=0),
     )
+    r_where = f"{where}: runner"
+    r = _check_keys(raw["runner"], {f.name for f in fields(RunnerSettings)}, r_where)
+    runner = RunnerSettings(
+        max_unmanaged_seconds=_integer(r, "max_unmanaged_seconds", r_where, minimum=1)
+    )
     return ExecutionProfile(
-        quotes=quotes, contract=contract, entry=entry, stop_order=stop_order, news=news
+        quotes=quotes,
+        contract=contract,
+        entry=entry,
+        stop_order=stop_order,
+        news=news,
+        runner=runner,
     )
 
 

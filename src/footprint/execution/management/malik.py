@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -45,6 +45,7 @@ from footprint.decision.stop import BidTick, StopCheck, StopKeeper
 from footprint.execution.executor.diego import Position
 from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
+from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
     Order,
     OrderBroker,
@@ -55,6 +56,11 @@ from footprint.execution.orders import (
 )
 
 log = logging.getLogger("footprint.trade_mgmt")
+
+
+class NeedsReconcile(RuntimeError):
+    """The broker shows something the manager cannot account for (an unexpected fill
+    on the contract). Nothing is booked; the runner must halt and reconcile."""
 
 
 class ExitReason(Enum):
@@ -68,6 +74,7 @@ class ExitReason(Enum):
     KILL_SWITCH = "KILL_SWITCH"
     UNPROTECTED = "UNPROTECTED"
     RECONCILE = "RECONCILE"
+    FAILSAFE = "FAILSAFE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +100,7 @@ class Manager:
         stops: StopKeeper,
         ledger: Ledger,
         halt: Halt,
+        book: QuoteBook,
         on_alarm: Callable[[Alarm], None] | None = None,
     ) -> None:
         self._p = profiles
@@ -100,7 +108,9 @@ class Manager:
         self._stops = stops
         self._ledger = ledger
         self._halt = halt
+        self._book = book
         self._on_alarm = on_alarm or (lambda alarm: None)
+        self._reconcile_closes: list[Closed] = []
         self._exit_reason: dict[str, ExitReason] = {}
         self._exit_attempts: dict[str, int] = {}
         self._reconcile_round = 0
@@ -114,13 +124,12 @@ class Manager:
     def manage(
         self,
         position: Position,
-        quote: Quote,
         blackouts: Iterable[NewsBlackout],
         now: datetime,
     ) -> Closed | None:
+        """One management step on the latest quote in the shared book."""
         require_utc(now, "now")
-        if quote.contract_id != position.contract_id:
-            raise ValueError("quote is for a different contract than the position")
+        quote = self._book.latest_or_empty(position.contract_id)
         pid = position.position_id
         if pid in self._closed:
             raise RuntimeError(f"position {pid!r} is already closed")
@@ -153,6 +162,18 @@ class Manager:
         self._stops.on_tick(pid, tick, now)
         self._sync_stop(position, now)
         return None
+
+    def flatten(self, position: Position, now: datetime) -> Closed | None:
+        """Get out using the broker and the quote book alone: no stop keeper, no ledger
+        read, no news calendar. The runner calls this when normal management keeps
+        failing. Call again each step until it returns the close."""
+        require_utc(now, "now")
+        if position.position_id in self._closed:
+            raise RuntimeError(f"position {position.position_id!r} is already closed")
+        quote = self._book.latest_or_empty(position.contract_id)
+        if position.exit_order_id is not None:
+            return self._work_exit(position, quote, now)
+        return self._start_exit(position, quote, now, ExitReason.FAILSAFE)
 
     def _sync_stop(self, position: Position, now: datetime) -> None:
         """Make the broker's resting stop match Booker's, retrying every call until it
@@ -240,28 +261,52 @@ class Manager:
                 position.stop_order_id = None
             else:
                 # Unprotected: a stop may have reached the broker unacknowledged. If it
-                # already filled, the trade is over; anything still open is cancelled and
-                # confirmed first, so the exit can never be sold twice.
+                # already filled, the trade is over.
                 with contextlib.suppress(KeyError):
                     orphan = self._broker.status(f"{pid}-stop")
                     if orphan.state is OrderState.FILLED and orphan.avg_price is not None:
                         return self._close(position, orphan.avg_price, now, ExitReason.STOP)
-                for order in self._broker.open_orders():
-                    if order.contract_id != position.contract_id:
-                        continue
-                    self._broker.cancel(order.order_id)
-                    gone = self._broker.status(order.order_id)
-                    if gone.state is OrderState.FILLED and gone.avg_price is not None:
+            # Whatever else is open on this contract (an unacknowledged stop, another
+            # path's sell) is cancelled and confirmed first, so the exit can never sit
+            # beside a second seller.
+            for order in self._broker.open_orders():
+                if order.contract_id != position.contract_id:
+                    continue
+                self._broker.cancel(order.order_id)
+                gone = self._broker.status(order.order_id)
+                if gone.filled > 0:
+                    if (
+                        gone.state is OrderState.FILLED
+                        and gone.avg_price is not None
+                        and gone.order.side is Side.SELL
+                        and gone.filled == position.contracts
+                    ):  # it sold exactly this position: the trade is over
                         return self._close(position, gone.avg_price, now, ExitReason.STOP)
-                    if gone.state is OrderState.WORKING:
-                        self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
-                        return None
+                    # Anything else (a buy, a partial, another size) changes what is
+                    # held in a way this position cannot book: stop and reconcile.
+                    message = (
+                        f"{pid}: {order.order_id} filled {gone.filled} "
+                        f"{gone.order.side.value} during the cancel; reconcile"
+                    )
+                    self._alarm(now, message)
+                    self._stand_down(now, f"{pid}: unexpected fill on the contract")
+                    raise NeedsReconcile(message)
+                if gone.state is OrderState.WORKING:
+                    self._alarm(now, f"{pid}: {order.order_id} not cancelled yet; exit waits")
+                    return None
+        except NeedsReconcile:
+            raise
         except Exception as exc:  # the broker failed mid-exit: halt, retry next call
             self._alarm(now, f"{pid}: broker error while exiting: {exc!r}; retrying")
             self._stand_down(now, f"{pid}: broker error while exiting")
             return None
         self._exit_reason[pid] = reason
-        if reason in (ExitReason.GAP, ExitReason.UNPROTECTED, ExitReason.KILL_SWITCH):
+        if reason in (
+            ExitReason.GAP,
+            ExitReason.UNPROTECTED,
+            ExitReason.KILL_SWITCH,
+            ExitReason.FAILSAFE,
+        ):
             self._alarm(now, f"{pid}: flattening ({reason.value})")
         return self._place_exit(position, quote, now, reason)
 
@@ -275,6 +320,13 @@ class Manager:
             self._alarm(now, f"{pid}: cannot read positions before exiting: {exc!r}")
             self._stand_down(now, f"{pid}: cannot read positions")
             return None
+        if 0 < held != position.contracts:
+            # More (or fewer) held than this position: selling its size would leave
+            # contracts nobody manages, or sell short. Stop and reconcile.
+            message = f"{pid}: broker holds {held}, position is {position.contracts}; reconcile"
+            self._alarm(now, message)
+            self._stand_down(now, f"{pid}: held size differs from the position")
+            raise NeedsReconcile(message)
         quantity = min(position.contracts, held)
         if quantity <= 0:
             # Nothing is held any more: something else closed it. Book the real fill.
@@ -317,6 +369,8 @@ class Manager:
         reason = self._exit_reason.get(position.position_id, ExitReason.STOP)
         try:
             return self._work_exit_once(position, quote, now, reason)
+        except NeedsReconcile:
+            raise
         except Exception as exc:  # broker error: halt, keep the exit recorded, retry
             self._alarm(now, f"{position.position_id}: broker error working the exit: {exc!r}")
             self._stand_down(now, f"{position.position_id}: broker error working the exit")
@@ -332,7 +386,9 @@ class Manager:
         if status.state is not OrderState.WORKING:
             self._alarm(now, f"{position.position_id}: exit {status.state.value}; retrying")
             self._stand_down(now, f"{position.position_id}: exit {status.state.value}")
-            return self._place_exit(position, quote, now, reason)
+            position.exit_order_id = None
+            # Through the same sweep as any exit: never re-place beside another seller.
+            return self._start_exit(position, quote, now, reason)
         tick = self._p.instrument.option_tick_size
         target = quote.bid if quote.bid > 0 else tick
         if self._stale(quote, now):
@@ -377,16 +433,23 @@ class Manager:
         log.info("closed %s at %s (%s), net %s", position.position_id, price, reason.value, net)
         return Closed(position.position_id, price, now, reason, net)
 
+    def route_alarms(self, sink: Callable[[Alarm], None]) -> None:
+        """Send every alarm to `sink` (the runner owns the one line to Andre)."""
+        self._on_alarm = sink
+
+    def take_reconcile_closes(self) -> list[Closed]:
+        """Trades reconcile booked since the last call (for the journal)."""
+        closes, self._reconcile_closes = self._reconcile_closes, []
+        return closes
+
     def _alarm(self, now: datetime, message: str) -> None:
         log.critical(message)
-        self._on_alarm(Alarm(now, message))
+        try:
+            self._on_alarm(Alarm(now, message))
+        except Exception:  # an alarm must never stop the safety action it announces
+            log.exception("could not deliver an alarm")
 
-    def reconcile(
-        self,
-        position: Position | None,
-        quotes: Mapping[str, Quote],
-        now: datetime,
-    ) -> bool:
+    def reconcile(self, position: Position | None, now: datetime) -> bool:
         """True if the broker, the ledger and `position` all agree. On any doubt:
         cancel every order the BROKER lists, re-read what it still holds, post limit
         orders to flatten exactly that, latch the kill switch and alarm. Call again
@@ -398,7 +461,12 @@ class Manager:
         than run without its stop and trail.
         """
         expected = {position.contract_id: position.contracts} if position else {}
-        expected_orders = {position.stop_order_id} if position and position.stop_order_id else set()
+        # A working exit (with its stop already cancelled) is a known state, not a doubt.
+        expected_orders = (
+            {o for o in (position.stop_order_id, position.exit_order_id) if o is not None}
+            if position
+            else set()
+        )
         ledger_open = self._ledger.open_position_id
         ledger_ok = ledger_open == (position.position_id if position else None)
         actual = self._broker.positions()
@@ -423,7 +491,7 @@ class Manager:
         self._reconcile_round += 1
         tick = self._p.instrument.option_tick_size
         for contract_id, qty in remaining.items():
-            quote = quotes.get(contract_id)
+            quote = self._book.latest(contract_id)
             if qty > 0:
                 side, price = (
                     Side.SELL,
@@ -450,7 +518,7 @@ class Manager:
             price, actual_fill = self._actual_exit(position)
             if not actual_fill:
                 self._alarm(now, f"{position.position_id}: booked at an ESTIMATED exit of {price}")
-            self._close(position, price, now, ExitReason.RECONCILE)
+            self._reconcile_closes.append(self._close(position, price, now, ExitReason.RECONCILE))
         elif not remaining and ledger_open is not None and position is None:
             self._alarm(
                 now,
