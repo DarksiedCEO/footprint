@@ -431,3 +431,27 @@ Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the
 | G22-2 | An ISO-shaped chain that is not a real config date (`1200-10-20`) is read neither as a chain nor as a number |
 | G23-1 | A hyphen chain followed by `,digit` (`900-1000,5`, `1,000-$1,200,5`) reads nothing |
 | G18-3 | Mutants of the IBKR binding's order-call wiring cannot run locally (ibapi download blocked); CI runs the binding's tests, not mutants |
+
+## News, open and Fed rules (Andre, 2026-10-14)
+
+Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **Nothing below is built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
+
+| ID | Rule | Status |
+|---|---|---|
+| N1 | **Fixed daily blackouts, every trading day, news or not:** 08:25–08:32 ET (05:25–05:32 PT) and 09:55–10:02 ET (06:55–07:02 PT). Built into config, so they need no calendar and never expire. They cover every 8:30 and 10:00 ET release, weekly jobless claims included. | APPROVED 2026-10-14. Not built |
+| N2 | **Blackout edges:** 5 minutes before a release, 2 minutes after (DEFAULT). Getting flat needs time: confirm the stop is cancelled, then a limit sell. | APPROVED 2026-10-14. Not built |
+| N3 | **Opening bell:** a daily blackout 06:25–06:32 PT (DEFAULT): flat into the cash open, no entries during it. A trade entered in the news window is closed at 06:25; no news trade is carried through the open. | APPROVED 2026-10-14. Not built |
+| N4 | **Before news on a news day:** no entries from 04:00 PT until the blackout ends. See **N-OPEN-1**: with N1 every day has an 8:30 blackout, so it must be settled whether N4 applies every day. | APPROVED 2026-10-14. Not built |
+| N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. Not built |
+| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. Not built |
+| N7 | **Day of week:** no rule depends on the weekday. The daily windows and the FOMC dates decide. | APPROVED 2026-10-14 (no build needed) |
+| N8 | **The spike-size veto on news bars:** the zero-day spike-bar tripwire (`zeroday.spike_bar_trip_multiple`, 8) may veto the news-window entry itself. First replay 2026-10-14 05:25–07:00 PT from the real 1-minute export and record what fired or was vetoed, and why. Then Andre decides whether news-window entries get a different limit. | APPROVED as a step (replay first). Nothing built |
+| N9 | **Carry versus flat at the open, long term:** start with N3 (flat). Backtest "carry" against "flat" only once there is enough history (a year or more, 50+ news days). | APPROVED 2026-10-14. Backtest later |
+
+Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after each meeting; left out until a backtest shows they matter), congressional testimony and big speeches (scheduled but irregular dates; added by hand when announced), and unscheduled news. The system only reads price. Against those, the protections are position size (a long option cannot lose more than its premium), the resting stop and its watchdog, the zero-day tripwires, the daily and weekly loss limits and the kill switch. A resting stop-limit can be jumped in a fast move, so a loss can exceed the planned $750–$1,000 stop.
+
+### Open questions on these rules (for Andre)
+
+- **N-OPEN-1 (D3 interaction, important):** D3 (open) says the effective prime entry window is **06:31–13:55 PT**: VWAP is anchored at the cash open, so the levels and VWAP checks fail closed before 06:30. While D3 stays as it is, **no entry can happen between 04:00 and 06:30 PT**, so the 05:32–05:45 news entry window, N4 and the 05:25 blackout change nothing in prime. A trade positioned before the open, which Andre asked about, would need D3 changed: anchor VWAP at the 04:00 prime start.
+- **N-OPEN-2:** if D3 changes, does the news time stop (10 minutes, +$250) apply to the 05:32–05:45 window every day under N1, or only on days with a real release?
+- **N-OPEN-3:** Andre named a flat window ending at 03:59 AM PT ("… to 3:59 AM"), but its start time did not come through. Today the code only requires an overnight position to be flat by 03:59 PT (`overnight_must_be_flat`); nothing blocks entries earlier in the overnight session.
