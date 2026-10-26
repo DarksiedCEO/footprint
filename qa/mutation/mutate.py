@@ -19,6 +19,11 @@ Evidence rules (independent audit A-9):
   counts against the run like a survivor.
 - Tests run as `uv run python -m pytest`, so a copied tree tests its own source (the
   `pytest` launcher of a copy points at the original's environment).
+- Every test run gets its own new, empty bytecode cache and writes none (G31-1).
+  Python trusts a .pyc whose recorded source mtime (whole seconds) and size match, so a
+  same-length mutant restored inside the same second used to leave its bytecode
+  behind: later mutants, baselines and gates in that tree then ran code that was not
+  in the file (a false KILL was seen).
 """
 
 from __future__ import annotations
@@ -28,6 +33,9 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
 
@@ -71,16 +79,26 @@ def source_line() -> str:
     return f"source: {sha or 'UNKNOWN'} tree-dirty: {len(dirty)} files"
 
 
+@contextmanager
+def fresh_bytecode(base: Mapping[str, str]) -> Iterator[dict[str, str]]:
+    """`base` plus a new, empty bytecode cache that is never written to (G31-1): Python
+    reads .pyc files only from PYTHONPYCACHEPREFIX, so no run can see bytecode another
+    run, or the tree's own __pycache__, holds."""
+    with tempfile.TemporaryDirectory(prefix="mutate-pyc-") as cache:
+        yield {**base, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPYCACHEPREFIX": cache}
+
+
 def _tests(group: list[str], env: dict[str, str]) -> int:
-    return subprocess.run(
-        pytest_command(group),
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=LIMIT_SECONDS,
-        check=False,
-    ).returncode
+    with fresh_bytecode(env) as isolated:
+        return subprocess.run(
+            pytest_command(group),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env=isolated,
+            timeout=LIMIT_SECONDS,
+            check=False,
+        ).returncode
 
 
 def run(spec: dict[str, object]) -> int:

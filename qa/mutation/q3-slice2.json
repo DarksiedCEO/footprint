@@ -1,0 +1,102 @@
+{
+ "groups": {
+  "md": [
+   "tests/brokers/test_ibkr_market_recorded_chain.py",
+   "tests/brokers/test_ibkr_market_service.py::test_the_chain_holds_only_fresh_quotes_and_is_as_old_as_its_oldest",
+   "tests/brokers/test_ibkr_market_service.py::test_no_chain_without_a_fresh_future_quote",
+   "tests/brokers/test_ibkr_market_service.py::test_an_option_without_an_ask_or_crossed_is_left_out",
+   "tests/brokers/test_ibkr_market_service.py::test_a_lost_connection_means_no_chain_and_everything_is_asked_again",
+   "tests/brokers/test_ibkr_market_service.py::test_a_quote_stamped_after_now_is_not_in_the_chain",
+   "tests/brokers/test_ibkr_market_service.py::test_the_held_stream_survives_an_expiry_change_and_is_not_offered"
+  ],
+  "rows": [
+   "tests/brokers/test_chain_recorder_rows.py"
+  ]
+ },
+ "mutants": [
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "                RecordedOption(quote, expiry, line.contract.strike, right, line.open_interest)",
+   "                RecordedOption(quote, expiry, line.contract.strike, right, line.open_interest or 0)",
+   "Q3S2-1: unknown open interest recorded as 0"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "                    open_interest=o.open_interest or 0,  # unknown: fails the OI check",
+   "                    open_interest=o.open_interest,  # unknown: fails the OI check",
+   "Q3S2-2: chain() passes unknown open interest through (live path changed)"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "                ts=min([under.ts, *(o.quote.ts for o in options)]),",
+   "                ts=min(o.quote.ts for o in options),",
+   "Q3S2-3: chain() no longer as old as the future's quote"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "        if under is None or under.bid <= 0:\n            return None\n        options: list",
+   "        if under is None:\n            return None\n        options: list",
+   "Q3S2-4: a future without a bid offers a chain"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "        if not options:\n            return None\n        return under, options",
+   "        return under, options",
+   "Q3S2-5: an empty recorded chain instead of none"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "            ordered = sorted(options, key=lambda o: o.quote.contract_id)",
+   "            ordered = list(options)",
+   "Q3S2-6: recorded options not in chain() order"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "        if not self._connected or self._underlying is None:\n            return None\n        future = self._lines.get(self._underlying)\n        if future is None:\n            return None\n        under = self._fresh(future, now)",
+   "        if self._underlying is None:\n            return None\n        future = self._lines.get(self._underlying)\n        if future is None:\n            return None\n        under = self._fresh(future, now)",
+   "Q3S2-7: no connection check"
+  ],
+  [
+   "md",
+   "src/footprint/brokers/ibkr/market.py",
+   "            if req == self._underlying or not self._in_chain(line.contract):",
+   "            if req == self._underlying:",
+   "Q3S2-8: options off the chosen chain offered"
+  ],
+  [
+   "rows",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            future_quote_ts=future.ts,",
+   "            future_quote_ts=now,",
+   "Q3S2-9: the future's quote time guessed as now"
+  ],
+  [
+   "rows",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            quote_ts=o.quote.ts,",
+   "            quote_ts=future.ts,",
+   "Q3S2-10: an option's quote time taken from the future"
+  ],
+  [
+   "rows",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "            open_interest=o.open_interest,",
+   "            open_interest=o.open_interest or 0,",
+   "Q3S2-11: unknown open interest written as 0"
+  ],
+  [
+   "rows",
+   "src/footprint/brokers/ibkr/chain_recorder.py",
+   "    require_utc(now, \"now\")\n",
+   "",
+   "Q3S2-12: a naive snapshot time accepted"
+  ]
+ ]
+}

@@ -168,6 +168,25 @@ class _Line:
         return Quote(self.contract_id, bid, self.ask, ts)
 
 
+@dataclass(frozen=True, slots=True)
+class RecordedOption:
+    """One fresh option quote as the recorder reads it (Q3)."""
+
+    quote: Quote  # its own bid, ask and time
+    expiry: date
+    strike: Decimal
+    right: Right
+    open_interest: int | None  # None: IBKR sent none
+
+
+@dataclass(frozen=True, slots=True)
+class RecordedChain:
+    """What `MarketData.recorded_chain` returns: the future's quote and the options."""
+
+    future: Quote
+    options: tuple[RecordedOption, ...]
+
+
 class HistoryUnavailable(RuntimeError):
     """The history cannot be assembled (a contract missing, a splice with no overlap)."""
 
@@ -261,44 +280,69 @@ class MarketData:
         """Fresh option quotes on the traded future, or None."""
         require_utc(now, "now")
         with self._lock:
-            if not self._connected or self._underlying is None:
+            offered = self._offered(now)
+            if offered is None:
                 return None
-            future = self._lines.get(self._underlying)
-            if future is None:
-                return None
-            under = self._fresh(future, now)
-            if under is None or under.bid <= 0:
-                return None
-            stamps = [under.ts]
-            quotes: list[OptionQuote] = []
-            for req, line in self._lines.items():
-                if req == self._underlying or not self._in_chain(line.contract):
-                    continue  # a held option from another expiry or future: never offered
-                quote = self._fresh(line, now)
-                expiry = _expiry_date(line.contract.expiry)
-                right = _RIGHTS.get(line.contract.right)
-                if quote is None or expiry is None or right is None:
-                    continue
-                quotes.append(
-                    OptionQuote(
-                        contract_id=line.contract_id,
-                        expiry=expiry,
-                        strike=line.contract.strike,
-                        right=right,
-                        bid=quote.bid,
-                        ask=quote.ask,
-                        open_interest=line.open_interest or 0,  # unknown: fails the OI check
-                    )
+            under, options = offered
+            quotes = [
+                OptionQuote(
+                    contract_id=o.quote.contract_id,
+                    expiry=o.expiry,
+                    strike=o.strike,
+                    right=o.right,
+                    bid=o.quote.bid,
+                    ask=o.quote.ask,
+                    open_interest=o.open_interest or 0,  # unknown: fails the OI check
                 )
-                stamps.append(quote.ts)
-            if not quotes:
-                return None
+                for o in options
+            ]
             return OptionChain(
                 underlying=self._instrument.symbol,
-                ts=min(stamps),
+                ts=min([under.ts, *(o.quote.ts for o in options)]),
                 underlying_price=(under.bid + under.ask) / 2,
                 quotes=tuple(sorted(quotes, key=lambda q: q.contract_id)),
             )
+
+    def recorded_chain(self, now: datetime) -> RecordedChain | None:
+        """Q3: the options `chain()` offers at `now`, each with its own quote (and quote
+        time) and the open interest IBKR sent (None when it sent none), with the future's
+        own quote; None exactly when `chain()` is None. For the read-only recorder: the
+        live path does not read it."""
+        require_utc(now, "now")
+        with self._lock:
+            offered = self._offered(now)
+            if offered is None:
+                return None
+            under, options = offered
+            ordered = sorted(options, key=lambda o: o.quote.contract_id)
+            return RecordedChain(future=under, options=tuple(ordered))
+
+    def _offered(self, now: datetime) -> tuple[Quote, list[RecordedOption]] | None:
+        """The fresh future quote and the fresh options on the chosen chain (call under
+        the lock); None without a connection, a fresh future bid, or any option."""
+        if not self._connected or self._underlying is None:
+            return None
+        future = self._lines.get(self._underlying)
+        if future is None:
+            return None
+        under = self._fresh(future, now)
+        if under is None or under.bid <= 0:
+            return None
+        options: list[RecordedOption] = []
+        for req, line in self._lines.items():
+            if req == self._underlying or not self._in_chain(line.contract):
+                continue  # a held option from another expiry or future: never offered
+            quote = self._fresh(line, now)
+            expiry = _expiry_date(line.contract.expiry)
+            right = _RIGHTS.get(line.contract.right)
+            if quote is None or expiry is None or right is None:
+                continue
+            options.append(
+                RecordedOption(quote, expiry, line.contract.strike, right, line.open_interest)
+            )
+        if not options:
+            return None
+        return under, options
 
     def underlying_quote(self, now: datetime) -> Quote | None:
         """The traded future's quote while fresh (as the chain judges it), or None."""

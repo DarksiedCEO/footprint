@@ -1,0 +1,7 @@
+source: 8e32c644345c7fa3d371667622ed9c6cc93f2310 tree-dirty: 0 files
+baseline [qa]: passed
+  1 KILLED   [qa] qa/mutation/mutate.py: G31-M1: test runs write bytecode
+  2 KILLED   [qa] qa/mutation/mutate.py: G31-M2: test runs read the tree's __pycache__ (stale bytecode back)
+  3 KILLED   [qa] qa/mutation/mutate.py: G31-M3: the isolated env built but not used
+  4 KILLED   [qa] qa/mutation/mutate.py: G31-M4: one shared (non-empty) cache for every run
+4 mutants, 0 survived or errored

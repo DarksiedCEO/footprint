@@ -3,7 +3,9 @@ a mutant; a crash, a collection error or "no tests" is an error, never a kill; a
 that fails before any mutant is applied stops the run; every run names its commit."""
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -91,3 +93,67 @@ def test_the_source_line_names_the_commit_and_the_dirty_files() -> None:
     line = _mutate().source_line()
     assert line.startswith("source: ")
     assert "tree-dirty: " in line
+
+
+def _value_seen(module_dir: Path, env: dict[str, str]) -> str:
+    return subprocess.run(
+        [sys.executable, "-c", "import m; print(m.VALUE)"],
+        cwd=module_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_no_run_reads_bytecode_an_earlier_run_wrote(tmp_path: Path) -> None:
+    """G31-1: Python trusts a .pyc whose recorded source mtime (whole seconds) and size
+    match. A same-length mutant restored inside the same second left the mutant's
+    bytecode in place, so later runs tested code that was not in the file."""
+    mutate = _mutate()
+    module = tmp_path / "m.py"
+    module.write_text("VALUE = 1\n")
+    stamp = module.stat()
+    base = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+    with mutate.fresh_bytecode(base) as env:
+        assert _value_seen(tmp_path, env) == "1"
+    with mutate.fresh_bytecode(base) as env:  # compile as an unprotected run would
+        subprocess.run(
+            [sys.executable, "-c", "import py_compile; py_compile.compile('m.py')"],
+            cwd=tmp_path,
+            env=base,
+            check=True,
+        )
+        module.write_text("VALUE = 2\n")  # same length...
+        os.utime(module, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))  # ...same second
+        assert _value_seen(tmp_path, base) == "1"  # the trap is real: stale bytecode
+        assert _value_seen(tmp_path, env) == "2"  # the runner's env never reads it
+
+
+def test_every_test_run_gets_its_own_empty_bytecode_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutate = _mutate()
+    monkeypatch.setattr(mutate, "ROOT", Path("/"))
+    # Hostile inherited values (G32-1): the runner's own isolation must win over them.
+    hostile = tmp_path / "inherited-cache"
+    hostile.mkdir()
+    (hostile / "stale.pyc").write_bytes(b"")
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "")
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(hostile))
+    envs: list[dict[str, str]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        env = kwargs["env"]
+        assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+        assert list(Path(env["PYTHONPYCACHEPREFIX"]).iterdir()) == []
+        envs.append(env)
+        return subprocess.CompletedProcess(command, 0 if len(envs) == 1 else 1, "", "")
+
+    monkeypatch.setattr(mutate.subprocess, "run", fake_run)
+    monkeypatch.setattr(mutate, "source_line", lambda: "source: abc tree-dirty: 0 files")
+    assert mutate.run(_spec(tmp_path)) == 0
+    assert len(envs) == 2  # the baseline and the mutant
+    assert envs[0]["PYTHONPYCACHEPREFIX"] != envs[1]["PYTHONPYCACHEPREFIX"]
+    assert str(hostile) not in (envs[0]["PYTHONPYCACHEPREFIX"], envs[1]["PYTHONPYCACHEPREFIX"])
+    assert envs[1]["FOOTPRINT_REQUIRE_IBAPI"] == "1"

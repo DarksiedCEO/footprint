@@ -1,0 +1,7 @@
+source: a89c5d5ce1aa223aacdf99b94e8fa566ebdc2b0a tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3C-1: --minutes ignored
+  2 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3C-2: --minutes 0 falls back to config
+  3 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3C-3: zero minutes accepted
+  4 KILLED   [rec] src/footprint/brokers/ibkr/chain_recorder.py: Q3C-4: minutes taken as seconds
+4 mutants, 0 survived or errored

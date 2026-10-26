@@ -1,0 +1,100 @@
+{
+ "groups": {
+  "rec": [
+   "tests/data/test_chain_record.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "    if first.future_quote_ts > ts:",
+   "    if False:",
+   "G30-M1: a future quote stamped after the snapshot written"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "    if ts - first.future_quote_ts > limit:",
+   "    if ts - first.future_quote_ts > limit * 2:",
+   "G30-M2: a stale future quote written"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "    if ts - first.future_quote_ts > limit:",
+   "    if ts - first.future_quote_ts >= limit:",
+   "G30-M3: a future quote exactly the configured age refused"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "    if first.future_quote_ts > ts:",
+   "    if first.future_quote_ts >= ts:",
+   "G30-M4: a future quote stamped at the snapshot refused"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        if (row.future_bid, row.future_ask, row.future_quote_ts) != future:",
+   "        if (row.future_bid, row.future_ask) != future[:2]:",
+   "G30-M5: rows with two future quote times are one snapshot"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        _seconds(row.ts - row.future_quote_ts),",
+   "        _seconds(row.ts - row.quote_ts),",
+   "G30-M6: the option's age written as the future's"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "            if raw.read(1) != b\"\\n\":",
+   "            if False:",
+   "G30-M7: a file cut off mid-line appended to (G30-1 back)"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "            if raw.read(1) != b\"\\n\":",
+   "            if raw.read(1) == b\"\\r\":",
+   "G30-M8: only a bare CR taken as a torn line"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        require_utc(self.future_quote_ts, \"future_quote_ts\")\n",
+   "",
+   "G30-M9: a naive future quote time accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        if not isinstance(self.contract_id, str) or not self.contract_id.strip():",
+   "        if not isinstance(self.contract_id, str):",
+   "G30-3 R2: blank contract id accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        if not isinstance(self.expiry, date) or isinstance(self.expiry, datetime):",
+   "        if not isinstance(self.expiry, date):",
+   "G30-3 R3: datetime expiry accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        _price(self.ask, \"ask\", positive=True)",
+   "        _price(self.ask, \"ask\", positive=False)",
+   "G30-3 R4: zero option ask accepted"
+  ],
+  [
+   "rec",
+   "src/footprint/data/chain_record.py",
+   "        require_utc(self.quote_ts, \"quote_ts\")\n",
+   "",
+   "G30-3 R5: naive quote time accepted"
+  ]
+ ]
+}

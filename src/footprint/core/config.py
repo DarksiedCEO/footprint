@@ -748,6 +748,8 @@ class MarketDataSettings:
     probe_option_quotes: int
     export_wait_seconds: int
     export_max_missing_minutes: int
+    record_interval_seconds: int
+    record_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -881,6 +883,8 @@ def load_execution(path: Path) -> ExecutionProfile:
         probe_option_quotes=_integer(m, "probe_option_quotes", m_where, minimum=1),
         export_wait_seconds=_integer(m, "export_wait_seconds", m_where, minimum=1),
         export_max_missing_minutes=_integer(m, "export_max_missing_minutes", m_where, minimum=0),
+        record_interval_seconds=_integer(m, "record_interval_seconds", m_where, minimum=1),
+        record_minutes=_integer(m, "record_minutes", m_where, minimum=1),
     )
     if (
         market_data.strike_window_points

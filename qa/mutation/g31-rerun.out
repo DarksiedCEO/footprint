@@ -1,0 +1,162 @@
+== qa/mutation/g27-export.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [g27]: passed
+  1 KILLED   [g27] src/footprint/data/csv_export.py: G27-3: no flush before the fsync
+1 mutants, 0 survived or errored
+== qa/mutation/g27-probe.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [g27]: passed
+  1 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2a: a missing bid printed as 0
+  2 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2b: bid 0 counted as a price
+  3 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2c: a one-sided future blamed on the options
+  4 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2d: boundary bid 0 not caught
+  5 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2e: future line prints the raw bid
+  6 KILLED   [g27] src/footprint/brokers/ibkr/readonly.py: G27-2f: option line prints the raw bid
+6 mutants, 0 survived or errored
+== qa/mutation/g29-fix.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [drv]: passed
+baseline [gaps]: passed
+  1 KILLED   [gaps] src/footprint/data/gaps.py: G29-M1: the tail after the last bar not looked at
+  2 KILLED   [gaps] src/footprint/data/gaps.py: G29-M2: the still-forming minute counted as missing
+  3 KILLED   [gaps] src/footprint/data/gaps.py: G29-M3: the last closed minute not looked at
+  4 KILLED   [gaps] src/footprint/data/gaps.py: G29-M4: bars after the read time not looked at
+  5 KILLED   [gaps] src/footprint/data/gaps.py: G29-M5: a naive read time accepted
+  6 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: G29-M6: window taken when the wait began (G29-1 back)
+  7 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: G29-M7: the tail not checked by the export (G29-2 back)
+7 mutants, 0 survived or errored
+== qa/mutation/q1-market-probe.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [q1]: passed
+  1 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-1: place_order passes through
+  2 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-2: cancel_order silently accepted
+  3 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-3: global_cancel silently accepted
+  4 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-4: quote request id altered
+  5 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-5: history asks to keep up to date
+  6 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-6: stops on a future quote alone (killed by test_a_future_quote_alone_does_not_end_the_wait)
+  7 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-7: deadline off by one look
+  8 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-8: last sleep overruns the deadline
+  9 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-10: not nearest-first
+ 10 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-11: option count ignored
+ 11 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-12: a stale quote is silently skipped
+ 12 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-13: missing quotes exit 0
+ 13 KILLED   [q1] src/footprint/brokers/ibkr/readonly.py: Q1-14: age sign flipped
+ 14 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-15: future quote not checked for freshness
+ 15 SURVIVED [q1] src/footprint/brokers/ibkr/market.py: Q1-16: future quote offered while disconnected (EQUIVALENT, argued in docs/decisions-pending.md: LOST resets _underlying and _lines under the same lock)
+ 16 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-17: option_quote may return the future's line
+ 17 KILLED   [q1] src/footprint/brokers/ibkr/market.py: Q1-18: option quote not checked for freshness
+ 18 KILLED   [q1] src/footprint/core/config.py: Q1-19: probe wait 0 accepted
+ 19 KILLED   [q1] src/footprint/core/config.py: Q1-20: probe count 0 accepted
+19 mutants, 1 survived or errored
+== qa/mutation/q2-csv-export.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [q2]: passed
+  1 KILLED   [q2] src/footprint/data/csv_export.py: Q2-1: existing file not checked up front
+  2 KILLED   [q2] src/footprint/data/csv_export.py: Q2-2: a left-over partial is overwritten
+  3 KILLED   [q2] src/footprint/data/csv_export.py: Q2-3: two symbols accepted
+  4 KILLED   [q2] src/footprint/data/csv_export.py: Q2-4: a repeated minute accepted
+  5 KILLED   [q2] src/footprint/data/csv_export.py: Q2-5: order never tracked
+  6 KILLED   [q2] src/footprint/data/csv_export.py: Q2-6: an empty export succeeds
+  7 KILLED   [q2] src/footprint/data/csv_export.py: Q2-7: rename replaces a file that appeared meanwhile
+  8 KILLED   [q2] src/footprint/data/csv_export.py: Q2-8: the partial is left beside a finished file
+  9 KILLED   [q2] src/footprint/data/csv_export.py: Q2-9: columns swapped
+ 10 KILLED   [q2] src/footprint/data/csv_export.py: Q2-10: no header
+ 11 KILLED   [q2] src/footprint/data/csv_export.py: Q2-11: count wrong
+ 12 KILLED   [q2] src/footprint/data/csv_export.py: Q2-12: no fsync before linking
+12 mutants, 0 survived or errored
+== qa/mutation/q2-history.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [drv]: passed
+baseline [gaps]: passed
+  1 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-1: a start with seconds accepted
+  2 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-2: no bars not named
+  3 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-3: calendar_from itself refused
+  4 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-4: calendar_through itself refused
+  5 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-5: before calendar_from waved through
+  6 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-6: after calendar_through waved through
+  7 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-7: the start's own day not checked against the calendar
+  8 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-8: closed minutes counted as gaps
+  9 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-9: bars ignored
+ 10 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-10: a run of exactly the allowance stops the scan
+ 11 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-11: a run of exactly the allowance is a gap
+ 12 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-12: short holes added together
+ 13 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-13: the scan starts at the first bar, not the window start
+ 14 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-14: the run's last minute named, not its first
+ 15 KILLED   [gaps] src/footprint/data/gaps.py: Q2H-15: last bar's minute not scanned (argued equivalent: it always has a bar; a run ending before it is caught after the loop)
+ 16 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-16: existing file found only after loading
+ 17 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-17: left-over partial found only after loading
+ 18 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-18: ready history waits out the deadline
+ 19 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-19: no look at the deadline itself
+ 20 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-20: last sleep runs past the deadline
+ 21 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-21: timeout not reported as such
+ 22 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-22: a gap is written
+ 23 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-23: the window start ignored
+ 24 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-24: configured allowance ignored
+ 25 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-25: a bad bar crashes instead of exiting 1
+ 26 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-26: a failed write exits 0
+ 27 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-27: no --days still rebuilds (identity lost)
+ 28 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-28: --days 0 accepted
+ 29 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-29: --days ignored
+ 30 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-30: window one day short
+ 31 KILLED   [drv] src/footprint/brokers/ibkr/history_export.py: Q2H-31: window not at midnight
+31 mutants, 0 survived or errored
+== qa/mutation/q3-chain.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/data/chain_record.py: Q3-1: a quote exactly the configured age refused
+  2 KILLED   [rec] src/footprint/data/chain_record.py: Q3-2: stale quotes written
+  3 KILLED   [rec] src/footprint/data/chain_record.py: Q3-3: a quote stamped at the snapshot refused
+  4 KILLED   [rec] src/footprint/data/chain_record.py: Q3-4: future-stamped quotes written
+  5 KILLED   [rec] src/footprint/data/chain_record.py: Q3-5: mixed snapshot written
+  6 KILLED   [rec] src/footprint/data/chain_record.py: Q3-6: empty snapshot accepted
+  7 KILLED   [rec] src/footprint/data/chain_record.py: Q3-7: unknown open interest written as 0
+  8 KILLED   [rec] src/footprint/data/chain_record.py: Q3-8: a foreign file appended to
+  9 KILLED   [rec] src/footprint/data/chain_record.py: Q3-9: an empty file gets no header
+ 10 KILLED   [rec] src/footprint/data/chain_record.py: Q3-10: a header per snapshot
+ 11 KILLED   [rec] src/footprint/data/chain_record.py: Q3-11: one file for every day
+ 12 KILLED   [rec] src/footprint/data/chain_record.py: Q3-12: age rounded to whole seconds
+ 13 KILLED   [rec] src/footprint/data/chain_record.py: Q3-13: crossed future accepted
+ 14 KILLED   [rec] src/footprint/data/chain_record.py: Q3-14: crossed option accepted
+ 15 KILLED   [rec] src/footprint/data/chain_record.py: Q3-15: a bool open interest accepted
+ 16 KILLED   [rec] src/footprint/data/chain_record.py: Q3-16: negative open interest accepted
+ 17 KILLED   [rec] src/footprint/data/chain_record.py: Q3-17: a zero future bid accepted
+ 18 KILLED   [rec] src/footprint/data/chain_record.py: Q3-18: a zero strike accepted
+ 19 KILLED   [rec] src/footprint/data/chain_record.py: Q3-19: a naive snapshot time accepted
+ 20 KILLED   [rec] src/footprint/data/chain_record.py: Q3-20: NaN prices accepted
+ 21 KILLED   [rec] src/footprint/data/chain_record.py: Q3-21: no fsync
+ 22 KILLED   [rec] src/footprint/data/chain_record.py: Q3-22: no flush before the fsync
+22 mutants, 0 survived or errored
+== qa/mutation/q3-slice2.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [md]: passed
+baseline [rows]: passed
+  1 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-1: unknown open interest recorded as 0
+  2 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-2: chain() passes unknown open interest through (live path changed)
+  3 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-3: chain() no longer as old as the future's quote
+  4 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-4: a future without a bid offers a chain
+  5 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-5: an empty recorded chain instead of none
+  6 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-6: recorded options not in chain() order
+  7 SURVIVED [md] src/footprint/brokers/ibkr/market.py: Q3S2-7: no connection check
+  8 KILLED   [md] src/footprint/brokers/ibkr/market.py: Q3S2-8: options off the chosen chain offered
+  9 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-9: the future's quote time guessed as now
+ 10 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-10: an option's quote time taken from the future
+ 11 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-11: unknown open interest written as 0
+ 12 KILLED   [rows] src/footprint/brokers/ibkr/chain_recorder.py: Q3S2-12: a naive snapshot time accepted
+12 mutants, 1 survived or errored
+== qa/mutation/g30-fix.json
+source: ff901a0c16c639c8d14e3112a26799920725fdb2 tree-dirty: 0 files
+baseline [rec]: passed
+  1 KILLED   [rec] src/footprint/data/chain_record.py: G30-M1: a future quote stamped after the snapshot written
+  2 KILLED   [rec] src/footprint/data/chain_record.py: G30-M2: a stale future quote written
+  3 KILLED   [rec] src/footprint/data/chain_record.py: G30-M3: a future quote exactly the configured age refused
+  4 KILLED   [rec] src/footprint/data/chain_record.py: G30-M4: a future quote stamped at the snapshot refused
+  5 KILLED   [rec] src/footprint/data/chain_record.py: G30-M5: rows with two future quote times are one snapshot
+  6 KILLED   [rec] src/footprint/data/chain_record.py: G30-M6: the option's age written as the future's
+  7 KILLED   [rec] src/footprint/data/chain_record.py: G30-M7: a file cut off mid-line appended to (G30-1 back)
+  8 KILLED   [rec] src/footprint/data/chain_record.py: G30-M8: only a bare CR taken as a torn line
+  9 KILLED   [rec] src/footprint/data/chain_record.py: G30-M9: a naive future quote time accepted
+ 10 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R2: blank contract id accepted
+ 11 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R3: datetime expiry accepted
+ 12 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R4: zero option ask accepted
+ 13 KILLED   [rec] src/footprint/data/chain_record.py: G30-3 R5: naive quote time accepted
+13 mutants, 0 survived or errored
