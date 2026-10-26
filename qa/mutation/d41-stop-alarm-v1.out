@@ -1,4 +1,4 @@
-source: 520aaa8121a37ce1ea511957849651111a02f730 tree-dirty: 0 files
+source: d571023f6a391582772cdef64fac36ff93ba07d3 tree-dirty: 0 files
 baseline [d41]: passed
   1 KILLED   [d41] src/footprint/execution/executor/diego.py: once-per-position check removed
   2 KILLED   [d41] src/footprint/execution/executor/diego.py: position never recorded as alarmed
@@ -14,24 +14,43 @@ baseline [d41]: passed
  12 KILLED   [d41] src/footprint/execution/executor/diego.py: sink None check removed (None call raises TypeError, caught)
  13 KILLED   [d41] src/footprint/execution/executor/diego.py: a broken alarm line raises out of the stop check
  14 KILLED   [d41] src/footprint/execution/executor/diego.py: route_alarms does nothing
- 15 KILLED   [d41] src/footprint/execution/executor/diego.py: no alarm when the send outcome is unknown
- 16 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome claimed placed
- 17 KILLED   [d41] src/footprint/execution/executor/diego.py: error type dropped from unknown-outcome alarm
- 18 KILLED   [d41] src/footprint/execution/executor/diego.py: refused replacement claimed placed
- 19 KILLED   [d41] src/footprint/execution/executor/diego.py: outcome condition inverted
- 20 KILLED   [d41] src/footprint/execution/executor/diego.py: broker state dropped
- 21 KILLED   [d41] src/footprint/execution/executor/diego.py: 'not protecting' wording lost
- 22 KILLED   [d41] src/footprint/execution/executor/diego.py: no alarm on a successful replacement
- 23 KILLED   [d41] src/footprint/execution/executor/diego.py: alarm names the new stop as the gone one
- 24 KILLED   [d41] src/footprint/execution/executor/diego.py: gone stop's real state ignored
- 25 KILLED   [d41] src/footprint/execution/executor/diego.py: alarm sent before the send (NotSent would still alarm)
- 26 KILLED   [d41] src/footprint/execution/executor/diego.py: NotSent alarms 'placed'
- 27 KILLED   [d41] src/footprint/execution/executor/diego.py: G6-2: NotSent keeps the replacement id (regression)
- 28 KILLED   [d41] src/footprint/execution/executor/diego.py: G6-1 partly-filled guard weakened (regression)
- 29 KILLED   [d41] src/footprint/execution/executor/diego.py: filled stop treated as gone (would replace and alarm)
- 30 KILLED   [d41] src/footprint/execution/executor/diego.py: protecting stop not left alone
- 31 KILLED   [d41] src/footprint/execution/runner.py: runner never routes the executor's alarms
- 32 KILLED   [d41] src/footprint/execution/runner.py: runner routes executor alarms nowhere
- 33 KILLED   [d41] src/footprint/execution/runner.py: D41 alarm sent as a HALT
- 34 KILLED   [d41] src/footprint/execution/runner.py: D41 alarm trips the halt (option (c)-like)
-34 mutants, 0 survived or errored
+ 15 KILLED   [d41] src/footprint/execution/executor/diego.py: error type dropped from unknown-outcome alarm
+ 16 KILLED   [d41] src/footprint/execution/executor/diego.py: alarm sent before the send (NotSent would still alarm)
+ 17 KILLED   [d41] src/footprint/execution/executor/diego.py: NotSent alarms 'placed'
+ 18 KILLED   [d41] src/footprint/execution/executor/diego.py: G6-2: NotSent keeps the replacement id (regression)
+ 19 KILLED   [d41] src/footprint/execution/executor/diego.py: G6-1 partly-filled guard weakened (regression)
+ 20 KILLED   [d41] src/footprint/execution/executor/diego.py: filled stop treated as gone (would replace and alarm)
+ 21 KILLED   [d41] src/footprint/execution/executor/diego.py: protecting stop not left alone
+ 22 KILLED   [d41] src/footprint/execution/runner.py: runner never routes the executor's alarms
+ 23 KILLED   [d41] src/footprint/execution/runner.py: runner routes executor alarms nowhere
+ 24 KILLED   [d41] src/footprint/execution/runner.py: D41 alarm sent as a HALT
+ 25 KILLED   [d41] src/footprint/execution/runner.py: D41 alarm trips the halt (option (c)-like)
+ 26 KILLED   [d41] src/footprint/execution/executor/diego.py: no alarm when the send outcome is unknown
+ 27 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome claimed placed
+ 28 KILLED   [d41] src/footprint/execution/executor/diego.py: no alarm on a successful replacement
+ 29 KILLED   [d41] src/footprint/execution/executor/diego.py: alarm names the new stop as the gone one
+ 30 KILLED   [d41] src/footprint/execution/executor/diego.py: gone stop's real state ignored
+ 31 KILLED   [d41] src/footprint/execution/executor/diego.py: outcome ignored: always 'placed'
+ 32 KILLED   [d41] src/footprint/execution/executor/diego.py: R1 (reviewer) once per executor instead of per position
+ 33 KILLED   [d41] src/footprint/execution/runner.py: R2 (reviewer) alarm stamped with start time
+ 34 KILLED   [d41] src/footprint/execution/executor/diego.py: R3 (reviewer) sink guard narrowed to RuntimeError
+ 35 KILLED   [d41] src/footprint/execution/executor/diego.py: R4 (reviewer) unknown branch ignores gone stop state
+ 36 KILLED   [d41] src/footprint/execution/executor/diego.py: R7 (reviewer) protects -> WORKING (held-back replacement claimed placed)
+ 37 KILLED   [d41] src/footprint/execution/executor/diego.py: R8 (reviewer) unknown-outcome alarm only for ConnectionError
+ 38 KILLED   [d41] src/footprint/execution/executor/diego.py: every replacement claimed placed
+ 39 KILLED   [d41] src/footprint/execution/executor/diego.py: protects inverted
+ 40 KILLED   [d41] src/footprint/execution/executor/diego.py: F2: filled replacement worded as another state
+ 41 KILLED   [d41] src/footprint/execution/executor/diego.py: F2: 'the position is sold' dropped
+ 42 KILLED   [d41] src/footprint/execution/executor/diego.py: F2: 'do not place a stop by hand' dropped (filled)
+ 43 KILLED   [d41] src/footprint/execution/executor/diego.py: F2: sold quantity dropped
+ 44 KILLED   [d41] src/footprint/execution/executor/diego.py: live replacement worded as ended
+ 45 KILLED   [d41] src/footprint/execution/executor/diego.py: held back / cancelling swapped
+ 46 KILLED   [d41] src/footprint/execution/executor/diego.py: 'do not place another stop beside it' dropped
+ 47 KILLED   [d41] src/footprint/execution/executor/diego.py: partly-sold replacement worded as nothing sold
+ 48 KILLED   [d41] src/footprint/execution/executor/diego.py: partly-sold: hand-stop warning dropped
+ 49 KILLED   [d41] src/footprint/execution/executor/diego.py: partly-sold quantity dropped
+ 50 KILLED   [d41] src/footprint/execution/executor/diego.py: ended replacement: 'no stop rests' dropped
+ 51 KILLED   [d41] src/footprint/execution/executor/diego.py: ended replacement: state dropped
+ 52 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome: 'may be live or filled' dropped
+ 53 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome: check-IBKR warning dropped
+53 mutants, 0 survived or errored

@@ -4,7 +4,8 @@
    "tests/execution/test_d41_stop_wait_alarm.py",
    "tests/execution/test_pending_entry_stop.py",
    "tests/execution/test_partly_filled_stop.py",
-   "tests/execution/test_grind_g7_3.py"
+   "tests/execution/test_grind_g7_3.py",
+   "tests/execution/test_runner.py"
   ]
  },
  "mutants": [
@@ -109,72 +110,9 @@
   [
    "d41",
    "src/footprint/execution/executor/diego.py",
-   "            self._alarm_wait_stop(\n                pid, stop_id, held.state, f\"sent, but its outcome is unknown: {exc!r}\"\n            )\n            raise",
-   "            raise",
-   "no alarm when the send outcome is unknown"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "f\"sent, but its outcome is unknown: {exc!r}\"",
-   "\"placed\"",
-   "unknown outcome claimed placed"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
    "its outcome is unknown: {exc!r}",
    "its outcome is unknown: {exc}",
    "error type dropped from unknown-outcome alarm"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "            \"placed\"\n            if placed.protects\n",
-   "            \"placed\"\n            if True\n",
-   "refused replacement claimed placed"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "            \"placed\"\n            if placed.protects\n",
-   "            \"placed\"\n            if not placed.protects\n",
-   "outcome condition inverted"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "not protecting at the broker ({placed.state.value})",
-   "not protecting at the broker ()",
-   "broker state dropped"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "sent, but it is not protecting at the broker",
-   "sent, but it is at the broker",
-   "'not protecting' wording lost"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
-   "",
-   "no alarm on a successful replacement"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
-   "        self._alarm_wait_stop(pid, replacement, held.state, outcome)\n",
-   "alarm names the new stop as the gone one"
-  ],
-  [
-   "d41",
-   "src/footprint/execution/executor/diego.py",
-   "        self._alarm_wait_stop(pid, stop_id, held.state, outcome)\n",
-   "        self._alarm_wait_stop(pid, stop_id, OrderState.CANCELLED, outcome)\n",
-   "gone stop's real state ignored"
   ],
   [
    "d41",
@@ -245,6 +183,202 @@
    "executor.route_alarms(lambda message: self._alarm(self._now, message))",
    "executor.route_alarms(self._halt.trip)",
    "D41 alarm trips the halt (option (c)-like)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        except Exception as exc:\n            self._alarm_wait_stop(\n                pid,\n                stop_id,\n                held.state,\n                f\"sent, but its outcome is unknown: {exc!r}; it may be live or filled: \"\n                \"check IBKR before placing any stop by hand\",\n            )\n            raise",
+   "        except Exception as exc:\n            raise",
+   "no alarm when the send outcome is unknown"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "                f\"sent, but its outcome is unknown: {exc!r}; it may be live or filled: \"\n                \"check IBKR before placing any stop by hand\",\n",
+   "                \"placed\",\n",
+   "unknown outcome claimed placed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, _replacement_outcome(placed))\n",
+   "",
+   "no alarm on a successful replacement"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, _replacement_outcome(placed))\n",
+   "        self._alarm_wait_stop(pid, replacement, held.state, _replacement_outcome(placed))\n",
+   "alarm names the new stop as the gone one"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, _replacement_outcome(placed))\n",
+   "        self._alarm_wait_stop(pid, stop_id, OrderState.CANCELLED, _replacement_outcome(placed))\n",
+   "gone stop's real state ignored"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, _replacement_outcome(placed))\n",
+   "        self._alarm_wait_stop(pid, stop_id, held.state, \"placed\")\n",
+   "outcome ignored: always 'placed'"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        if pid in self._wait_stop_alarmed:\n",
+   "        if self._wait_stop_alarmed:\n",
+   "R1 (reviewer) once per executor instead of per position"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/runner.py",
+   "executor.route_alarms(lambda message: self._alarm(self._now, message))",
+   "executor.route_alarms(lambda message: self._alarm(started, message))",
+   "R2 (reviewer) alarm stamped with start time"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        except Exception:\n            log.exception(\"could not deliver an alarm\")",
+   "        except RuntimeError:\n            log.exception(\"could not deliver an alarm\")",
+   "R3 (reviewer) sink guard narrowed to RuntimeError"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "                pid,\n                stop_id,\n                held.state,\n                f\"sent, but its outcome",
+   "                pid,\n                stop_id,\n                OrderState.CANCELLED,\n                f\"sent, but its outcome",
+   "R4 (reviewer) unknown branch ignores gone stop state"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.protects:\n        return \"placed\"",
+   "    if placed.state is OrderState.WORKING:\n        return \"placed\"",
+   "R7 (reviewer) protects -> WORKING (held-back replacement claimed placed)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        except Exception as exc:\n            self._alarm_wait_stop(",
+   "        except ConnectionError as exc:\n            self._alarm_wait_stop(",
+   "R8 (reviewer) unknown-outcome alarm only for ConnectionError"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.protects:\n        return \"placed\"",
+   "    if True:\n        return \"placed\"",
+   "every replacement claimed placed"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.protects:\n        return \"placed\"",
+   "    if not placed.protects:\n        return \"placed\"",
+   "protects inverted"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.state is OrderState.FILLED:\n        return (",
+   "    if False:\n        return (",
+   "F2: filled replacement worded as another state"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "(sold {placed.filled}): the position is sold; \"",
+   "(sold {placed.filled}); \"",
+   "F2: 'the position is sold' dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "the position is sold; \"\n            \"do not place a stop by hand\"\n        )\n    if placed.state is OrderState.WORKING",
+   "the position is sold\"\n        )\n    if placed.state is OrderState.WORKING",
+   "F2: 'do not place a stop by hand' dropped (filled)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "(sold {placed.filled})",
+   "(sold)",
+   "F2: sold quantity dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.state is OrderState.WORKING:\n        why",
+   "    if False:\n        why",
+   "live replacement worded as ended"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "why = \"held back\" if placed.held_back else \"being cancelled\"",
+   "why = \"being cancelled\" if placed.held_back else \"held back\"",
+   "held back / cancelling swapped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "\"still sell; do not place another stop beside it\"",
+   "\"still sell\"",
+   "'do not place another stop beside it' dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.filled > 0:\n        return (",
+   "    if placed.filled > 1:\n        return (",
+   "partly-sold replacement worded as nothing sold"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "\"do not place a stop by hand; reconcile, and check the account\"",
+   "\"reconcile, and check the account\"",
+   "partly-sold: hand-stop warning dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "it sold {placed.filled} and is {placed.state.value}",
+   "it sold and is {placed.state.value}",
+   "partly-sold quantity dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   ": no stop rests at the broker for it\"",
+   "\"",
+   "ended replacement: 'no stop rests' dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "the broker reports it {placed.state.value}",
+   "the broker reports it",
+   "ended replacement: state dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "{exc!r}; it may be live or filled: \"",
+   "{exc!r}\"",
+   "unknown outcome: 'may be live or filled' dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "                \"check IBKR before placing any stop by hand\",\n",
+   "                \"\",\n",
+   "unknown outcome: check-IBKR warning dropped"
   ]
  ]
 }
