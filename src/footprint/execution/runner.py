@@ -108,6 +108,7 @@ class Runner:
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
+        executor.route_alarms(lambda message: self._alarm(self._now, message))
         self._reconciling = True
         self._ticket: EntryTicket | None = None
         self._position: Position | None = None
