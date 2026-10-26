@@ -543,3 +543,43 @@ def test_the_alarm_carries_the_step_time(scene: Scene) -> None:
     scene.step()
     (alarm,) = [a for a in scene.alarms if WAIT in a.message]
     assert alarm.ts == scene.t
+
+
+# --- review round 2 (PR #53) -------------------------------------------------------------
+
+
+def test_a_rejected_replacement_that_sold_part_gets_the_partly_sold_wording(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N5: the IBKR adapter reports REJECTED for a replacement whose copies ended in mixed
+    terminal states, one of them partly filled. That is a sale of part, never "the
+    position is sold": reconcile decides what is held."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, state=OrderState.REJECTED, filled=1)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.endswith(
+        "was sent, but it sold 1 and is REJECTED at the broker: do not place a stop by "
+        "hand; reconcile, and check the account"
+    )
+    assert "the position is sold" not in alarm
+
+
+def test_a_live_held_back_replacement_that_sold_part_is_still_worded_live(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N2 (unreachable at max_contracts 1; pinned for scaling): a replacement still live
+    (held back) that has sold part can still sell more, so the alarm keeps the "live ...
+    do not place another stop beside it" wording, not the ended wording."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, held_back=True, filled=1)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.endswith(
+        "was sent, but it is live and held back at the broker: not protecting, and it can "
+        "still sell; do not place another stop beside it"
+    )
