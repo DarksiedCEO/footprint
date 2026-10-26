@@ -50,6 +50,8 @@ class InstrumentProfile:
     round_number_step: Decimal
     prime_session: Session
     overnight_session: Session
+    cash_session: Session
+    option_tick_size: Decimal
     dte_min: int
     dte_max: int
     trading_days: frozenset[int]
@@ -184,6 +186,8 @@ def load_instrument(path: Path) -> InstrumentProfile:
         round_number_step=_positive_decimal(raw, "round_number_step", where),
         prime_session=_session(raw, "prime_session", where),
         overnight_session=_session(raw, "overnight_session", where),
+        cash_session=_session(raw, "cash_session", where),
+        option_tick_size=_positive_decimal(raw, "option_tick_size", where),
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
         trading_days=_trading_days(raw, "trading_days", where),
@@ -198,6 +202,11 @@ def load_instrument(path: Path) -> InstrumentProfile:
         )
     if profile.prime_session.overlaps(profile.overnight_session):
         raise ConfigError(f"{where}: prime_session and overnight_session must not overlap")
+    cash, prime = profile.cash_session, profile.prime_session
+    if cash.timezone != prime.timezone:
+        raise ConfigError(f"{where}: cash_session must use the prime_session timezone")
+    if not (prime.start <= cash.start < cash.end <= prime.end):
+        raise ConfigError(f"{where}: cash_session must lie inside prime_session")
     if profile.round_number_step % profile.tick_size != 0:
         raise ConfigError(f"{where}: round_number_step must be a multiple of tick_size")
     if profile.dte_min > profile.dte_max:
@@ -255,6 +264,33 @@ class RangeSettings:
     adr_days: int
     quiet_below_pct: Decimal
     extended_above_pct: Decimal
+    chase_zone_pct: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class DataSettings:
+    max_bar_age_seconds: int
+    min_session_coverage_pct: Decimal
+    max_gap_minutes: int
+
+
+@dataclass(frozen=True, slots=True)
+class LevelsSettings:
+    room_multiple: Decimal
+    wall_multiple: Decimal
+    swing_lookback_bars: int
+
+
+@dataclass(frozen=True, slots=True)
+class OptionsSettings:
+    assumed_delta: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ZeroDaySettings:
+    lookback_sessions: int
+    trip_multiple: Decimal
+    volume_trip_multiple: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +298,10 @@ class StrategyProfile:
     trend: TrendSettings
     volume: VolumeSettings
     range: RangeSettings
+    data: DataSettings
+    levels: LevelsSettings
+    options: OptionsSettings
+    zeroday: ZeroDaySettings
 
 
 def load_strategy(path: Path) -> StrategyProfile:
@@ -295,8 +335,60 @@ def load_strategy(path: Path) -> StrategyProfile:
         adr_days=_integer(r, "adr_days", r_where, minimum=1),
         quiet_below_pct=_positive_decimal(r, "quiet_below_pct", r_where),
         extended_above_pct=_positive_decimal(r, "extended_above_pct", r_where),
+        chase_zone_pct=_positive_decimal(r, "chase_zone_pct", r_where),
     )
     if range_.quiet_below_pct >= range_.extended_above_pct:
         raise ConfigError(f"{r_where}: quiet_below_pct must be < extended_above_pct")
+    if range_.chase_zone_pct >= _PERCENT_MAX:
+        raise ConfigError(f"{r_where}: chase_zone_pct must be < {_PERCENT_MAX}")
 
-    return StrategyProfile(trend=trend, volume=volume, range=range_)
+    l_where = f"{where}: levels"
+    lv = _check_keys(raw["levels"], {f.name for f in fields(LevelsSettings)}, l_where)
+    levels = LevelsSettings(
+        room_multiple=_positive_decimal(lv, "room_multiple", l_where),
+        wall_multiple=_positive_decimal(lv, "wall_multiple", l_where),
+        swing_lookback_bars=_integer(lv, "swing_lookback_bars", l_where, minimum=1),
+    )
+    if levels.wall_multiple > levels.room_multiple:
+        raise ConfigError(f"{l_where}: wall_multiple must be <= room_multiple")
+    if levels.swing_lookback_bars < 2 * trend.swing_strength + 1:
+        raise ConfigError(
+            f"{l_where}: swing_lookback_bars must be >= 2 * trend.swing_strength + 1 "
+            "or no swing can ever be found"
+        )
+
+    d_where = f"{where}: data"
+    dd = _check_keys(raw["data"], {f.name for f in fields(DataSettings)}, d_where)
+    data = DataSettings(
+        max_bar_age_seconds=_integer(dd, "max_bar_age_seconds", d_where, minimum=1),
+        min_session_coverage_pct=_positive_decimal(dd, "min_session_coverage_pct", d_where),
+        max_gap_minutes=_integer(dd, "max_gap_minutes", d_where, minimum=0),
+    )
+    if data.min_session_coverage_pct > _PERCENT_MAX:
+        raise ConfigError(f"{d_where}: min_session_coverage_pct must be <= {_PERCENT_MAX}")
+
+    o_where = f"{where}: options"
+    o = _check_keys(raw["options"], {f.name for f in fields(OptionsSettings)}, o_where)
+    options = OptionsSettings(assumed_delta=_positive_decimal(o, "assumed_delta", o_where))
+    if options.assumed_delta >= 1:
+        raise ConfigError(f"{o_where}: assumed_delta must be < 1")
+
+    z_where = f"{where}: zeroday"
+    z = _check_keys(raw["zeroday"], {f.name for f in fields(ZeroDaySettings)}, z_where)
+    zeroday = ZeroDaySettings(
+        lookback_sessions=_integer(z, "lookback_sessions", z_where, minimum=1),
+        trip_multiple=_positive_decimal(z, "trip_multiple", z_where),
+        volume_trip_multiple=_positive_decimal(z, "volume_trip_multiple", z_where),
+    )
+    if zeroday.trip_multiple <= 1 or zeroday.volume_trip_multiple <= 1:
+        raise ConfigError(f"{z_where}: trip multiples must be > 1")
+
+    return StrategyProfile(
+        trend=trend,
+        volume=volume,
+        range=range_,
+        data=data,
+        levels=levels,
+        options=options,
+        zeroday=zeroday,
+    )

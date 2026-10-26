@@ -10,18 +10,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
-from enum import Enum
-from zoneinfo import ZoneInfo
+from datetime import datetime
 
-from footprint.core.config import InstrumentProfile, Session
+from footprint.core.calendar import SessionKind, local_minute, session_at
+from footprint.core.config import InstrumentProfile
 from footprint.core.models import require_utc
 
-
-class SessionKind(Enum):
-    PRIME = "PRIME"
-    OVERNIGHT = "OVERNIGHT"
-    CLOSED = "CLOSED"
+__all__ = [
+    "NewsBlackout",
+    "SessionKind",
+    "in_news_blackout",
+    "overnight_must_be_flat",
+    "session_at",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,44 +49,6 @@ class NewsBlackout:
         return self.start <= moment <= self.end
 
 
-def _local(moment: datetime, session: Session) -> tuple[date, time]:
-    require_utc(moment, "moment")
-    local = moment.astimezone(ZoneInfo(session.timezone))
-    return local.date(), local.time().replace(second=0, microsecond=0)
-
-
-def _covers(session: Session, clock: time) -> bool:
-    if session.start <= session.end:
-        return session.start <= clock <= session.end
-    return clock >= session.start or clock <= session.end
-
-
-def _is_trading_day(day: date, instrument: InstrumentProfile) -> bool:
-    return day.weekday() in instrument.trading_days and day not in instrument.holidays
-
-
-def session_at(moment: datetime, instrument: InstrumentProfile) -> SessionKind:
-    """The window `moment` (UTC) falls in, or CLOSED on non-trading days.
-
-    A PRIME window belongs to its own calendar day. An OVERNIGHT window that
-    crosses midnight belongs to the trading day it leads into, so the evening
-    before a weekend or holiday is CLOSED.
-    """
-    prime, overnight = instrument.prime_session, instrument.overnight_session
-    day, clock = _local(moment, prime)
-    if _covers(prime, clock):
-        return SessionKind.PRIME if _is_trading_day(day, instrument) else SessionKind.CLOSED
-    day, clock = _local(moment, overnight)
-    if _covers(overnight, clock):
-        crosses_midnight = overnight.start > overnight.end
-        trading_day = (
-            day + timedelta(days=1) if crosses_midnight and clock >= overnight.start else day
-        )
-        if _is_trading_day(trading_day, instrument):
-            return SessionKind.OVERNIGHT
-    return SessionKind.CLOSED
-
-
 def in_news_blackout(moment: datetime, blackouts: Iterable[NewsBlackout]) -> NewsBlackout | None:
     """The blackout covering `moment`, or None."""
     require_utc(moment, "moment")
@@ -104,5 +67,5 @@ def overnight_must_be_flat(moment: datetime, instrument: InstrumentProfile) -> b
     """
     if session_at(moment, instrument) is not SessionKind.OVERNIGHT:
         return True
-    _, clock = _local(moment, instrument.overnight_session)
+    _, clock = local_minute(moment, instrument.overnight_session)
     return clock == instrument.overnight_session.end

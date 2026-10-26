@@ -12,6 +12,14 @@ overnight_session:
   start: "15:00"
   end: "03:59"
   timezone: America/Los_Angeles
+# Regular cash session. Anchors VWAP, prior-day levels and daily bars (G10, G11).
+cash_session:
+  start: "06:30"
+  end: "13:00"
+  timezone: America/Los_Angeles
+# Minimum price increment of the option premium, in index points.
+# UNVERIFIED: confirm against the CME contract specs before paper trading.
+option_tick_size: 0.25
 dte_min: 1
 dte_max: 3
 # Days the PRIME session trades. Each OVERNIGHT session belongs to the next

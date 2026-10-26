@@ -3,41 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import timedelta
 from decimal import Decimal
-from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 from footprint.core.models import Bar, Score
+from footprint.core.series import require_series
 
-
-def require_series(bars: Sequence[Bar], timeframe_minutes: int | None, field: str) -> None:
-    """Reject input a reader could misread: empty, mixed symbols, out of order, wrong timeframe.
-
-    With a timeframe, every gap between consecutive bars must be a whole number of
-    bar lengths, so bars of a shorter timeframe handed to a slower reader are refused.
-    """
-    if not isinstance(bars, Sequence) or isinstance(bars, str | bytes):
-        raise TypeError(f"{field} must be a sequence of Bar")
-    if not bars:
-        raise ValueError(f"{field} must not be empty")
-    symbol = None
-    for bar in bars:
-        if not isinstance(bar, Bar):
-            raise TypeError(f"{field} must contain only Bar, got {type(bar).__name__}")
-        if symbol is None:
-            symbol = bar.symbol
-        elif bar.symbol != symbol:
-            raise ValueError(f"{field} mixes symbols {symbol!r} and {bar.symbol!r}")
-    step = timedelta(minutes=timeframe_minutes) if timeframe_minutes is not None else None
-    for earlier, later in pairwise(bars):
-        gap = later.ts - earlier.ts
-        if gap <= timedelta(0):
-            raise ValueError(f"{field} must be in strictly increasing time order")
-        if step is not None and gap % step:
-            raise ValueError(
-                f"{field}: gap {gap} between bars is not a multiple of {timeframe_minutes} min"
-            )
+__all__ = [
+    "candle_direction",
+    "ema",
+    "relative_to_same_time",
+    "relative_volume",
+    "require_series",
+    "same_time_indices",
+    "swing_points",
+]
 
 
 def ema(values: Sequence[Decimal], period: int) -> list[Decimal]:
@@ -58,30 +38,62 @@ def ema(values: Sequence[Decimal], period: int) -> list[Decimal]:
     return out
 
 
+def same_time_indices(bars: Sequence[Bar], index: int, lookback: int, timezone: str) -> list[int]:
+    """Indices of up to `lookback` earlier bars sharing bars[index]'s local clock time,
+    most recent first (the same time of day on earlier sessions).
+    """
+    zone = ZoneInfo(timezone)
+    clock = bars[index].ts.astimezone(zone).time()
+    found: list[int] = []
+    for i in range(index - 1, -1, -1):
+        if bars[i].ts.astimezone(zone).time() == clock:
+            found.append(i)
+            if len(found) == lookback:
+                break
+    return found
+
+
+def relative_to_same_time(
+    values: Sequence[Decimal], bars: Sequence[Bar], index: int, lookback: int, timezone: str
+) -> Decimal | None:
+    """values[index] divided by the average of `values` at the previous `lookback` bars
+    that share bars[index]'s local clock time.
+
+    None when there are fewer than `lookback` such bars or their average is zero:
+    callers must treat "can't measure" explicitly, never as a normal reading.
+    """
+    earlier = same_time_indices(bars, index, lookback, timezone)
+    if len(earlier) < lookback:
+        return None
+    average = sum((values[i] for i in earlier), Decimal(0)) / Decimal(lookback)
+    if average == 0:
+        return None
+    return values[index] / average
+
+
 def relative_volume(
     bars: Sequence[Bar], index: int, lookback: int, timezone: str
 ) -> Decimal | None:
-    """Volume of bars[index] divided by the average volume of the previous `lookback` bars
-    that share its local clock time (same time of day on earlier sessions).
+    """Volume of bars[index] relative to the same time of day on the previous sessions."""
+    volumes = [Decimal(bar.volume) for bar in bars]
+    return relative_to_same_time(volumes, bars, index, lookback, timezone)
 
-    None when there are fewer than `lookback` such bars or their average is zero:
-    a reader treats "can't measure" as no signal, never as a spike.
+
+def swing_points(values: Sequence[Decimal], strength: int, *, high: bool) -> list[Decimal]:
+    """Swing highs (or lows): values strictly above (below) the `strength` values on each side.
+
+    Returned oldest first. The last `strength` values can never qualify, so a swing is
+    only confirmed once `strength` later bars exist (no look-ahead).
     """
-    zone = ZoneInfo(timezone)
-    target = bars[index]
-    clock = target.ts.astimezone(zone).time()
-    same_time: list[int] = []
-    for bar in reversed(bars[:index]):
-        if bar.ts.astimezone(zone).time() == clock:
-            same_time.append(bar.volume)
-            if len(same_time) == lookback:
-                break
-    if len(same_time) < lookback:
-        return None
-    average = Decimal(sum(same_time)) / Decimal(lookback)
-    if average == 0:
-        return None
-    return Decimal(target.volume) / average
+    found = []
+    for i in range(strength, len(values) - strength):
+        neighbours = [*values[i - strength : i], *values[i + 1 : i + strength + 1]]
+        value = values[i]
+        if (high and all(value > n for n in neighbours)) or (
+            not high and all(value < n for n in neighbours)
+        ):
+            found.append(value)
+    return found
 
 
 def candle_direction(bar: Bar) -> Score:

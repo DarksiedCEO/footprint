@@ -87,7 +87,16 @@ def test_profiles_yield_the_expected_forbidden_values(
 ) -> None:
     numbers = forbidden_numbers(instrument_path, risk_path, strategy_path)
     assert {Decimal("20"), Decimal("0.25"), Decimal("100"), Decimal("25000")} <= numbers
-    assert forbidden_words(instrument_path) == {"NQ", "CME", "04:00", "14:00", "15:00", "03:59"}
+    assert forbidden_words(instrument_path) == {
+        "NQ",
+        "CME",
+        "04:00",
+        "14:00",
+        "15:00",
+        "03:59",
+        "06:30",
+        "13:00",
+    }
 
 
 def test_src_contains_no_literal_instrument_values(

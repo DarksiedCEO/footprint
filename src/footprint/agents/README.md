@@ -28,4 +28,11 @@ System ids are permanent. Names are display labels only and may change.
 | `trade_mgmt` | Malik     | Manages the open trade |
 | `journal`    | Josephine | Records every trade's full fingerprint |
 
-None of these are implemented yet; this package is empty in the skeleton.
+## Inputs and conventions
+
+- A `Bar`'s `ts` is the moment the bar opens. Agents only ever receive completed
+  bars: `footprint.data.aggregate` drops any bar still forming (G12).
+- Daily bars, prior-day levels and VWAP use the instrument's cash session (G10, G11).
+- Readers that score a trade (`levels`, `range` via `assess`) return +1 when they
+  support it, 0 when neutral and -1 when against; a -1 from `levels` is a veto.
+- `zeroday` returns a `ZeroDayCheck`; tripped means no new entries.
