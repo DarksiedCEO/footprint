@@ -14,6 +14,10 @@
   ],
   "model": [
    "tests/backtest/test_spread_cap_model.py"
+  ],
+  "consistency": [
+   "tests/agents/test_spread_cap_points.py",
+   "tests/test_config.py"
   ]
  },
  "mutants": [
@@ -247,6 +251,55 @@
    "spread_points: 2 ",
    "spread_points: 10 ",
    "model spread at the cap"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if min(q.spread for q in same_expiry) > rules.max_spread_points:",
+   "review F1: narrowest same-expiry spread judged, not the chosen contract's"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if max(q.spread for q in same_expiry) > rules.max_spread_points:",
+   "widest same-expiry spread judged, not the chosen contract's"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "        if quote.spread > rules.max_spread_points:\n            return NoContract(\n                f\"{quote.contract_id}: spread {quote.spread} points \"\n                f\"> {rules.max_spread_points} points\"\n            )\n        if quote.open_interest < rules.min_open_interest:\n            return NoContract(\n                f\"{quote.contract_id}: open interest {quote.open_interest} \"\n                f\"< {rules.min_open_interest}\"\n            )\n",
+   "        if quote.open_interest < rules.min_open_interest:\n            return NoContract(\n                f\"{quote.contract_id}: open interest {quote.open_interest} \"\n                f\"< {rules.min_open_interest}\"\n            )\n        if quote.spread > rules.max_spread_points:\n            return NoContract(\n                f\"{quote.contract_id}: spread {quote.spread} points \"\n                f\"> {rules.max_spread_points} points\"\n            )\n",
+   "review F2: points check moved after the open-interest check"
+  ],
+  [
+   "consistency",
+   "src/footprint/core/config.py",
+   "if execution.contract.max_spread_points < instrument.option_tick_size:",
+   "if False:",
+   "F3: tick floor removed"
+  ],
+  [
+   "consistency",
+   "src/footprint/core/config.py",
+   "if execution.contract.max_spread_points < instrument.option_tick_size:",
+   "if execution.contract.max_spread_points <= instrument.option_tick_size:",
+   "F3: exactly one tick refused"
+  ],
+  [
+   "consistency",
+   "src/footprint/core/config.py",
+   "if execution.contract.max_spread_points < instrument.option_tick_size:",
+   "if execution.contract.max_spread_points < instrument.option_tick_size / 2:",
+   "F3: floor at half a tick"
+  ],
+  [
+   "consistency",
+   "src/footprint/core/config.py",
+   "if execution.contract.max_spread_points < instrument.option_tick_size:",
+   "if execution.contract.max_spread_points < execution.contract.max_spread_pct_of_mid / 100:",
+   "F3: wrong floor (percent field)"
   ]
  ]
 }

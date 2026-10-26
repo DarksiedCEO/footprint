@@ -1330,6 +1330,17 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     more), entries will be refused that the percentage filter alone would take. Only
     paper trading on real quotes measures this (two observed quotes is not a
     distribution). A refusal is fail-closed (no entry), never a worse fill.
+  - **F4 (review round 1): the draft 10 rests on ONE usable quote.** The 9-point Oct 30
+    quote (~500 points, ~$10,000) can never be traded: sizing refuses it over the $6,000
+    cap whatever its spread. Only the 7.5-point RTH 29080C quote is a tradeable data point;
+    paper trading on real quotes must measure the refusal rate before this is trusted.
+  - **F5 (review round 1): any later backtest on real or recorded option quotes will be
+    filtered by this cap** (Felix applies it to every chain), so its trades and goldens can
+    differ from a run without it. The guard test only checks the modelled spread.
+  - **F3 (review round 1): `max_spread_points` must be at least one option tick**
+    (`instrument.option_tick_size`, checked at start-up with the other cross-profile
+    rules); a smaller cap would refuse every quote that is not locked. Exactly one tick is
+    accepted.
   - **Backtest:** the backtest runs the same pipeline (Felix) on modelled quotes, so the
     cap applies there too, consistently. The modelled spread is `option_model.spread_points:
     2` (UNVERIFIED, D22), at most one option tick wider after on-tick rounding, so no
@@ -1345,7 +1356,9 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     under 5%; refused over 5% even under the points cap; accepted under both; boundary
     equal / one tick wider / one tick narrower; reason order; loader refusals; the shipped
     10 and the live quotes above), `tests/backtest/test_spread_cap_model.py`,
-    `tests/test_config.py` (0 refused). Mutation evidence
+    `tests/test_config.py` (0 refused); round 1 added: a multi-strike chain where only the
+    chosen strike is over the cap (refused, naming it) and the reverse (accepted), the
+    points reason before open interest, and the one-tick floor. Mutation evidence
     `qa/mutation/spread-cap-v1.out`.
 
 ## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)

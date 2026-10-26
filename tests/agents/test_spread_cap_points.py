@@ -5,6 +5,7 @@ max_spread_pct_of_mid of the mid AND no wider than max_spread_points. Equality p
 both, like the percentage filter always did (only "wider than" refuses).
 """
 
+import shutil
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -20,10 +21,14 @@ from footprint.core.config import (
     ConfigError,
     ExecutionProfile,
     InstrumentProfile,
+    RiskProfile,
+    check_consistency,
     load_execution,
+    load_profiles,
 )
 from footprint.core.models import Direction
 from footprint.core.options import OptionChain, OptionQuote, Right
+from tests.conftest import REPO_ROOT
 
 PT = ZoneInfo("America/Los_Angeles")
 D = Decimal
@@ -200,3 +205,85 @@ def test_the_loader_reads_a_good_points_cap_exactly(
     loaded = load_execution(_write(execution_path, tmp_path, value))
     assert loaded.contract.max_spread_points == expected
     assert isinstance(loaded.contract.max_spread_points, Decimal)
+
+
+# --- review round 1 (PR #51) ----------------------------------------------------
+
+
+def _strike(strike: int, bid: str, ask: str) -> OptionQuote:
+    return replace(quote(bid, ask), contract_id=f"C-{WED}-{strike}", strike=D(strike))
+
+
+def test_f1_the_cap_is_judged_on_the_chosen_contract_not_its_neighbours(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    # The nearest strike (20000, the underlying is 20010) is 14.75 points wide (4.98%:
+    # under 5%); every neighbour is 6 points wide. Felix must refuse, naming 20000.
+    quotes = (
+        _strike(19975, "297", "303"),
+        _strike(20000, "288.75", "303.50"),
+        _strike(20025, "297", "303"),
+        _strike(20050, "297", "303"),
+    )
+    chain = OptionChain(underlying="NQ", ts=NOW, underlying_price=D(20010), quotes=quotes)
+    result = ContractPicker(execution, instrument).choose(chain, Direction.LONG, NOW)
+    assert isinstance(result, NoContract)
+    assert result.reason.startswith(f"C-{WED}-20000: spread 14.75 points")
+
+
+def test_f1_a_wide_neighbour_does_not_refuse_a_narrow_chosen_contract(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    quotes = (
+        _strike(19975, "288.75", "303.50"),
+        _strike(20000, "297", "303"),
+        _strike(20025, "288.75", "303.50"),
+    )
+    chain = OptionChain(underlying="NQ", ts=NOW, underlying_price=D(20010), quotes=quotes)
+    result = ContractPicker(execution, instrument).choose(chain, Direction.LONG, NOW)
+    assert isinstance(result, ContractChoice)
+    assert result.quote.contract_id == f"C-{WED}-20000"
+
+
+def test_f2_the_points_check_comes_before_the_open_interest_check(
+    execution: ExecutionProfile, instrument: InstrumentProfile
+) -> None:
+    # Over the points cap AND under the open-interest floor: the spread reason is given.
+    wide_thin = replace(
+        quote("288.75", "303.50"), open_interest=execution.contract.min_open_interest - 1
+    )
+    chain = OptionChain(underlying="NQ", ts=NOW, underlying_price=D(20010), quotes=(wide_thin,))
+    result = ContractPicker(execution, instrument).choose(chain, Direction.LONG, NOW)
+    assert isinstance(result, NoContract)
+    assert "points" in result.reason
+    assert "open interest" not in result.reason
+
+
+# F3: a cap under one option tick would refuse every quote that is not locked.
+
+
+def test_f3_a_points_cap_under_one_option_tick_is_refused(
+    execution: ExecutionProfile, instrument: InstrumentProfile, risk: RiskProfile
+) -> None:
+    tick = instrument.option_tick_size
+    under = with_caps(execution, points=tick - tick / 4)
+    with pytest.raises(ConfigError, match="max_spread_points"):
+        check_consistency(instrument, risk, under)
+
+
+def test_f3_a_points_cap_of_exactly_one_option_tick_is_accepted(
+    execution: ExecutionProfile, instrument: InstrumentProfile, risk: RiskProfile
+) -> None:
+    check_consistency(instrument, risk, with_caps(execution, points=instrument.option_tick_size))
+
+
+def test_f3_the_start_up_path_refuses_a_points_cap_under_one_tick(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", config)
+    tick = load_profiles(config, "nq.yaml").instrument.option_tick_size
+    path = config / "execution.yaml"
+    data = yaml.safe_load(path.read_text())
+    data["contract"]["max_spread_points"] = float(tick / 2)
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="max_spread_points"):
+        load_profiles(config, "nq.yaml")
