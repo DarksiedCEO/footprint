@@ -1,0 +1,307 @@
+"""The live system on IBKR's paper account: every part wired together, and the clock.
+
+    build(...)  -> Live: IBKR connection, order adapter, market data, the runner,
+                   the ledger and journal on disk, and the alarm line
+    Driver      -> the one-second clock: market data first, then the runner; the
+                   IBKR connection runs on its own thread
+
+Safety, in order of what can go wrong:
+- Paper only. `ibkr.require_paper` false is refused here as well as by the binding:
+  going live is not built or verified, and must never happen by a config edit alone.
+- The runner starts reconciling and sends no entry until a person clears it to trade
+  by name (`clear <name>` at the prompt). This program never clears it.
+- The ledger file must already exist unless `new_ledger` is asked for, so a restart can
+  never silently reset the drawdown peak, the breakers or a latched kill switch.
+- Every held contract keeps its price stream: the market data reads what the broker
+  holds or has orders on, what the order record has sent, and the runner's position,
+  every step.
+- A failing market data step leaves bars and chains missing (nothing is decided on
+  them) and is alarmed; it never stops the runner, which manages what is open.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import queue
+import sys
+import threading
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
+from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
+from footprint.brokers.ibkr.market import MarketData
+from footprint.core.config import Profiles
+from footprint.decision.pipeline import Pipeline
+from footprint.decision.session import NewsBlackout
+from footprint.decision.stop import StopKeeper
+from footprint.execution.alarms import AlarmLine
+from footprint.execution.executor.diego import Executor
+from footprint.execution.halt import Halt
+from footprint.execution.journal.josephine import Journal
+from footprint.execution.ledger import Ledger, StateStore
+from footprint.execution.management.malik import Alarm, Manager
+from footprint.execution.market import QuoteBook
+from footprint.execution.orders import TrackedBroker
+from footprint.execution.runner import Runner
+
+log = logging.getLogger("footprint.live")
+
+_TICK = timedelta(seconds=1)
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class AlarmFile:
+    """The alarm sink until a real channel is chosen (decision D20): one JSON line per
+    alarm in `path`, flushed to disk, and the alarm printed to the terminal. A write
+    that fails raises, so the alarm line retries it (and never loses it silently)."""
+
+    def __init__(self, path: Path, out: Any = None) -> None:
+        self._path = path
+        self._out = out if out is not None else sys.stderr
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    def __call__(self, alarm: Alarm) -> None:
+        record = {"ts": alarm.ts.isoformat(), "message": alarm.message}
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")  # closed (flushed) on the way out
+        print(f"ALARM {alarm.ts.isoformat()} {alarm.message}", file=self._out, flush=True)
+
+
+@dataclass
+class Live:
+    profiles: Profiles
+    settings: IbConnectionSettings
+    binding: IbBinding
+    adapter: IbkrBroker
+    tracked: TrackedBroker
+    contracts: ContractBook
+    book: QuoteBook
+    market: MarketData
+    runner: Runner
+    ledger: Ledger
+    halt: Halt
+    alarms: AlarmLine
+    clock: Callable[[], datetime] = field(default=utc_now)
+
+    def held(self) -> frozenset[str]:
+        """Every contract whose prices must keep streaming: what IBKR holds or has
+        orders on, what the order record has sent and not seen finish, and the
+        runner's open position."""
+        ids = set(self.adapter.held_contracts())
+        ids |= {order.contract_id for order in self.tracked.unfinished.values()}
+        position = self.runner.position
+        if position is not None:
+            ids.add(position.contract_id)
+        return frozenset(ids)
+
+    def alarm(self, message: str) -> None:
+        self.alarms.submit(Alarm(self.clock(), message))
+
+
+def build(
+    profiles: Profiles,
+    settings: IbConnectionSettings,
+    state_dir: Path,
+    sink: Callable[[Alarm], None],
+    blackouts: Callable[[datetime], Iterable[NewsBlackout]],
+    *,
+    new_ledger: bool = False,
+    client_factory: Callable[[Any], Any] | None = None,
+    clock: Callable[[], datetime] = utc_now,
+) -> Live:
+    """Everything, wired; nothing connected yet (the Driver starts the connection)."""
+    p = profiles
+    ibkr = p.execution.ibkr
+    if not ibkr.require_paper or not settings.require_paper:
+        raise ValueError(
+            "ibkr.require_paper is false: this program runs IBKR's paper account only. "
+            "Going live is not built or verified"
+        )
+    state_dir.mkdir(parents=True, exist_ok=True)
+    alarms = AlarmLine.from_settings(sink, p.execution.alarms)
+
+    def alarm(message: str) -> None:
+        alarms.submit(Alarm(clock(), message))
+
+    scope = (p.instrument.symbol, ibkr.option_security_type)
+    binding = IbBinding(settings, scope, alarm, client_factory)
+    contracts = ContractBook()
+    book = QuoteBook()
+    runner_box: list[Runner] = []
+
+    def resynced() -> None:  # IBKR resynced: reconcile before anything else
+        if runner_box:
+            runner_box[0].doubt()
+
+    adapter = IbkrBroker(
+        binding, contracts, IbkrSettings.from_config(ibkr), scope, alarm, on_resync=resynced
+    )
+    binding.attach(adapter)
+    tracked = TrackedBroker(adapter)
+    halt = Halt()
+    ledger = Ledger(p.risk, p.instrument, StateStore(state_dir / "ledger.json"), create=new_ledger)
+    pipeline = Pipeline(p)
+    stops = StopKeeper(p.risk, p.instrument, p.execution)
+    executor = Executor(p, pipeline, tracked, stops, ledger, halt, book)
+    manager = Manager(p, tracked, stops, ledger, halt, book)
+    held_box: list[Live] = []
+
+    def held() -> frozenset[str]:
+        return held_box[0].held() if held_box else frozenset()
+
+    market = MarketData(
+        binding, contracts, book.publish, p.instrument, p.execution, alarm, clock, held=held
+    )
+    binding.attach_market(market)
+    runner = Runner(
+        pipeline,
+        executor,
+        manager,
+        ledger,
+        Journal(state_dir / "journal"),
+        halt,
+        bars=market.bars,
+        chain=market.chain,
+        blackouts=blackouts,
+        on_alarm=alarms.submit,
+        started=clock(),
+        book=book,
+        settings=p.execution.runner,
+    )
+    runner_box.append(runner)
+    live = Live(
+        p,
+        settings,
+        binding,
+        adapter,
+        tracked,
+        contracts,
+        book,
+        market,
+        runner,
+        ledger,
+        halt,
+        alarms,
+        clock,
+    )
+    held_box.append(live)
+    if not p.instrument.holidays:
+        live.alarm(
+            "STARTED WITHOUT HOLIDAYS: instruments/nq.yaml lists no exchange holidays, so "
+            "holiday and early-close sessions are treated as normal days"
+        )
+    return live
+
+
+class Driver:
+    """The clock: one step a second (market data, then the runner), and the operator's
+    commands between steps. The IBKR connection runs on its own thread."""
+
+    def __init__(
+        self,
+        live: Live,
+        out: Any = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._live = live
+        self._out = out if out is not None else sys.stdout
+        self._sleep = sleep
+        self._market_failing = False
+
+    def tick(self, now: datetime) -> None:
+        """One second: fresh quotes and bars first, then the decisions on them."""
+        try:
+            self._live.market.step(now)
+            if self._market_failing:
+                self._market_failing = False
+                self._live.alarm("market data is stepping again")
+        except Exception as exc:  # no data, no decisions; the runner still manages
+            log.exception("market data step failed")
+            if not self._market_failing:
+                self._market_failing = True
+                self._live.alarm(f"market data step failed ({exc!r}): no new data until fixed")
+        self._live.runner.step(now)
+
+    def command(self, line: str, stop: threading.Event) -> None:
+        """`clear <name>` (clear to trade), `status`, `quit`."""
+        word, _, rest = line.strip().partition(" ")
+        if word == "clear":
+            name = rest.strip()
+            if not name:
+                self._say("clear needs the name of who clears it: clear <name>")
+                return
+            self._live.runner.clear_to_trade(name)
+            self._say(f"cleared to trade by {name}")
+        elif word == "status":
+            self._say(self.status())
+        elif word == "quit":
+            held = self._live.held()
+            if held:
+                self._say(
+                    f"WARNING: stopping with {sorted(held)} held or working. Nothing manages "
+                    "it now: only the resting stop protects it, and only until IBKR's session "
+                    "ends (DAY). The next start flattens any leftover. Flatten by hand or "
+                    "check the stop in IBKR now"
+                )
+            self._say("stopping")
+            stop.set()
+        elif word:
+            self._say(f"unknown command {word!r}: clear <name> | status | quit")
+
+    def status(self) -> str:
+        live = self._live
+        now = live.clock()
+        bars = live.market.bars(now)
+        chain = live.market.chain(now)
+        position = live.runner.position
+        lines = [
+            f"time {now.isoformat()}",
+            f"IBKR ready: {live.adapter.ready}; refused: {live.binding.refused or 'no'}",
+            f"front future: {live.market.front.expiry if live.market.front else 'not yet'}",
+            f"bars: {len(bars)}; newest {bars[-1].ts.isoformat() if bars else 'none'}",
+            f"chain: {len(chain.quotes) if chain else 'none'} quotes",
+            f"reconciling: {live.runner.reconciling}; halt: {list(live.halt.reasons) or 'no'}",
+            f"position: {position.contract_id if position else 'none'}",
+            f"alarms waiting: {live.alarms.pending}",
+        ]
+        return "\n".join(lines)
+
+    def run(self, stop: threading.Event, commands: queue.Queue[str] | None = None) -> None:
+        """Until `stop` is set: the connection on its own thread, a step every second."""
+        live = self._live
+        worker = threading.Thread(target=live.binding.run, args=(stop,), name="ibkr", daemon=True)
+        worker.start()
+        self._say(
+            f"PAPER account {live.settings.account} at {live.settings.host}:{live.settings.port}; "
+            "reconciling first; no entries until 'clear <name>'"
+        )
+        try:
+            while not stop.is_set():
+                started = live.clock()
+                self.tick(started)
+                while commands is not None and not commands.empty():
+                    self.command(commands.get_nowait(), stop)
+                if live.binding.refused is not None:
+                    self._say(f"IBKR refused the connection: {live.binding.refused}")
+                    stop.set()
+                    break
+                spent = (live.clock() - started).total_seconds()
+                self._sleep(max(0.0, _TICK.total_seconds() - spent))
+        finally:
+            stop.set()
+            live.binding.stop()
+            ibkr = live.profiles.execution.ibkr
+            worker.join(timeout=float(ibkr.ack_timeout_seconds + ibkr.reconnect_seconds))
+            live.alarms.close(timedelta(seconds=live.profiles.execution.alarms.retry_seconds))
+
+    def _say(self, message: str) -> None:
+        print(message, file=self._out, flush=True)

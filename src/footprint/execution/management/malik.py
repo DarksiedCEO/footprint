@@ -48,6 +48,8 @@ from footprint.execution.halt import Halt
 from footprint.execution.ledger import Ledger
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import (
+    NeverPlaced,
+    NotSent,
     Order,
     OrderState,
     OrderStatus,
@@ -125,6 +127,7 @@ class Manager:
         self._reconcile_orders: dict[str | None, list[str]] = {}
         self._seen: dict[str, tuple[object, datetime]] = {}
         self._reconcile_prices: dict[tuple[str, Side], Decimal] = {}
+        self._unpriced_alarmed: set[tuple[str, Side]] = set()  # alarmed: no quote to sell at
         self._alarmed_mismatch: object = None
         self._alarmed_pending: tuple[str, ...] = ()
         self._cancels_stuck_since: datetime | None = None
@@ -423,6 +426,13 @@ class Manager:
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
         try:
             status = self._broker.place(order)
+        except NotSent:
+            # Refused before anything reached the broker: there is no exit. Forget it,
+            # so the next step sees the position as it is (the stop already down) and
+            # gets out again; never followed as a working exit that does not exist.
+            position.exit_order_id = None
+            position.events.append(f"{now.isoformat()} exit {order.order_id} not sent")
+            raise
         except Exception as exc:
             # The answer is lost, not necessarily the order: it may be working at the
             # broker. Keep its id (it is recorded and followed until confirmed
@@ -455,7 +465,12 @@ class Manager:
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
     ) -> Closed | None:
         assert position.exit_order_id is not None
-        status = self._broker.status(position.exit_order_id)
+        try:
+            status = self._broker.status(position.exit_order_id)
+        except NeverPlaced:
+            self._alarm(now, f"{position.position_id}: exit never reached the broker; retrying")
+            position.exit_order_id = None
+            return self._start_exit(position, quote, now, reason)
         if status.state is OrderState.FILLED and status.avg_price is not None:
             return self._close(position, status.avg_price, now, reason)
         if status.state is not OrderState.WORKING:
@@ -646,7 +661,14 @@ class Manager:
                 )
             price = self._reconcile_price(contract_id, side, now)
             if price is None:
-                self._alarm(now, f"cannot price a buy-back for {contract_id}: no ask")
+                if (contract_id, side) not in self._unpriced_alarmed:
+                    self._unpriced_alarmed.add((contract_id, side))
+                    self._alarm(
+                        now,
+                        f"cannot price the {side.value} of {abs(qty)} {contract_id}: no quote "
+                        "seen yet. Nothing is sent until one arrives; flatten by hand if it "
+                        "does not",
+                    )
                 continue
             self._reprice_stuck(reducing, stuck_before, abs(qty), price)
             if needed <= 0:
@@ -796,8 +818,10 @@ class Manager:
             price = touch
         elif last is not None:
             price = max(tick, last - tick) if side is Side.SELL else last + tick
+        elif side is Side.SELL and quote is not None:
+            price = touch if touch is not None else tick  # seen with no bid: one tick
         elif side is Side.SELL:
-            price = touch if touch is not None else tick
+            price = None  # never seen a quote: no price to sell at (never one tick blind)
         else:
             price = touch  # a buy with no ask ever seen cannot be priced
         if price is not None:
@@ -812,6 +836,7 @@ class Manager:
         self._stuck_ids = set()
         self._seen.clear()
         self._reconcile_prices.clear()
+        self._unpriced_alarmed = set()
         self._alarmed_mismatch = None
         self._alarmed_pending = ()
         self._cancels_stuck_since, self._cancel_escalated = None, False

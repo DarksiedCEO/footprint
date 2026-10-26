@@ -76,6 +76,11 @@ class EntryRefused(RuntimeError):
 
 
 class Executor:
+    @property
+    def broker_ready(self) -> bool:
+        """Whether the broker will answer now (not disconnected, not resyncing)."""
+        return self._broker.ready
+
     def __init__(
         self,
         profiles: Profiles,

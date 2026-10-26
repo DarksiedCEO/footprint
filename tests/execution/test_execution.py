@@ -456,6 +456,22 @@ def test_a_stop_of_unknown_fate_is_never_sold_beside(
         return original(order)
 
     monkeypatch.setattr(stack.broker, "place", down_for_stops)
+    real_status = stack.broker.status
+
+    def unanswerable_for_stops(order_id: str) -> OrderStatus:
+        if order_id.endswith("-stop"):  # like IBKR: sent, never acknowledged, unknowable
+            raise KeyError(order_id)  # (not NeverPlaced: the broker cannot say)
+        return real_status(order_id)
+
+    monkeypatch.setattr(stack.broker, "status", unanswerable_for_stops)
+    real_cancel = stack.broker.cancel
+
+    def uncancellable_stops(order_id: str) -> OrderStatus:
+        if order_id.endswith("-stop"):
+            raise KeyError(order_id)  # nor can a cancel be confirmed
+        return real_cancel(order_id)
+
+    monkeypatch.setattr(stack.broker, "cancel", uncancellable_stops)
     ticket = stack.executor.submit(stack.approved, (), SEND)
     stack.quote(150, D(151), SEND)
     ticket = stack.executor.on_time(ticket, SEND)
