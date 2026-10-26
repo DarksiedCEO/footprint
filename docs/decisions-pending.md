@@ -1281,7 +1281,7 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     - (a) Accept the $10,000 worst case.
     - (b) Lower the cap (for example to the kill-switch amount, $5,000-$6,000, accepting
       fewer or no Friday entries). **Chosen: 6000.**
-  - **M3: the spread filter scales with the premium. STILL AWAITING ANDRE'S SIGN-OFF.**
+  - **M3: the spread filter scales with the premium. DECIDED (b) (Andre, 2026-10-25 18:18 PT); BUILT (branch spread-cap-v1), cap value DRAFT: see "M3 (b) absolute spread cap" below.**
     `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread. Restated for the
     6000 cap (code-checked 2026-10-24): at the largest fill under the cap, a 288.75/303.50
     quote (spread 14.75 points, $295, 4.98% of mid) is accepted; Ezra's worst allowed fill
@@ -1295,7 +1295,8 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     (refused).
     - (a) Accept the percent-of-mid filter as is.
     - (b) Add an absolute spread cap in points to `config/execution.yaml` (a draft number
-      for Andre to set; NOT built in this PR).
+      for Andre to set; NOT built in this PR). **Chosen (2026-10-25); built in
+      spread-cap-v1 as `contract.max_spread_points`, draft 10.**
   - **Tests:** `tests/test_config.py` pins 6000 and accepts a cap equal to the bankroll;
     the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 5,997.50 (fits) /
     6,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
@@ -1304,6 +1305,62 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     take a 1-day option that fits both);
     `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
     `risk.position_cap`.
+
+## M3 (b) absolute spread cap (branch spread-cap-v1; decided by Andre 2026-10-25 18:18 PT)
+
+- **SC-1 (DEFAULT (draft, Andre M3): `contract.max_spread_points: 10`, in
+  `config/execution.yaml`). FOR ANDRE: confirm or set the number.** Felix now refuses a
+  contract whose spread (ask - bid) is wider than this many option points, IN ADDITION to
+  `max_spread_pct_of_mid: 5` (unchanged): a quote must pass both. A spread exactly equal
+  to either cap passes (the same "only wider refuses" rule the percentage filter has
+  always had). When both fail, the percentage reason is the one given (checked first).
+  - **Why 10 (from the quotes the repo and project have; a handful, not a calibration):**
+    - Live RTH 29080C (2026-10-23, project note): 236.50/244.00 = **7.5 points** (3.1% of
+      mid), an at-the-money 1-day option at the open. Passes, with 2.5 points of room.
+    - Oct 30 NQ quote (M3 above): **9 points** on ~500 (1.8%). Passes.
+    - The 288.75/303.50 quote at the top of the $6,000 cap (M3 above): **14.75 points**
+      (4.98%). Passed the percentage filter alone; **now refused**. Every spread the
+      percentage filter allows above 10 points (a mid over 200 points, i.e. most entries
+      near the cap) is now refused.
+    - Oct 23 weekly, 28 points on 178: already refused by the percentage filter.
+    - In dollars (NQ options, $20 a point): at most **$200** of spread per contract, about
+      27% of the $750 hard stop, against up to $295 (39%) before (stop room not
+      recomputed here).
+  - **Risk of the number (inference, not verified):** if real RTH spreads near the money
+    are often over 10 points (e.g. in a fast open, or on Friday 3-day options, which cost
+    more), entries will be refused that the percentage filter alone would take. Only
+    paper trading on real quotes measures this (two observed quotes is not a
+    distribution). A refusal is fail-closed (no entry), never a worse fill.
+  - **F4 (review round 1): the draft 10 rests on ONE usable quote.** The 9-point Oct 30
+    quote (~500 points, ~$10,000) can never be traded: sizing refuses it over the $6,000
+    cap whatever its spread. Only the 7.5-point RTH 29080C quote is a tradeable data point;
+    paper trading on real quotes must measure the refusal rate before this is trusted.
+  - **F5 (review round 1): any later backtest on real or recorded option quotes will be
+    filtered by this cap** (Felix applies it to every chain), so its trades and goldens can
+    differ from a run without it. The guard test only checks the modelled spread.
+  - **F3 (review round 1): `max_spread_points` must be at least one option tick**
+    (`instrument.option_tick_size`, checked at start-up with the other cross-profile
+    rules); a smaller cap would refuse every quote that is not locked. Exactly one tick is
+    accepted.
+  - **Backtest:** the backtest runs the same pipeline (Felix) on modelled quotes, so the
+    cap applies there too, consistently. The modelled spread is `option_model.spread_points:
+    2` (UNVERIFIED, D22), at most one option tick wider after on-tick rounding, so no
+    modelled quote comes near 10 and **no golden changed** (seam_default and
+    seam_real_play reproduce byte for byte). A test pins that every modelled spread is
+    under the cap: if either number is moved so the model's spread reaches the cap, it
+    fails rather than letting the backtest silently refuse every entry. The research
+    harness (`footprint.research`, Black-76) does not use Felix and is unaffected.
+  - **Loader:** `max_spread_points` is required; a number > 0 and finite (0, negatives,
+    a string, a boolean, null, NaN, infinity, a list or a missing key are refused at
+    load: fail closed). It is read as an exact Decimal.
+  - **Tests:** `tests/agents/test_spread_cap_points.py` (refused over the points cap even
+    under 5%; refused over 5% even under the points cap; accepted under both; boundary
+    equal / one tick wider / one tick narrower; reason order; loader refusals; the shipped
+    10 and the live quotes above), `tests/backtest/test_spread_cap_model.py`,
+    `tests/test_config.py` (0 refused); round 1 added: a multi-strike chain where only the
+    chosen strike is over the cap (refused, naming it) and the reverse (accepted), the
+    points reason before open interest, and the one-tick floor. Mutation evidence
+    `qa/mutation/spread-cap-v1.out`.
 
 ## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)
 
@@ -1467,6 +1524,50 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   (two runs, the full gate and the mutation run at once). At that rate a 2010-2024 run
   (about 3,600 sessions of about 555 prime minutes) would take days; measure on the
   machine that runs it before the pre-registered run.
+- **BH-11 speed-up (branch backtest-speed-v1; Andre approved "a speed-up PR"
+  2026-10-25 19:36 PT). Speed only: every result byte-identical.** What changed: the
+  backtest hands each decision a `BarWindow` (core/series.py), its 43,200-bar look-back
+  as a plain tuple of exactly those bars that also says where it lies in the
+  backtest's checked `BarSeries`. The series helpers reuse work done once per series
+  instead of re-scanning the window on every decision: `completed` (a prefix, by
+  bisect), `require_series` (a run of a checked series), `resample` (the series'
+  15-minute buckets merged once; a bucket the window cuts is merged from the window's
+  own bars), `session_days` (the series' days merged once; a cut day from the window's
+  bars), the same-time index (one per series, searched inside the window), the
+  zero-day tripwires (values only for the bars compared; the day ranges from per-day
+  running highs and lows that keep the first of equal values, as max() and min() do),
+  the levels reader (bisect slices; the closed-minute test remembered per minute), the
+  trend reader (only the last two swings searched for, from the end), the range days
+  and the regime reader (searched by time). A series whose local dates go back (a
+  clock change across midnight) or a day whose clock times go back falls back to the
+  old grouping. No cache shows a decision a bar outside its window. Not touched:
+  brokers, execution, live, the paper boundary, config, `ibkr.require_paper`.
+  **Measured** (same synthetic 130-session file, 179,400 bars, last 3 sessions traded,
+  1,801 decisions, the shipped config, the same 2-core box, each run alone): before
+  (main 928ca71) 464.2 s = **3.9 decisions/s**; after 38.9 s = **46.3 decisions/s**
+  (about 12x); peak RSS 168 MB before, 160 MB after. Profile and hotspots:
+  `qa/speed/profile-notes.md`. **This is synthetic timing, NOT a promise about the real
+  2017-2024 (or 2010-2024) run**: real data has gaps and more trades, and the play
+  caller's history grows with the run; time and memory still need measuring on the
+  machine that runs it (unmeasured). What is left is mostly the trend reader's exact
+  Decimal EMAs, the option model's chain, and the runner's, ledger's and journal's own
+  per-decision work (execution: out of scope). **Evidence:** equivalence harness first
+  (`tests/backtest/test_speed_equivalence.py`, reference hashes written by the old code
+  on 928ca71: `qa/speed/make_reference.py`): four one-day runs in the normal pytest
+  run (real play caller; always-TREND stand-in; two rules that trade, one with a named
+  exit) and a 130-session, three-day run with `FOOTPRINT_SPEED_LONG=1`, all
+  byte-identical (journal, ledger, readout.md, readout.json, printed readout, exit
+  code); the seam goldens unchanged; every helper on windows against the same bars as a
+  list (`tests/test_series_windows.py`). Mutation: `qa/mutation/backtest-speed-v1.out`
+  and `.notes.md`.
+  **Independent review of 689321b: CERTIFIED WITH CONDITIONS** (no look-ahead, no
+  behaviour change; 13 adversarial datasets byte-identical, 4 trading, 18 trades).
+  Conditions met on the branch with tests first: F1 (a window one bar short of a day's
+  extreme; the reviewer's R7 now killed), F2 (a fast scenario where the real play
+  caller labels TREND and a rule trades: 4 trades, reference written on 928ca71), F3
+  (two series alive, two instruments' levels readers: R1 and R5 killed), F4 (BarSeries
+  and BarWindow read-only, no measurable cost). Mutation after it: 47 mutants, 45
+  killed, the 2 argued equivalences survive.
 - **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
   2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
@@ -1511,6 +1612,54 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   calendar tests written for the 2026-27 calendar run on that slice of the shipped file
   (a fixture cuts it; several option-expiry refusal tests would otherwise have passed
   for the wrong reason, on a missing 2010 date).
+
+## Andre's sign-offs of 2026-10-25 (merge and build completion)
+
+Records: PR #21 comments 6406089783 (18:18 PT) and 6406972973 (19:36 PT); project doc
+claude/decision-2026-10-25-merge-signoff.md.
+
+- **18:18 PT, the 15 merge-blocking items** ("Let's get the 15 things out of the way then.
+  You have my thumbs up on that"). Signed as Claude recommended:
+  - FREEZE-21: waived; the CONDITIONAL reviews on #21 are sufficient for #1 to #41.
+  - L1 and L2: signed as built.
+  - GV-2: (c), keep the fixed delta of 0.45.
+  - GV-3/L3: deferred to GV-4.
+  - GV-4: (b), keep the model and its price-band guard.
+  - GV-5: (a), keep the delta floor at 0.45.
+  - PC-2: 95 days.
+  - PC-4: a 60 s window. M1 confirmed: a bar arriving inside the window is not a late
+    label.
+  - PC-6: accepted.
+  - PC-7: (a), alarm only.
+  - PC-ACK: no entries before 10:00 ET.
+  - M2: (b), $6,000.
+  - M3: (b), an absolute spread cap in points.
+  All 47 PRs were then merged into main (merge commits; #39 closed as superseded by #44).
+- **19:36 PT** ("YES To all"):
+  - D41: (b).
+  - BH-11: the backtest speed-up is approved.
+  - BH-14: the history backtest starts in 2017.
+  - BH-9: keep the roll-day block.
+- **Not signed by either:** every "before paper" and "before go-live" row stays open.
+
+### R3-A (integration-v1 review round 3, LOW): done
+
+- **The test gap.** The live runner's es.yaml refusal test could not show that the
+  profile is its only stop. The nq.yaml control stopped earlier, at "phone alarms are
+  not set up", so it never reached the stand-in broker.
+- **The fix.** The live runner's stand-in .env now carries six dummy alarm keys. They are
+  fake values in the right formats; nothing is sent, and every socket connect ends the
+  child.
+- **What the tests now show.** Under nq.yaml the live runner reaches the stand-in
+  (exit 97, "BROKER TOUCHED"). Under es.yaml it still refuses with "over stop_max"
+  before any connection. All four broker commands are now proven the same way.
+- **Test first.** Without the keys, the new control fails (1 failed, 14 passed); with
+  them it passes (15 passed).
+- **Evidence.** Mutation `qa/mutation/r3a-live-standin.json`. Test only: `src/` is
+  unchanged.
+- **Runbook.** `docs/live-paper-runbook.md` "Before the first run" items 7–8:
+  - no live IBKR login anywhere else while the bot runs (IBKR 10197, seen 2026-10-25);
+  - never hand-trade NQ options in the paper account.
 
 ## News and opening-bell rules built (branch news-rules-build-v1; N1-N4, N7; 2026-10-26)
 

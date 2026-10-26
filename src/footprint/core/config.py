@@ -1145,6 +1145,7 @@ class QuoteSettings:
 @dataclass(frozen=True, slots=True)
 class ContractSettings:
     max_spread_pct_of_mid: Decimal
+    max_spread_points: Decimal
     min_open_interest: int
     max_strike_distance: Decimal
 
@@ -1253,6 +1254,7 @@ def load_execution(path: Path) -> ExecutionProfile:
     c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)
     contract = ContractSettings(
         max_spread_pct_of_mid=_positive_decimal(c, "max_spread_pct_of_mid", c_where),
+        max_spread_points=_positive_decimal(c, "max_spread_points", c_where),
         min_open_interest=_integer(c, "min_open_interest", c_where, minimum=1),
         max_strike_distance=_positive_decimal(c, "max_strike_distance", c_where),
     )
@@ -1382,6 +1384,9 @@ def check_consistency(
     The worst fill of the resting stop-limit (its limit price) plus the round-trip
     fees must stay within stop_max, so the "wide limit" (G1) can never turn the
     hard stop into a bigger loss than the money model allows.
+
+    Felix's absolute spread cap (contract.max_spread_points) must be at least one
+    option tick: a smaller one refuses every quote that is not locked.
     """
     per_contract = instrument.option_tick_size * instrument.point_value
     worst = (
@@ -1393,6 +1398,13 @@ def check_consistency(
         raise ConfigError(
             f"a stop filled at its limit loses {worst}, over stop_max {risk.stop_max}: "
             "reduce stop_order.limit_offset_ticks or stop_loss"
+        )
+    # M3 (b), review F3: a spread cap under one option tick would refuse every quote
+    # that is not locked, silently stopping all entries.
+    if execution.contract.max_spread_points < instrument.option_tick_size:
+        raise ConfigError(
+            f"contract.max_spread_points {execution.contract.max_spread_points} is under "
+            f"one option tick ({instrument.option_tick_size}): every quote would be refused"
         )
 
 

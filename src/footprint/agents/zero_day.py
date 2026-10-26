@@ -24,18 +24,21 @@ Felix's spread cap stands in for it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from array import array
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from itertools import pairwise
+from weakref import WeakKeyDictionary
 from zoneinfo import ZoneInfo
 
-from footprint.agents._series import relative_to_same_time
+from footprint.agents._series import relative_at
 from footprint.core.calendar import SessionKind, is_trading_day, session_at
 from footprint.core.config import DataSettings, InstrumentProfile, ZeroDaySettings
 from footprint.core.models import Bar, require_utc
-from footprint.core.series import require_series
+from footprint.core.series import BarSeries, BarWindow, require_series
 from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed
 
@@ -89,14 +92,15 @@ class ZeroDayAgent:
         recent = range(max(0, last - s.recent_bars + 1), last + 1)
 
         def judge_recent(
-            name: str, values: Sequence[Decimal], limit: Decimal, spike_limit: Decimal
+            name: str, value: Callable[[int], Decimal], limit: Decimal, spike_limit: Decimal
         ) -> None:
             """Judge each recent bar against `limit`; the bar before the last (the
             trigger's spike candidate) against `spike_limit`. Reports the worst one.
+            value(i) is the measure of bar i (only the bars compared are measured).
             """
             worst: tuple[Decimal, Decimal] | None = None
             for i in recent:
-                ratio = relative_to_same_time(values, bars, i, s.lookback_sessions, tz)
+                ratio = relative_at(value, bars, i, s.lookback_sessions, tz)
                 if ratio is None:
                     judge(name, None, limit)
                     return
@@ -106,14 +110,21 @@ class ZeroDayAgent:
             if worst is not None:
                 judge(name, worst[0], worst[1])
 
-        volumes = [Decimal(bar.volume) for bar in bars]
-        judge_recent("volume", volumes, s.volume_trip_multiple, s.volume_trip_multiple)
-        true_ranges = [bars[0].high - bars[0].low] + [
-            max(cur.high, prev.close) - min(cur.low, prev.close) for prev, cur in pairwise(bars)
-        ]
-        judge_recent("volatility", true_ranges, s.trip_multiple, s.spike_bar_trip_multiple)
-        jumps = [Decimal(0)] + [abs(cur.close - prev.close) for prev, cur in pairwise(bars)]
-        judge_recent("jump", jumps, s.trip_multiple, s.spike_bar_trip_multiple)
+        def volume(i: int) -> Decimal:
+            return Decimal(bars[i].volume)
+
+        def true_range(i: int) -> Decimal:  # the first bar has no previous close
+            if i == 0:
+                return bars[0].high - bars[0].low
+            prev, cur = bars[i - 1], bars[i]
+            return max(cur.high, prev.close) - min(cur.low, prev.close)
+
+        def jump(i: int) -> Decimal:
+            return Decimal(0) if i == 0 else abs(bars[i].close - bars[i - 1].close)
+
+        judge_recent("volume", volume, s.volume_trip_multiple, s.volume_trip_multiple)
+        judge_recent("volatility", true_range, s.trip_multiple, s.spike_bar_trip_multiple)
+        judge_recent("jump", jump, s.trip_multiple, s.spike_bar_trip_multiple)
 
         today_range, typical = self._range_since_open(bars, as_of)
         judge("range", today_range / typical if typical else None, s.trip_multiple)
@@ -134,25 +145,134 @@ class ZeroDayAgent:
         zone = ZoneInfo(prime.timezone)
         local_now = as_of.astimezone(zone)
         cutoff = local_now.time()
+        spans = (
+            self._window_spans(bars, cutoff)
+            if isinstance(bars, BarWindow)
+            else self._spans(bars, cutoff)
+        )
+        today = spans.pop(local_now.date(), None)
+        if today is None:
+            return Decimal(0), None
+        lookback = self._settings.lookback_sessions
+        history = [spans[d] for d in sorted(spans) if d < local_now.date()][-lookback:]
+        if len(history) < lookback:
+            return today, None
+        typical = sum(history, Decimal(0)) / Decimal(lookback)
+        return today, typical or None
+
+    def _counted(self, day: date) -> bool:
+        """A day whose range counts: the exchange traded it and it is not a no-trade
+        day (a stub session: not a day)."""
+        return is_trading_day(day, self._instrument) and day not in self._instrument.no_trade_days
+
+    def _spans(self, bars: Sequence[Bar], cutoff: time) -> dict[date, Decimal]:
+        """Each counted day's range over its bars from the prime open to `cutoff`."""
+        prime = self._instrument.prime_session
         by_day: dict[date, list[Bar]] = {}
         for bar in bars:
             local = local_time(bar.ts, prime.timezone)
             day = local.date()
-            if (
-                prime.start <= local.time() < cutoff
-                and is_trading_day(day, self._instrument)
-                and day not in self._instrument.no_trade_days  # a stub session: not a day
-            ):
+            if prime.start <= local.time() < cutoff and self._counted(day):
                 by_day.setdefault(local.date(), []).append(bar)
-        today = by_day.pop(local_now.date(), [])
-        if not today:
-            return Decimal(0), None
-        lookback = self._settings.lookback_sessions
-        history = [by_day[d] for d in sorted(by_day) if d < local_now.date()][-lookback:]
-        if len(history) < lookback:
-            return _span(today), None
-        typical = sum((_span(day) for day in history), Decimal(0)) / Decimal(lookback)
-        return _span(today), typical or None
+        return {day: _span(day_bars) for day, day_bars in by_day.items()}
+
+    def _window_spans(self, window: BarWindow, cutoff: time) -> dict[date, Decimal]:
+        """`_spans` of a window: a day the window holds whole (every bar of it from the
+        prime open on) takes its range from the series' running highs and lows; a day
+        it cuts is measured from the window's own bars, as `_spans` would."""
+        prime = self._instrument.prime_session
+        days = _prime_days(window.series, prime.timezone, prime.start)
+        if days is None:  # the series' local dates do not run in order: as for a list
+            return self._spans(window, cutoff)
+        zone = ZoneInfo(prime.timezone)
+        bars = window.series.bars
+
+        def clock(i: int) -> time:
+            return bars[i].ts.astimezone(zone).time()
+
+        lo, hi = window.start, window.end
+        out: dict[date, Decimal] = {}
+        for k in range(bisect_right(days.highs, lo), len(days.dates)):
+            if days.lows[k] >= hi:
+                break
+            day = days.dates[k]
+            if not self._counted(day):
+                continue
+            members = days.members[k]
+            if lo <= days.lows[k] and days.highs[k] <= hi and days.ordered[k]:
+                n = bisect_left(members, cutoff, key=clock)  # its bars before `cutoff`
+                if n:
+                    out[day] = days.running_high[k][n - 1] - days.running_low[k][n - 1]
+                continue
+            inside = [bars[i] for i in members if lo <= i < hi and clock(i) < cutoff]
+            if inside:
+                out[day] = _span(inside)
+        return out
+
+
+@dataclass(frozen=True, slots=True)
+class _PrimeDays:
+    """A series' bars from the prime open on, by local date: day d holds the bars at
+    `members[d]` (ascending indices, all inside [lows[d], highs[d]); the days' spans
+    do not overlap and ascend). When `ordered[d]` (their local clock times strictly
+    rise), the bars before a cutoff are a prefix, and running_high/low[d][n - 1] is the
+    max/min over its first n bars as max() and min() pick it (the first of equals)."""
+
+    dates: list[date]
+    members: list[array[int]]
+    lows: list[int]
+    highs: list[int]
+    ordered: list[bool]
+    running_high: list[list[Decimal]]
+    running_low: list[list[Decimal]]
+
+
+_PRIME_DAYS: WeakKeyDictionary[BarSeries, dict[tuple[str, time], _PrimeDays | None]] = (
+    WeakKeyDictionary()
+)
+
+
+def _prime_days(series: BarSeries, timezone: str, start: time) -> _PrimeDays | None:
+    """None when the series' local dates do not run in time order (a clock change
+    across midnight): then the days' spans overlap and cannot be searched."""
+    by_key = _PRIME_DAYS.setdefault(series, {})
+    if (timezone, start) in by_key:
+        return by_key[(timezone, start)]
+    zone = ZoneInfo(timezone)
+    members: dict[date, array[int]] = {}
+    clocks: dict[date, list[time]] = {}
+    for i, bar in enumerate(series.bars):
+        local = bar.ts.astimezone(zone)
+        if start <= local.time():
+            members.setdefault(local.date(), array("q")).append(i)
+            clocks.setdefault(local.date(), []).append(local.time())
+    dates = sorted(members)
+    lows = [members[d][0] for d in dates]
+    highs = [members[d][-1] + 1 for d in dates]
+    if any(lows[k] < highs[k - 1] for k in range(1, len(dates))):
+        by_key[(timezone, start)] = None
+        return None
+    running_high: list[list[Decimal]] = []
+    running_low: list[list[Decimal]] = []
+    for day in dates:
+        top: list[Decimal] = []
+        bottom: list[Decimal] = []
+        for i in members[day]:
+            bar = series.bars[i]
+            top.append(bar.high if not top or bar.high > top[-1] else top[-1])
+            bottom.append(bar.low if not bottom or bar.low < bottom[-1] else bottom[-1])
+        running_high.append(top)
+        running_low.append(bottom)
+    by_key[(timezone, start)] = _PrimeDays(
+        dates=dates,
+        members=[members[d] for d in dates],
+        lows=lows,
+        highs=highs,
+        ordered=[all(a < b for a, b in pairwise(clocks[d])) for d in dates],
+        running_high=running_high,
+        running_low=running_low,
+    )
+    return by_key[(timezone, start)]
 
 
 def _span(bars: Sequence[Bar]) -> Decimal:

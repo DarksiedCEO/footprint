@@ -6,6 +6,10 @@ quotes:
                               #   missing; measure in paper how often they arrive (checklist 26)
 contract:
   max_spread_pct_of_mid: 5    # G3: skip if (ask - bid) is more than this % of the mid
+  max_spread_points: 10       # DEFAULT (draft, Andre M3): ... and skip if (ask - bid) is
+                              #   more than this many option points (both must pass; equal
+                              #   passes). Basis: live quotes 7.5 and 9 points pass, the
+                              #   14.75-point quote the % alone allowed at the cap is refused
   min_open_interest: 100      # G3: UNCALIBRATED placeholder; calibrate from chain data
   max_strike_distance: 50     # DEFAULT: skip if the nearest strike is further than this
                               # many points from the underlying (a gappy chain)
