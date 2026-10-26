@@ -21,6 +21,7 @@ from dataclasses import fields
 from datetime import timedelta
 
 from footprint.agents.momentum_reader import MomentumReader
+from footprint.backtest.pullback import PullbackSettings, PullbackTrigger
 from footprint.backtest.settings import RuleSettings
 from footprint.backtest.stairstep import StairSettings, StairTrigger
 from footprint.core.config import Profiles
@@ -54,8 +55,22 @@ def stairstep_vol(profiles: Profiles, rule_settings: RuleSettings) -> EntryTrigg
     return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=True)
 
 
+def pullback(profiles: Profiles, rule_settings: RuleSettings) -> EntryTrigger:
+    """Q5.3 "pullback": after a volume spike in the trade direction (the spike test
+    "breakout" uses, with the same live numbers), a dip to the spike candle's high that
+    holds and turns back up, within the configured lifetime. See
+    docs/strategy-rules.md."""
+    return PullbackTrigger(
+        rule_settings.pullback,
+        profiles.strategy.volume,
+        profiles.instrument.prime_session.timezone,
+        _ENTRY_BARS,
+    )
+
+
 ENTRY_RULES: dict[str, EntryRule] = {
     "breakout": breakout,
+    "pullback": pullback,
     "stairstep": stairstep,
     "stairstep_vol": stairstep_vol,
 }
@@ -65,11 +80,18 @@ _STAIR_RULES = frozenset({"stairstep", "stairstep_vol"})
 def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]:
     """The rule-library numbers the named entry rule runs with, for the readout's
     assumptions ("rule <section> <key>" -> value), so a run names the numbers that
-    produced it (review G47-1). "breakout" reads none of them."""
-    if name not in _STAIR_RULES:
-        return {}
-    stair = rule_settings.stairstep
-    return {f"rule stairstep {f.name}": str(getattr(stair, f.name)) for f in fields(StairSettings)}
+    produced it (reviews G47-1, G48-3). "breakout" reads none of them."""
+    if name in _STAIR_RULES:
+        stair = rule_settings.stairstep
+        return {
+            f"rule stairstep {f.name}": str(getattr(stair, f.name)) for f in fields(StairSettings)
+        }
+    if name == "pullback":
+        life = rule_settings.pullback
+        return {
+            f"rule pullback {f.name}": str(getattr(life, f.name)) for f in fields(PullbackSettings)
+        }
+    return {}
 
 
 EXIT_RULES: dict[str, ExitRuleFactory] = {}

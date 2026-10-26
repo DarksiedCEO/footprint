@@ -151,8 +151,23 @@ APPROVED BY ANDRE 2026-10-10:
 > If a "breakout" entry already fired on the same spike, the pullback rule is a
 > separate test run and does not stack positions (one position at a time).
 
-DEFAULT, accepted for backtest (keys: added with its piece): how many minutes after the
-spike the setup stays alive.
+DEFAULT, accepted for backtest: how many minutes after the spike the setup stays alive
+(`config/backtest.yaml` `rules: pullback: lifetime_minutes`, 15; slice 2a).
+
+How it is built (`entry-pullback-v1`, slice 1: the detector): `footprint.backtest.pullback.pullback_entries`
+takes 1-min bars and the spike test's answer per bar and returns the bars where the
+entry fires. How each word is read is in `docs/decisions-pending.md` (Q5.3-a, for
+Andre to confirm); every reading is pinned by a hand-built fixture in
+`tests/backtest/test_pullback.py`. Slice 2a: the lifetime DEFAULT loads from
+`config/backtest.yaml` `rules: pullback:`. Slice 2b-1: `spike_score` is the spike test
+"breakout" uses, read as the spike bar test alone (MomentumReader step 1, pinned against
+MomentumReader and VolumeReader; reading Q5.3-d), and `PullbackTrigger` puts the
+detector in the momentum slot of the decision pipeline. Slice 2b-2: "pullback" is in
+`ENTRY_RULES` (`--entry pullback`); the factory builds the trigger from the live
+`strategy.volume` numbers and session time zone (the ones "breakout" uses), the
+`rules: pullback:` lifetime and the 1-minute entry bars, and the readout records
+`rule pullback lifetime_minutes`. Every other gate still decides; the live path and the
+run with no rule named are unchanged.
 
 ## Q5.4 exit "trail" (`exit-trail-v1`): BASELINE
 

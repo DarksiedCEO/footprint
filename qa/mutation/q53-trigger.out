@@ -1,0 +1,15 @@
+source: 9f610d22edb9c839cfb135625f9bb54ee883ca4d tree-dirty: 0 files
+baseline [trigger]: passed
+  1 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-1: exactly the spike multiple is no spike
+  2 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-2: every spike reads as up (a down spike or a doji too)
+  3 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-3: the configured look-back is not the one used
+  4 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-4: the window drops a spike exactly one lifetime before the last bar
+  5 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-5: relative volume measured on the window, not the whole history
+  6 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-6: answers for the bar before the last
+  7 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-7: the down move is read as the up move
+  8 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-8: a down entry is reported as up
+  9 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-9: the configured lifetime is not the one used
+ 10 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-10: the trigger does not sit in the momentum slot
+ 11 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-11: the no-entry reason does not name the rule
+ 12 KILLED   [trigger] src/footprint/backtest/pullback.py: Q53T-12: empty, mixed-symbol or out-of-order bars are not refused (G50-1)
+12 mutants, 0 survived or errored

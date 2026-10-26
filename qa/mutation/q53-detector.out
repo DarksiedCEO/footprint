@@ -1,0 +1,24 @@
+source: 234843e8787f0dcba1d6898cd10046442d214ce9 tree-dirty: 0 files
+baseline [pullback]: passed
+  1 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-1: a close exactly at the spike high cancels
+  2 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-2: down: a close exactly at the spike low cancels
+  3 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-3: a low exactly at the spike high does not touch
+  4 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-4: down: touch read from the low
+  5 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-5: the entry need not close up
+  6 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-6: a close equal to the prior high enters
+  7 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-7: down: entry below the prior HIGH
+  8 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-8: down: the entry need not close down
+  9 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-9: the setup dies AT its lifetime
+ 10 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-10: the setup never expires
+ 11 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-11: a missing bar keeps the setups
+ 12 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-12: the touch bar itself can enter
+ 13 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-13: a setup that entered stays alive
+ 14 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-14: the level is the spike close
+ 15 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-15: a spike in either direction starts the setup
+ 16 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-16: no hold check
+ 17 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-17: spikes need not match the bars
+ 18 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-18: the touch is never recorded
+ 19 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-19: a new spike throws away the older live setups (review G48-1 P1)
+ 20 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-20: the first setup that enters drops every later setup (review G48-1 P2)
+ 21 KILLED   [pullback] src/footprint/backtest/pullback.py: Q53D-21: a zero or backward time step keeps the setups (review G48-1 P3)
+21 mutants, 0 survived or errored

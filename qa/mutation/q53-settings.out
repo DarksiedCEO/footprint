@@ -1,0 +1,10 @@
+source: 44ede4560fbc7a07e99ed76d1d317d3af427c244 tree-dirty: 0 files
+baseline [settings]: passed
+  1 KILLED   [settings] src/footprint/backtest/settings.py: Q53S-1: a lifetime of exactly one minute is refused
+  2 KILLED   [settings] src/footprint/backtest/settings.py: Q53S-2: the lifetime is not type-checked
+  3 KILLED   [settings] src/footprint/backtest/settings.py: Q53S-3: a refusal names the wrong section
+  4 KILLED   [settings] src/footprint/backtest/settings.py: Q53S-4: a missing section or unknown key is not refused
+  5 KILLED   [settings] src/footprint/backtest/pullback.py: Q53S-5: the settings take a zero lifetime
+  6 KILLED   [settings] src/footprint/backtest/pullback.py: Q53S-6: the lifetime is read in seconds
+  7 KILLED   [settings] src/footprint/backtest/settings.py: Q53S-7: the file's lifetime is ignored
+7 mutants, 0 survived or errored
