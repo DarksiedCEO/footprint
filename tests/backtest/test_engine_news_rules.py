@@ -215,7 +215,7 @@ def test_production_path_trades_a_1006_et_entry_and_its_time_stop_follows_n_open
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
     """The same day with a second long at 10:06 ET: allowed. Under the built N-OPEN-2 default
-    the flat trade is closed by the news time stop; under the narrow reading (only after
+    the flat trade is closed by the news time stop; under setting (b) (only after
     the 8:30 window) the same trade is not."""
     small = replace(profiles, regime=SMALL)
     bars = _late(history, [D(0)] * 20)
@@ -352,3 +352,14 @@ def test_the_backtest_cli_readout_names_a_csv_beside_the_rules(tmp_path: Path) -
     text = (out / "readout.md").read_text(encoding="utf-8")
     assert f"- news blackouts CSV: {csv}\n" in text
     assert f"- news rules: {tmp_path / 'config' / 'news.yaml'} (always on" in text
+
+
+def test_the_readout_n4_line_ends_with_the_pre_news_until_window(profiles: Profiles) -> None:
+    """Round 2 F3: N4 is named and ended by `pre_news_until`, not by the last event."""
+    until = replace(profiles.news_rules, pre_news_until="8:30 ET releases (N1)")
+    lines = news_rules.news_assumptions(replace(profiles, news_rules=until), Path("n.yaml"))
+    assert lines["news.pre_news_until"] == "8:30 ET releases (N1)"
+    assert lines["news window no entries before news (N4) until 8:30 ET releases (N1)"] == (
+        "04:00 America/Los_Angeles-08:32 America/New_York (whole end minute); time stop after: on"
+    )
+    assert not any("until 10:00" in key for key in lines)

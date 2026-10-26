@@ -1,4 +1,4 @@
-source: f07843da3be6821559d17e0159a42a8ad17290c6 tree-dirty: 0 files
+source: e28f90d2380678fdc9f2b0a61ea1c478d5b819c9 tree-dirty: 0 files
 baseline [exits]: passed
 baseline [rules]: passed
 baseline [wiring]: passed
@@ -69,4 +69,5 @@ baseline [wiring]: passed
  65 KILLED   [wiring] src/footprint/backtest/__main__.py: C3: CLI readout drops the rules
  66 KILLED   [wiring] src/footprint/backtest/__main__.py: C3: CLI readout names a fixed path, not the run's config
  67 KILLED   [wiring] src/footprint/backtest/__main__.py: C3: CSV path dropped
-67 mutants, 2 survived or errored
+ 68 KILLED   [wiring] src/footprint/decision/news_rules.py: N10 (round 2 F3): readout N4 uses the last event, not pre_news_until
+68 mutants, 2 survived or errored

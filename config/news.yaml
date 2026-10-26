@@ -15,9 +15,13 @@ lag_minutes: 2                  # N2 DEFAULT: ... and ends this long after it
 # time_stop (N-OPEN-2, PENDING-ANDRE, per window): true = an entry made in the first
 # minutes after this window ends gets the news time stop (execution.yaml news:: closed
 # after time_stop_minutes unless up time_stop_min_gain net); false = it does not.
-#   Built default (PENDING-ANDRE): true on every window (and pre_news_time_stop below).
-#   Narrow reading (the question as asked): true only on "8:30 ET releases (N1)",
-#   false on the other two and on pre_news_time_stop.
+#   (a) Built default (PENDING-ANDRE): true on every window and on pre_news_time_stop.
+#   (b) 8:30 window only, every day: true on "8:30 ET releases (N1)", false on the
+#       other two and on pre_news_time_stop.
+#   (c) Release days only: false on all three and on pre_news_time_stop (the time stop
+#       then follows only the --blackouts CSV windows and the overnight window).
+#   Under the N-OPEN-1 default N4 refuses 08:33-08:45 ET entries, so (b) acts as (c)
+#   unless N-OPEN-1 changes. Details: docs/decisions-pending.md, N-OPEN-2.
 daily_events:
   - {name: "8:30 ET releases (N1)", at: "08:30", time_stop: true}   # 05:25-05:32 PT; jobless claims included
   - {name: "cash open (N3)", at: "09:30", time_stop: true}          # N3 DEFAULT 06:25-06:32 PT: flat into the open
@@ -29,7 +33,7 @@ daily_events:
 # 03:59 PT). Fewest-entries reading; the alternative ("until the 8:30 window ends") is
 # for Andre.
 pre_news_until: "10:00 ET releases (N1)"
-# N-OPEN-2 for the N4 window (PENDING-ANDRE; built default true, narrow reading false).
+# N-OPEN-2 for the N4 window (PENDING-ANDRE; true in (a), false in (b) and (c)).
 # N4 ends with the pre_news_until window, so while that window's own time_stop is true
 # this switch changes nothing; it matters only if the two are set differently.
 # With the play caller (no entries before 10:00 ET) the only one that bites today is the
