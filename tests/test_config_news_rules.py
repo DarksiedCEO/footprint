@@ -89,8 +89,8 @@ def test_bad_news_rules_are_refused(tmp_path: Path, changes: dict[str, Any], mat
 
 @pytest.mark.parametrize(("lead", "lag"), [(1440, 0), (0, 1440), (1000, 440), (2000, 5)])
 def test_lead_and_lag_of_a_day_or_more_are_refused(tmp_path: Path, lead: int, lag: int) -> None:
-    """windows() looks at the day before, of and after a moment only: a longer window
-    could drop the time stop's look-back to an older one (fail open)."""
+    """windows() looks at the day before, of and after a moment only: a day-long
+    window is refused (a necessary bound, not a sufficient one: config.py comment)."""
     with pytest.raises(ConfigError, match="shorter than one day"):
         load_news_rules(_write(tmp_path, NEWS, lead_minutes=lead, lag_minutes=lag))
 

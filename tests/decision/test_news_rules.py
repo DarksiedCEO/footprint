@@ -171,7 +171,7 @@ OVERNIGHT = "overnight flat window (N-OPEN-3)"
 
 
 def narrow(settings: NewsRulesSettings) -> NewsRulesSettings:
-    """N-OPEN-2's narrow reading: the time stop only after the 8:30 ET window."""
+    """N-OPEN-2 setting (b): the time stop only after the 8:30 ET window, every day."""
     events = tuple(replace(e, time_stop=e.name == EIGHT_THIRTY) for e in settings.daily_events)
     return replace(settings, daily_events=events, pre_news_time_stop=False)
 
@@ -199,6 +199,19 @@ def test_n_open_2_narrow_reading_only_the_eight_thirty_window_carries_it(
         "no entries before news (N4) until 10:00 ET releases (N1)": False,
         OVERNIGHT: True,  # not a daily window: always carries it
     }
+
+
+def test_n_open_2_setting_c_release_days_only_no_daily_window_carries_it(
+    profiles: Profiles,
+) -> None:
+    """Setting (c): every switch false; only the overnight window (and any CSV window)
+    carries the time stop."""
+    s = profiles.news_rules
+    events = tuple(replace(e, time_stop=False) for e in s.daily_events)
+    rules = NewsRules(
+        replace(s, daily_events=events, pre_news_time_stop=False), profiles.instrument
+    )
+    assert {w.name for w in rules.day(SUMMER) if w.time_stop} == {OVERNIGHT}
 
 
 def test_n_open_2_each_daily_window_follows_its_own_switch(profiles: Profiles) -> None:

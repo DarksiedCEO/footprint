@@ -1133,8 +1133,11 @@ def load_news_rules(path: Path) -> NewsRulesSettings:
         raise ConfigError(f"{where}: pre_news_until {until!r} is not one of the daily_events")
     lead = _integer(raw, "lead_minutes", where, minimum=0)
     lag = _integer(raw, "lag_minutes", where, minimum=0)
-    # The rules look for windows on the day before, of and after a moment only: a window
-    # of a day or more could hide the one the news time stop must look back to.
+    # The rules look for windows on the day before, of and after a moment only, so a
+    # window of a day or more is refused. This bound is necessary, not sufficient: a lag
+    # near a day on a late event can still end a window two news days back, past the
+    # time stop's look-back (it would fail open on the time stop only; the other windows
+    # then black out that entry anyway; PR review F4). Keep edges far below a day.
     if timedelta(minutes=lead + lag) >= timedelta(days=1):
         raise ConfigError(
             f"{where}: lead_minutes + lag_minutes ({lead} + {lag}) must be shorter than one day"

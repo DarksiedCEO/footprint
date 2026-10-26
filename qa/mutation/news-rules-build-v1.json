@@ -482,6 +482,13 @@
    "\"news blackouts CSV\": str(args.blackouts) if args.blackouts else \"NONE supplied\",",
    "\"news blackouts CSV\": \"NONE supplied\",",
    "C3: CSV path dropped"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    until = next(e for e in s.daily_events if e.name == s.pre_news_until)\n    lines",
+   "    until = s.daily_events[-1]\n    lines",
+   "N10 (round 2 F3): readout N4 uses the last event, not pre_news_until"
   ]
  ]
 }
