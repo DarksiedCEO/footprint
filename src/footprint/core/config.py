@@ -1081,6 +1081,79 @@ def load_play(path: Path) -> PlaySettings:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyEvent:
+    """A scheduled moment every calendar day (a release time, the cash open), on the
+    news rules' clock (NewsRulesSettings.timezone)."""
+
+    name: str
+    at: time
+    time_stop: bool  # N-OPEN-2: an entry just after this window gets the news time stop
+
+
+@dataclass(frozen=True, slots=True)
+class NewsRulesSettings:
+    """The scheduled news and opening-bell windows (config/news.yaml; Andre's N1-N4 and
+    the N-OPEN defaults, decisions-pending.md). Every window is a blackout: no new
+    entries, and a held position is closed (decision/news_rules.py)."""
+
+    timezone: str
+    lead_minutes: int  # N2: a daily window starts this long before its event
+    lag_minutes: int  # N2: ... and ends this long after it (its whole end minute)
+    daily_events: tuple[DailyEvent, ...]  # N1, N3 (each with its N-OPEN-2 switch)
+    pre_news_until: str  # N4 / N-OPEN-1: the daily event whose window ends it
+    pre_news_time_stop: bool  # N-OPEN-2 for the N4 window
+    overnight_flat_from: time  # N-OPEN-3, on the overnight session's clock
+
+
+def _daily_events(raw: Mapping[str, object], key: str, where: str) -> tuple[DailyEvent, ...]:
+    items = raw[key]
+    if not isinstance(items, list) or not items:
+        raise ConfigError(f"{where}: {key} must be a non-empty list")
+    events: list[DailyEvent] = []
+    for item in items:
+        inner = f"{where}: {key}"
+        body = _check_keys(item, {f.name for f in fields(DailyEvent)}, inner)
+        event = DailyEvent(
+            _text(body, "name", inner),
+            _clock(body, "at", where),
+            _boolean(body, "time_stop", inner),
+        )
+        if any(e.name == event.name for e in events):
+            raise ConfigError(f"{where}: {key}: {event.name!r} is listed twice")
+        events.append(event)
+    return tuple(events)
+
+
+def load_news_rules(path: Path) -> NewsRulesSettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(NewsRulesSettings)})
+    events = _daily_events(raw, "daily_events", where)
+    until = _text(raw, "pre_news_until", where)
+    if until not in {e.name for e in events}:
+        raise ConfigError(f"{where}: pre_news_until {until!r} is not one of the daily_events")
+    lead = _integer(raw, "lead_minutes", where, minimum=0)
+    lag = _integer(raw, "lag_minutes", where, minimum=0)
+    # The rules look for windows on the day before, of and after a moment only, so a
+    # window of a day or more is refused. This bound is necessary, not sufficient: a lag
+    # near a day on a late event can still end a window two news days back, past the
+    # time stop's look-back (it would fail open on the time stop only; the other windows
+    # then black out that entry anyway; PR review F4). Keep edges far below a day.
+    if timedelta(minutes=lead + lag) >= timedelta(days=1):
+        raise ConfigError(
+            f"{where}: lead_minutes + lag_minutes ({lead} + {lag}) must be shorter than one day"
+        )
+    return NewsRulesSettings(
+        timezone=_timezone(raw, "timezone", where),
+        lead_minutes=lead,
+        lag_minutes=lag,
+        daily_events=events,
+        pre_news_until=until,
+        pre_news_time_stop=_boolean(raw, "pre_news_time_stop", where),
+        overnight_flat_from=_clock(raw, "overnight_flat_from", where),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class QuoteSettings:
     max_age_seconds: int
     greeks_max_age_seconds: int
@@ -1360,6 +1433,7 @@ class Profiles:
     execution: ExecutionProfile
     regime: RegimeSettings
     play: PlaySettings
+    news_rules: NewsRulesSettings
 
 
 def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
@@ -1371,6 +1445,7 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         execution=load_execution(config_dir / "execution.yaml"),
         regime=load_regime(config_dir / "regime.yaml"),
         play=load_play(config_dir / "play.yaml"),
+        news_rules=load_news_rules(config_dir / "news.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
     _check_gamma_reachable(

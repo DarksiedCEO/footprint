@@ -471,18 +471,18 @@ Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the
 
 ## News, open and Fed rules (Andre, 2026-10-14)
 
-Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **Nothing below is built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
+Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **N1-N4 are built on branch news-rules-build-v1 (see its section below); N5/N6 are the next stacked PR; N8 and N9 are not built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
 
 | ID | Rule | Status |
 |---|---|---|
-| N1 | **Fixed daily blackouts, every trading day, news or not:** 08:25–08:32 ET (05:25–05:32 PT) and 09:55–10:02 ET (06:55–07:02 PT). Built into config, so they need no calendar and never expire. They cover every 8:30 and 10:00 ET release, weekly jobless claims included. | APPROVED 2026-10-14. Not built |
-| N2 | **Blackout edges:** 5 minutes before a release, 2 minutes after (DEFAULT). Getting flat needs time: confirm the stop is cancelled, then a limit sell. | APPROVED 2026-10-14. Not built |
-| N3 | **Opening bell:** a daily blackout 06:25–06:32 PT (DEFAULT): flat into the cash open, no entries during it. A trade entered in the news window is closed at 06:25; no news trade is carried through the open. | APPROVED 2026-10-14. Not built |
-| N4 | **Before news on a news day:** no entries from 04:00 PT until the blackout ends. See **N-OPEN-1**: with N1 every day has an 8:30 blackout, so it must be settled whether N4 applies every day. | APPROVED 2026-10-14. Not built |
-| N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. Not built |
-| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. Not built |
-| N7 | **Day of week:** no rule depends on the weekday. The daily windows and the FOMC dates decide. | APPROVED 2026-10-14 (no build needed) |
-| N8 | **The spike-size veto on news bars:** the zero-day spike-bar tripwire (`zeroday.spike_bar_trip_multiple`, 8) may veto the news-window entry itself. First replay 2026-10-14 05:25–07:00 PT from the real 1-minute export and record what fired or was vetoed, and why. Then Andre decides whether news-window entries get a different limit. | APPROVED as a step (replay first). Nothing built |
+| N1 | **Fixed daily blackouts, every trading day, news or not:** 08:25–08:32 ET (05:25–05:32 PT) and 09:55–10:02 ET (06:55–07:02 PT). Built into config, so they need no calendar and never expire. They cover every 8:30 and 10:00 ET release, weekly jobless claims included. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1), awaiting Andre's review** |
+| N2 | **Blackout edges:** 5 minutes before a release, 2 minutes after (DEFAULT). Getting flat needs time: confirm the stop is cancelled, then a limit sell. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1)**: `lead_minutes` 5, `lag_minutes` 2 in config/news.yaml (DEFAULT) |
+| N3 | **Opening bell:** a daily blackout 06:25–06:32 PT (DEFAULT): flat into the cash open, no entries during it. A trade entered in the news window is closed at 06:25; no news trade is carried through the open. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1)**: the 09:30 ET event in config/news.yaml (DEFAULT) |
+| N4 | **Before news on a news day:** no entries from 04:00 PT until the blackout ends. See **N-OPEN-1**: with N1 every day has an 8:30 blackout, so it must be settled whether N4 applies every day. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1) on the N-OPEN-1 DEFAULT below (every day, to 10:02 ET): PENDING Andre** |
+| N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. Not built here: the next PR, stacked on news-rules-build-v1 (fomc-rules-build-v1) |
+| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. Not built here: the next PR, stacked on news-rules-build-v1 (fomc-rules-build-v1) |
+| N7 | **Day of week:** no rule depends on the weekday. The daily windows and the FOMC dates decide. | APPROVED 2026-10-14 (no build needed). Tested: every day of a week has the same windows (news-rules-build-v1) |
+| N8 | **The spike-size veto on news bars:** the zero-day spike-bar tripwire (`zeroday.spike_bar_trip_multiple`, 8) may veto the news-window entry itself. First replay 2026-10-14 05:25–07:00 PT from the real 1-minute export and record what fired or was vetoed, and why. Then Andre decides whether news-window entries get a different limit. | APPROVED as a step (replay first). Nothing built: NOT DONE, the 2026-10-14 1-minute export is not in the build sandbox (its NQ history ends 2024-09-27). Needs Andre's export |
 | N9 | **Carry versus flat at the open, long term:** start with N3 (flat). Backtest "carry" against "flat" only once there is enough history (a year or more, 50+ news days). | APPROVED 2026-10-14. Backtest later |
 
 Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after each meeting; left out until a backtest shows they matter), congressional testimony and big speeches (scheduled but irregular dates; added by hand when announced), and unscheduled news. The system only reads price. Against those, the protections are position size (a long option cannot lose more than its premium), the resting stop and its watchdog, the zero-day tripwires, the daily and weekly loss limits and the kill switch. A resting stop-limit can be jumped in a fast move, so a loss can exceed the planned $750–$1,000 stop.
@@ -492,6 +492,7 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
 - **N-OPEN-1 (D3 interaction, important):** D3 (open) says the effective prime entry window is **06:31–13:55 PT**: VWAP is anchored at the cash open, so the levels and VWAP checks fail closed before 06:30. While D3 stays as it is, **no entry can happen between 04:00 and 06:30 PT**, so the 05:32–05:45 news entry window, N4 and the 05:25 blackout change nothing in prime. A trade positioned before the open, which Andre asked about, would need D3 changed: anchor VWAP at the 04:00 prime start.
 - **N-OPEN-2:** if D3 changes, does the news time stop (10 minutes, +$250) apply to the 05:32–05:45 window every day under N1, or only on days with a real release?
 - **N-OPEN-3:** Andre named a flat window ending at 03:59 AM PT ("… to 3:59 AM"), but its start time did not come through. Today the code only requires an overnight position to be flat by 03:59 PT (`overnight_must_be_flat`); nothing blocks entries earlier in the overnight session.
+- **Builder's defaults for N-OPEN-1..3 (news-rules-build-v1; DEFAULT, PENDING Andre, not signed):** the fewest-entries, flattest reading of each, as config values in config/news.yaml. N-OPEN-1: N4 every day, from the prime start (04:00 PT) to the end of the 10:00 ET window (10:02 ET), `pre_news_until`. N-OPEN-2: the news time stop also after every daily window, every day (per-window switches since review round 1: `time_stop: true` on each `daily_events` entry and `pre_news_time_stop: true`; the other settings are (b) the 8:30 ET window only and (c) all false, release days through the CSV only; see the news-rules-build-v1 section). N-OPEN-3: the flat window starts at the overnight session's start (15:00 PT), `overnight_flat_from` (no overnight entries at all, flat through the night). Details in the news-rules-build-v1 section.
 
 ## Bollinger Band entries (branch bb-rules-v1, backtest only; Andre 2026-10-17)
 
@@ -1659,3 +1660,133 @@ claude/decision-2026-10-25-merge-signoff.md.
 - **Runbook.** `docs/live-paper-runbook.md` "Before the first run" items 7–8:
   - no live IBKR login anywhere else while the bot runs (IBKR 10197, seen 2026-10-25);
   - never hand-trade NQ options in the paper account.
+
+## News and opening-bell rules built (branch news-rules-build-v1; N1-N4, N7; 2026-10-26)
+
+Code: `src/footprint/decision/news_rules.py`, config `config/news.yaml`, wired in
+`backtest/engine.py` and `live/app.py` (`with_news_rules`). Review not done: builder's
+work, awaiting the independent hostile review and Andre's review. N5/N6 (FOMC) are the
+next PR, stacked on this one (split: the FOMC calendar raises a history-backtest
+question of its own, below in that PR's section).
+
+- **How:** every rule is a `NewsBlackout`, so it reuses what a blackout already does:
+  the risk layer refuses new entries while one is in force (pipeline precheck and the
+  executor's send-time recheck), and trade management closes a held position when one
+  starts (ExitReason.NEWS: the resting stop's cancel confirmed, then one LIMIT sell, in
+  the position's OCA group; no new order path). The windows are always on, in the
+  backtest and live alike, on top of any `--blackouts` CSV. A window covers every
+  second of its end minute (as sessions do). No weekday rule (N7): every calendar day.
+- **Windows, every day (PT for reading; the rules are on ET, config `timezone`):**
+
+  | Rule | ET | PT | time stop after it (news.yaml switch) |
+  |---|---|---|---|
+  | N1 8:30 releases | 08:25:00-08:32:59 | 05:25-05:32 | its `time_stop` |
+  | N3 cash open | 09:25:00-09:32:59 | 06:25-06:32 | its `time_stop` |
+  | N1 10:00 releases | 09:55:00-10:02:59 | 06:55-07:02 | its `time_stop` |
+  | N4 (N-OPEN-1) | 07:00:00-10:02:59 | 04:00-07:02 | `pre_news_time_stop` |
+  | N-OPEN-3 overnight | 18:00-06:59:59 next day | 15:00-03:59 | always |
+
+- **N2 (DEFAULT, Andre 2026-10-14):** `lead_minutes: 5`, `lag_minutes: 2`, one pair for
+  every daily event.
+- **N-OPEN-1 default (PENDING Andre):** N4 applies every day, to the end of the 10:00 ET
+  window (`pre_news_until: "10:00 ET releases (N1)"`), the fewest-entries reading.
+  The other reading ("until the 8:30 window ends", 08:32 ET) is one config line.
+- **N-OPEN-2 (PENDING-ANDRE; per-window switch since review round 1, C2; three
+  settings since round 2, F1).** The question: does the news time stop (execution.yaml
+  `news:`: a trade entered within `window_minutes` after a window ends is closed after
+  `time_stop_minutes` unless up `time_stop_min_gain` net) apply after the 05:32-05:45 PT
+  (8:30 ET) window **every day**, or **only on days with a real release**? news.yaml has
+  one switch per daily window (`time_stop:` on each `daily_events` entry) and one for N4
+  (`pre_news_time_stop`). The three settings, with the exact config:
+  - **(a) Built default (PENDING-ANDRE): all windows, every day.**
+    `time_stop: true` on "8:30 ET releases (N1)", "cash open (N3)" and
+    "10:00 ET releases (N1)"; `pre_news_time_stop: true`. With the play caller (no
+    entries before 10:00 ET) the only one that bites today is the 10:00 ET window's:
+    **every entry from 10:03:00 to 10:15:59 ET (07:03-07:15 PT) gets the time stop,
+    every day**. That is likely a large share of each day's first trades: a strategy
+    change beyond the question, not signed.
+  - **(b) The 8:30 window only, every day ("every day" for 8:30, nothing else).**
+    `time_stop: true` on "8:30 ET releases (N1)"; `time_stop: false` on "cash open (N3)"
+    and "10:00 ET releases (N1)"; `pre_news_time_stop: false`. Entries from 08:33:00 to
+    08:45:59 ET (05:33-05:45 PT) would get it.
+  - **(c) Release days only (the question's other answer).** `time_stop: false` on all
+    three daily events and `pre_news_time_stop: false`. The time stop then follows only
+    the `--blackouts` CSV windows (real release days, which always carry it) and the
+    overnight window.
+  - **N-OPEN-1 dependency.** Under the N-OPEN-1 default (N4 until the end of the 10:00 ET
+    window, 10:02:59 ET), N4 refuses every entry from 08:33 to 08:45 ET, so the 8:30
+    time stop in (b) can never bite: **(b) behaves exactly like (c) unless N-OPEN-1
+    changes** (to N4 "until the 8:30 window ends"). Nothing in the play caller or D3
+    changes that. With today's play caller (no entries before 10:00 ET) neither (b) nor
+    (c) changes any trade; only (a) does.
+  - N4 ends at the same instant as its `pre_news_until` window (10:02:59 ET), so while
+    that window's switch is `true`, `pre_news_time_stop` changes nothing; it only matters
+    when the two are set differently.
+  - Whatever is chosen, the overnight window (N-OPEN-3) and every `--blackouts` CSV
+    window always carry the time stop (moot for N-OPEN-3 today: N4 covers 04:00-04:12 PT).
+  - Per N2 ("every DEFAULT backtested as a variant"), (a) against (c) should be
+    backtested before paper; the readout records every switch, so the runs can be told
+    apart.
+  - Tests: tests/decision/test_news_rules.py (a), (b) and each switch alone;
+    tests/execution/test_news_rules_exits.py (a 10:05 ET entry: time stop under (a), none
+    under (b)); tests/backtest/test_engine_news_rules.py (the production path in the
+    backtest: the 10:06 ET trade closes NEWS_TIME_STOP under (a), END_OF_DATA under (b)).
+    Under (c) the 10:00 window carries no time stop, as under (b), so those two tests
+    cover (c) for that trade too.
+- **N-OPEN-3 default (PENDING Andre):** `overnight_flat_from: "15:00"` (the overnight
+  session's start): no overnight entries and flat through the night. Moot today
+  (`max_trades_overnight: 0` and the play caller allows prime entries only); it costs
+  nothing until those change. The loader refuses a start outside the overnight session
+  or at its last minute.
+- **Where PC-ACK already makes a rule moot (no new entries before 10:00 ET):** for
+  entries, N1's 08:30 window, N3 and N4 change nothing today; N1's 10:00 window moves
+  the first possible entry from 10:00 ET to 10:03 ET. For held positions none of them
+  can bite today either (a prime position is closed at the prime close, an overnight
+  one by 03:59 PT, and nothing enters before 10:03 ET). They are built so they protect
+  if the play caller or D3 changes (N-OPEN-1). Tests hold a position into 06:25 PT by
+  hand to show N3 closes it through the LIMIT exit path.
+- **Fail-safe:** an error building the windows reaches the runner's existing guard (an
+  unreadable calendar is a blackout in force, alarmed once). Start-up refuses (ConfigError)
+  an N4 window that would end before the prime start on any day of the maintained
+  calendar, unknown or duplicate event names, negative edges.
+- **Backtest goldens: unchanged.** The backtest tests written before these rules trade
+  the scenario's long at 10:01 ET, inside N1's 10:00 window; they run with a stand-in
+  that adds no scheduled windows (tests/backtest/conftest.py `no_scheduled_news`, like
+  the play caller's stand-in), so `golden/seam_default` and `golden/seam_real_play` are
+  byte-identical. Tests marked `real_news` run the real rules: the scenario's entry is
+  vetoed by N1/N4 and nothing is vetoed by them after 10:02:59 ET.
+- **Not verified / not done:** the live wiring is checked by AST only (live/app.py
+  imports ibapi, which the sandbox cannot install); N8 (needs the 2026-10-14 export);
+  N9 (backtest later); the research harness (`footprint.research`) does not run these
+  windows.
+
+### news-rules-build-v1 review round 1 (CERTIFIED WITH CONDITIONS): fixes
+
+- **C1:** origin/main (bfd335b: #49, #50, #51) merged into the branch (a merge, no
+  rebase). Conflicts: backtest/engine.py imports (`BarSeries` from main plus
+  `with_news_rules`), this file (both sections kept).
+- **C2:** the N-OPEN-2 per-window switch above. `time_stop_after_daily` is gone.
+- **C3:** the backtest readout lists the rules in force: `news rules` (the news.yaml
+  path), every news.yaml value (`news.timezone`, `news.lead_minutes`,
+  `news.lag_minutes`, `news.pre_news_until`, `news.pre_news_time_stop`,
+  `news.overnight_flat_from`), and each window as built with its time stop switch
+  (`news window <name>: 08:25-08:32 America/New_York (whole end minute); time stop
+  after: on`, ...). The CSV line is now `news blackouts CSV: <path or NONE supplied>`.
+  The backtest tests' stand-in (no scheduled windows) reads `news rules: OFF (test
+  stand-in ...)`; that is the only change in the seam goldens. The BH-11 speed
+  references are unchanged: those two lines alone are put back before hashing, so every
+  journal and ledger byte is still checked against the pre-speed-up code.
+- **M1:** two backtest tests run the real play caller and the real rules together: the
+  scenario's 10:01 ET long is vetoed by "10:00 ET releases (N1)" and nothing trades; a
+  second long at 10:06 ET trades.
+- **M2:** the reviewer's survivors: R1 (windows on the news clock's date: a contract
+  test, ET evening and a Tokyo news clock), R2 (an overnight session not crossing
+  midnight), R3 (scheduled windows before CSV ones: pinned), R5 (the last calendar day
+  is checked at start-up: a London news clock that empties N4 only on 2026-03-29), R12
+  (the time stop's look-back end is inclusive) killed by tests; R4 and R9 argued
+  equivalent in qa/mutation/news-rules-build-v1.notes.md.
+- **M3:** the loader refuses `lead_minutes + lag_minutes` of one day or more.
+- **M4:** "`false` limits the time stop to the CSV windows" was wrong (the overnight
+  window always carries it); reworded above. The live `--no-blackouts` help now says
+  "no CSV news calendar (the scheduled windows in config/news.yaml stay on)".
+

@@ -69,7 +69,8 @@ Drawdown marked to the bid: 0.00% (0.00). Worst open loss in any trade: 0.00.
 - theta.decay_exit.enabled: false
 - theta.decay_exit.window_minutes: 30
 - theta.decay_exit.max_pct_of_open_profit: 50
-- news blackouts: NONE supplied
+- news blackouts CSV: NONE supplied
+- news rules: OFF (test stand-in tests/backtest/conftest.py no_scheduled_news)
 - intrabar path: adverse-first against an open trade
 - bars: <TMP>/bars.csv
 

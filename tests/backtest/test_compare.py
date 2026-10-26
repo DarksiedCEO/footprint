@@ -24,7 +24,7 @@ from footprint.backtest.compare import NO_PROFIT_CLAIM, main
 from footprint.backtest.settings import RuleSettings
 from footprint.core.config import Profiles
 from footprint.execution.management.malik import ExitRule
-from tests.backtest.conftest import TRADE_FROM
+from tests.backtest.conftest import STAND_IN, TRADE_FROM
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
 from tests.decision.plays import open_play
@@ -73,6 +73,13 @@ def compared(bars: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path
         # Module-scoped, so built before the per-test stand-in (conftest's
         # trend_every_day): the same stand-in play caller here, by hand.
         patch.setattr(engine, "PlayCaller", lambda *args, **kwargs: open_play())
+        # ... and conftest's no_scheduled_news stand-in (the CSV windows alone), by hand.
+        patch.setattr(engine, "with_news_rules", lambda profiles, extra: extra)
+        patch.setattr(
+            single_module,
+            "news_assumptions",
+            lambda profiles, source: {"news rules": f"OFF ({STAND_IN})"},
+        )
         code, printed, _ = _compare(bars, out)
     assert code == 0
     return out, printed

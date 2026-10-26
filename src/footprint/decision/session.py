@@ -29,17 +29,23 @@ __all__ = [
 class NewsBlackout:
     """A no-new-entries window around a scheduled release, start and end inclusive.
 
-    The window's edges are supplied by the caller (from the economic calendar),
-    so this module invents no lead or lag times.
+    The window's edges are supplied by the caller (the economic calendar CSV, or the
+    scheduled rules in decision/news_rules.py), so this module invents no lead or lag
+    times. `time_stop`: an entry made just after the window ends gets the news time stop
+    (execution.yaml news:); a daily scheduled window carries it only when Andre's
+    N-OPEN-2 setting says so.
     """
 
     name: str
     start: datetime
     end: datetime
+    time_stop: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError(f"NewsBlackout.name must be a non-empty string, got {self.name!r}")
+        if not isinstance(self.time_stop, bool):
+            raise TypeError("NewsBlackout.time_stop must be a bool")
         require_utc(self.start, "NewsBlackout.start")
         require_utc(self.end, "NewsBlackout.end")
         if self.end < self.start:

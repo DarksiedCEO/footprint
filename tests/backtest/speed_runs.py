@@ -82,6 +82,31 @@ def _normalised(data: bytes, tmp_path: Path) -> bytes:
     return _POSITION_SUFFIX.sub(rb'\1<RAND>"', data)
 
 
+# PR #52 review round 1 C3 changed the readout's news lines on purpose (the CSV line is
+# renamed and the scheduled rules are listed; these runs use the tests' stand-in, so the
+# rules read OFF). Every other byte must still be what the code before the speed-up
+# wrote, so those lines alone are put back as they were before hashing, and each must be
+# found exactly once (a readout without them fails here rather than passing unchecked).
+_C3_TEXT = (
+    b"- news blackouts CSV: NONE supplied\n"
+    b"- news rules: OFF (test stand-in tests/backtest/conftest.py no_scheduled_news)\n",
+    b"- news blackouts: NONE supplied\n",
+)
+_C3_JSON = (
+    b'    "news blackouts CSV": "NONE supplied",\n'
+    b'    "news rules": "OFF (test stand-in tests/backtest/conftest.py no_scheduled_news)",\n',
+    b'    "news blackouts": "NONE supplied",\n',
+)
+
+
+def _before_c3(name: str, data: bytes) -> bytes:
+    if name not in {"readout.md", "readout.json", "stdout.txt"}:
+        return data
+    new, old = _C3_JSON if name == "readout.json" else _C3_TEXT
+    assert data.count(new) == 1, f"{name}: the C3 news lines are not there exactly once"
+    return data.replace(new, old)
+
+
 def run_hashes(scenario: Scenario, tmp_path: Path) -> tuple[dict[str, str], dict[str, int]]:
     """Run `scenario` from the command line in `tmp_path`: {output file: sha256}, the
     printed readout as "stdout.txt", and the exit code as "exit"; and a summary for the
@@ -112,13 +137,13 @@ def run_hashes(scenario: Scenario, tmp_path: Path) -> tuple[dict[str, str], dict
         )
     hashes = {
         p.relative_to(out).as_posix(): hashlib.sha256(
-            _normalised(p.read_bytes(), tmp_path)
+            _before_c3(p.relative_to(out).as_posix(), _normalised(p.read_bytes(), tmp_path))
         ).hexdigest()
         for p in sorted(out.rglob("*"))
         if p.is_file()
     }
     hashes["stdout.txt"] = hashlib.sha256(
-        _normalised(printed.getvalue().encode(), tmp_path)
+        _before_c3("stdout.txt", _normalised(printed.getvalue().encode(), tmp_path))
     ).hexdigest()
     hashes["exit"] = str(code)
     summary = {

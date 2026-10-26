@@ -441,7 +441,9 @@ class Manager:
         net_open = self._net_pnl(position, quote.bid)
         news = p.execution.news
         window = timedelta(minutes=news.window_minutes)
-        in_news_window = any(b.end < position.entry_ts <= b.end + window for b in blackouts)
+        in_news_window = any(
+            b.time_stop and b.end < position.entry_ts <= b.end + window for b in blackouts
+        )
         if (
             in_news_window
             and now - position.entry_ts >= timedelta(minutes=news.time_stop_minutes)

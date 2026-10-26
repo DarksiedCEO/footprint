@@ -1,7 +1,7 @@
 """Start the system on IBKR's paper account.
 
     uv run python -m footprint.live --blackouts news.csv
-    uv run python -m footprint.live --no-blackouts          # explicitly no news calendar
+    uv run python -m footprint.live --no-blackouts          # explicitly no CSV calendar
     uv run python -m footprint.live --new-ledger ...        # the very first run only
 
 Reads .env (BROKER_HOST, BROKER_PORT, BROKER_ACCOUNT_ID, BROKER_CLIENT_ID) and config/.
@@ -45,7 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     news = parser.add_mutually_exclusive_group(required=True)
     news.add_argument("--blackouts", type=Path, help="news blackouts CSV (name,start,end)")
     news.add_argument(
-        "--no-blackouts", action="store_true", help="run with no news calendar (no blackouts)"
+        "--no-blackouts",
+        action="store_true",
+        help="run with no CSV news calendar (the scheduled windows in config/news.yaml stay on)",
     )
     parser.add_argument(
         "--new-ledger", action="store_true", help="first run only: create the ledger file"
