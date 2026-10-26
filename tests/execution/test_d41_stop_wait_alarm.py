@@ -352,8 +352,26 @@ def test_unit_unrouted_executor_still_replaces_and_logs_the_alarm_critical(
     and the alarm's text is logged critical."""
     ticket, stop_id = _ticket(stack)
     _ended(stack, monkeypatch, stop_id)
-    with caplog.at_level(logging.CRITICAL, logger="footprint.execution"):
+    with caplog.at_level(logging.ERROR, logger="footprint.execution"):
         stack.executor._guard_pending_stop(ticket, 1)
     assert stack.executor._broker.status(f"{ticket.position_id}-stop-wait").protects
     logged = [r.getMessage() for r in caplog.records if r.levelno == logging.CRITICAL]
     assert any(WAIT in m and m.endswith("was placed") for m in logged)
+    # No line routed is not a failed delivery: nothing is called, nothing fails.
+    assert not any("could not deliver" in r.getMessage() for r in caplog.records)
+
+
+def test_unit_a_stop_reported_filled_gets_no_alarm_no_halt_no_replacement(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stop that sold the whole position during the wait is a sale, not a gone stop:
+    no replacement, no D41 alarm, and not the G6-1 partly-sold halt either."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    _ended(stack, monkeypatch, stop_id, state=OrderState.FILLED, filled=1, quantity=1)
+    for _ in range(3):
+        stack.executor._guard_pending_stop(ticket, 1)
+    assert sent == []
+    assert not stack.halt.tripped
+    assert ticket.stop_order_id == stop_id
+    assert f"{ticket.position_id}-stop-wait" not in stack.broker._orders
