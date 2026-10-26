@@ -73,6 +73,23 @@ APPROVED BY ANDRE 2026-10-10:
 Config keys: the existing `strategy.volume.*` keys (`spike_multiple`, lookback, timeframe).
 No new keys.
 
+How it is built (`entry-breakout-v1`): `footprint.backtest.rules.ENTRY_RULES["breakout"]`
+builds the existing momentum reader (`agents/momentum_reader.py`) from the same
+`strategy.volume` settings the pipeline uses when no rule is named. No logic changed.
+`tests/backtest/test_entry_breakout.py` proves a `--entry breakout` run writes the same
+files, decisions and trades as the default run; the only difference is the readout line
+`entry rule: breakout`.
+
+What the existing entry does today, exactly (from the code, for Andre to confirm; not
+changed): the spike is the second-to-last completed 1-min bar; its volume divided by
+the average volume of the same time of day over the last `lookback_sessions` sessions
+must be at least `spike_multiple` (fewer than `lookback_sessions` earlier same-time bars, or
+an average of zero: no entry); its direction is close versus open (close equal to
+open is a doji: no entry). The follow-through is the very next bar, and it only has to
+CLOSE beyond the spike bar's CLOSE in the same direction; it does not have to be an
+up-close candle itself or clear the spike's high. Both conditions are judged on the
+bar that just completed; the trend, session and other gates then decide as always.
+
 ## Q5.2 entry "stairstep" and "stairstep_vol" (`entry-stairstep-v1`)
 
 APPROVED BY ANDRE 2026-10-10:
