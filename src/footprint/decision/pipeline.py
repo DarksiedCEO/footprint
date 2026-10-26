@@ -23,9 +23,10 @@ order: execution accepts only an ApprovedEntry.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -41,7 +42,7 @@ from footprint.agents.zero_day import ZeroDayAgent
 from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score, Signal, require_utc
 from footprint.core.options import OptionChain, Right
-from footprint.core.series import require_series
+from footprint.core.series import BarWindow, require_series
 from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed, resample, session_days
 from footprint.decision.console.desmond import Console, ConsoleInputs, ConsoleVerdict
@@ -335,7 +336,7 @@ class Pipeline:
         p = self._p
         # One immutable tuple shared by every reader this decision: the series helpers
         # cache their work per tuple (a tuple of frozen Bars cannot change underneath).
-        minutes = tuple(completed(minute_bars, as_of, 1))
+        minutes = completed(minute_bars, as_of, 1)
         if minutes:
             require_series(minutes, 1, "minute bars")
             if minutes[0].symbol != p.instrument.symbol:
@@ -379,7 +380,7 @@ class Pipeline:
         session = days.days[-1]
         after = [
             b
-            for b in minutes
+            for b in _from_day_before(minutes, today, zone)
             if local_time(b.ts, cash.timezone).date() == today
             and local_time(b.ts, cash.timezone).time() >= cash.end
         ]
@@ -394,6 +395,17 @@ class Pipeline:
                 volume=session.volume + sum(b.volume for b in after),
             )
         return [*days.days[:-1], session]
+
+
+def _from_day_before(minutes: Sequence[Bar], today: date, zone: ZoneInfo) -> Sequence[Bar]:
+    """The bars that can be on local date `today`: for a window (in time order), only
+    those from a day before today's local midnight on (any bar on that date is later);
+    any other sequence, all of them."""
+    if not isinstance(minutes, BarWindow):
+        return minutes
+    since = datetime.combine(today, time.min, zone).astimezone(UTC) - timedelta(days=1)
+    first = bisect_left(minutes.series.starts, since, minutes.start, minutes.end)
+    return minutes.series.bars[first : minutes.end]
 
 
 def _blind(agent_id: str, as_of: datetime) -> Read:
