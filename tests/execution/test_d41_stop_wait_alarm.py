@@ -186,8 +186,8 @@ def test_a_refused_replacement_alarms_once_without_saying_placed(
     scene.step(5)
     (alarm,) = _wait_alarms(scene.messages())
     assert "was placed" not in alarm
-    assert "not protecting" in alarm
     assert "REJECTED" in alarm
+    assert "no stop rests at the broker for it" in alarm
     assert any("no resting stop" in r for r in scene.stack.halt.reasons)  # unchanged
 
 
@@ -330,11 +330,12 @@ def test_unit_unknown_send_outcome_alarms_once_and_says_unknown(
     assert "was placed" not in alarm
 
 
+@pytest.mark.parametrize("error", [RuntimeError, OSError, ValueError])
 def test_unit_a_broken_alarm_line_never_stops_the_replacement(
-    stack: Stack, monkeypatch: pytest.MonkeyPatch
+    stack: Stack, monkeypatch: pytest.MonkeyPatch, error: type[Exception]
 ) -> None:
     def broken(message: str) -> None:
-        raise RuntimeError("pager down")
+        raise error("pager down")
 
     stack.executor.route_alarms(broken)
     ticket, stop_id = _ticket(stack)
@@ -375,3 +376,170 @@ def test_unit_a_stop_reported_filled_gets_no_alarm_no_halt_no_replacement(
     assert not stack.halt.tripped
     assert ticket.stop_order_id == stop_id
     assert f"{ticket.position_id}-stop-wait" not in stack.broker._orders
+
+
+# --- review round 1 (PR #53) -------------------------------------------------------------
+
+
+def test_two_positions_on_one_executor_each_alarm_once(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1: once per POSITION, not once per process: a second position that loses its
+    stop during its price wait is alarmed too."""
+    sent = _routed(stack)
+    t1, stop1 = _ticket(stack)
+    t2 = replace(t1, position_id=t1.position_id + "b")
+    _ended(stack, monkeypatch, stop1)
+    for _ in range(3):
+        stack.executor._guard_pending_stop(t1, 1)
+        stack.executor._guard_pending_stop(t2, 1)
+    first, second = sent
+    assert first.startswith(f"{t1.position_id}: ")
+    assert first.endswith(f"a new stop {t1.position_id}-stop-wait was placed")
+    assert second.startswith(f"{t2.position_id}: ")
+    assert second.endswith(f"a new stop {t2.position_id}-stop-wait was placed")
+
+
+def _place_reports(stack: Stack, monkeypatch: pytest.MonkeyPatch, **changes: object) -> list[str]:
+    """The `-stop-wait` send reaches the broker, and the broker's answer to it is
+    changed by `changes` (its later status questions are answered the same way)."""
+    placing = stack.broker.place
+    real = stack.broker.status
+    placed: list[str] = []
+
+    def place(order: Order) -> OrderStatus:
+        status = placing(order)
+        if order.order_id.endswith("-stop-wait"):
+            placed.append(order.order_id)
+            return replace(status, **changes)  # type: ignore[arg-type]
+        return status
+
+    def status(asked: str) -> OrderStatus:
+        answer = real(asked)
+        if asked in placed:
+            return replace(answer, **changes)  # type: ignore[arg-type]
+        return answer
+
+    monkeypatch.setattr(stack.broker, "place", place)
+    monkeypatch.setattr(stack.broker, "status", status)
+    return placed
+
+
+def test_a_replacement_that_fills_on_placement_says_the_position_is_sold(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F2 (safety): the market is already through the trigger and the replacement
+    fills at once. "not protecting" here could send Andre to place a stop by hand on a
+    contract already sold: a short. The alarm says it filled and the position is sold."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    trigger = stack.broker.status(stop_id).order.stop_price
+    assert trigger is not None
+    stack.quote(trigger - D(2), trigger - D(1), SEND + SEC)  # through the trigger
+    stack.executor._guard_pending_stop(ticket, 1)
+    replacement = f"{ticket.position_id}-stop-wait"
+    assert stack.broker.status(replacement).state is OrderState.FILLED
+    (alarm,) = sent
+    assert alarm.endswith(
+        f"a new stop {replacement} was placed and has already filled (sold 1): the "
+        "position is sold; do not place a stop by hand"
+    )
+    assert "not protecting" not in alarm
+    for _ in range(3):
+        stack.executor._guard_pending_stop(ticket, 1)
+    assert len(sent) == 1
+    assert not stack.halt.tripped
+
+
+def test_a_held_back_replacement_is_not_reported_placed(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F3 (R7): live but held back (IBKR Inactive) is not protection, and it can still
+    sell: the alarm says so and warns against a second stop beside it."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, held_back=True)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    replacement = f"{ticket.position_id}-stop-wait"
+    assert alarm.endswith(
+        f"a new stop {replacement} was sent, but it is live and held back at the broker: "
+        "not protecting, and it can still sell; do not place another stop beside it"
+    )
+    stack.executor._guard_pending_stop(ticket, 1)
+    assert len(sent) == 1
+    assert any("held back" in r for r in stack.halt.reasons)  # the existing halt follows
+
+
+def test_a_replacement_being_cancelled_is_not_reported_placed(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, cancelling=True)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.endswith(
+        "was sent, but it is live and being cancelled at the broker: not protecting, "
+        "and it can still sell; do not place another stop beside it"
+    )
+
+
+def test_a_replacement_that_sold_part_and_ended_says_so(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never "no stop rests" alone for a replacement that already sold: the position
+    is (partly) sold, so a hand stop for the whole fill could go short."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, state=OrderState.CANCELLED, filled=1)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.endswith(
+        "was sent, but it sold 1 and is CANCELLED at the broker: do not place a stop by "
+        "hand; reconcile, and check the account"
+    )
+    stack.executor._guard_pending_stop(ticket, 1)
+    assert any("sold 1 of 1" in r for r in stack.halt.reasons)  # G6-1 halt follows
+
+
+def test_unit_unknown_outcome_names_a_rejected_stop_as_rejected(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F3 (R4): the unknown-outcome alarm names the gone stop's real state."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    replacement = f"{ticket.position_id}-stop-wait"
+    _ended(stack, monkeypatch, stop_id, state=OrderState.REJECTED)
+    real_place = stack.broker.place
+
+    def lost(order: Order) -> OrderStatus:
+        if order.order_id == replacement:
+            raise TimeoutError("no answer")
+        return real_place(order)
+
+    monkeypatch.setattr(stack.broker, "place", lost)
+    with pytest.raises(TimeoutError):
+        stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.startswith(
+        f"{ticket.position_id}: stop {stop_id} was rejected at the broker during the price wait"
+    )
+    assert alarm.endswith(
+        "its outcome is unknown: TimeoutError('no answer'); it may be live or filled: "
+        "check IBKR before placing any stop by hand"
+    )
+
+
+def test_the_alarm_carries_the_step_time(scene: Scene) -> None:
+    """F4: the runner stamps the alarm with the step that sent it, not the start."""
+    scene.fill(priced=False, lagging_report=False)
+    scene.step()
+    _broker_cancels_the_stop(scene)
+    scene.step()
+    (alarm,) = [a for a in scene.alarms if WAIT in a.message]
+    assert alarm.ts == scene.t

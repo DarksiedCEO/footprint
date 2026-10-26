@@ -91,6 +91,34 @@ def _partly_sold(stop_id: str, held: OrderStatus) -> str:
     )
 
 
+def _replacement_outcome(placed: OrderStatus) -> str:
+    """How the `-stop-wait` replacement stands at the broker, for its D41 alarm. Every
+    wording says what Andre must NOT do by hand where a hand stop could sell twice (a
+    short): a replacement that filled has sold the position; one still live (held back,
+    cancel pending) can still sell; one that sold part has sold (PR #53 review F2)."""
+    if placed.protects:
+        return "placed"
+    if placed.state is OrderState.FILLED:
+        return (
+            f"placed and has already filled (sold {placed.filled}): the position is sold; "
+            "do not place a stop by hand"
+        )
+    if placed.state is OrderState.WORKING:
+        why = "held back" if placed.held_back else "being cancelled"
+        return (
+            f"sent, but it is live and {why} at the broker: not protecting, and it can "
+            "still sell; do not place another stop beside it"
+        )
+    if placed.filled > 0:
+        return (
+            f"sent, but it sold {placed.filled} and is {placed.state.value} at the broker: "
+            "do not place a stop by hand; reconcile, and check the account"
+        )
+    return (
+        f"sent, but the broker reports it {placed.state.value}: no stop rests at the broker for it"
+    )
+
+
 class EntryOutcome(Enum):
     WORKING = "WORKING"
     PROTECTED = "PROTECTED"  # filled, and the resting stop is at the broker
@@ -539,15 +567,14 @@ class Executor:
             raise
         except Exception as exc:
             self._alarm_wait_stop(
-                pid, stop_id, held.state, f"sent, but its outcome is unknown: {exc!r}"
+                pid,
+                stop_id,
+                held.state,
+                f"sent, but its outcome is unknown: {exc!r}; it may be live or filled: "
+                "check IBKR before placing any stop by hand",
             )
             raise
-        outcome = (
-            "placed"
-            if placed.protects
-            else f"sent, but it is not protecting at the broker ({placed.state.value})"
-        )
-        self._alarm_wait_stop(pid, stop_id, held.state, outcome)
+        self._alarm_wait_stop(pid, stop_id, held.state, _replacement_outcome(placed))
 
     def _after(
         self,
