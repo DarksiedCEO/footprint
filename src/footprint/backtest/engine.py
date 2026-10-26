@@ -66,6 +66,7 @@ from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import require_series
+from footprint.decision.news_rules import with_news_rules
 from footprint.decision.pipeline import EntryTrigger, Gatekeeper, Pipeline
 from footprint.decision.play import PlayCaller, PlayGate
 from footprint.decision.session import NewsBlackout
@@ -226,7 +227,7 @@ class Backtest:
             self.halt,
             bars=self._closed_bars,
             chain=self._chain,
-            blackouts=blackouts,
+            blackouts=with_news_rules(p, blackouts),
             on_alarm=self.alarms.append,
             started=self._bars[self._first].ts,
             book=self.book,

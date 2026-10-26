@@ -1,0 +1,312 @@
+{
+ "groups": {
+  "rules": [
+   "tests/decision/test_news_rules.py",
+   "tests/test_config_news_rules.py"
+  ],
+  "exits": [
+   "tests/execution/test_news_rules_exits.py",
+   "tests/execution/test_execution.py"
+  ],
+  "wiring": [
+   "tests/live/test_news_rules_wiring.py",
+   "tests/backtest/test_engine_news_rules.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "return moment + _MINUTE - timedelta.resolution",
+   "return moment",
+   "window ends at the start of its end minute"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "return moment + _MINUTE - timedelta.resolution",
+   "return moment + _MINUTE",
+   "window end covers the next minute's first instant"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    return clock >= session.start or clock <= session.end",
+   "    return clock > session.start or clock <= session.end",
+   "overnight start minute not inside the session"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "if not _covers(overnight, start) or start == overnight.end:",
+   "if _covers(overnight, start) or start == overnight.end:",
+   "overnight start check inverted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "if not _covers(overnight, start) or start == overnight.end:",
+   "if not _covers(overnight, start):",
+   "overnight start at the session's last minute accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "ends_on = day + _DAY if start > session.end else day",
+   "ends_on = day",
+   "overnight window never crosses midnight"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "ends_on = day + _DAY if start > session.end else day",
+   "ends_on = day + _DAY",
+   "overnight window always ends the next day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "_end_of_minute(_utc(ends_on, session.end, zone))",
+   "_utc(ends_on, session.end, zone)",
+   "overnight window drops its end minute"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "_end_of_minute(_utc(ends_on, session.end, zone))",
+   "_end_of_minute(_utc(ends_on, session.start, zone))",
+   "overnight window ends at the session start"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            _utc(day, start, zone),\n",
+   "            _utc(day, session.start, zone),\n",
+   "overnight window ignores overnight_flat_from"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            at - _MINUTE * self._s.lead_minutes,",
+   "            at - _MINUTE * self._s.lag_minutes,",
+   "lead read from lag"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "_end_of_minute(at + _MINUTE * self._s.lag_minutes)",
+   "_end_of_minute(at + _MINUTE * self._s.lead_minutes)",
+   "lag read from lead"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            at - _MINUTE * self._s.lead_minutes,",
+   "            at,",
+   "no lead"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "_end_of_minute(at + _MINUTE * self._s.lag_minutes)",
+   "_end_of_minute(at)",
+   "no lag"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        at = _utc(day, event.at, self._zone)",
+   "        at = _utc(day, event.at, ZoneInfo(self._instrument.prime_session.timezone))",
+   "daily events on the prime clock, not the news clock"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            time_stop=self._s.time_stop_after_daily,\n        )\n\n    def _pre_news",
+   "            time_stop=True,\n        )\n\n    def _pre_news",
+   "daily windows ignore N-OPEN-2 switch"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            end,\n            time_stop=self._s.time_stop_after_daily,",
+   "            end,\n            time_stop=True,",
+   "N4 window ignores N-OPEN-2 switch"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            end,\n            time_stop=self._s.time_stop_after_daily,",
+   "            end,\n            time_stop=False,",
+   "N4 window never starts the time stop"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        start = _utc(day, prime.start, ZoneInfo(prime.timezone))",
+   "        start = _utc(day, prime.start, self._zone)",
+   "N4 starts at the prime start on the news clock"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        end = self._daily(day, self._until).end",
+   "        end = self._daily(day, self._until).start",
+   "N4 ends when the until window starts"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if end < start:",
+   "        if end > start:",
+   "N4 refusal inverted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if end < start:",
+   "        if False:",
+   "N4 empty window not refused"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._until = next(e for e in settings.daily_events if e.name == settings.pre_news_until)",
+   "self._until = settings.daily_events[0]",
+   "N4 until ignores pre_news_until"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        while day <= instrument.calendar_through:",
+   "        while False:",
+   "N4 not checked over the calendar at start"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            self._cache[day] = found\n",
+   "",
+   "windows rebuilt every call"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return (*self.day(today - _DAY), *self.day(today), *self.day(today + _DAY))",
+   "        return (*self.day(today), *self.day(today + _DAY))",
+   "yesterday's windows dropped"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return (*self.day(today - _DAY), *self.day(today), *self.day(today + _DAY))",
+   "        return (*self.day(today - _DAY), *self.day(today))",
+   "tomorrow's windows dropped"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        require_utc(now, \"now\")\n",
+   "",
+   "naive moment accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "                self._pre_news(day),\n",
+   "",
+   "N4 window not listed"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "                self._overnight(day),\n",
+   "",
+   "overnight window not listed"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return (*rules.windows(now), *extra(now))",
+   "        return tuple(extra(now))",
+   "scheduled windows dropped"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return (*rules.windows(now), *extra(now))",
+   "        return rules.windows(now)",
+   "CSV windows dropped"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/session.py",
+   "        if not isinstance(self.time_stop, bool):",
+   "        if False:",
+   "non-bool time_stop accepted"
+  ],
+  [
+   "exits",
+   "src/footprint/decision/session.py",
+   "    time_stop: bool = True",
+   "    time_stop: bool = False",
+   "CSV windows stop starting the time stop"
+  ],
+  [
+   "exits",
+   "src/footprint/execution/management/malik.py",
+   "            b.time_stop and b.end < position.entry_ts <= b.end + window for b in blackouts",
+   "            b.end < position.entry_ts <= b.end + window for b in blackouts",
+   "time stop ignores the window's switch"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if any(e.name == event.name for e in events):",
+   "        if False:",
+   "duplicate event names accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if until not in {e.name for e in events}:",
+   "    if False:",
+   "unknown pre_news_until accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        lead_minutes=_integer(raw, \"lead_minutes\", where, minimum=0),",
+   "        lead_minutes=_integer(raw, \"lead_minutes\", where, minimum=-5),",
+   "negative lead accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        lag_minutes=_integer(raw, \"lag_minutes\", where, minimum=0),",
+   "        lag_minutes=_integer(raw, \"lag_minutes\", where, minimum=-5),",
+   "negative lag accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        news_rules=load_news_rules(config_dir / \"news.yaml\"),",
+   "        news_rules=load_news_rules(config_dir / \"play.yaml\"),",
+   "profiles read the wrong file"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "            blackouts=with_news_rules(p, blackouts),",
+   "            blackouts=blackouts,",
+   "backtest without the scheduled windows"
+  ],
+  [
+   "wiring",
+   "src/footprint/live/app.py",
+   "        blackouts=with_news_rules(p, blackouts),",
+   "        blackouts=blackouts,",
+   "live without the scheduled windows"
+  ]
+ ]
+}

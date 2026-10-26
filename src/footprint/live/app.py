@@ -47,6 +47,7 @@ from footprint.brokers.ibkr.market import MarketData
 from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
+from footprint.decision.news_rules import with_news_rules
 from footprint.decision.pipeline import Pipeline
 from footprint.decision.play import check_live_history
 from footprint.decision.session import NewsBlackout
@@ -209,7 +210,7 @@ def build(
         halt,
         bars=market.bars,
         chain=market.chain,
-        blackouts=blackouts,
+        blackouts=with_news_rules(p, blackouts),
         on_alarm=alarms.submit,
         started=clock(),
         book=book,
