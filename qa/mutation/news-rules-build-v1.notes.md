@@ -35,3 +35,12 @@ value that reaches it.
   (a London news clock empties N4 on 2026-03-29 only, the calendar's last day there).
 - R12 (time-stop look-back end exclusive):
   `test_an_entry_exactly_at_the_end_of_the_time_stop_window_gets_it`.
+
+## Round 2
+
+- N10 (readout N4 line from the last event, not `pre_news_until`): added to the spec,
+  killed by `test_the_readout_n4_line_ends_with_the_pre_news_until_window`.
+- Reviewer's N11 (malik `b.end < entry_ts` to `<=`, pre-existing code, not in this
+  spec): equivalent in practice, as the reviewer argued. An entry at a window's last
+  microsecond is inside the blackout (no entry is sent then, and a held position gets
+  the NEWS exit anyway).
