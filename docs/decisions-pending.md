@@ -513,3 +513,22 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   dropped from the spec: every bar between them lies inside the lookback after the last
   walk close, so a break there resets the walk count to zero and the touch is already
   refused before the scan.
+
+## Black-76 option model (branch black76-v1, PR 36; 2026-10-21)
+
+- **B76-1 (for Andre, before any theta veto is built): how decay is charged.** Black-76's
+  theta is an instantaneous rate. With minutes to expiry it is larger than the whole
+  premium per day, so "theta per day" misleads near expiry. Proposal: any decay charge or
+  veto uses the model's price difference over the expected holding time, not theta times
+  time. Also open: whether `years` counts calendar time or trading time.
+- **B76-2 (fact, CME rulebook chapter 359A):** quarterly Nasdaq-100 futures options are
+  American; weekly and end-of-month ones are European. Black-76 slightly underprices a
+  quarterly (the early-exercise premium), so implied volatility read from a quarterly is
+  biased. Proposal: research and the Greeks agents prefer European expiries; a quarterly
+  is flagged as model-biased.
+- Hostile review round 1 (db48fa3): NOT CERTIFIED, findings F1-F11. Fixed: F1-F4 (tests;
+  the reviewer's 7 surviving mutants are in the spec), F5-F6 (out-of-range inputs raise
+  ValueError; a volatility too small to register is the zero-volatility answer), F9 (erfc
+  normal cdf), F10 (docstring). F7 and F8: B76-1 and B76-2 above. Argued equivalent and
+  dropped: a `d1 not finite -> zero-volatility answer` branch (IEEE saturation of the cdf
+  and density already gives the same numbers).
