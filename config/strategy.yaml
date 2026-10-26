@@ -36,3 +36,14 @@ zeroday:
   volume_trip_multiple: 10   # DEVIATION from G9 (4x): a 4x volume bar is a normal momentum
                              # trigger, so 4x here would veto the strategy's own entries.
                              # Andre to confirm.
+  recent_bars: 5             # DEFAULT: bar tripwires check each of the last N closed bars
+  spike_bar_trip_multiple: 8 # DEFAULT: jump/volatility limit for the trigger's spike
+                             # candle (the bar before the last); 4x would veto big
+                             # spike candles, the strategy's own trigger
+console:
+  levels_weight: 2           # spec: levels count double
+  range_weight: 1
+  fire_threshold: 3          # spec: fire at >= +3; v1 scores only levels + range (max 3),
+                             # so both must be positive (G13: measure trade count first)
+  close_lead_minutes: 5      # DEFAULT (G8): no new entries in the last minutes of prime;
+                             # trade management flattens from the same moment

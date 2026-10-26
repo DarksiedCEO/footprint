@@ -7,7 +7,12 @@ tripwire, or any reading that cannot be measured, trips her; a tripped Nia means
 stand down (no new entries), never tighten-and-trade.
 
 She judges only inside the prime session of a trading day, on a fresh feed;
-anywhere else she trips. Tripwires:
+anywhere else she trips. The bar tripwires look at each of the last `recent_bars`
+completed bars (the momentum trigger itself spans two bars), so an extreme bar
+still trips her for a few minutes after it prints. The bar before the last (the
+trigger's spike candidate) is judged for jump and volatility at its own, higher
+spike_bar_trip_multiple, so the strategy's own trigger candle is not vetoed for
+being a big candle. Tripwires:
 - range: today's range since the prime open vs the same clock window on earlier
   trading days,
 - volume: the bar's volume vs the same time of day (its own, higher multiple),
@@ -85,26 +90,34 @@ class ZeroDayAgent:
             else:
                 notes.append(f"{name} {ratio:.2f}x")
 
+        recent = range(max(0, last - s.recent_bars + 1), last + 1)
+
+        def judge_recent(
+            name: str, values: Sequence[Decimal], limit: Decimal, spike_limit: Decimal
+        ) -> None:
+            """Judge each recent bar against `limit`; the bar before the last (the
+            trigger's spike candidate) against `spike_limit`. Reports the worst one.
+            """
+            worst: tuple[Decimal, Decimal] | None = None
+            for i in recent:
+                ratio = relative_to_same_time(values, bars, i, s.lookback_sessions, tz)
+                if ratio is None:
+                    judge(name, None, limit)
+                    return
+                bar_limit = spike_limit if i == last - 1 else limit
+                if worst is None or ratio / bar_limit > worst[0] / worst[1]:
+                    worst = (ratio, bar_limit)
+            if worst is not None:
+                judge(name, worst[0], worst[1])
+
         volumes = [Decimal(bar.volume) for bar in bars]
-        judge(
-            "volume",
-            relative_to_same_time(volumes, bars, last, s.lookback_sessions, tz),
-            s.volume_trip_multiple,
-        )
+        judge_recent("volume", volumes, s.volume_trip_multiple, s.volume_trip_multiple)
         true_ranges = [bars[0].high - bars[0].low] + [
             max(cur.high, prev.close) - min(cur.low, prev.close) for prev, cur in pairwise(bars)
         ]
-        judge(
-            "volatility",
-            relative_to_same_time(true_ranges, bars, last, s.lookback_sessions, tz),
-            s.trip_multiple,
-        )
+        judge_recent("volatility", true_ranges, s.trip_multiple, s.spike_bar_trip_multiple)
         jumps = [Decimal(0)] + [abs(cur.close - prev.close) for prev, cur in pairwise(bars)]
-        judge(
-            "jump",
-            relative_to_same_time(jumps, bars, last, s.lookback_sessions, tz),
-            s.trip_multiple,
-        )
+        judge_recent("jump", jumps, s.trip_multiple, s.spike_bar_trip_multiple)
 
         today_range, typical = self._range_since_open(bars, as_of)
         judge("range", today_range / typical if typical else None, s.trip_multiple)

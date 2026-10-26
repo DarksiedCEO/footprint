@@ -317,6 +317,16 @@ class ZeroDaySettings:
     lookback_sessions: int
     trip_multiple: Decimal
     volume_trip_multiple: Decimal
+    recent_bars: int
+    spike_bar_trip_multiple: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ConsoleSettings:
+    levels_weight: int
+    range_weight: int
+    fire_threshold: int
+    close_lead_minutes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +338,7 @@ class StrategyProfile:
     levels: LevelsSettings
     options: OptionsSettings
     zeroday: ZeroDaySettings
+    console: ConsoleSettings
 
 
 def load_strategy(path: Path) -> StrategyProfile:
@@ -405,9 +416,28 @@ def load_strategy(path: Path) -> StrategyProfile:
         lookback_sessions=_integer(z, "lookback_sessions", z_where, minimum=1),
         trip_multiple=_positive_decimal(z, "trip_multiple", z_where),
         volume_trip_multiple=_positive_decimal(z, "volume_trip_multiple", z_where),
+        recent_bars=_integer(z, "recent_bars", z_where, minimum=2),
+        spike_bar_trip_multiple=_positive_decimal(z, "spike_bar_trip_multiple", z_where),
     )
+    if zeroday.spike_bar_trip_multiple < zeroday.trip_multiple:
+        raise ConfigError(f"{z_where}: spike_bar_trip_multiple must be >= trip_multiple")
     if zeroday.trip_multiple <= 1 or zeroday.volume_trip_multiple <= 1:
         raise ConfigError(f"{z_where}: trip multiples must be > 1")
+
+    k_where = f"{where}: console"
+    k = _check_keys(raw["console"], {f.name for f in fields(ConsoleSettings)}, k_where)
+    console = ConsoleSettings(
+        levels_weight=_integer(k, "levels_weight", k_where, minimum=1),
+        range_weight=_integer(k, "range_weight", k_where, minimum=1),
+        fire_threshold=_integer(k, "fire_threshold", k_where, minimum=1),
+        close_lead_minutes=_integer(k, "close_lead_minutes", k_where, minimum=0),
+    )
+    if console.fire_threshold > console.levels_weight + console.range_weight:
+        raise ConfigError(f"{k_where}: fire_threshold is above the highest possible score")
+    if console.fire_threshold <= max(console.levels_weight, console.range_weight):
+        raise ConfigError(
+            f"{k_where}: fire_threshold must need both confirmers (above each weight alone)"
+        )
 
     return StrategyProfile(
         trend=trend,
@@ -417,6 +447,7 @@ def load_strategy(path: Path) -> StrategyProfile:
         levels=levels,
         options=options,
         zeroday=zeroday,
+        console=console,
     )
 
 
