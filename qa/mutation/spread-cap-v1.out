@@ -1,4 +1,4 @@
-source: 97e73728e8bb7049fe6aec0c4a57d2cdf4bef297 tree-dirty: 0 files
+source: 7619dd80d0220e119500d7f6acb099f432ecbd99 tree-dirty: 0 files
 baseline [config]: passed
 baseline [consistency]: passed
 baseline [model]: passed
@@ -44,4 +44,5 @@ baseline [shipped]: passed
  38 KILLED   [consistency] src/footprint/core/config.py: F3: exactly one tick refused
  39 KILLED   [consistency] src/footprint/core/config.py: F3: floor at half a tick
  40 KILLED   [consistency] src/footprint/core/config.py: F3: wrong floor (percent field)
-40 mutants, 0 survived or errored
+ 41 KILLED   [consistency] src/footprint/core/config.py: review R2-F1: futures tick used as the floor, not the option tick
+41 mutants, 0 survived or errored
