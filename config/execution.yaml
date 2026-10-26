@@ -80,8 +80,13 @@ ibkr:
   min_healthy_session_seconds: 60  # DEFAULT: a session that opens but drops sooner than
                               #   this counts as failed (a flapping Gateway escalates too)
 market_data:
-  history_days: 35            # DEFAULT: calendar days of 1-minute bars loaded at start (the
-                              #   readers look back 20 sessions; 35 days covers holidays)
+  history_days: 95            # DEFAULT (draft, Andre PC-2): calendar days of 1-minute bars
+                              #   loaded at start (was 35: the crew looks back 20 sessions).
+                              #   The play caller's regime reader reads 61 sessions; on the
+                              #   worst day of the maintained calendar that is 91 calendar
+                              #   days, and the live start refuses fewer (decision/play.py).
+                              #   About 80 one-day requests at start (2 s apart: ~3 min);
+                              #   UNVERIFIED that IBKR paces them without refusals
   roll_days_before_expiry: 8  # DEFAULT: trade the next quarterly future from this many
                               #   calendar days before the front one expires (CME's usual
                               #   volume roll); older history is spliced and price-adjusted

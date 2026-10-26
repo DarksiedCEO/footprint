@@ -1,0 +1,23 @@
+{
+ "groups": {
+  "guards": [
+   "tests/backtest/test_roll_sessions.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guards",
+   "src/footprint/backtest/engine.py",
+   "            first = local_minute(self._bars[0].ts, prime)[0]",
+   "            first = self._bars[0].ts.date()",
+   "T1 (review round 3): the bars' first day in UTC"
+  ],
+  [
+   "guards",
+   "src/footprint/backtest/rolls.py",
+   "            if day > instrument.calendar_through:",
+   "            if day >= instrument.calendar_through:",
+   "T4 (review round 3): calendar_through itself refused"
+  ]
+ ]
+}

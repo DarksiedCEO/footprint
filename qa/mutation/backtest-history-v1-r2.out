@@ -1,0 +1,70 @@
+source: 9ae9402649dafbe5435109ebdc9c88db8620e0be tree-dirty: 0 files
+baseline [calendar]: passed
+baseline [engine]: passed
+baseline [guard]: passed
+baseline [level]: passed
+baseline [settings]: passed
+  1 KILLED   [calendar] src/footprint/core/holiday_rules.py: first year itself excluded
+  2 KILLED   [calendar] src/footprint/core/holiday_rules.py: first_year ignored
+  3 KILLED   [calendar] src/footprint/core/holiday_rules.py: weekday filter inverted
+  4 KILLED   [calendar] src/footprint/core/holiday_rules.py: weekday filter ignored
+  5 KILLED   [calendar] src/footprint/core/holiday_rules.py: July 3 rule not required
+  6 KILLED   [calendar] src/footprint/core/holiday_rules.py: July 3 rule required as a closure
+  7 KILLED   [calendar] src/footprint/core/config.py: first_year key refused
+  8 KILLED   [calendar] src/footprint/core/config.py: first_year type unchecked
+  9 KILLED   [calendar] src/footprint/core/config.py: a boolean first_year accepted
+ 10 KILLED   [calendar] src/footprint/core/config.py: first_year dropped
+ 11 KILLED   [calendar] src/footprint/core/config.py: weekdays dropped
+ 12 KILLED   [calendar] src/footprint/core/config.py: no weekdays = no day
+ 13 KILLED   [calendar] src/footprint/core/config.py: empty weekdays accepted
+ 14 KILLED   [calendar] src/footprint/core/config.py: duplicate weekdays accepted
+ 15 KILLED   [calendar] src/footprint/core/config.py: unknown weekday names accepted
+ 16 KILLED   [calendar] src/footprint/core/config.py: a non-list period value read as none
+ 17 KILLED   [calendar] src/footprint/core/config.py: extra period keys accepted
+ 18 KILLED   [calendar] src/footprint/core/config.py: a one-day period refused
+ 19 KILLED   [calendar] src/footprint/core/config.py: a backwards period accepted
+ 20 KILLED   [calendar] src/footprint/core/config.py: seconds in a period close accepted
+ 21 KILLED   [calendar] src/footprint/core/config.py: period lists a holiday
+ 22 KILLED   [calendar] src/footprint/core/config.py: period lists weekends
+ 23 KILLED   [calendar] src/footprint/core/config.py: period overrides an earlier close
+ 24 KILLED   [calendar] src/footprint/core/config.py: the later close wins
+ 25 KILLED   [calendar] src/footprint/core/config.py: period's last day dropped
+ 26 KILLED   [calendar] src/footprint/core/config.py: period's first day dropped
+ 27 KILLED   [calendar] src/footprint/core/config.py: a period day hides a missing half day
+ 28 KILLED   [calendar] src/footprint/core/config.py: period on calendar_from refused
+ 29 KILLED   [calendar] src/footprint/core/config.py: period before calendar_from accepted
+ 30 KILLED   [calendar] src/footprint/core/config.py: period to calendar_through refused
+ 31 KILLED   [calendar] src/footprint/core/config.py: period past calendar_through accepted
+ 32 KILLED   [calendar] src/footprint/core/config.py: periods not merged
+ 33 KILLED   [settings] src/footprint/backtest/settings.py: null reference refused
+ 34 KILLED   [settings] src/footprint/backtest/settings.py: reference ignored
+ 35 KILLED   [level] src/footprint/backtest/price_level.py: unscaled path rescales
+ 36 KILLED   [level] src/footprint/backtest/price_level.py: model price inverted
+ 37 KILLED   [level] src/footprint/backtest/price_level.py: model price not rescaled
+ 38 KILLED   [level] src/footprint/backtest/price_level.py: unscaled path converts N
+ 39 KILLED   [level] src/footprint/backtest/price_level.py: N converted the wrong way
+ 40 KILLED   [level] src/footprint/backtest/price_level.py: N not converted
+ 41 KILLED   [level] src/footprint/backtest/price_level.py: zero price accepted
+ 42 KILLED   [level] src/footprint/backtest/price_level.py: infinite price accepted
+ 43 KILLED   [level] src/footprint/backtest/price_level.py: anchor unchecked
+ 44 KILLED   [level] src/footprint/backtest/price_level.py: reference unchecked
+ 45 KILLED   [level] src/footprint/backtest/price_level.py: rescaling with no anchor
+ 46 KILLED   [level] src/footprint/backtest/price_level.py: console sees unconverted N
+ 47 KILLED   [level] src/footprint/backtest/price_level.py: wrapped with no reference
+ 48 KILLED   [level] src/footprint/backtest/price_level.py: no live console built
+ 49 KILLED   [engine] src/footprint/backtest/engine.py: anchor never moves
+ 50 KILLED   [engine] src/footprint/backtest/engine.py: anchor moves inside a trade
+ 51 KILLED   [engine] src/footprint/backtest/engine.py: published quotes not rescaled
+ 52 KILLED   [engine] src/footprint/backtest/engine.py: fallback chain not rescaled
+ 53 KILLED   [engine] src/footprint/backtest/engine.py: console never converts N
+ 54 KILLED   [engine] src/footprint/backtest/engine.py: guard at the data's level
+ 55 KILLED   [engine] src/footprint/backtest/engine.py: look-back not checked
+ 56 KILLED   [engine] src/footprint/backtest/engine.py: first calendar day refused
+ 57 KILLED   [engine] src/footprint/backtest/engine.py: look-back before the calendar accepted
+ 58 KILLED   [guard] src/footprint/backtest/model_check.py: guard ignores the reference
+ 59 KILLED   [guard] src/footprint/backtest/model_check.py: reference refusal not named
+ 60 KILLED   [engine] src/footprint/backtest/options_model.py: last calendar day not an expiry
+ 61 KILLED   [engine] src/footprint/backtest/options_model.py: expiries past the calendar
+ 62 KILLED   [engine] src/footprint/backtest/__main__.py: price level line with no reference
+ 63 KILLED   [engine] src/footprint/backtest/__main__.py: price level line missing
+63 mutants, 0 survived or errored

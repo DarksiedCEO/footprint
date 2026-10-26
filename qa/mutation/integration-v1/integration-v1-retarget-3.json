@@ -1,0 +1,16 @@
+{
+  "groups": {
+    "guard": [
+      "tests/backtest/test_model_vol_guard.py"
+    ]
+  },
+  "mutants": [
+    [
+      "guard",
+      "src/footprint/backtest/engine.py",
+      "check_model_vol(self._model, profiles, self._bars[self._first :], reference)",
+      "check_model_vol(self._model, profiles, self._bars[self._first + 1 :], reference)",
+      "greeks-veto-v1-r2 #4 re-targeted after #47 (reviewer R25): first traded bar skipped by the model guard"
+    ]
+  ]
+}

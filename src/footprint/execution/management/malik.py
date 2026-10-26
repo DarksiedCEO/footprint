@@ -11,7 +11,14 @@ Each call to `manage` looks at one fresh quote and decides, in this order:
    - the news time stop: a trade entered in a news window that is not up
      time_stop_min_gain after time_stop_minutes;
    - the day's realized P&L plus the open trade's net P&L reaches the daily limit;
-   - the kill switch is latched.
+   - the kill switch is latched;
+   - Theta's decay exit says out (decision DX-1, when one is given; see
+     agents/theta.py `DecayExit`): a trade in profit, short of the target and with
+     the trail not locked, losing more to modelled decay over the next window than
+     its configured share of the open profit. A decay exit that fails to answer
+     alarms once and says nothing: the other exits run unchanged. One that cannot
+     value the held option says why in the position's journal (and the log), once
+     per position. It is asked before a named exit rule (backtest only).
 3. Otherwise, move the trail: Booker updates the stop and the resting order is
    modified to match (never loosened; Booker refuses that).
 A STALE quote changes nothing and raises an alarm; the broker's resting stop
@@ -39,6 +46,7 @@ from enum import Enum
 from typing import Protocol
 from uuid import uuid4
 
+from footprint.agents.theta import DecayExitCheck
 from footprint.core.calendar import SessionKind, entry_cutoff, session_at
 from footprint.core.config import Profiles
 from footprint.core.models import require_utc
@@ -84,6 +92,7 @@ class ExitReason(Enum):
     FAILSAFE = "FAILSAFE"
     END_OF_DATA = "END_OF_DATA"  # backtest only: the history ran out with a trade open
     RULE = "RULE"  # backtest only: a named exit rule wanted out (footprint.backtest.rules)
+    DECAY_EXIT = "DECAY_EXIT"  # Theta's decay exit (DX-1): decay outruns the open profit
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +117,21 @@ class ExitRule(Protocol):
     def wants_out(self, position: Position, net_open: Decimal, now: datetime) -> bool: ...
 
 
+class DecayWatch(Protocol):
+    """Theta's decay exit (decision DX-1; agents/theta.py `DecayExit`): asked on a fresh
+    quote, with no exit under way, after every other reason to get out but a named exit
+    rule. It can only add a way out; the exit itself is the existing one."""
+
+    def check(
+        self,
+        contract_id: str,
+        contracts: int,
+        open_profit: Decimal,
+        trailing: bool,
+        now: datetime,
+    ) -> DecayExitCheck: ...
+
+
 class Manager:
     def __init__(
         self,
@@ -120,11 +144,20 @@ class Manager:
         on_alarm: Callable[[Alarm], None] | None = None,
         *,
         exit_rule: ExitRule | None = None,
+        decay_exit: DecayWatch | None = None,
     ) -> None:
         """`exit_rule`: a named exit rule (backtest rule library); None, as the live
-        runner builds it, is the exit unchanged."""
+        runner builds it, is the exit unchanged. `decay_exit`: Theta's decay exit
+        (DX-1: paper and the backtest; the live app is paper only, D33); None: no
+        decay exit."""
         self._p = profiles
         self._exit_rule = exit_rule
+        self._decay_exit = decay_exit
+        self._decay_notes: dict[str, str] = {}  # why a decay exit began, for the journal
+        self._decay_alarmed: set[str] = set()  # positions alarmed: decay exit failed
+        # Positions whose option the decay exit could not value, journaled once each
+        # (review L3: a decay exit silent for a whole trade must be visible).
+        self._decay_unvalued: set[str] = set()
         self._broker = broker
         self._stops = stops
         self._ledger = ledger
@@ -422,9 +455,45 @@ class Manager:
             return ExitReason.WEEKLY_LOSS
         if account.kill_switch_latched:
             return ExitReason.KILL_SWITCH
+        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):
+            return ExitReason.DECAY_EXIT
         if self._exit_rule is not None and self._exit_rule.wants_out(position, net_open, now):
             return ExitReason.RULE
         return None
+
+    def _decay_says_out(self, position: Position, net_open: Decimal, now: datetime) -> bool:
+        """Theta's verdict (DX-1). A failure to answer is not an exit: it alarms once per
+        position and the other exits run unchanged (never sell on a guess)."""
+        assert self._decay_exit is not None
+        pid = position.position_id
+        try:
+            trailing = self._stops.current(pid).trailing
+            verdict = self._decay_exit.check(
+                position.contract_id, position.contracts, net_open, trailing, now
+            )
+        except Exception as exc:
+            if pid not in self._decay_alarmed:
+                self._decay_alarmed.add(pid)
+                self._alarm(
+                    now,
+                    f"{pid}: the decay exit could not be checked ({exc!r}); no decay exit, "
+                    "the other exits run unchanged",
+                )
+            return False
+        if not verdict.fire:
+            if verdict.unvalued and pid not in self._decay_unvalued:
+                self._decay_unvalued.add(pid)
+                said = (
+                    "decay exit cannot value the held option (once per position; the "
+                    f"other exits run unchanged): {verdict.reason}"
+                )
+                log.warning("%s: %s", pid, said)
+                position.events.append(f"{now.isoformat()} {said}")
+            return False
+        # Stamped with the check's time: the numbers are from this quote, even when the
+        # sell goes out on a later step (review I1).
+        self._decay_notes[pid] = f"{now.isoformat()} {verdict.reason}"
+        return True
 
     def _start_exit(
         self, position: Position, quote: Quote, now: datetime, reason: ExitReason
@@ -647,6 +716,9 @@ class Manager:
             oca_group=pid,  # with its stop: the broker lets only one of them fill
         )
         position.exit_order_id = order.order_id
+        note = self._decay_notes.pop(pid, None)
+        if reason is ExitReason.DECAY_EXIT and note is not None:
+            position.events.append(note)  # the journal's why, as of its check
         position.events.append(f"{now.isoformat()} exit {reason.value} at {price}")
         try:
             status = self._broker.place(order)

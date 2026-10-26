@@ -1,0 +1,37 @@
+source: fb7dc7c2c5d4d4140d521a3352753e3f7001cb95 tree-dirty: 0 files
+baseline [anchor]: passed
+baseline [calendar]: passed
+baseline [rolls]: passed
+  1 KILLED   [anchor] src/footprint/backtest/engine.py: L1: no re-anchor before a decision
+  2 KILLED   [anchor] src/footprint/backtest/engine.py: L1: an older chain reused
+  3 KILLED   [anchor] src/footprint/backtest/engine.py: L1: a stale anchor reused
+  4 KILLED   [anchor] src/footprint/backtest/engine.py: L1: re-anchored but not put in the book
+  5 KILLED   [anchor] src/footprint/backtest/price_level.py: anchored_at inverted
+  6 KILLED   [anchor] src/footprint/backtest/price_level.py: anchored_at always true
+  7 KILLED   [rolls] src/footprint/backtest/engine.py: blocking with no roll list accepted
+  8 KILLED   [rolls] src/footprint/backtest/engine.py: a roll list blocks with the switch off
+  9 KILLED   [rolls] src/footprint/backtest/engine.py: roll sessions never blocked
+ 10 KILLED   [rolls] src/footprint/backtest/rolls.py: the gate never added (re-targeted, review round 2)
+ 11 KILLED   [rolls] src/footprint/backtest/rolls.py: every session blocked (re-targeted, review round 2)
+ 12 KILLED   [rolls] src/footprint/backtest/rolls.py: the roll gate passes
+ 13 KILLED   [rolls] src/footprint/backtest/rolls.py: the inner gates dropped
+ 14 KILLED   [rolls] src/footprint/backtest/rolls.py: the calendar date, not the trading day
+ 15 KILLED   [rolls] src/footprint/backtest/rolls.py: wrapped with nothing to block
+ 16 KILLED   [rolls] src/footprint/backtest/rolls.py: no live console to wrap
+ 17 KILLED   [rolls] src/footprint/backtest/rolls.py: none not understood
+ 18 KILLED   [rolls] src/footprint/backtest/rolls.py: header unchecked
+ 19 KILLED   [rolls] src/footprint/backtest/rolls.py: a Saturday accepted
+ 20 KILLED   [rolls] src/footprint/backtest/rolls.py: a date twice accepted
+ 21 KILLED   [rolls] src/footprint/backtest/rolls.py: out of order accepted
+ 22 KILLED   [rolls] src/footprint/backtest/rolls.py: an unreadable file not refused cleanly
+ 23 KILLED   [rolls] src/footprint/backtest/rolls.py: the header read as a date
+ 24 KILLED   [rolls] src/footprint/backtest/settings.py: a non-boolean switch accepted
+ 25 KILLED   [rolls] src/footprint/backtest/__main__.py: a bad roll file crashes instead of exit 2
+ 26 KILLED   [rolls] src/footprint/backtest/__main__.py: the roll list not handed to the run
+ 27 KILLED   [rolls] src/footprint/backtest/__main__.py: a roll line with blocking off
+ 28 KILLED   [rolls] src/footprint/backtest/__main__.py: none not said (re-targeted, review round 2)
+ 29 KILLED   [rolls] src/footprint/backtest/__main__.py: no roll line
+ 30 KILLED   [rolls] src/footprint/backtest/compare.py: compare drops --rolls
+ 31 KILLED   [calendar] src/footprint/core/config.py: RV6: a datetime period bound accepted
+ 32 KILLED   [calendar] src/footprint/core/config.py: RV7: a time-zone-aware period close accepted
+32 mutants, 0 survived or errored

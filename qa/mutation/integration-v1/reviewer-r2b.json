@@ -1,0 +1,5 @@
+{"groups":{"bt":["tests/backtest/test_engine.py","tests/backtest/test_backtest_history.py","tests/backtest/test_price_level.py","tests/agents"]},
+ "mutants":[
+  ["bt","src/footprint/backtest/engine.py","        return self._model.chain(now, self._level.model_price(self._price))","        return self._model.chain(now, self._price)","Q3 fallback chain at data level (full backtest suite)"],
+  ["bt","src/footprint/agents/theta.py","        fire = decay > limit\n","        fire = decay > limit * 2\n","Q1 decay threshold doubled (full backtest suite)"]
+ ]}

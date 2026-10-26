@@ -1,5 +1,6 @@
 """The backtest engine: the real system on a simulated clock."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -24,6 +25,22 @@ def run(
 ) -> tuple[Backtest, BacktestRun]:
     bt = Backtest(profiles, settings, bars, workdir(tmp_path), trade_from=TRADE_FROM)
     return bt, bt.run()
+
+
+def without_decay_exit(profiles: Profiles) -> Profiles:
+    """The profiles with Theta's decay exit (DX-1) off: for scenarios that test the
+    trail or the feed, which the decay exit would end on the first small gain."""
+    theta = profiles.strategy.theta
+    off = replace(theta, decay_exit=replace(theta.decay_exit, enabled=False))
+    return replace(profiles, strategy=replace(profiles.strategy, theta=off))
+
+
+def with_decay_exit(profiles: Profiles) -> Profiles:
+    """The profiles with Theta's decay exit (DX-1) turned on: it ships off until Andre
+    rules on DX-2 (review H1)."""
+    theta = profiles.strategy.theta
+    on = replace(theta, decay_exit=replace(theta.decay_exit, enabled=True))
+    return replace(profiles, strategy=replace(profiles.strategy, theta=on))
 
 
 def only_trade(result: BacktestRun) -> dict[str, object]:
@@ -52,10 +69,44 @@ def test_a_rising_market_is_ridden_and_the_trail_locks_profit(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
     moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12  # fill, up ~160 points, back down
-    _, result = run(profiles, settings, extend(history, moves), tmp_path)
+    _, result = run(without_decay_exit(profiles), settings, extend(history, moves), tmp_path)
     trade = only_trade(result)
     assert trade["exit_reason"] == "STOP"  # the trailed resting stop
     assert D(str(trade["net_pnl"])) > 0  # the trail locked part of the peak
+
+
+def test_the_decay_exit_runs_in_the_backtest_and_is_journaled(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """DX-1 with the drafted numbers, turned on, on the rising market above: the first
+    small gain (+10.00 net) is closed, because the modelled decay of the 1-day option
+    over the next 30 minutes (about 29 dollars) is above half of it (DX-2). Sold at the
+    bid, journaled with the numbers, ledger and journal agreeing."""
+    moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12
+    _, result = run(with_decay_exit(profiles), settings, extend(history, moves), tmp_path)
+    trade = only_trade(result)
+    assert trade["exit_reason"] == "DECAY_EXIT"
+    net = D(str(trade["net_pnl"]))
+    assert D(0) < net < profiles.risk.profit_target
+    events = [str(e) for e in trade["events"]]  # type: ignore[attr-defined]
+    [note] = [e for e in events if "decay exit:" in e]
+    assert f"open profit {net:.2f}" in note
+    assert "limit" in note
+    assert "implied vol" in note
+    assert read_out(result, settings, {}).ledger_matches_journal
+
+
+def test_as_shipped_the_decay_exit_is_off_and_the_winner_is_ridden(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """Review H1: the shipped config runs without the decay exit until Andre rules on
+    DX-2, so the rising market is ridden to the trail as before DX-1."""
+    assert profiles.strategy.theta.decay_exit.enabled is False
+    moves = [D(0)] + [D(10)] * 16 + [D(-10)] * 12
+    _, result = run(profiles, settings, extend(history, moves), tmp_path)
+    trade = only_trade(result)
+    assert trade["exit_reason"] == "STOP"
+    assert not [e for e in trade["events"] if "decay exit" in str(e)]  # type: ignore[attr-defined]
 
 
 def test_decisions_never_see_a_bar_before_it_closes(
@@ -101,7 +152,7 @@ def test_a_gap_in_the_data_is_stepped_through_with_no_quotes(
         Bar(b.symbol, b.ts + gap, b.open, b.high, b.low, b.close, b.volume)
         for b in extend(history, [D(0)] + [D(5)] * 7)[len(bars) :]
     ]
-    _, result = run(profiles, settings, [*bars, *later], tmp_path)
+    _, result = run(without_decay_exit(profiles), settings, [*bars, *later], tmp_path)
     assert any("no fresh quote" in a.message for a in result.alarms)  # the feed went quiet
     assert result.ended_early is None
 

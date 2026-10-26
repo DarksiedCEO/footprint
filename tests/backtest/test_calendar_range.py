@@ -62,14 +62,16 @@ def test_a_backtest_that_runs_past_the_calendar_is_refused(
         Backtest(profiles, settings, [*history, late], workdir(tmp_path), trade_from=TRADE_FROM)
 
 
-def test_look_back_bars_before_the_calendar_are_allowed(
+def test_look_back_bars_before_the_calendar_are_refused(
     profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
 ) -> None:
-    """Only the traded window must be inside the calendar: bars before `trade_from`
-    are the readers' look-back, never traded."""
+    """backtest-history-v1 (BH-13), was "allowed": bars before `trade_from` are never
+    traded, but the readers take sessions from them, and before calendar_from no holiday
+    is known, so a holiday stub could be read as a session. Fail closed: refused."""
     by = _weeks_to(profiles.instrument.calendar_from.year - 1, history)
     early = replace(history[0], ts=history[0].ts + by)
-    Backtest(profiles, settings, [early, *history], workdir(tmp_path), trade_from=TRADE_FROM)
+    with pytest.raises(ValueError, match="before calendar_from"):
+        Backtest(profiles, settings, [early, *history], workdir(tmp_path), trade_from=TRADE_FROM)
 
 
 def test_a_backtest_inside_the_calendar_is_accepted(
@@ -96,15 +98,16 @@ def test_a_backtest_on_the_exact_first_and_last_calendar_days_is_accepted(
     """Delta review 3, V14/V15: `calendar_from` and `calendar_through` are inclusive.
     A traded window that starts on the first maintained day and ends on the last is
     inside the calendar; one day less on either side refuses it."""
+    # Only the traded bars: since BH-13 a look-back bar before calendar_from is refused
+    # too, so the window under test is the whole series here.
+    traded = [bar for bar in history if bar.ts >= TRADE_FROM]
     start, end = _traded_days(profiles, history)
     exact = _calendar(profiles, start, end)
-    Backtest(exact, settings, list(history), workdir(tmp_path / "exact"), trade_from=TRADE_FROM)
+    Backtest(exact, settings, traded, workdir(tmp_path / "exact"), trade_from=TRADE_FROM)
     day = timedelta(days=1)
     late_start = _calendar(profiles, start + day, max(end, start + day))
     with pytest.raises(ValueError, match="calendar_from"):
-        Backtest(
-            late_start, settings, list(history), workdir(tmp_path / "a"), trade_from=TRADE_FROM
-        )
+        Backtest(late_start, settings, traded, workdir(tmp_path / "a"), trade_from=TRADE_FROM)
     early_end = _calendar(profiles, min(start, end - day), end - day)
     with pytest.raises(ValueError, match="calendar_through"):
-        Backtest(early_end, settings, list(history), workdir(tmp_path / "b"), trade_from=TRADE_FROM)
+        Backtest(early_end, settings, traded, workdir(tmp_path / "b"), trade_from=TRADE_FROM)

@@ -12,13 +12,25 @@ option_model:
   expiries_listed: 5          # daily expiries listed ahead (Felix takes 1-3 days out)
   trading_class: Q3C          # the class modelled quotes carry: a daily (European) class
                               #   name; it must match the instrument's European patterns
+  reference_price: 20000      # DEFAULT (draft, Andre BH-2): options are modelled as if the
+                              #   future traded at this level. Each trade's futures moves are
+                              #   rescaled by reference_price / (the futures price its entry
+                              #   was decided at), so the fixed premium above means the same
+                              #   in every year of a long history and a dollar result depends
+                              #   only on the trade's percentage path. Strikes are listed at
+                              #   this level; the bars the readers see are NOT rescaled; the
+                              #   levels room N is converted to the data's level. null: no
+                              #   rescaling (the model at the data's own price, as before)
 engine:
   substep_seconds: 5          # the runner steps this often inside a minute while an entry
                               #   or a position is live (the minute's path is modelled
                               #   adverse-first: against an open trade, the bad extreme
                               #   comes before the good one)
   history_minutes: 43200      # 1-minute bars handed to each decision (~30 sessions; the
-                              #   readers look back up to 20 sessions)
+                              #   readers look back up to 20 sessions). The play caller's
+                              #   regime reader needs more (61 sessions): the backtest hands
+                              #   it its own source, every closed bar since the start of the
+                              #   data (decisions-pending PC-2)
 gates:                        # the go-live gates (work order, section 4)
   min_trades: 200
   min_win_rate_pct: 45
@@ -54,3 +66,12 @@ rules:                        # Q5 backtest rule library (docs/strategy-rules.md
     walk_window: 10           # DEFAULT: bars after the touch in which the entry may come
     slope_bars: 5             # DEFAULT: middle line compared with this many bars ago
     bounce_window: 5          # DEFAULT: bars after the band touch in which the entry may come
+rolls:                        # contract rolls in a RAW front-month history (BH-9)
+  block_first_session: true   # DEFAULT (draft, Andre BH-9): no new entry on the trading day
+                              #   whose session is the first on a new contract (the readers'
+                              #   look-back then mixes two contracts: +112 to +259 points at
+                              #   the 2022-09..2024-09 rolls, 1.6-2.4 N). A run must then say
+                              #   which sessions those are (--rolls FILE, or --rolls none) or
+                              #   it is refused. false: trade them. The alternative, back-
+                              #   adjusting the look-back across the splice, is Andre's to
+                              #   choose; it is not built

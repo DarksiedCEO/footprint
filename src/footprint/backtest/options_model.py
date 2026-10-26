@@ -9,9 +9,10 @@ price with the strategy's fixed, pessimistic delta:
 so time value decays toward expiry (theta), a move of one point in the future moves
 the premium by `delta` points (no gamma: pessimistic for a winner), and every trade
 pays the full `spread_points` (bid below the mid, ask above it, both on the option
-tick). Expiries are daily, on trading days; an expiry ends at the prime session's
-close. The same moment and futures price always give the same quotes, so the chain
-the decision sees and the quote the broker fills against are identical (R12).
+tick). Expiries are daily, on trading days (none past the maintained calendar); an
+expiry ends at the prime session's close. The same moment and futures price always
+give the same quotes, so the chain the decision sees and the quote the broker fills
+against are identical (R12).
 """
 
 from __future__ import annotations
@@ -99,11 +100,15 @@ class OptionModel:
         return [Quote(q.contract_id, q.bid, q.ask, chain.ts) for q in chain.quotes]
 
     def _expiries(self, now: datetime) -> list[date]:
+        """The next expiries_listed exchange trading days. Fail closed (BH-12): none
+        after calendar_through, where no holiday or early close is known."""
         today = trading_day_at(now, self._instrument) or now.astimezone(self._zone).date()
         found: list[date] = []
         day = today
         while len(found) < self._m.expiries_listed:
             day += timedelta(days=1)
+            if day > self._instrument.calendar_through:
+                break
             if is_trading_day(day, self._instrument):
                 found.append(day)
         return found

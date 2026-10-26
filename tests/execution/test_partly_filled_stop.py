@@ -201,8 +201,12 @@ def test_the_replacement_is_priced_for_the_fill_not_the_plan(
     (Priced for the plan here would even be refused: above max_contracts.)"""
     ticket, stop_id = _ticket(stack)
     plan = replace(ticket.approved.plan, contracts=ticket.approved.plan.contracts + 1)
-    theta = replace(ticket.approved.theta, contracts=plan.contracts)  # judged the same plan
-    ticket.approved = replace(ticket.approved, plan=plan, theta=theta)
+    a = ticket.approved
+    checks = {  # every check judged the same plan
+        name: replace(getattr(a, name), contracts=plan.contracts)
+        for name in ("theta", "vega", "delta", "gamma")
+    }
+    ticket.approved = replace(a, plan=plan, **checks)
     _report(stack, monkeypatch, stop_id, filled=0, quantity=plan.contracts)
     stack.executor._guard_pending_stop(ticket, 1)
     new = stack.broker.status(f"{ticket.position_id}-stop-wait").order

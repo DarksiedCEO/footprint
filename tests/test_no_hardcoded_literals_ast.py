@@ -242,6 +242,9 @@ def yaml_files() -> list[Path]:
 # - text N: small counts and item numbers in docstrings, comments and messages; since
 #   G20-1 reads both ends of a hyphen range: config.py's message "nth must be 1-5" (the
 #   nth-weekday range above) and channels.py's E.164 phone regex "[1-9]".
+# - text 14 in channels.py (noiseband-v1, 2026-10-23): the E.164 phone regex's digit
+#   count "{7,14}" (a phone number has at most 15 digits, the "+[1-9]" one included).
+#   It became forbidden only because research.yaml's noise_band warm-up is 14 days.
 REVIEWED: dict[str, dict[str, int]] = {
     "footprint/agents/_series.py": {
         "code 2": 1,
@@ -249,6 +252,17 @@ REVIEWED: dict[str, dict[str, int]] = {
     },
     "footprint/agents/contract_picker.py": {
         "code 2": 1,
+    },
+    # 365 (integration of #37 with #40/#43): config/research.yaml lists days_per_year: 365
+    # (research's own Black-76 time unit), which made every 365 in src/ forbidden. In the
+    # trading path 365 is the length of a calendar year: B76-1 (Andre, 2026-10-22) fixes
+    # time as CALENDAR time, and `_YEAR = timedelta(days=365)` converts a span to years
+    # for Black-76 (theta.py, greeks.py, model_check.py; plus one docstring each in
+    # theta.py and greeks.py saying so). A unit conversion, not an instrument, money or
+    # strategy value; research keeps its own setting and the trading path never reads it.
+    "footprint/agents/greeks.py": {
+        "code 365": 1,
+        "text 365": 1,
     },
     "footprint/agents/levels.py": {
         "code -2": 2,
@@ -261,6 +275,10 @@ REVIEWED: dict[str, dict[str, int]] = {
     },
     "footprint/agents/range_reader.py": {
         "code -2": 4,
+    },
+    "footprint/agents/theta.py": {
+        "code 365": 1,
+        "text 365": 1,
     },
     "footprint/agents/trend_reader.py": {
         "code -2": 4,
@@ -276,6 +294,9 @@ REVIEWED: dict[str, dict[str, int]] = {
     "footprint/backtest/engine.py": {
         "code 2": 1,
         "text 2": 1,
+    },
+    "footprint/backtest/model_check.py": {
+        "code 365": 1,
     },
     "footprint/backtest/options_model.py": {
         "code 2": 1,
@@ -342,6 +363,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "word Day after Thanksgiving": 1,
         "word Good Friday": 1,
         "word Independence Day": 1,
+        "word Independence Day eve": 1,  # BH-1: a required rule's name (REQUIRED_RULES)
         "word Juneteenth": 1,
         "word Labor Day": 1,
         "word Martin Luther King Jr. Day": 1,
@@ -349,7 +371,7 @@ REVIEWED: dict[str, dict[str, int]] = {
         "word New Year's Day": 1,
         "word Presidents Day": 1,
         "word Thanksgiving": 1,
-        "word early_close": 4,
+        "word early_close": 5,  # BH-1: +1, the kind REQUIRED_RULES gives Independence Day eve
         "word not_saturday": 3,
         "word weekday_only": 3,
         "word weekend": 5,
@@ -388,6 +410,7 @@ REVIEWED: dict[str, dict[str, int]] = {
     "footprint/execution/channels.py": {
         "code 2": 1,
         "text 10": 1,
+        "text 14": 1,
         "text 3": 1,
         "text 7": 1,
         "text 9": 1,
@@ -415,7 +438,10 @@ REVIEWED: dict[str, dict[str, int]] = {
         "text 4": 1,
     },
     "footprint/live/__main__.py": {
-        "code 2": 3,
+        # Process exit code 2 (refused), not a trading value; the 4th is the play
+        # caller's refusals (playcaller-wire-v1, PC-2), the 5th a config error at load
+        # (playcaller-wire-v1 review round 1, L4).
+        "code 2": 5,
     },
     "footprint/live/alarm_setup.py": {
         "code 2": 6,

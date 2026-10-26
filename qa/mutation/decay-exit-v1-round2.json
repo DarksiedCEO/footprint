@@ -1,0 +1,573 @@
+{
+ "groups": {
+  "exit": [
+   "tests/agents/test_decay_exit.py"
+  ],
+  "theta": [
+   "tests/agents/test_theta.py"
+  ],
+  "malik": [
+   "tests/execution/test_decay_exit_manage.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "wiring": [
+   "tests/test_decay_exit_wiring.py"
+  ],
+  "engine": [
+   "tests/backtest/test_engine.py"
+  ],
+  "readout": [
+   "tests/backtest/test_readout_decay_exit.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "    if left <= window:",
+   "    if left < window:",
+   "an option expiring exactly at the window's end valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "value(years) - value(years - window / _YEAR)",
+   "value(years) - value(years - window / _YEAR / 2)",
+   "half the window"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "    if is_american(quote, instrument):",
+   "    if False:",
+   "American class not refused by its own reason"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "    if not is_european_class(quote.trading_class, instrument):",
+   "    if False:",
+   "unknown class valued"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "            timedelta(minutes=s.planned_hold_minutes),",
+   "            timedelta(minutes=s.decay_exit.window_minutes),",
+   "entry veto uses the exit window"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "            return verdict(False, valued.reason)",
+   "            return verdict(True, valued.reason)",
+   "entry allowed when not valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if not rule.enabled:",
+   "        if False:",
+   "off switch ignored"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if open_profit <= 0:",
+   "        if open_profit < 0:",
+   "a flat trade judged"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if open_profit >= self._target:",
+   "        if open_profit > self._target:",
+   "a trade exactly at target judged"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if trailing:",
+   "        if False:",
+   "a locked trail judged"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if chain is None:",
+   "        if False:",
+   "no chain not handled"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if age < timedelta(0):",
+   "        if False:",
+   "a future chain valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if age < timedelta(0):",
+   "        if age <= timedelta(0):",
+   "a chain stamped now refused"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if age > self._max_age:",
+   "        if age >= self._max_age:",
+   "a chain exactly max-age old refused"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if age > self._max_age:",
+   "        if False:",
+   "a stale chain valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "q.contract_id == contract_id), None)",
+   "q.contract_id != contract_id), None)",
+   "the wrong contract valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            chain.underlying_price,\n            now,",
+   "            quote.strike,\n            now,",
+   "strike used as the forward"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            timedelta(minutes=rule.window_minutes),",
+   "            timedelta(minutes=self._s.planned_hold_minutes),",
+   "exit uses the planned hold"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        fire = decay > limit",
+   "        fire = decay >= limit",
+   "exactly at the limit fires"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        decay = Decimal(str(valued.decay_points)) * self._instrument.point_value * contracts",
+   "        decay = Decimal(str(valued.decay_points)) * self._instrument.point_value",
+   "contracts ignored"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        limit = open_profit * rule.max_pct_of_open_profit / _PERCENT_MAX",
+   "        limit = self._target * rule.max_pct_of_open_profit / _PERCENT_MAX",
+   "share of the target, not of the open profit"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        self._max_age = timedelta(seconds=quotes.max_age_seconds)",
+   "        self._max_age = timedelta(minutes=quotes.max_age_seconds)",
+   "max age in minutes"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            reason=f\"{contract_id}: decay exit: {numbers}\" if fire",
+   "            reason=f\"{contract_id}: {numbers}\" if fire",
+   "journal line loses its name"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if valued.decay_points is None:\n            return stay(",
+   "        if False:\n            return stay(",
+   "unvaluable not handled"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            chain.underlying_price,\n            now,\n            timedelta",
+   "            chain.underlying_price,\n            chain.ts,\n            timedelta",
+   "valued at the chain's time, not now"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            implied_vol=valued.implied_vol,\n            years=valued.years,\n            underlying_price=chain.underlying_price,",
+   "            implied_vol=None,\n            years=valued.years,\n            underlying_price=chain.underlying_price,",
+   "implied vol not reported"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):",
+   "        if False:",
+   "decay exit never asked"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if account.kill_switch_latched:\n            return ExitReason.KILL_SWITCH\n        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):\n            return ExitReason.DECAY_EXIT",
+   "        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):\n            return ExitReason.DECAY_EXIT\n        if account.kill_switch_latched:\n            return ExitReason.KILL_SWITCH",
+   "decay before the kill switch"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "            trailing = self._stops.current(pid).trailing",
+   "            trailing = False",
+   "trail state not passed"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                position.contract_id, position.contracts, net_open, trailing, now",
+   "                position.contract_id, position.contracts, net_open + 1, trailing, now",
+   "wrong open profit"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                position.contract_id, position.contracts, net_open, trailing, now",
+   "                position.contract_id, 1, net_open, trailing, now",
+   "contracts not passed"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "            if pid not in self._decay_alarmed:",
+   "            if True:",
+   "alarm every time"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                self._decay_alarmed.add(pid)",
+   "                pass",
+   "alarm every time (not recorded)"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        except Exception as exc:\n            if pid not in self._decay_alarmed:",
+   "        except ValueError as exc:\n            if pid not in self._decay_alarmed:",
+   "a failing decay exit crashes management"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if not verdict.fire:\n            if verdict.unvalued",
+   "        if False:\n            if verdict.unvalued",
+   "a stay is an exit"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        self._decay_notes[pid] = f\"{now.isoformat()} {verdict.reason}\"",
+   "        pass",
+   "no journal note"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        note = self._decay_notes.pop(pid, None)",
+   "        note = self._decay_notes.get(pid)",
+   "note kept after use"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if reason is ExitReason.DECAY_EXIT and note is not None:",
+   "        if note is not None:",
+   "note written for another reason's exit"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "    DECAY_EXIT = \"DECAY_EXIT\"",
+   "    DECAY_EXIT = \"DECAY\"",
+   "journal reason renamed"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "            position.events.append(note)  # the journal's why, as of its check",
+   "            pass",
+   "note not journaled"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if decay_exit.max_pct_of_open_profit > _PERCENT_MAX:",
+   "    if decay_exit.max_pct_of_open_profit >= _PERCENT_MAX:",
+   "100 refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if decay_exit.max_pct_of_open_profit > _PERCENT_MAX:",
+   "    if False:",
+   "above 100 accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        window_minutes=_integer(dx, \"window_minutes\", dx_where, minimum=1),",
+   "        window_minutes=_integer(dx, \"window_minutes\", dx_where, minimum=0),",
+   "zero window accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        enabled=_boolean(dx, \"enabled\", dx_where),",
+   "        enabled=True,",
+   "enabled ignored"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        max_pct_of_open_profit=_positive_decimal(dx, \"max_pct_of_open_profit\", dx_where),",
+   "        max_pct_of_open_profit=_non_negative_decimal(dx, \"max_pct_of_open_profit\", dx_where),",
+   "zero share accepted"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "            Manager(p, tracked, stops, self.ledger, self.halt, self.book, decay_exit=decay)",
+   "            Manager(p, tracked, stops, self.ledger, self.halt, self.book)",
+   "backtest without the decay exit"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "                exit_rule=exit_rule,\n                decay_exit=decay,",
+   "                exit_rule=exit_rule,",
+   "backtest with a named exit rule loses the decay exit"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "p.risk, p.execution.quotes, self._chain)",
+   "p.risk, p.execution.quotes, lambda now: None)",
+   "backtest decay exit has no chain"
+  ],
+  [
+   "wiring",
+   "src/footprint/live/app.py",
+   "    manager = Manager(p, tracked, stops, ledger, halt, book, decay_exit=decay)",
+   "    manager = Manager(p, tracked, stops, ledger, halt, book)",
+   "paper app without the decay exit"
+  ],
+  [
+   "wiring",
+   "src/footprint/live/app.py",
+   "p.risk, p.execution.quotes, market.chain)",
+   "p.risk, p.execution.quotes, market.bars)",
+   "paper app decay exit on the wrong source"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "            Manager(p, tracked, stops, self.ledger, self.halt, self.book, decay_exit=decay)",
+   "            Manager(p, tracked, stops, self.ledger, self.halt, self.book)",
+   "backtest without the decay exit (behaviour)"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "    rate = float(settings.rate)",
+   "    rate = 0.0",
+   "reviewer R1 rate ignored"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "    rate = float(settings.rate)",
+   "    rate = 0.0",
+   "reviewer R1b rate ignored (entry)"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        decay = Decimal(str(valued.decay_points)) * self._instrument.point_value * contracts",
+   "        decay = Decimal(str(valued.decay_points)) * 20 * contracts",
+   "reviewer R2 point value hardcoded 20"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        chain = self._chain(now)",
+   "        chain = self._chain(now - timedelta(seconds=1))",
+   "reviewer R3 chain asked for the wrong time"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):\n            return ExitReason.DECAY_EXIT\n        if self._exit_rule is not None and self._exit_rule.wants_out(position, net_open, now):\n            return ExitReason.RULE",
+   "        if self._exit_rule is not None and self._exit_rule.wants_out(position, net_open, now):\n            return ExitReason.RULE\n        if self._decay_exit is not None and self._decay_says_out(position, net_open, now):\n            return ExitReason.DECAY_EXIT",
+   "reviewer R4 named rule before the decay exit"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                position.contract_id, position.contracts, net_open, trailing, now",
+   "                position.position_id, position.contracts, net_open, trailing, now",
+   "reviewer R5 position id instead of contract id"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                self._decay_alarmed.add(pid)",
+   "                pass",
+   "reviewer R6 alarm every failure"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        window_minutes=_integer(dx, \"window_minutes\", dx_where, minimum=1),",
+   "        window_minutes=_integer(dx, \"window_minutes\", dx_where, minimum=-5),",
+   "reviewer R7 negative window accepted"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "        if age < timedelta(0):",
+   "        if age < timedelta(seconds=-1):",
+   "reviewer R8 chain 1s in the future valued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "value it from; no decay exit\", unvalued=True",
+   "value it from; no decay exit\", unvalued=False",
+   "L3 no chain not marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "f\"({chain.ts.isoformat()}); no decay exit\",\n                unvalued=True,",
+   "f\"({chain.ts.isoformat()}); no decay exit\",\n                unvalued=False,",
+   "L3 future chain not marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "is stale ({chain.ts.isoformat()}); no decay exit\",\n                unvalued=True,",
+   "is stale ({chain.ts.isoformat()}); no decay exit\",\n                unvalued=False,",
+   "L3 stale chain not marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "not in the option chain; no decay exit\", unvalued=True)",
+   "not in the option chain; no decay exit\", unvalued=False)",
+   "L3 contract missing not marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "valued.years, unvalued=True)",
+   "valued.years, unvalued=False)",
+   "L3 refused valuation not marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "reason: str, years: float | None = None, *, unvalued: bool = False",
+   "reason: str, years: float | None = None, *, unvalued: bool = True",
+   "L3 rule stays (off, not in profit, target, trail) marked unvalued"
+  ],
+  [
+   "exit",
+   "src/footprint/agents/theta.py",
+   "            fire=fire,\n            unvalued=False,",
+   "            fire=fire,\n            unvalued=not fire,",
+   "L3 a valued stay marked unvalued"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "            if verdict.unvalued and pid not in self._decay_unvalued:",
+   "            if pid not in self._decay_unvalued:",
+   "L3 every stay journaled as unvalued"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                self._decay_unvalued.add(pid)",
+   "                pass",
+   "L3 unvalued journaled every step (spam)"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                position.events.append(f\"{now.isoformat()} {said}\")",
+   "                pass",
+   "L3 unvalued not journaled"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "                log.warning(\"%s: %s\", pid, said)",
+   "                pass",
+   "L3 unvalued not logged"
+  ],
+  [
+   "malik",
+   "src/footprint/execution/management/malik.py",
+   "            position.events.append(note)  # the journal's why, as of its check",
+   "            position.events.append(f\"{now.isoformat()} {note.split(' ', 1)[1]}\")",
+   "I1 note restamped with the sell time"
+  ],
+  [
+   "readout",
+   "src/footprint/backtest/__main__.py",
+   "\"true\" if decay_exit.enabled else \"false\"",
+   "\"false\"",
+   "M1 enabled printed as a constant"
+  ],
+  [
+   "readout",
+   "src/footprint/backtest/__main__.py",
+   "\"theta.decay_exit.window_minutes\": str(decay_exit.window_minutes),",
+   "\"theta.decay_exit.window_minutes\": str(profiles.strategy.theta.planned_hold_minutes),",
+   "M1 window printed from the planned hold"
+  ],
+  [
+   "readout",
+   "src/footprint/backtest/__main__.py",
+   "\"theta.decay_exit.max_pct_of_open_profit\": str(decay_exit.max_pct_of_open_profit),",
+   "\"theta.decay_exit.max_pct_of_open_profit\": str(profiles.strategy.theta.max_decay_pct_of_target),",
+   "M1 share printed from the entry budget"
+  ],
+  [
+   "readout",
+   "src/footprint/backtest/__main__.py",
+   "        \"risk.stop_loss\": str(profiles.risk.stop_loss),\n        # Theta",
+   "        # Theta",
+   "M1 decay lines not after the exit numbers (stop_loss line dropped)"
+  ],
+  [
+   "config",
+   "config/strategy.yaml",
+   "    enabled: false              #",
+   "    enabled: true               #",
+   "H1 shipped on"
+  ],
+  [
+   "engine",
+   "config/strategy.yaml",
+   "    enabled: false              #",
+   "    enabled: true               #",
+   "H1 shipped on (behaviour: the winner is cut)"
+  ]
+ ]
+}

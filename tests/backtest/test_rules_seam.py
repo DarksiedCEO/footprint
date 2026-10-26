@@ -5,9 +5,18 @@ agreement, session, risk, kill switch, levels, sizing, the hard stop) still deci
 With no rule named, the run's output is byte-identical to the run before the seam
 existed (the golden files were written by the pre-seam code at chain-recorder-v1
 ca5399d; only the temp path and the random position-id suffix are normalised).
-The one intended change since: Q6 (i), review G52-2, added the three exit-number lines
+The intended changes since: Q6 (i), review G52-2, added the three exit-number lines
 (risk.profit_target, risk.trail_keep_pct, risk.stop_loss) to the readout's assumptions,
-in readout.md, readout.json and the printed readout; nothing else in the golden moved.
+in readout.md, readout.json and the printed readout. CAP-1 review L1 (cap10k-v1) added a
+risk.position_cap line after them, and review M1 of decay-exit-v1 added the three
+decay-exit lines (theta.decay_exit.enabled, window_minutes, max_pct_of_open_profit)
+after that, in the same three places; with the decay exit shipped off, nothing else
+in the golden moved.
+Since backtest-history-v1 (BH-2) the run uses the shipped config with price-level
+rescaling OFF (option_model.reference_price: null), the model it was written with; its
+readout lists that setting as one more assumption line ("option model reference_price:
+None"), in readout.md, readout.json and the printed readout. Its journal and ledger are
+unchanged byte for byte.
 """
 
 from __future__ import annotations
@@ -30,13 +39,15 @@ from footprint.core.config import Profiles
 from footprint.core.models import Bar, Read, Score
 from footprint.decision.pipeline import Decision, Pipeline
 from footprint.decision.risk.gate import AccountState
-from tests.backtest.conftest import TRADE_FROM
+from tests.backtest.conftest import TRADE_FROM, config_copy
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 from tests.decision.test_console_pipeline import clean
 
 GOLDEN = Path(__file__).parent / "golden" / "seam_default"
+GOLDEN_REAL_PLAY = Path(__file__).parent / "golden" / "seam_real_play"
 _POSITION_SUFFIX = re.compile(rb'("position_id": "[0-9T]+-\d+-)[0-9a-f]{8}"')
 
 
@@ -58,7 +69,11 @@ def _decide(
     trigger: FixedTrigger | MomentumReader | None = None,
     account: AccountState | None = None,
 ) -> Decision:
-    pipeline = Pipeline(profiles) if trigger is None else Pipeline(profiles, trigger)
+    pipeline = (
+        Pipeline(profiles, play=open_play())
+        if trigger is None
+        else Pipeline(profiles, trigger, play=open_play())
+    )
     bars = market()
     return pipeline.decide(
         bars, chain_for(bars[-1].close), account or clean(profiles), (), DECISION_TIME
@@ -124,7 +139,7 @@ def _run(tmp_path: Path, *extra: str) -> tuple[Path, str]:
                 "--out",
                 str(out),
                 "--config",
-                str(REPO_ROOT / "config"),
+                str(config_copy(tmp_path / "config", None)),
                 "--trade-from",
                 TRADE_FROM.isoformat(),
                 *extra,
@@ -138,18 +153,33 @@ def _normalised(data: bytes, tmp_path: Path) -> bytes:
     return _POSITION_SUFFIX.sub(rb'\1<RAND>"', data)
 
 
+def _matches_golden(golden: Path, tmp_path: Path) -> None:
+    out, printed = _run(tmp_path)
+    written = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
+    expected = sorted(p.relative_to(golden).as_posix() for p in golden.rglob("*") if p.is_file())
+    assert written == [name for name in expected if name != "stdout.txt"]
+    for name in written:
+        assert _normalised((out / name).read_bytes(), tmp_path) == (golden / name).read_bytes(), (
+            name
+        )
+    assert _normalised(printed.encode(), tmp_path) == (golden / "stdout.txt").read_bytes()
+
+
 def test_with_no_rule_named_the_run_is_byte_identical_to_before_the_seam(
     tmp_path: Path,
 ) -> None:
-    out, printed = _run(tmp_path)
-    written = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
-    expected = sorted(p.relative_to(GOLDEN).as_posix() for p in GOLDEN.rglob("*") if p.is_file())
-    assert written == [name for name in expected if name != "stdout.txt"]
-    for name in written:
-        assert _normalised((out / name).read_bytes(), tmp_path) == (GOLDEN / name).read_bytes(), (
-            name
-        )
-    assert _normalised(printed.encode(), tmp_path) == (GOLDEN / "stdout.txt").read_bytes()
+    """With the play caller saying TREND (the backtest tests' stand-in): the journal,
+    trades and ledger are byte-identical to the pre-wiring golden; the readout only
+    gained its play caller section (no day labelled: the stand-in fixes none)."""
+    _matches_golden(GOLDEN, tmp_path)
+
+
+@pytest.mark.real_play
+def test_with_the_real_play_caller_the_short_scenario_never_trades(tmp_path: Path) -> None:
+    """The same run with the real play caller: the scenario's 26 sessions are far less
+    than the regime reader's 61, so the day is labelled NO_DATA at the decision minute,
+    journaled once, nothing trades, and the readout says why."""
+    _matches_golden(GOLDEN_REAL_PLAY, tmp_path)
 
 
 def test_a_named_entry_rule_replaces_the_trigger_for_the_whole_run(

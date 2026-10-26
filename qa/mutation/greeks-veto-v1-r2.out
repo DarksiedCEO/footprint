@@ -1,0 +1,23 @@
+source: d24378ae5a2bc863e0753f1316a9d0bf023634d3 tree-dirty: 0 files
+baseline [config]: passed
+baseline [guard]: passed
+  1 SURVIVED [guard] src/footprint/backtest/model_check.py: vega floor edge refused
+  2 SURVIVED [guard] src/footprint/backtest/model_check.py: vega ceiling edge refused
+  3 KILLED   [guard] src/footprint/backtest/model_check.py: tie rule wrong for calls
+  4 KILLED   [guard] src/footprint/backtest/engine.py: first traded bar skipped
+  5 KILLED   [config] src/footprint/core/config.py: M1 compares the ceiling
+  6 KILLED   [guard] src/footprint/backtest/model_check.py: 366-day year
+  7 KILLED   [guard] src/footprint/backtest/model_check.py: counts to the prime close (L3)
+  8 KILLED   [guard] src/footprint/backtest/model_check.py: low tie takes the latest bar
+  9 KILLED   [guard] src/footprint/backtest/model_check.py: no prime bars: no refusal
+ 10 KILLED   [guard] src/footprint/backtest/model_check.py: high tie takes the latest bar
+ 11 KILLED   [guard] src/footprint/backtest/__main__.py: CLI catches only the model refusal
+ 12 KILLED   [guard] src/footprint/backtest/model_check.py: no-prime refusal outside the refused family
+ 13 KILLED   [config] src/footprint/core/config.py: bound a day late
+ 14 KILLED   [config] src/footprint/core/config.py: from the prime close
+ 15 KILLED   [config] src/footprint/core/config.py: to the early-close time
+ 16 KILLED   [config] src/footprint/core/config.py: last day, not the longest
+ 17 SURVIVED [config] src/footprint/core/config.py: no UTC: clock change ignored
+ 18 KILLED   [config] src/footprint/core/config.py: the longest wait itself refused
+ 19 KILLED   [config] src/footprint/core/config.py: only the first calendar day
+19 mutants, 3 survived or errored

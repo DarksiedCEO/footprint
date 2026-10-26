@@ -1,0 +1,584 @@
+{
+ "groups": {
+  "bars": [
+   "tests/research/test_bars_sessions_vol.py"
+  ],
+  "pricing": [
+   "tests/research/test_pricing.py"
+  ],
+  "exits": [
+   "tests/research/test_exits.py"
+  ],
+  "engine": [
+   "tests/research/test_engine.py"
+  ],
+  "stats": [
+   "tests/research/test_stats.py"
+  ],
+  "cli": [
+   "tests/research/test_cli_settings_isolation.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "    shift = _DAY - timedelta(hours=roll.hour, minutes=roll.minute)",
+   "    shift = _DAY - timedelta(hours=roll.hour)",
+   "roll minutes ignored"
+  ],
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "    return (wall + shift).date()",
+   "    return wall.date()",
+   "no roll at all"
+  ],
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "    wall = ts.astimezone(zone).replace(tzinfo=None)",
+   "    wall = ts.replace(tzinfo=None)",
+   "zone ignored (UTC wall)"
+  ],
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "        if previous is not None and bar.ts <= previous:",
+   "        if previous is not None and bar.ts < previous:",
+   "duplicate ts accepted"
+  ],
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "        if current is not None and day != current:",
+   "        if current is not None and day < current:",
+   "days not split"
+  ],
+  [
+   "bars",
+   "src/footprint/research/bars.py",
+   "        clock=tuple(bar.ts.astimezone(zone).time() for bar in rows),",
+   "        clock=tuple(bar.ts.time() for bar in rows),",
+   "clock in UTC"
+  ],
+  [
+   "bars",
+   "src/footprint/research/settings.py",
+   "            return self.start <= clock < self.end",
+   "            return self.start <= clock <= self.end",
+   "window end inclusive"
+  ],
+  [
+   "bars",
+   "src/footprint/research/settings.py",
+   "        return clock >= self.start or clock < self.end",
+   "        return clock > self.start or clock < self.end",
+   "wrapped start exclusive"
+  ],
+  [
+   "bars",
+   "src/footprint/research/settings.py",
+   "        return clock >= self.start or clock < self.end",
+   "        return clock >= self.start or clock <= self.end",
+   "wrapped end inclusive"
+  ],
+  [
+   "bars",
+   "src/footprint/research/sessions.py",
+   "    return OTHER\n",
+   "    return name if sessions else OTHER\n",
+   "unassigned minute labelled with the last session"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "        at = bisect.bisect_left(self.dates, day) - 1",
+   "        at = bisect.bisect_right(self.dates, day) - 1",
+   "same-day close used (lookahead)"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "        if (day - self.dates[at]).days > self.max_age_days:",
+   "        if (day - self.dates[at]).days > self.max_age_days + 1:",
+   "stale by a day accepted"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "        if (day - self.dates[at]).days > self.max_age_days:",
+   "        if (day - self.dates[at]).days >= self.max_age_days:",
+   "max age exclusive"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "        return self.closes[at] / self.divisor",
+   "        return self.closes[at]",
+   "divisor ignored"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "            if not math.isfinite(close) or close <= 0:",
+   "            if close <= 0:",
+   "nan/inf close accepted"
+  ],
+  [
+   "bars",
+   "src/footprint/research/vol.py",
+   "            if dates and day <= dates[-1]:",
+   "            if dates and day < dates[-1]:",
+   "duplicate date accepted"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    strike = round(target / opt.strike_step) * opt.strike_step",
+   "    strike = int(target / opt.strike_step) * opt.strike_step",
+   "strike truncated not rounded"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    scale = 1.0 if opt.reference_price is None else opt.reference_price / entry_price",
+   "    scale = 1.0",
+   "no rescaling"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    right = Right76.CALL if direction == 1 else Right76.PUT",
+   "    right = Right76.CALL",
+   "always a call"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    if direction not in (1, -1):",
+   "    if direction == 0:",
+   "bad direction accepted"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    return days / opt.days_per_year",
+   "    return days / 365",
+   "days per year hardcoded"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    if days < 0:",
+   "    if days < -1:",
+   "valued after expiry"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "        rate=opt.rate,",
+   "        rate=0.0,",
+   "rate ignored"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    return (exit_value - entry_value) * point_value * contracts - cost * contracts",
+   "    return (exit_value - entry_value) * point_value * contracts - cost",
+   "cost not per contract"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        if self._peak_net is None or self._peak_net < self._ex.lock_start_dollars:",
+   "        if self._peak_net is None or self._peak_net <= self._ex.lock_start_dollars:",
+   "lock start exclusive"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        return self._value_at_net(self._peak_net * self._ex.lock_fraction)",
+   "        return self._value_at_net(self._peak_net * 0.5)",
+   "lock fraction hardcoded"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        return self.entry_value + (net + self._cost) / self._pv",
+   "        return self.entry_value + net / self._pv",
+   "lock/target gross not net"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        if self._peak_net is None or net > self._peak_net:",
+   "        if self._peak_net is None:",
+   "peak never follows"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "            if candidate[0] > level:",
+   "            if candidate[0] < level:",
+   "lowest level wins"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        if value <= level:",
+   "        if value < level:",
+   "touching the level does not fill"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "            sold = Fill(self.open, value if gap else level, reason)",
+   "            sold = Fill(self.open, level, reason)",
+   "gap fills at the level"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "            if value >= target:",
+   "            if value > target:",
+   "target exclusive"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "                self.open -= 1\n",
+   "                self.open -= 0\n",
+   "target sells nothing"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        if self.done:\n            return []\n        sold = Fill(self.open, value, reason)",
+   "        sold = Fill(self.open, value, reason)",
+   "flat sells twice"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        self._target_taken = kind == \"booker\"",
+   "        self._target_taken = False",
+   "booker takes a target"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            (day.low[j], day.high[j]) if choice.direction == 1 else (day.high[j], day.low[j])",
+   "            (day.high[j], day.low[j]) if choice.direction == 1 else (day.low[j], day.high[j])",
+   "favourable extreme first"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "        if opened >= signal.flat_by:",
+   "        if opened > signal.flat_by:",
+   "flat bar at the flat time not closed"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "        at(day.open[j], opened, True)",
+   "        at(day.open[j], opened, False)",
+   "open not a gap"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            if entry_ts >= signal.flat_by:",
+   "            if entry_ts > signal.flat_by:",
+   "entry at flat time accepted"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            i = closed_in + 1",
+   "            i = closed_in if closed_in > i else closed_in + 1",
+   "rule asked on the exit bar"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "                skipped += 1\n                break\n",
+   "                skipped += 1\n                i += 1\n                continue\n",
+   "skipped day retried"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            realized += net",
+   "            realized += 0",
+   "realized not tracked"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            price = day.close[i]",
+   "            price = day.open[i]",
+   "entry at the trigger open"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        profit_factor=gross_win / gross_loss if losses else None,",
+   "        profit_factor=gross_win / gross_loss if losses else float(\"inf\"),",
+   "PF inf with no losses"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        if sd > 0:",
+   "        if sd >= 0:",
+   "t-stat with no spread"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "    split = n - held",
+   "    split = held",
+   "in/out of sample swapped"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "    oos = summarize(pnls[split:], start_equity + sum(pnls[:split]))",
+   "    oos = summarize(pnls[split:], start_equity)",
+   "oos drawdown from the start equity"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "            positive >= min_positive_parts,",
+   "            positive > min_positive_parts,",
+   "positive parts exclusive"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "    wins = [p for p in pnls if p > 0]",
+   "    wins = [p for p in pnls if p >= 0]",
+   "zero counted as a win"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "    return f\"{value:.4g} vs >= {floor}\", value >= float(floor)",
+   "    return f\"{value:.4g} vs >= {floor}\", value > float(floor)",
+   "gate floor exclusive"
+  ],
+  [
+   "cli",
+   "src/footprint/research/__main__.py",
+   "        part = [t.net for t in trades if label in (\"all\", t.session)]",
+   "        part = [t.net for t in trades]",
+   "sessions not split"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "        if len(owners) > 1:",
+   "        if len(owners) > 2:",
+   "overlapping sessions accepted"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "    if scale_contracts <= 1:",
+   "    if scale_contracts < 1:",
+   "one-contract scale-out accepted"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "        lock_fraction=float(risk.trail_keep_pct / _PERCENT_MAX),",
+   "        lock_fraction=float(risk.trail_keep_pct),",
+   "lock fraction not a fraction"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "    if cost < 0:",
+   "    if cost < -1:",
+   "negative cost accepted"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "        if getattr(gates, name) >= _PERCENT_MAX:",
+   "        if getattr(gates, name) > _PERCENT_MAX:",
+   "a 100% gate accepted"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "        min_trades=_integer(g, \"min_trades\", g_where, minimum=1),",
+   "        min_trades=_integer(g, \"min_trades\", g_where, minimum=0),",
+   "zero min_trades accepted"
+  ],
+  [
+   "cli",
+   "src/footprint/research/settings.py",
+   "        min_profit_factor=_positive_decimal(g, \"min_profit_factor\", g_where),",
+   "        min_profit_factor=_positive_decimal(g, \"min_payoff_ratio\", g_where),",
+   "profit factor gate read from payoff"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    target = entry_price * scale - direction * opt.moneyness_points",
+   "    target = entry_price - direction * opt.moneyness_points",
+   "37-H1: strike chosen at the data's own level"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    strike = round(target / opt.strike_step) * opt.strike_step",
+   "    strike = target",
+   "37-H1: no strike rounding"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            vol = vols.lookup(day.day)",
+   "            vol = vols.lookup(day.day + timedelta(days=1))",
+   "37-M1: next day's vol (lookahead)"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            realized += net",
+   "            realized = net",
+   "37-L1: realized not summed"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "                and signal.direction * (price - signal.futures_stop) <= 0",
+   "                and signal.direction * (price - signal.futures_stop) < 0",
+   "37-L3: stop at the entry price accepted"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "        if exit_.open == held:  # no fill here: mark at this point",
+   "        if False:",
+   "37-M3: no path marks"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "            marks = [exit_.marked(entry_value)]",
+   "            marks = []",
+   "37-M3: no entry mark"
+  ],
+  [
+   "cli",
+   "src/footprint/research/__main__.py",
+   "        pnls, settings.bankroll, settings.gates, j.time_parts, j.min_positive_parts, marks=marks",
+   "        sorted(pnls), settings.bankroll, settings.gates, j.time_parts, j.min_positive_parts",
+   "37-M2: verdict on sorted trades"
+  ],
+  [
+   "cli",
+   "src/footprint/research/__main__.py",
+   "    if ruin is not None:",
+   "    if False:",
+   "37-L2: ruin not reported"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        if equity <= 0:",
+   "        if equity < 0:",
+   "ruin only below zero"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "            drawdown = max(drawdown, marked)",
+   "            drawdown = drawdown",
+   "37-M3: marked drawdown not gated"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "            equity += trade[-1]",
+   "            equity += 0",
+   "marked curve does not carry closed trades"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        if not prefix and marks is not None:",
+   "        if marks is not None:",
+   "marked drawdown applied to the held-out share"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        (\"not ruined\", \"never\" if ruin is None else f\"ruined at trade {ruin}\", ruin is None),",
+   "        (\"not ruined\", \"never\" if ruin is None else f\"ruined at trade {ruin}\", True),",
+   "ruin does not fail"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        held = ((value - self.entry_value) * self._pv - self._cost) * self.open",
+   "        held = (value - self.entry_value) * self._pv * self.open",
+   "marks without costs"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "        sold = self.net(self._fills)\n",
+   "        sold = 0.0\n",
+   "marks forget sold contracts"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "    target = entry_price * scale - direction * opt.moneyness_points",
+   "    target = entry_price * scale + direction * opt.moneyness_points",
+   "moneyness sign flipped"
+  ],
+  [
+   "pricing",
+   "src/footprint/research/pricing.py",
+   "        forward=futures * choice.scale,",
+   "        forward=futures,",
+   "forward not rescaled"
+  ],
+  [
+   "exits",
+   "src/footprint/research/exits.py",
+   "                first = Fill(1, value if gap else target, \"target\")",
+   "                first = Fill(1, target, \"target\")",
+   "target gap fills at the level"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "        if peak > 0:\n            worst_pct = max(worst_pct, (peak - equity) / peak * _PCT)",
+   "        if peak < 0:\n            worst_pct = max(worst_pct, (peak - equity) / peak * _PCT)",
+   "drawdown pct never computed"
+  ],
+  [
+   "stats",
+   "src/footprint/research/stats.py",
+   "            equity += trade[-1]",
+   "            equity += trade[0]",
+   "37-R2-M1: marked curve carries the first mark"
+  ],
+  [
+   "engine",
+   "src/footprint/research/engine.py",
+   "        if exit_.open == held:  # no fill here: mark at this point",
+   "        if True:",
+   "37-R2-L1: a mark recorded at a fill point"
+  ]
+ ]
+}

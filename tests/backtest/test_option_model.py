@@ -159,3 +159,40 @@ def test_the_trading_class_loads(tmp_path: Path) -> None:
 def test_a_bad_trading_class_is_refused(tmp_path: Path, bad: object) -> None:
     with pytest.raises(ConfigError, match="trading_class"):
         load_backtest(_with_option_model(tmp_path, trading_class=bad))
+
+
+# --- what the Greeks vetoes need (greeks-veto-v1, GV-1) ------------------------------
+
+
+@pytest.mark.parametrize("price", [D(20000), D("23712")])
+@pytest.mark.parametrize("direction", ["LONG", "SHORT"])
+def test_the_contract_felix_picks_from_the_model_passes_every_veto(
+    profiles: Profiles, settings: BacktestSettings, price: Decimal, direction: str
+) -> None:
+    # The backtest runs the live pipeline on modelled quotes: the contract it would pick
+    # on an ordinary day must be one Theta, Vega, Delta and Gamma can value and let
+    # through, or the backtest would trade nothing for a reason that is not the market.
+    from footprint.agents.contract_picker import ContractChoice, ContractPicker
+    from footprint.agents.greeks import DeltaAgent, GammaAgent, VegaAgent
+    from footprint.agents.theta import ThetaAgent
+    from footprint.core.calendar import SessionKind
+    from footprint.core.models import Direction
+    from footprint.decision.sizing import EntryPlan, size
+
+    s, inst = profiles.strategy, profiles.instrument
+    chain = model(profiles, settings).chain(T, price)
+    choice = ContractPicker(profiles.execution, inst).choose(chain, Direction[direction], T)
+    assert isinstance(choice, ContractChoice), choice
+    plan = size(choice, SessionKind.PRIME, profiles.risk, inst, profiles.execution)
+    assert isinstance(plan, EntryPlan), plan
+    theta = ThetaAgent(s.theta, inst, profiles.risk).assess(plan, price, T)
+    assert theta.allowed, theta.reason
+    for agent in (
+        VegaAgent(s.vega, s.theta.rate, inst),
+        DeltaAgent(s.delta, s.vega, s.theta.rate, inst),
+        GammaAgent(s.gamma, s.vega, s.theta.rate, inst),
+    ):
+        check = agent.assess(plan, price, T)
+        assert check.allowed, check.reason
+        assert check.implied_vol is not None
+        assert check.delta is not None

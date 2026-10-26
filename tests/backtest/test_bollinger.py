@@ -31,6 +31,7 @@ from footprint.backtest.bollinger import (
     squeeze_fires,
     walk_fires,
 )
+from footprint.backtest.price_level import LevelConsole
 from footprint.backtest.rule_console import RuleConsole
 from footprint.backtest.settings import BacktestSettings, load_backtest
 from footprint.core.config import ConfigError, Profiles
@@ -41,6 +42,7 @@ from footprint.decision.risk.gate import AccountState
 from tests.backtest.conftest import TRADE_FROM
 from tests.backtest.test_cli import write_bars
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
 D = Decimal
@@ -589,7 +591,9 @@ def account(profiles: Profiles) -> AccountState:
 def decide(profiles: Profiles, score: Score, console: bool, bars: list[Bar]) -> object:
     closed = [b for b in bars if b.ts + MIN <= DECISION_TIME]
     rule_console = RuleConsole(profiles.strategy.console, profiles.instrument)
-    pipeline = Pipeline(profiles, Always(score), rule_console if console else None)
+    pipeline = Pipeline(
+        profiles, Always(score), rule_console if console else None, play=open_play()
+    )
     return pipeline.decide(
         bars, chain_for(closed[-1].close, DECISION_TIME), account(profiles), (), DECISION_TIME
     )
@@ -670,7 +674,7 @@ def test_with_no_console_named_the_pipeline_builds_the_live_console(profiles: Pr
 # --- the CLI --------------------------------------------------------------------------
 
 
-FROM = ["--trade-from", TRADE_FROM.isoformat()]
+FROM = ["--trade-from", TRADE_FROM.isoformat(), "--rolls", "none"]  # no contract roll (BH-9)
 
 
 def test_a_bollinger_run_records_that_the_confirmers_are_off(tmp_path: Path) -> None:
@@ -716,5 +720,9 @@ def test_a_bollinger_run_builds_its_pipeline_with_the_rule_console(
             ]
         )
         main(["--bars", str(bars_csv), "--out", str(tmp_path / "pb"), "--entry", "pullback", *FROM])
-    assert isinstance(consoles[0], RuleConsole)
-    assert consoles[1] is None
+    # The shipped config rescales option prices (BH-2): each console comes wrapped in a
+    # LevelConsole, which only converts the levels room N (the rule console reads none).
+    wrapped = [c.inner if isinstance(c, LevelConsole) else c for c in consoles]
+    assert all(isinstance(c, LevelConsole) for c in consoles)
+    assert isinstance(wrapped[0], RuleConsole)
+    assert isinstance(wrapped[1], Console)  # the live console, built as the pipeline builds it

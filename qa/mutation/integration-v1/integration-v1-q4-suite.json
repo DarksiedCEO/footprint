@@ -1,0 +1,17 @@
+{
+  "groups": {
+    "level": [
+      "tests/backtest/test_price_level.py",
+      "tests/backtest/test_backtest_history.py::test_the_levels_room_is_judged_at_the_datas_level"
+    ]
+  },
+  "mutants": [
+    [
+      "level",
+      "src/footprint/backtest/price_level.py",
+      "        return points * self._anchored() / self._reference",
+      "        return points",
+      "reviewer-r2 Q4 (data_points not rescaled) against #47's own level tests"
+    ]
+  ]
+}

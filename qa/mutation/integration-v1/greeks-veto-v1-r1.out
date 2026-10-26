@@ -1,0 +1,45 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [config]: passed
+baseline [guard]: passed
+  1 KILLED   [guard] src/footprint/backtest/model_check.py: guard never checks
+  2 KILLED   [guard] src/footprint/backtest/model_check.py: dte_min excluded
+  3 KILLED   [guard] src/footprint/backtest/model_check.py: only inside dte_max (holiday gap skipped)
+  4 KILLED   [guard] src/footprint/backtest/model_check.py: farthest expiry
+  5 KILLED   [guard] src/footprint/backtest/model_check.py: no expiry ever checked
+  6 KILLED   [guard] src/footprint/backtest/model_check.py: puts not checked
+  7 KILLED   [guard] src/footprint/backtest/model_check.py: farthest strike
+  8 KILLED   [guard] src/footprint/backtest/model_check.py: problem swallowed
+  9 KILLED   [guard] src/footprint/backtest/model_check.py: overnight bars checked
+ 10 KILLED   [guard] src/footprint/backtest/model_check.py: only the first bar
+ 11 KILLED   [guard] src/footprint/backtest/model_check.py: highest low
+ 12 KILLED   [guard] src/footprint/backtest/model_check.py: lowest high
+ 13 KILLED   [guard] src/footprint/backtest/model_check.py: closes, not extremes
+ 14 KILLED   [guard] src/footprint/backtest/model_check.py: high side not checked
+ 15 KILLED   [guard] src/footprint/backtest/model_check.py: low side not checked
+ 16 KILLED   [guard] src/footprint/backtest/model_check.py: price not named
+ 17 KILLED   [guard] src/footprint/backtest/model_check.py: problem not named
+ 18 KILLED   [guard] src/footprint/backtest/model_check.py: tie rule ignored for puts
+ 19 KILLED   [guard] src/footprint/backtest/model_check.py: years wrong
+ 20 KILLED   [guard] src/footprint/backtest/model_check.py: valid options skipped
+ 21 KILLED   [guard] src/footprint/backtest/model_check.py: forward = strike
+ 22 KILLED   [guard] src/footprint/backtest/model_check.py: rate dropped
+ 23 KILLED   [guard] src/footprint/backtest/model_check.py: bid not mid
+ 24 KILLED   [guard] src/footprint/backtest/model_check.py: solved in vega band: theta side lost
+ 25 KILLED   [guard] src/footprint/backtest/model_check.py: solved in vega band (high)
+ 26 KILLED   [guard] src/footprint/backtest/model_check.py: theta bound misnamed
+ 27 KILLED   [guard] src/footprint/backtest/model_check.py: vega floor ignored
+ 28 KILLED   [guard] src/footprint/backtest/model_check.py: vega ceiling ignored
+ 29 KILLED   [guard] src/footprint/backtest/model_check.py: vega ceiling = theta's
+ 30 KILLED   [guard] src/footprint/backtest/model_check.py: wrong agent named (theta)
+ 31 KILLED   [guard] src/footprint/backtest/model_check.py: wrong agent named (vega)
+ 32 KILLED   [guard] src/footprint/backtest/engine.py: guard not called
+ 33 KILLED   [guard] src/footprint/backtest/engine.py: history checked
+ 34 KILLED   [guard] src/footprint/backtest/__main__.py: refusal exits 1 (FAIL)
+ 35 KILLED   [guard] src/footprint/backtest/__main__.py: refusal silent
+ 36 KILLED   [config] src/footprint/core/config.py: M1 rule off
+ 37 KILLED   [config] src/footprint/core/config.py: M1 edge refused
+ 38 KILLED   [config] src/footprint/core/config.py: L1 check not called
+BAD MUTANT 39 (0 matches): src/footprint/core/config.py: '    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)'
+BAD MUTANT 40 (0 matches): src/footprint/core/config.py: '    longest = timedelta(days=instrument.dte_max + 1) / timedelta(hours=1)'
+BAD MUTANT 41 (0 matches): src/footprint/core/config.py: '    if gamma.min_hours_to_expiry >= Decimal(str(longest)):'
+41 mutants, 3 survived or errored

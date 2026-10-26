@@ -1,0 +1,87 @@
+source: ea93750fb9804cb3bfed61b8d1a6b78e7514c7d3 tree-dirty: 0 files
+baseline [config]: passed
+baseline [engine]: passed
+baseline [exit]: passed
+baseline [malik]: passed
+baseline [readout]: passed
+baseline [theta]: passed
+baseline [wiring]: passed
+  1 KILLED   [exit] src/footprint/agents/theta.py: an option expiring exactly at the window's end valued
+  2 KILLED   [exit] src/footprint/agents/theta.py: half the window
+  3 KILLED   [exit] src/footprint/agents/theta.py: American class not refused by its own reason
+  4 KILLED   [exit] src/footprint/agents/theta.py: unknown class valued
+  5 KILLED   [theta] src/footprint/agents/theta.py: entry veto uses the exit window
+  6 KILLED   [theta] src/footprint/agents/theta.py: entry allowed when not valued
+  7 KILLED   [exit] src/footprint/agents/theta.py: off switch ignored
+  8 KILLED   [exit] src/footprint/agents/theta.py: a flat trade judged
+  9 KILLED   [exit] src/footprint/agents/theta.py: a trade exactly at target judged
+ 10 KILLED   [exit] src/footprint/agents/theta.py: a locked trail judged
+ 11 KILLED   [exit] src/footprint/agents/theta.py: no chain not handled
+ 12 KILLED   [exit] src/footprint/agents/theta.py: a future chain valued
+ 13 KILLED   [exit] src/footprint/agents/theta.py: a chain stamped now refused
+ 14 KILLED   [exit] src/footprint/agents/theta.py: a chain exactly max-age old refused
+ 15 KILLED   [exit] src/footprint/agents/theta.py: a stale chain valued
+ 16 KILLED   [exit] src/footprint/agents/theta.py: the wrong contract valued
+ 17 KILLED   [exit] src/footprint/agents/theta.py: strike used as the forward
+ 18 KILLED   [exit] src/footprint/agents/theta.py: exit uses the planned hold
+ 19 KILLED   [exit] src/footprint/agents/theta.py: exactly at the limit fires
+ 20 KILLED   [exit] src/footprint/agents/theta.py: contracts ignored
+ 21 KILLED   [exit] src/footprint/agents/theta.py: share of the target, not of the open profit
+ 22 KILLED   [exit] src/footprint/agents/theta.py: max age in minutes
+ 23 KILLED   [exit] src/footprint/agents/theta.py: journal line loses its name
+ 24 KILLED   [exit] src/footprint/agents/theta.py: unvaluable not handled
+ 25 KILLED   [exit] src/footprint/agents/theta.py: valued at the chain's time, not now
+ 26 KILLED   [exit] src/footprint/agents/theta.py: implied vol not reported
+ 27 KILLED   [malik] src/footprint/execution/management/malik.py: decay exit never asked
+ 28 KILLED   [malik] src/footprint/execution/management/malik.py: decay before the kill switch
+ 29 KILLED   [malik] src/footprint/execution/management/malik.py: trail state not passed
+ 30 KILLED   [malik] src/footprint/execution/management/malik.py: wrong open profit
+ 31 KILLED   [malik] src/footprint/execution/management/malik.py: contracts not passed
+ 32 KILLED   [malik] src/footprint/execution/management/malik.py: alarm every time
+ 33 KILLED   [malik] src/footprint/execution/management/malik.py: alarm every time (not recorded)
+ 34 KILLED   [malik] src/footprint/execution/management/malik.py: a failing decay exit crashes management
+ 35 KILLED   [malik] src/footprint/execution/management/malik.py: a stay is an exit
+ 36 KILLED   [malik] src/footprint/execution/management/malik.py: no journal note
+ 37 KILLED   [malik] src/footprint/execution/management/malik.py: note kept after use
+ 38 KILLED   [malik] src/footprint/execution/management/malik.py: note written for another reason's exit
+ 39 KILLED   [malik] src/footprint/execution/management/malik.py: journal reason renamed
+ 40 KILLED   [malik] src/footprint/execution/management/malik.py: note not journaled
+ 41 KILLED   [config] src/footprint/core/config.py: 100 refused
+ 42 KILLED   [config] src/footprint/core/config.py: above 100 accepted
+ 43 KILLED   [config] src/footprint/core/config.py: zero window accepted
+ 44 KILLED   [config] src/footprint/core/config.py: enabled ignored
+ 45 KILLED   [config] src/footprint/core/config.py: zero share accepted
+ 46 KILLED   [wiring] src/footprint/backtest/engine.py: backtest without the decay exit
+ 47 KILLED   [wiring] src/footprint/backtest/engine.py: backtest with a named exit rule loses the decay exit
+ 48 KILLED   [wiring] src/footprint/backtest/engine.py: backtest decay exit has no chain
+ 49 KILLED   [wiring] src/footprint/live/app.py: paper app without the decay exit
+ 50 KILLED   [wiring] src/footprint/live/app.py: paper app decay exit on the wrong source
+ 51 KILLED   [engine] src/footprint/backtest/engine.py: backtest without the decay exit (behaviour)
+ 52 KILLED   [exit] src/footprint/agents/theta.py: reviewer R1 rate ignored
+ 53 KILLED   [theta] src/footprint/agents/theta.py: reviewer R1b rate ignored (entry)
+ 54 KILLED   [exit] src/footprint/agents/theta.py: reviewer R2 point value hardcoded 20
+ 55 KILLED   [exit] src/footprint/agents/theta.py: reviewer R3 chain asked for the wrong time
+ 56 KILLED   [malik] src/footprint/execution/management/malik.py: reviewer R4 named rule before the decay exit
+ 57 KILLED   [malik] src/footprint/execution/management/malik.py: reviewer R5 position id instead of contract id
+ 58 KILLED   [malik] src/footprint/execution/management/malik.py: reviewer R6 alarm every failure
+ 59 KILLED   [config] src/footprint/core/config.py: reviewer R7 negative window accepted
+ 60 KILLED   [exit] src/footprint/agents/theta.py: reviewer R8 chain 1s in the future valued
+ 61 KILLED   [exit] src/footprint/agents/theta.py: L3 no chain not marked unvalued
+ 62 KILLED   [exit] src/footprint/agents/theta.py: L3 future chain not marked unvalued
+ 63 KILLED   [exit] src/footprint/agents/theta.py: L3 stale chain not marked unvalued
+ 64 KILLED   [exit] src/footprint/agents/theta.py: L3 contract missing not marked unvalued
+ 65 KILLED   [exit] src/footprint/agents/theta.py: L3 refused valuation not marked unvalued
+ 66 KILLED   [exit] src/footprint/agents/theta.py: L3 rule stays (off, not in profit, target, trail) marked unvalued
+ 67 KILLED   [exit] src/footprint/agents/theta.py: L3 a valued stay marked unvalued
+ 68 KILLED   [malik] src/footprint/execution/management/malik.py: L3 every stay journaled as unvalued
+ 69 KILLED   [malik] src/footprint/execution/management/malik.py: L3 unvalued journaled every step (spam)
+ 70 KILLED   [malik] src/footprint/execution/management/malik.py: L3 unvalued not journaled
+ 71 KILLED   [malik] src/footprint/execution/management/malik.py: L3 unvalued not logged
+ 72 KILLED   [malik] src/footprint/execution/management/malik.py: I1 note restamped with the sell time
+ 73 KILLED   [readout] src/footprint/backtest/__main__.py: M1 enabled printed as a constant
+ 74 KILLED   [readout] src/footprint/backtest/__main__.py: M1 window printed from the planned hold
+ 75 KILLED   [readout] src/footprint/backtest/__main__.py: M1 share printed from the entry budget
+ 76 KILLED   [readout] src/footprint/backtest/__main__.py: M1 decay lines not after the exit numbers (stop_loss line dropped)
+ 77 KILLED   [config] config/strategy.yaml: H1 shipped on
+ 78 KILLED   [engine] config/strategy.yaml: H1 shipped on (behaviour: the winner is cut)
+78 mutants, 0 survived or errored

@@ -22,6 +22,28 @@ def rewrite(source: Path, tmp_path: Path, **changes: Any) -> Path:
     return target
 
 
+CUT = date(2026, 1, 1)
+
+
+@pytest.fixture
+def calendar_2026(instrument_path: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The shipped nq.yaml cut to its 2026-27 calendar: calendar_from 2026-01-01, every
+    listed date before it dropped, no early_close_periods (the one shipped ends in 2021).
+    That is the calendar these tests were written against, before backtest-history-v1
+    extended it back to 2010 (the history is tested in tests/test_calendar_history.py)."""
+    data = yaml.safe_load(instrument_path.read_text())
+    for key in ("holidays", "no_trade_days", "easter_sundays"):
+        data[key] = [d for d in data[key] if d >= CUT]
+    data["early_closes"] = {d: t for d, t in data["early_closes"].items() if d >= CUT}
+    expiry = data["option_expiry"]
+    expiry["early_close_dates"] = [d for d in expiry["early_close_dates"] if d >= CUT]
+    data["early_close_periods"] = []
+    data["calendar_from"] = CUT
+    target = tmp_path_factory.mktemp("calendar_2026") / instrument_path.name
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
 def session(**changes: str) -> dict[str, str]:
     return {"start": "04:00", "end": "14:00", "timezone": "America/Los_Angeles"} | changes
 
@@ -48,7 +70,7 @@ def test_instrument_profile_loads(instrument_path: Path) -> None:
 def test_risk_profile_loads(risk_path: Path) -> None:
     profile = load_risk(risk_path)
     assert profile.bankroll == Decimal("25000")
-    assert profile.position_cap == Decimal("5000")
+    assert profile.position_cap == Decimal("6000")  # CAP-1 amended by M2 (b), Andre 2026-10-24
     assert profile.overnight_position_cap == Decimal("2500")
     assert profile.profit_target == Decimal("1000")
     assert (profile.stop_min, profile.stop_max) == (Decimal("750"), Decimal("1000"))
@@ -161,7 +183,7 @@ def test_instrument_rejects_sessions_in_different_timezones(
         {"bankroll": "lots"},
         {"bankroll": ...},
         {"position_cap": 30000},  # above bankroll
-        {"overnight_position_cap": 6000},  # above position_cap
+        {"overnight_position_cap": 7000},  # above position_cap (6000), below bankroll
         {"profit_target": 0},
         {"stop_min": 1500},  # above stop_max
         {"stop_max": -1},
@@ -179,6 +201,13 @@ def test_instrument_rejects_sessions_in_different_timezones(
 def test_risk_rejects_bad_values(risk_path: Path, tmp_path: Path, changes: dict[str, Any]) -> None:
     with pytest.raises(ConfigError):
         load_risk(rewrite(risk_path, tmp_path, **changes))
+
+
+def test_risk_accepts_a_position_cap_equal_to_the_bankroll(risk_path: Path, tmp_path: Path) -> None:
+    """The cap may reach the bankroll but not pass it (CAP-1 review R10)."""
+    bankroll = load_risk(risk_path).bankroll
+    profile = load_risk(rewrite(risk_path, tmp_path, position_cap=int(bankroll)))
+    assert profile.position_cap == profile.bankroll
 
 
 def test_error_names_the_file_and_key(risk_path: Path, tmp_path: Path) -> None:
@@ -269,20 +298,20 @@ def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None
     ],
 )
 def test_an_incomplete_calendar_is_refused(
-    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], missing: str
+    calendar_2026: Path, tmp_path: Path, changes: dict[str, Any], missing: str
 ) -> None:
     data = dict(changes)
     if "holidays" in data:
         data["holidays"] = [date.fromisoformat(d) for d in data["holidays"]]
     early = data.get("early_closes")
     if isinstance(early, str):
-        listed = dict(yaml.safe_load(instrument_path.read_text())["early_closes"])
+        listed = dict(yaml.safe_load(calendar_2026.read_text())["early_closes"])
         if early == "christmas_as_early":
             listed[date(2026, 12, 25)] = "10:00"
         else:
             listed.pop(date.fromisoformat(early.split()[1]))
         data["early_closes"] = listed
-    target = rewrite(instrument_path, tmp_path, **data)
+    target = rewrite(calendar_2026, tmp_path, **data)
     with pytest.raises(ConfigError) as refused:  # AEGIS re-audit M-3
         load_instrument(target)
     assert missing in str(refused.value)
@@ -330,6 +359,7 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
         "Labor Day": date(2026, 9, 7),
         "Thanksgiving": date(2026, 11, 26),
         "Day after Thanksgiving": date(2026, 11, 27),
+        "Independence Day eve": None,  # BH-1: July 3 2026 is a Friday, the observed holiday
         "Christmas Eve": date(2026, 12, 24),
         "Christmas Day": date(2026, 12, 25),
     }
@@ -380,12 +410,12 @@ def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
     ],
 )
 def test_bad_holiday_rules_are_refused(
-    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
+    calendar_2026: Path, tmp_path: Path, changes: dict[str, Any], message: str
 ) -> None:
     rules = changes.get("holiday_rules")
     if isinstance(rules, str):  # "drop <name>" / "early <name>": the real rules, edited
         verb, _, name = rules.partition(" ")
-        current = yaml.safe_load(instrument_path.read_text())["holiday_rules"]
+        current = yaml.safe_load(calendar_2026.read_text())["holiday_rules"]
         if verb == "drop":
             changes = {"holiday_rules": [r for r in current if r["name"] != name]}
             assert len(changes["holiday_rules"]) == len(current) - 1
@@ -398,7 +428,7 @@ def test_bad_holiday_rules_are_refused(
                     {**r, "kind": "early_close"} if r["name"] == name else r for r in current
                 ]
             }
-    target = rewrite(instrument_path, tmp_path, **changes)
+    target = rewrite(calendar_2026, tmp_path, **changes)
     with pytest.raises(ConfigError, match=message):
         load_instrument(target)
 
@@ -464,6 +494,9 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
     assert s.theta.max_decay_pct_of_target == Decimal(25)
     assert s.theta.rate == Decimal("0.04")
     assert (s.theta.min_implied_vol, s.theta.max_implied_vol) == (Decimal("0.05"), Decimal("1.5"))
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (Decimal("0.08"), Decimal("1.0"))
+    assert (s.delta.min_abs_delta, s.delta.max_abs_delta) == (Decimal("0.45"), Decimal("0.7"))
+    assert s.gamma.min_hours_to_expiry == Decimal(6)
 
 
 @pytest.mark.parametrize(
@@ -506,6 +539,24 @@ def test_strategy_profile_loads(strategy_path: Path) -> None:
         ("theta", {"max_implied_vol": 0.05}),  # == min_implied_vol
         ("theta", {"max_implied_vol": 0.01}),  # below min_implied_vol
         ("theta", {"extra": 1}),
+        ("vega", {"min_implied_vol": 0}),
+        ("vega", {"min_implied_vol": "0.08"}),
+        ("vega", {"max_implied_vol": 0.08}),  # == min_implied_vol
+        ("vega", {"max_implied_vol": 0.07}),  # below min_implied_vol
+        ("vega", {"min_implied_vol": 0.04}),  # below theta's min_implied_vol
+        ("vega", {"max_implied_vol": 1.6}),  # above theta's max_implied_vol
+        ("vega", {"extra": 1}),
+        ("delta", {"min_abs_delta": 0}),
+        ("delta", {"min_abs_delta": -0.3}),
+        ("delta", {"max_abs_delta": 0.45}),  # == min_abs_delta
+        ("delta", {"max_abs_delta": 0.44}),  # below min_abs_delta
+        ("delta", {"max_abs_delta": 1.01}),  # no |delta| above 1 is a band
+        ("delta", {"max_abs_delta": True}),
+        ("delta", {"extra": 1}),
+        ("gamma", {"min_hours_to_expiry": 0}),
+        ("gamma", {"min_hours_to_expiry": -1}),
+        ("gamma", {"min_hours_to_expiry": "6"}),
+        ("gamma", {"extra": 1}),
     ],
 )
 def test_bad_strategy_values_are_rejected(
@@ -665,6 +716,90 @@ def test_a_top_level_key_given_twice_is_refused_in_any_profile(
         load_execution(target)
 
 
+def test_the_decay_exit_settings_load(strategy_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    exit_ = load_strategy(strategy_path).theta.decay_exit
+    assert exit_.enabled is False  # off until Andre rules on DX-2 (review H1)
+    assert exit_.window_minutes == 30
+    assert exit_.max_pct_of_open_profit == Decimal(50)
+
+
+def _decay_exit_file(strategy_path: Path, tmp_path: Path, decay_exit: object) -> Path:
+    data = yaml.safe_load(strategy_path.read_text())
+    data["theta"]["decay_exit"] = decay_exit
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    [
+        ({"window_minutes": 0}, "window_minutes must be >= 1"),
+        ({"window_minutes": -5}, "window_minutes must be >= 1"),
+        ({"window_minutes": 1.5}, "window_minutes must be an integer"),
+        ({"window_minutes": True}, "window_minutes must be an integer"),
+        ({"max_pct_of_open_profit": 0}, "max_pct_of_open_profit must be a finite number > 0"),
+        ({"max_pct_of_open_profit": -1}, "max_pct_of_open_profit must be a finite number > 0"),
+        ({"max_pct_of_open_profit": 100.01}, "max_pct_of_open_profit must be <= 100"),
+        ({"max_pct_of_open_profit": "50"}, "max_pct_of_open_profit must be a number"),
+        ({"extra": 1}, "unknown keys"),
+        ({"enabled": "yes"}, "enabled must be true or false"),
+        ({"enabled": 1}, "enabled must be true or false"),
+        ({"enabled": ...}, "missing keys"),
+        ({"window_minutes": ...}, "missing keys"),
+        ({"max_pct_of_open_profit": ...}, "missing keys"),
+    ],
+)
+def test_bad_decay_exit_values_are_rejected(
+    strategy_path: Path, tmp_path: Path, changes: dict[str, Any], match: str
+) -> None:
+    from footprint.core.config import load_strategy
+
+    body: dict[str, Any] = {"enabled": True, "window_minutes": 30, "max_pct_of_open_profit": 50}
+    for key, value in changes.items():
+        if value is ...:
+            del body[key]
+        else:
+            body[key] = value
+    target = _decay_exit_file(strategy_path, tmp_path, body)
+    with pytest.raises(ConfigError, match=match) as refused:
+        load_strategy(target)
+    assert "theta: decay_exit" in str(refused.value)
+
+
+@pytest.mark.parametrize("bad", [None, 30, [30, 50]])
+def test_the_decay_exit_must_be_a_mapping(strategy_path: Path, tmp_path: Path, bad: object) -> None:
+    from footprint.core.config import load_strategy
+
+    with pytest.raises(ConfigError, match="theta: decay_exit: expected a mapping"):
+        load_strategy(_decay_exit_file(strategy_path, tmp_path, bad))
+
+
+def test_the_decay_exit_is_required(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    del data["theta"]["decay_exit"]
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="missing keys"):
+        load_strategy(target)
+
+
+def test_the_decay_exit_accepts_the_edges(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    body: dict[str, Any] = {"enabled": False, "window_minutes": 1, "max_pct_of_open_profit": 100}
+    exit_ = load_strategy(_decay_exit_file(strategy_path, tmp_path, body)).theta.decay_exit
+    assert (exit_.window_minutes, exit_.max_pct_of_open_profit) == (1, Decimal(100))
+    assert exit_.enabled is False
+    body = {"enabled": True, "window_minutes": 30, "max_pct_of_open_profit": 0.5}
+    exit_ = load_strategy(_decay_exit_file(strategy_path, tmp_path, body)).theta.decay_exit
+    assert exit_.max_pct_of_open_profit == Decimal("0.5")
+
+
 def test_theta_accepts_a_negative_rate_and_a_full_budget(
     strategy_path: Path, tmp_path: Path
 ) -> None:
@@ -678,11 +813,151 @@ def test_theta_accepts_a_negative_rate_and_a_full_budget(
     assert (theta.rate, theta.max_decay_pct_of_target) == (Decimal("-0.01"), Decimal(100))
 
 
+def test_the_greeks_bands_accept_their_edges(strategy_path: Path, tmp_path: Path) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    theta = data["theta"]
+    data["vega"].update(
+        {"min_implied_vol": theta["min_implied_vol"], "max_implied_vol": theta["max_implied_vol"]}
+    )
+    data["delta"].update({"max_abs_delta": 1})
+    data["gamma"].update({"min_hours_to_expiry": 0.5})
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    s = load_strategy(target)
+    assert (s.vega.min_implied_vol, s.vega.max_implied_vol) == (
+        s.theta.min_implied_vol,
+        s.theta.max_implied_vol,
+    )
+    assert s.delta.max_abs_delta == 1
+    assert s.gamma.min_hours_to_expiry == Decimal("0.5")
+
+
+def _strategy_with(strategy_path: Path, tmp_path: Path, **sections: dict[str, Any]) -> Path:
+    data = yaml.safe_load(strategy_path.read_text())
+    for section, changes in sections.items():
+        data[section].update(changes)
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
+@pytest.mark.parametrize(
+    ("min_abs_delta", "assumed_delta"),
+    [(0.44, 0.45), (0.3, 0.45), (0.45, 0.46), (0.5, 0.6)],
+)
+def test_the_delta_floor_may_not_be_below_the_assumed_delta(
+    strategy_path: Path, tmp_path: Path, min_abs_delta: float, assumed_delta: float
+) -> None:
+    # Review round 1, M1 (interim until Andre decides GV-5): N, the levels room check,
+    # assumes options.assumed_delta. It is only pessimistic while every entry Delta lets
+    # through has at least that delta, so the band's floor may not be below it.
+    from footprint.core.config import load_strategy
+
+    target = _strategy_with(
+        strategy_path,
+        tmp_path,
+        delta={"min_abs_delta": min_abs_delta},
+        options={"assumed_delta": assumed_delta},
+    )
+    with pytest.raises(ConfigError, match=r"delta: min_abs_delta .* options.assumed_delta"):
+        load_strategy(target)
+
+
+@pytest.mark.parametrize(("min_abs_delta", "assumed_delta"), [(0.45, 0.45), (0.5, 0.45)])
+def test_a_delta_floor_at_or_above_the_assumed_delta_loads(
+    strategy_path: Path, tmp_path: Path, min_abs_delta: float, assumed_delta: float
+) -> None:
+    from footprint.core.config import load_strategy
+
+    target = _strategy_with(
+        strategy_path,
+        tmp_path,
+        delta={"min_abs_delta": min_abs_delta},
+        options={"assumed_delta": assumed_delta},
+    )
+    s = load_strategy(target)
+    assert s.delta.min_abs_delta == Decimal(str(min_abs_delta))
+    assert s.options.assumed_delta == Decimal(str(assumed_delta))
+
+
+def _profiles_with_gamma(tmp_path: Path, hours: float, dte_max: int | None = None) -> Path:
+    import shutil
+
+    from tests.conftest import REPO_ROOT
+
+    config = tmp_path / "config"
+    shutil.copytree(REPO_ROOT / "config", config)
+    strategy = config / "strategy.yaml"
+    data = yaml.safe_load(strategy.read_text())
+    data["gamma"]["min_hours_to_expiry"] = hours
+    strategy.write_text(yaml.safe_dump(data))
+    if dte_max is not None:
+        instrument = config / "instruments" / "nq.yaml"
+        raw = yaml.safe_load(instrument.read_text())
+        raw["dte_max"] = dte_max
+        raw["dte_min"] = min(raw["dte_min"], dte_max)
+        instrument.write_text(yaml.safe_dump(raw))
+    return config
+
+
+@pytest.mark.parametrize(
+    ("hours", "dte_max"), [(1e30, None), (1e300, None), (82.01, 3), (96, 3), (9.01, 0)]
+)
+def test_a_gamma_minimum_no_option_could_meet_is_a_config_error(
+    tmp_path: Path, hours: float, dte_max: int | None
+) -> None:
+    # Review round 1, L1: a huge minimum used to crash Pipeline construction with an
+    # OverflowError. Round 2, R2-4: the bound is the longest any entry can wait. Entries
+    # are made only in the prime session (from 04:00 PT) and Felix never takes an option
+    # more than dte_max days from the trading day, expiring at 13:00 PT: dte_max days +
+    # 9 hours, plus the hour the clocks go back (2026-10-30 to 11-02: 82 hours at
+    # dte_max 3); 9 hours at dte_max 0. A longer minimum refuses every entry.
+    from footprint.core.config import load_profiles
+    from footprint.decision.pipeline import Pipeline
+
+    config = _profiles_with_gamma(tmp_path, hours, dte_max)
+    with pytest.raises(ConfigError, match=r"gamma: min_hours_to_expiry .* dte_max"):
+        Pipeline(load_profiles(config, "nq.yaml"))
+
+
+@pytest.mark.parametrize(("hours", "dte_max"), [(82, 3), (81.99, 3), (9, 0)])
+def test_a_gamma_minimum_under_the_longest_possible_wait_loads(
+    tmp_path: Path, hours: float, dte_max: int
+) -> None:
+    from footprint.core.config import load_profiles
+    from footprint.decision.pipeline import Pipeline
+
+    config = _profiles_with_gamma(tmp_path, hours, dte_max)
+    profiles = load_profiles(config, "nq.yaml")
+    assert profiles.strategy.gamma.min_hours_to_expiry == Decimal(str(hours))
+    Pipeline(profiles)
+
+
+@pytest.mark.parametrize("section", ["vega", "delta", "gamma"])
+def test_a_missing_greeks_section_is_refused(
+    strategy_path: Path, tmp_path: Path, section: str
+) -> None:
+    from footprint.core.config import load_strategy
+
+    data = yaml.safe_load(strategy_path.read_text())
+    del data[section]
+    target = tmp_path / "strategy.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="missing"):
+        load_strategy(target)
+
+
 def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
     rules = load_instrument(instrument_path).option_expiry
     assert rules.time == time(13, 0)
     assert rules.early_close_time == time(10, 0)
-    assert rules.early_close_dates == frozenset({date(2026, 11, 27), date(2026, 12, 24)})
+    # From 2026 on; the history back to 2010 is in tests/test_calendar_history.py.
+    assert {d for d in rules.early_close_dates if d >= CUT} == {
+        date(2026, 11, 27),
+        date(2026, 12, 24),
+    }
     assert rules.timezone == "America/Los_Angeles"
     assert rules.american_trading_classes == frozenset({"NQ"})
     assert rules.european_trading_class_patterns == ("Q[1-5][A-D]", "QN[1-5]", "QNE")
@@ -737,51 +1012,51 @@ def expiry(**changes: Any) -> dict[str, Any]:
     ],
 )
 def test_bad_option_expiry_rules_are_rejected(
-    instrument_path: Path, tmp_path: Path, rules: dict[str, Any]
+    calendar_2026: Path, tmp_path: Path, rules: dict[str, Any]
 ) -> None:
     with pytest.raises(ConfigError, match="option_expiry"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
-def test_several_american_classes_load(instrument_path: Path, tmp_path: Path) -> None:
+def test_several_american_classes_load(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(american_trading_classes=["NQ", "XQ"])
-    profile = load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+    profile = load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
     assert profile.option_expiry.american_trading_classes == frozenset({"NQ", "XQ"})
 
 
-def test_the_old_date_rule_keys_are_refused(instrument_path: Path, tmp_path: Path) -> None:
+def test_the_old_date_rule_keys_are_refused(calendar_2026: Path, tmp_path: Path) -> None:
     # The quarterly-by-date rule was wrong (a weekly is listed on quarterly Fridays): a
     # config still carrying it must not load as if it meant something.
     rules = expiry(american_months=[3, 6, 9, 12])
     with pytest.raises(ConfigError, match="option_expiry"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
 def test_an_option_early_close_outside_the_calendar_names_the_window(
-    instrument_path: Path, tmp_path: Path
+    calendar_2026: Path, tmp_path: Path
 ) -> None:
     rules = expiry(early_close_dates=[date(2025, 12, 24), date(2026, 11, 27), date(2026, 12, 24)])
     with pytest.raises(ConfigError, match="outside calendar_from"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
-def test_a_missing_option_early_close_names_the_rule(instrument_path: Path, tmp_path: Path) -> None:
+def test_a_missing_option_early_close_names_the_rule(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(early_close_dates=[date(2026, 12, 24)])
     with pytest.raises(ConfigError, match=r"lacks 2026-11-27 \(Day after Thanksgiving"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))
 
 
 def test_a_no_trade_day_does_not_excuse_a_missing_option_early_close(
-    instrument_path: Path, tmp_path: Path
+    calendar_2026: Path, tmp_path: Path
 ) -> None:
     # No-trade days are Andre's own choice; the stock market still closes early on them,
     # so the options still stop early (review round 3, R3-1).
-    data = yaml.safe_load(instrument_path.read_text())
+    data = yaml.safe_load(calendar_2026.read_text())
     no_trade = [*data["no_trade_days"], date(2026, 11, 27)]
     early = {d: t for d, t in data["early_closes"].items() if d != date(2026, 11, 27)}
     rules = expiry(early_close_dates=[date(2026, 12, 24)])
     path = rewrite(
-        instrument_path,
+        calendar_2026,
         tmp_path,
         no_trade_days=no_trade,
         early_closes=early,
@@ -791,7 +1066,7 @@ def test_a_no_trade_day_does_not_excuse_a_missing_option_early_close(
         load_instrument(path)
 
 
-def test_a_weekend_date_error_names_its_list(instrument_path: Path, tmp_path: Path) -> None:
+def test_a_weekend_date_error_names_its_list(calendar_2026: Path, tmp_path: Path) -> None:
     rules = expiry(early_close_dates=[date(2026, 11, 27), date(2026, 11, 28), date(2026, 12, 24)])
     with pytest.raises(ConfigError, match="option_expiry early_close_dates 2026-11-28"):
-        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+        load_instrument(rewrite(calendar_2026, tmp_path, option_expiry=rules))

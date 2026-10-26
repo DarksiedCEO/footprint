@@ -16,8 +16,13 @@ Safety, in order of what can go wrong:
 - Every held contract keeps its price stream: the market data reads what the broker
   holds or has orders on, what the order record has sent, and the runner's position,
   every step.
+- Theta's decay exit (DX-1) runs here because this app is paper only; it values the
+  held option from the market data's chain and, without one, never fires.
 - A failing market data step leaves bars and chains missing (nothing is decided on
   them) and is alarmed; it never stops the runner, which manages what is open.
+- The play caller's regime reader reads market data's whole history; a configured
+  history too short for it on any day of the calendar refuses the start
+  (PlayHistoryTooShort, PC-2) before anything is built or connected.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from footprint.agents.theta import DecayExit
 from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
 from footprint.brokers.ibkr.market import MarketData
@@ -42,6 +48,7 @@ from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
+from footprint.decision.play import check_live_history
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.channels import (
@@ -147,6 +154,7 @@ def build(
     p = profiles
     ibkr = p.execution.ibkr
     check_paper(settings.account, settings.port)  # LiveAccountRefused
+    check_live_history(p)  # PlayHistoryTooShort: the regime reader needs this history
     state_dir.mkdir(parents=True, exist_ok=True)
     alarms = alarm_hub(sink, p.execution.alarms, channels, post, clock)  # D20
 
@@ -179,7 +187,6 @@ def build(
     pipeline = Pipeline(p)
     stops = StopKeeper(p.risk, p.instrument, p.execution)
     executor = Executor(p, pipeline, tracked, stops, ledger, halt, book)
-    manager = Manager(p, tracked, stops, ledger, halt, book)
     held_box: list[Live] = []
 
     def held() -> frozenset[str]:
@@ -189,6 +196,10 @@ def build(
         binding, contracts, book.publish, p.instrument, p.execution, alarm, clock, held=held
     )
     binding.attach_market(market)
+    # Theta's decay exit (DX-1) is for paper only: this app runs paper only (D33,
+    # check_paper above). Going live is a code change that must revisit DX-1.
+    decay = DecayExit(p.strategy.theta, p.instrument, p.risk, p.execution.quotes, market.chain)
+    manager = Manager(p, tracked, stops, ledger, halt, book, decay_exit=decay)
     runner = Runner(
         pipeline,
         executor,

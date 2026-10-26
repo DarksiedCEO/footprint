@@ -1,0 +1,59 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [config]: passed
+baseline [engine]: passed
+baseline [exit]: passed
+baseline [malik]: passed
+baseline [theta]: passed
+baseline [wiring]: passed
+  1 KILLED   [exit] src/footprint/agents/theta.py: an option expiring exactly at the window's end valued
+  2 KILLED   [exit] src/footprint/agents/theta.py: half the window
+  3 KILLED   [exit] src/footprint/agents/theta.py: American class not refused by its own reason
+  4 KILLED   [exit] src/footprint/agents/theta.py: unknown class valued
+  5 KILLED   [theta] src/footprint/agents/theta.py: entry veto uses the exit window
+  6 KILLED   [theta] src/footprint/agents/theta.py: entry allowed when not valued
+  7 KILLED   [exit] src/footprint/agents/theta.py: off switch ignored
+  8 KILLED   [exit] src/footprint/agents/theta.py: a flat trade judged
+  9 KILLED   [exit] src/footprint/agents/theta.py: a trade exactly at target judged
+ 10 KILLED   [exit] src/footprint/agents/theta.py: a locked trail judged
+ 11 KILLED   [exit] src/footprint/agents/theta.py: no chain not handled
+ 12 KILLED   [exit] src/footprint/agents/theta.py: a future chain valued
+ 13 KILLED   [exit] src/footprint/agents/theta.py: a chain stamped now refused
+ 14 KILLED   [exit] src/footprint/agents/theta.py: a chain exactly max-age old refused
+ 15 KILLED   [exit] src/footprint/agents/theta.py: a stale chain valued
+ 16 KILLED   [exit] src/footprint/agents/theta.py: the wrong contract valued
+ 17 KILLED   [exit] src/footprint/agents/theta.py: strike used as the forward
+ 18 KILLED   [exit] src/footprint/agents/theta.py: exit uses the planned hold
+ 19 KILLED   [exit] src/footprint/agents/theta.py: exactly at the limit fires
+ 20 KILLED   [exit] src/footprint/agents/theta.py: contracts ignored
+ 21 KILLED   [exit] src/footprint/agents/theta.py: share of the target, not of the open profit
+ 22 KILLED   [exit] src/footprint/agents/theta.py: max age in minutes
+ 23 KILLED   [exit] src/footprint/agents/theta.py: journal line loses its name
+ 24 KILLED   [exit] src/footprint/agents/theta.py: unvaluable not handled
+ 25 KILLED   [exit] src/footprint/agents/theta.py: valued at the chain's time, not now
+ 26 KILLED   [exit] src/footprint/agents/theta.py: implied vol not reported
+ 27 KILLED   [malik] src/footprint/execution/management/malik.py: decay exit never asked
+ 28 KILLED   [malik] src/footprint/execution/management/malik.py: decay before the kill switch
+ 29 KILLED   [malik] src/footprint/execution/management/malik.py: trail state not passed
+ 30 KILLED   [malik] src/footprint/execution/management/malik.py: wrong open profit
+ 31 KILLED   [malik] src/footprint/execution/management/malik.py: contracts not passed
+ 32 KILLED   [malik] src/footprint/execution/management/malik.py: alarm every time
+ 33 KILLED   [malik] src/footprint/execution/management/malik.py: alarm every time (not recorded)
+ 34 KILLED   [malik] src/footprint/execution/management/malik.py: a failing decay exit crashes management
+BAD MUTANT 35 (0 matches): src/footprint/execution/management/malik.py: '        if not verdict.fire:\n            return False'
+BAD MUTANT 36 (0 matches): src/footprint/execution/management/malik.py: '        self._decay_notes[pid] = verdict.reason'
+ 37 KILLED   [malik] src/footprint/execution/management/malik.py: note kept after use
+ 38 KILLED   [malik] src/footprint/execution/management/malik.py: note written for another reason's exit
+ 39 KILLED   [malik] src/footprint/execution/management/malik.py: journal reason renamed
+BAD MUTANT 40 (0 matches): src/footprint/execution/management/malik.py: '            position.events.append(f"{now.isoformat()} {note}")  # the journal\'s why'
+ 41 KILLED   [config] src/footprint/core/config.py: 100 refused
+ 42 KILLED   [config] src/footprint/core/config.py: above 100 accepted
+ 43 KILLED   [config] src/footprint/core/config.py: zero window accepted
+ 44 KILLED   [config] src/footprint/core/config.py: enabled ignored
+ 45 KILLED   [config] src/footprint/core/config.py: zero share accepted
+ 46 KILLED   [wiring] src/footprint/backtest/engine.py: backtest without the decay exit
+ 47 KILLED   [wiring] src/footprint/backtest/engine.py: backtest with a named exit rule loses the decay exit
+ 48 KILLED   [wiring] src/footprint/backtest/engine.py: backtest decay exit has no chain
+ 49 KILLED   [wiring] src/footprint/live/app.py: paper app without the decay exit
+ 50 KILLED   [wiring] src/footprint/live/app.py: paper app decay exit on the wrong source
+ 51 KILLED   [engine] src/footprint/backtest/engine.py: backtest without the decay exit (behaviour)
+51 mutants, 3 survived or errored

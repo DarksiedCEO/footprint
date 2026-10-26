@@ -22,6 +22,7 @@ from footprint.core.calendar import (
 from footprint.core.config import ConfigError, InstrumentProfile, Profiles, load_profiles
 from footprint.execution.channels import is_critical
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME
 from tests.execution.conftest import Stack
 
@@ -52,7 +53,11 @@ def pt(day: date, hour: int, minute: int = 0) -> datetime:
 
 
 def test_the_us_holiday_sessions_are_the_no_trade_days(nq: InstrumentProfile) -> None:
-    assert nq.no_trade_days == frozenset(US_HOLIDAY_SESSIONS)
+    # From 2026 on (the history back to 2010, backtest-history-v1, is pinned in
+    # tests/test_calendar_history.py).
+    assert frozenset(d for d in nq.no_trade_days if d.year >= 2026) == frozenset(
+        US_HOLIDAY_SESSIONS
+    )
 
 
 @pytest.mark.parametrize("day", US_HOLIDAY_SESSIONS)
@@ -106,7 +111,7 @@ def test_no_entry_is_approved_on_a_us_holiday_session(stack: Stack) -> None:
     closed = replace(stack.profiles.instrument, no_trade_days=frozenset({day}))
     profiles = replace(stack.profiles, instrument=closed)
     bars = market()
-    decision = Pipeline(profiles).decide(
+    decision = Pipeline(profiles, play=open_play()).decide(
         bars, chain_for(bars[-1].close), stack.ledger.account(DECISION_TIME), (), DECISION_TIME
     )
     assert decision.approved is None
@@ -144,7 +149,7 @@ def test_an_expired_calendar_approves_no_entry(stack: Stack) -> None:
 
     profiles = expired(stack.profiles)
     bars = market()
-    decision = Pipeline(profiles).decide(
+    decision = Pipeline(profiles, play=open_play()).decide(
         bars, chain_for(bars[-1].close), stack.ledger.account(DECISION_TIME), (), DECISION_TIME
     )
     assert decision.approved is None
@@ -216,13 +221,17 @@ def test_dropping_the_first_years_dates_is_refused(tmp_path: Path) -> None:
     not at the earliest date listed, so deleting a whole year cannot switch it off."""
     config = _nq_with(tmp_path, ("calendar_through:", "calendar_through:"))
     nq_path = config / "instruments" / "nq.yaml"
+    # The first year is calendar_from's (2010 since backtest-history-v1, was 2026). Its
+    # list entries only: one-per-line dates (holidays, no-trade days, early closes).
+    first = load_profiles(REPO_ROOT / "config", "nq.yaml").instrument.calendar_from.year
     kept = [
         line
         for line in nq_path.read_text().splitlines()
-        if not line.lstrip().startswith(("- 2026-", "2026-"))
+        if not line.lstrip().startswith((f"- {first}-", f"{first}-"))
     ]
+    assert len(kept) < len(nq_path.read_text().splitlines())
     nq_path.write_text("\n".join(kept) + "\n")
-    with pytest.raises(ConfigError, match="2026-"):
+    with pytest.raises(ConfigError, match=f"{first}-"):
         load_profiles(config, "nq.yaml")
 
 
@@ -233,7 +242,7 @@ def test_the_calendar_start_cannot_be_left_out(tmp_path: Path) -> None:
 
 
 def test_the_calendar_start_cannot_be_after_its_end(tmp_path: Path) -> None:
-    config = _nq_with(tmp_path, ("calendar_from: 2026-01-01", "calendar_from: 2027-04-01"))
+    config = _nq_with(tmp_path, ("calendar_from: 2010-06-01", "calendar_from: 2027-04-01"))
     with pytest.raises(ConfigError, match="calendar_from is after calendar_through"):
         load_profiles(config, "nq.yaml")
 
@@ -251,7 +260,9 @@ def test_the_last_day_of_the_calendar_still_trades(nq: InstrumentProfile) -> Non
 
 def test_a_date_before_the_calendar_start_is_refused(tmp_path: Path) -> None:
     """Delta review F-6 (A8b): a listed date before `calendar_from` is a config error."""
-    config = _nq_with(tmp_path, ("  - 2026-01-01   # New Year's Day", "  - 2025-12-25   # moved"))
+    # (the first listed holiday since backtest-history-v1, moved before calendar_from)
+    first_listed = "  - 2010-12-24   # Christmas Day (data: no prime bars)"
+    config = _nq_with(tmp_path, (first_listed, "  - 2010-05-28   # moved"))
     with pytest.raises(ConfigError, match="before calendar_from"):
         load_profiles(config, "nq.yaml")
 

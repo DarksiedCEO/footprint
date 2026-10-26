@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -75,6 +75,16 @@ class OptionExpiry:
 
 
 @dataclass(frozen=True, slots=True)
+class EarlyClosePeriod:
+    """Every trading day from `start` through `through` (inclusive), the prime session
+    ends at `close` (prime_session timezone), unless that day closes earlier still."""
+
+    start: date
+    through: date
+    close: time
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentProfile:
     symbol: str
     exchange: str
@@ -91,7 +101,13 @@ class InstrumentProfile:
     option_expiry: OptionExpiry
     trading_days: frozenset[int]
     holidays: frozenset[date]
-    early_closes: Mapping[date, time]  # prime session ends early (prime_session timezone)
+    # The prime session ends early (prime_session timezone): the listed dates, merged with
+    # every trading day of each early_close_period (the earlier close wins).
+    early_closes: Mapping[date, time]
+    # Spans in which the prime session ends at one time every trading day (an exchange
+    # halt inside the prime session, e.g. the exchange's former daily equity maintenance halt;
+    # backtest-history-v1, BH-3). Holidays are skipped; already merged into early_closes.
+    early_close_periods: tuple[EarlyClosePeriod, ...]
     # Open at the exchange, but Footprint treats them as closed (no session, no entry)
     # until they are reviewed and approved (US-holiday sessions, remediation item 8).
     no_trade_days: frozenset[date]
@@ -302,6 +318,8 @@ _RULE_KEYS = {
     "days_from_easter",
     "days_after",
     "kind",
+    "first_year",
+    "weekdays",
 }
 
 
@@ -333,6 +351,11 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             raise ConfigError(
                 f"{where}: {key} {name}: month, day, nth, days_from_easter are integers"
             )
+        first_year = item.get("first_year")
+        if first_year is not None and (
+            not isinstance(first_year, int) or isinstance(first_year, bool)
+        ):
+            raise ConfigError(f"{where}: {key} {name}: first_year must be a year (an integer)")
         rule = HolidayRule(
             name=str(name),
             month=numbers["month"],
@@ -343,6 +366,8 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             days_from_easter=numbers["days_from_easter"],
             days_after=numbers["days_after"] or 0,
             kind=str(kind),
+            first_year=first_year,
+            weekdays=_rule_weekdays(item, where, f"{key} {name}"),
         )
         by_easter = rule.days_from_easter is not None
         by_weekday = rule.weekday is not None and rule.nth is not None and rule.month is not None
@@ -356,6 +381,70 @@ def _holiday_rules(raw: Mapping[str, object], key: str, where: str) -> tuple[Hol
             raise ConfigError(f"{where}: {key} {name}: nth must be 1-5, or -1 for the last")
         rules.append(rule)
     return tuple(rules)
+
+
+def _rule_weekdays(item: Mapping[str, object], where: str, what: str) -> frozenset[int] | None:
+    """A rule's `weekdays`: absent (any weekday), or a non-empty list of distinct days."""
+    if "weekdays" not in item:
+        return None
+    value = item["weekdays"]
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(v, str) or v not in _WEEKDAYS for v in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ConfigError(
+            f"{where}: {what}: weekdays must be a non-empty list of distinct days from {_WEEKDAYS}"
+        )
+    return frozenset(_WEEKDAYS.index(v) for v in value)
+
+
+_PERIOD_KEYS = {"from", "through", "close"}
+
+
+def _early_close_periods(
+    raw: Mapping[str, object], key: str, where: str
+) -> tuple[EarlyClosePeriod, ...]:
+    value = raw[key]
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: {key} must be a list (empty for none)")
+    periods = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != _PERIOD_KEYS:
+            raise ConfigError(f"{where}: {key}: each period has exactly from, through and close")
+        start, through = item["from"], item["through"]
+        if any(not isinstance(d, date) or isinstance(d, datetime) for d in (start, through)):
+            raise ConfigError(f"{where}: {key}: from and through must be dates (YYYY-MM-DD)")
+        if start > through:
+            raise ConfigError(f"{where}: {key}: from is after through ({start} > {through})")
+        text = item["close"]
+        try:
+            close = time.fromisoformat(text) if isinstance(text, str) else None
+        except ValueError:
+            close = None
+        if close is None or close.second or close.microsecond or close.tzinfo is not None:
+            raise ConfigError(f"{where}: {key} {start}: close must be HH:MM, got {text!r}")
+        periods.append(EarlyClosePeriod(start, through, close))
+    return tuple(periods)
+
+
+def _merged_early_closes(
+    listed: Mapping[date, time],
+    periods: tuple[EarlyClosePeriod, ...],
+    trading_days: frozenset[int],
+    holidays: frozenset[date],
+) -> Mapping[date, time]:
+    """The listed early closes plus every trading day of every period (holidays and
+    non-trading weekdays skipped); where two apply, the earlier close."""
+    closes = dict(listed)
+    for period in periods:
+        day = period.start
+        while day <= period.through:
+            if day.weekday() in trading_days and day not in holidays:
+                closes[day] = min(closes.get(day, period.close), period.close)
+            day += timedelta(days=1)
+    return MappingProxyType(closes)
 
 
 def _clock(body: Mapping[str, object], key: str, where: str) -> time:
@@ -444,6 +533,10 @@ def _date(raw: Mapping[str, object], key: str, where: str) -> date:
 def load_instrument(path: Path) -> InstrumentProfile:
     where = str(path)
     raw = _read_mapping(path, {f.name for f in fields(InstrumentProfile)})
+    trading_days = _trading_days(raw, "trading_days", where)
+    holidays = _holidays(raw, "holidays", where)
+    periods = _early_close_periods(raw, "early_close_periods", where)
+    listed_early = _early_closes(raw, "early_closes", where)
     profile = InstrumentProfile(
         symbol=_text(raw, "symbol", where),
         exchange=_text(raw, "exchange", where),
@@ -458,9 +551,10 @@ def load_instrument(path: Path) -> InstrumentProfile:
         dte_min=_integer(raw, "dte_min", where, minimum=0),
         dte_max=_integer(raw, "dte_max", where, minimum=0),
         option_expiry=_option_expiry(raw, "option_expiry", where),
-        trading_days=_trading_days(raw, "trading_days", where),
-        holidays=_holidays(raw, "holidays", where),
-        early_closes=_early_closes(raw, "early_closes", where),
+        trading_days=trading_days,
+        holidays=holidays,
+        early_closes=_merged_early_closes(listed_early, periods, trading_days, holidays),
+        early_close_periods=periods,
         no_trade_days=_holidays(raw, "no_trade_days", where),
         holiday_rules=_holiday_rules(raw, "holiday_rules", where),
         easter_sundays=_holidays(raw, "easter_sundays", where),
@@ -520,6 +614,15 @@ def load_instrument(path: Path) -> InstrumentProfile:
     early = [d for d in dated if d < profile.calendar_from]
     if early:
         raise ConfigError(f"{where}: {sorted(early)[0]} is before calendar_from")
+    for period in profile.early_close_periods:
+        if period.start < profile.calendar_from:
+            raise ConfigError(
+                f"{where}: early_close_periods {period.start} is before calendar_from"
+            )
+        if period.through > profile.calendar_through:
+            raise ConfigError(
+                f"{where}: early_close_periods {period.through} is after calendar_through"
+            )
     # Complete from calendar_from through calendar_through: every standard US exchange
     # holiday in that window must be listed (closed, early close or no-trade day), so
     # moving calendar_through forward over a standard closure alone is refused (D34).
@@ -542,7 +645,9 @@ def load_instrument(path: Path) -> InstrumentProfile:
             profile.holiday_rules,
             profile.easter_sundays,
             {*profile.holidays, *profile.no_trade_days},
-            set(profile.early_closes),
+            # only the LISTED early closes: a period's routine halt (BH-3) is not the
+            # exchange's early close for a rule's day, and must not hide a missing one
+            set(listed_early),
             profile.calendar_from,
             profile.calendar_through,
         )
@@ -678,12 +783,40 @@ class OptionsSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class DecayExitSettings:
+    """Decision DX-1: whether the decay exit runs, its window and its share of the open
+    profit."""
+
+    enabled: bool
+    window_minutes: int
+    max_pct_of_open_profit: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class ThetaSettings:
     planned_hold_minutes: int
     max_decay_pct_of_target: Decimal
     rate: Decimal
     min_implied_vol: Decimal
     max_implied_vol: Decimal
+    decay_exit: DecayExitSettings
+
+
+@dataclass(frozen=True, slots=True)
+class VegaSettings:
+    min_implied_vol: Decimal
+    max_implied_vol: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaSettings:
+    min_abs_delta: Decimal
+    max_abs_delta: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class GammaSettings:
+    min_hours_to_expiry: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -712,6 +845,9 @@ class StrategyProfile:
     levels: LevelsSettings
     options: OptionsSettings
     theta: ThetaSettings
+    vega: VegaSettings
+    delta: DeltaSettings
+    gamma: GammaSettings
     zeroday: ZeroDaySettings
     console: ConsoleSettings
 
@@ -790,12 +926,22 @@ def load_strategy(path: Path) -> StrategyProfile:
     rate = th["rate"]
     if isinstance(rate, bool) or not isinstance(rate, int | float):
         raise ConfigError(f"{th_where}: rate must be a number, got {rate!r}")
+    dx_where = f"{th_where}: decay_exit"
+    dx = _check_keys(th["decay_exit"], {f.name for f in fields(DecayExitSettings)}, dx_where)
+    decay_exit = DecayExitSettings(
+        enabled=_boolean(dx, "enabled", dx_where),
+        window_minutes=_integer(dx, "window_minutes", dx_where, minimum=1),
+        max_pct_of_open_profit=_positive_decimal(dx, "max_pct_of_open_profit", dx_where),
+    )
+    if decay_exit.max_pct_of_open_profit > _PERCENT_MAX:
+        raise ConfigError(f"{dx_where}: max_pct_of_open_profit must be <= {_PERCENT_MAX}")
     theta = ThetaSettings(
         planned_hold_minutes=_integer(th, "planned_hold_minutes", th_where, minimum=1),
         max_decay_pct_of_target=_positive_decimal(th, "max_decay_pct_of_target", th_where),
         rate=Decimal(str(rate)),
         min_implied_vol=_positive_decimal(th, "min_implied_vol", th_where),
         max_implied_vol=_positive_decimal(th, "max_implied_vol", th_where),
+        decay_exit=decay_exit,
     )
     if not theta.rate.is_finite():
         raise ConfigError(f"{th_where}: rate must be finite, got {rate!r}")
@@ -803,6 +949,48 @@ def load_strategy(path: Path) -> StrategyProfile:
         raise ConfigError(f"{th_where}: max_decay_pct_of_target must be <= {_PERCENT_MAX}")
     if theta.max_implied_vol <= theta.min_implied_vol:
         raise ConfigError(f"{th_where}: max_implied_vol must be > min_implied_vol")
+
+    # GV-1: the vega band is also the bracket every Greeks agent solves implied
+    # volatility in. It must lie inside theta's bounds: a vega bound outside them could
+    # never be reached (Theta refuses first), a setting that would only mislead.
+    vg_where = f"{where}: vega"
+    vg = _check_keys(raw["vega"], {f.name for f in fields(VegaSettings)}, vg_where)
+    vega = VegaSettings(
+        min_implied_vol=_positive_decimal(vg, "min_implied_vol", vg_where),
+        max_implied_vol=_positive_decimal(vg, "max_implied_vol", vg_where),
+    )
+    if vega.max_implied_vol <= vega.min_implied_vol:
+        raise ConfigError(f"{vg_where}: max_implied_vol must be > min_implied_vol")
+    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:
+        raise ConfigError(
+            f"{vg_where}: the band must lie inside theta's [min_implied_vol, max_implied_vol]"
+        )
+
+    dl_where = f"{where}: delta"
+    dl = _check_keys(raw["delta"], {f.name for f in fields(DeltaSettings)}, dl_where)
+    delta = DeltaSettings(
+        min_abs_delta=_positive_decimal(dl, "min_abs_delta", dl_where),
+        max_abs_delta=_positive_decimal(dl, "max_abs_delta", dl_where),
+    )
+    if delta.max_abs_delta <= delta.min_abs_delta:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be > min_abs_delta")
+    if delta.max_abs_delta > 1:
+        raise ConfigError(f"{dl_where}: max_abs_delta must be <= 1")
+    # Review M1, interim until Andre decides GV-5: N (the levels room check) assumes
+    # options.assumed_delta, which is pessimistic only while Delta lets no entry through
+    # with a smaller delta.
+    if delta.min_abs_delta < options.assumed_delta:
+        raise ConfigError(
+            f"{dl_where}: min_abs_delta {delta.min_abs_delta} must be >= "
+            f"options.assumed_delta {options.assumed_delta}: below it, N would understate "
+            "the move an allowed entry needs (GV-5)"
+        )
+
+    gm_where = f"{where}: gamma"
+    gm = _check_keys(raw["gamma"], {f.name for f in fields(GammaSettings)}, gm_where)
+    gamma = GammaSettings(
+        min_hours_to_expiry=_positive_decimal(gm, "min_hours_to_expiry", gm_where),
+    )
 
     z_where = f"{where}: zeroday"
     z = _check_keys(raw["zeroday"], {f.name for f in fields(ZeroDaySettings)}, z_where)
@@ -841,9 +1029,55 @@ def load_strategy(path: Path) -> StrategyProfile:
         levels=levels,
         options=options,
         theta=theta,
+        vega=vega,
+        delta=delta,
+        gamma=gamma,
         zeroday=zeroday,
         console=console,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RegimeSettings:
+    """The play caller's regime reader (config/regime.yaml)."""
+
+    decision_minutes: int
+    efficiency_lookback_sessions: int
+    trend_rank_pct: Decimal
+    chop_rank_pct: Decimal
+    overnight_lookback_sessions: int
+
+
+def load_regime(path: Path) -> RegimeSettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(RegimeSettings)})
+    settings = RegimeSettings(
+        decision_minutes=_integer(raw, "decision_minutes", where, minimum=1),
+        efficiency_lookback_sessions=_integer(
+            raw, "efficiency_lookback_sessions", where, minimum=1
+        ),
+        trend_rank_pct=_positive_decimal(raw, "trend_rank_pct", where),
+        chop_rank_pct=_positive_decimal(raw, "chop_rank_pct", where),
+        overnight_lookback_sessions=_integer(raw, "overnight_lookback_sessions", where, minimum=1),
+    )
+    if settings.trend_rank_pct > _PERCENT_MAX:
+        raise ConfigError(f"{where}: trend_rank_pct must be <= {_PERCENT_MAX}")
+    if settings.chop_rank_pct >= settings.trend_rank_pct:
+        raise ConfigError(f"{where}: chop_rank_pct must be < trend_rank_pct")
+    return settings
+
+
+@dataclass(frozen=True, slots=True)
+class PlaySettings:
+    """The play caller (config/play.yaml): which play runs on the day's label (PC-5)."""
+
+    on_time_seconds: int
+
+
+def load_play(path: Path) -> PlaySettings:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(PlaySettings)})
+    return PlaySettings(on_time_seconds=_integer(raw, "on_time_seconds", where, minimum=1))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1112,6 +1346,8 @@ class Profiles:
     risk: RiskProfile
     strategy: StrategyProfile
     execution: ExecutionProfile
+    regime: RegimeSettings
+    play: PlaySettings
 
 
 def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
@@ -1121,6 +1357,72 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         risk=load_risk(config_dir / "risk.yaml"),
         strategy=load_strategy(config_dir / "strategy.yaml"),
         execution=load_execution(config_dir / "execution.yaml"),
+        regime=load_regime(config_dir / "regime.yaml"),
+        play=load_play(config_dir / "play.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
+    _check_gamma_reachable(
+        profiles.strategy.gamma, profiles.instrument, config_dir / "strategy.yaml"
+    )
+    check_play_timing(profiles.instrument, profiles.execution, profiles.regime, profiles.play)
     return profiles
+
+
+def _check_gamma_reachable(gamma: GammaSettings, instrument: InstrumentProfile, path: Path) -> None:
+    """The longest any entry can wait for its expiry: entries are made only in the prime
+    session, and Felix never takes an option expiring more than dte_max calendar days
+    after the trading day; an option stops trading at option_expiry.time (early closes
+    only make that earlier). So the longest wait is from a prime-session start to the
+    expiry time dte_max days later, measured on real clocks over the maintained calendar
+    (a clock change can add an hour). A minimum above it refuses every entry, and a huge
+    one cannot even be held as a time span (review L1, R2-4)."""
+    prime = ZoneInfo(instrument.prime_session.timezone)
+    expiry = ZoneInfo(instrument.option_expiry.timezone)
+    span = timedelta(days=instrument.dte_max)
+    longest = timedelta(0)
+    day = instrument.calendar_from
+    while day <= instrument.calendar_through:
+        opens = datetime.combine(day, instrument.prime_session.start, prime).astimezone(UTC)
+        ends = datetime.combine(day + span, instrument.option_expiry.time, expiry).astimezone(UTC)
+        longest = max(longest, ends - opens)
+        day += timedelta(days=1)
+    hours = longest / timedelta(hours=1)
+    if gamma.min_hours_to_expiry > Decimal(str(hours)):
+        raise ConfigError(
+            f"{path}: gamma: min_hours_to_expiry {gamma.min_hours_to_expiry} is over "
+            f"{hours:g} hours, the longest any entry can wait for its expiry (prime "
+            f"session start to option_expiry.time, dte_max {instrument.dte_max} days "
+            "later): no option Felix may pick could meet it"
+        )
+
+
+def check_play_timing(
+    instrument: InstrumentProfile,
+    execution: ExecutionProfile,
+    regime: RegimeSettings,
+    play: PlaySettings,
+) -> None:
+    """The play caller's timing rules that span profiles. Raises ConfigError.
+
+    - The day's label is made `regime.decision_minutes` after the cash open, so that
+      moment must fall inside the cash session (the regime reader's own check, made at
+      load so a bad config is refused at start-up).
+    - The opening's final minute bar is polled `bar_poll_delay_seconds` after it closes;
+      at or past `play.on_time_seconds` it could never arrive on time and every live day
+      would stand aside (review round 1, L1).
+    """
+    cash = instrument.cash_session
+    start = datetime.combine(date.min, cash.start)
+    cash_minutes = (datetime.combine(date.min, cash.end) - start) // timedelta(minutes=1)
+    if cash.end <= cash.start or regime.decision_minutes >= cash_minutes:
+        raise ConfigError(
+            f"regime.decision_minutes ({regime.decision_minutes}) must end inside the cash "
+            f"session ({cash.start} to {cash.end})"
+        )
+    delay = execution.market_data.bar_poll_delay_seconds
+    if delay >= play.on_time_seconds:
+        raise ConfigError(
+            f"market_data.bar_poll_delay_seconds ({delay}) must be below "
+            f"play.on_time_seconds ({play.on_time_seconds}): the opening's final minute "
+            "could never be read on time"
+        )

@@ -1,0 +1,166 @@
+{
+  "verdict": "NOT ENOUGH TRADES",
+  "why": [
+    "all trades: 0 (need >= 200)",
+    "out of sample trades: 0 (need >= 60)",
+    "no trading day was labelled TREND, so the entry never ran: no_data 1"
+  ],
+  "whole": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": null,
+    "avg_win": null,
+    "avg_loss": null,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "net_pnl": "0",
+    "expectancy": null,
+    "max_drawdown_pct": "0",
+    "max_drawdown": "0"
+  },
+  "in_sample": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": null,
+    "avg_win": null,
+    "avg_loss": null,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "net_pnl": "0",
+    "expectancy": null,
+    "max_drawdown_pct": "0",
+    "max_drawdown": "0"
+  },
+  "held_out": {
+    "trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate_pct": null,
+    "avg_win": null,
+    "avg_loss": null,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "net_pnl": "0",
+    "expectancy": null,
+    "max_drawdown_pct": "0",
+    "max_drawdown": "0"
+  },
+  "gates": [
+    {
+      "segment": "all",
+      "gate": "trades",
+      "required": ">= 200",
+      "actual": "0",
+      "passed": false
+    },
+    {
+      "segment": "out of sample",
+      "gate": "trades",
+      "required": ">= 60",
+      "actual": "0",
+      "passed": false
+    },
+    {
+      "segment": "all",
+      "gate": "win rate %",
+      "required": ">= 45",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "all",
+      "gate": "payoff ratio",
+      "required": ">= 1.5",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "all",
+      "gate": "profit factor",
+      "required": ">= 1.3",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "all",
+      "gate": "max drawdown %",
+      "required": "<= 15",
+      "actual": "0.00",
+      "passed": true
+    },
+    {
+      "segment": "out of sample",
+      "gate": "win rate %",
+      "required": ">= 45",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "out of sample",
+      "gate": "payoff ratio",
+      "required": ">= 1.5",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "out of sample",
+      "gate": "profit factor",
+      "required": ">= 1.3",
+      "actual": "n/a",
+      "passed": false
+    },
+    {
+      "segment": "out of sample",
+      "gate": "max drawdown %",
+      "required": "<= 15",
+      "actual": "0.00",
+      "passed": true
+    }
+  ],
+  "ledger_matches_journal": true,
+  "exit_reasons": {},
+  "play_days": {
+    "no_data": 1
+  },
+  "run": {
+    "first_bar": "2026-09-15T14:00:00+00:00",
+    "last_bar": "2026-09-15T14:15:00+00:00",
+    "bankroll": "25000",
+    "final_equity": "25000",
+    "decisions": 17,
+    "fired": 0,
+    "alarms": 3,
+    "ended_early": null,
+    "open_at_end": false,
+    "skipped_minutes": 0,
+    "steps": 18,
+    "marked_max_drawdown_pct": "0",
+    "marked_max_drawdown": "0",
+    "worst_open_loss": "0"
+  },
+  "assumptions": {
+    "option prices": "MODELLED from the futures price (no options history)",
+    "delta (G4, fixed)": "0.45",
+    "option model atm_premium_points": "150",
+    "option model spread_points": "2",
+    "option model strike_step": "25",
+    "option model strikes_each_side": "6",
+    "option model open_interest": "500",
+    "option model expiries_listed": "5",
+    "option model trading_class": "Q3C",
+    "option model reference_price": "None",
+    "fees per contract per side": "2.5",
+    "risk.profit_target": "1000",
+    "risk.trail_keep_pct": "50",
+    "risk.stop_loss": "750",
+    "risk.position_cap": "6000",
+    "theta.decay_exit.enabled": "false",
+    "theta.decay_exit.window_minutes": "30",
+    "theta.decay_exit.max_pct_of_open_profit": "50",
+    "news blackouts": "NONE supplied",
+    "intrabar path": "adverse-first against an open trade",
+    "bars": "<TMP>/bars.csv"
+  }
+}

@@ -144,6 +144,17 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
     IBKR's contract details for NQ options expiring 2026-11-26 and 2026-11-27 and confirm
     the last trade times (noon CT on the 27th; on the 26th the futures halt at 12:00 CT,
     and the model caps option expiry at any futures halt).
+30. Play caller history and timing (playcaller-wire-v1, review round 1 L4; NOT VERIFIED):
+    (a) time the start-up history load with `market_data.history_days` at 95 (about 80
+    one-day requests): does it stay inside IBKR's historical-data pacing limits (no 162
+    pacing violations), and how long does it take? A start, or a roll-day reload, that
+    finishes after 10:00:59 ET means no new entries that day (LATE), so start before
+    about 09:50 ET until this is measured. (b) For 5+ days, read journal `plays.jsonl`:
+    `as_of` of each day's record should be well inside 10:00:00-10:00:59 ET, and no day
+    should be `no_data` because the 09:59 ET bar arrived late. (c) Run
+    `tests/live/test_live_app.py` with ibapi installed (its play-caller tests cannot run
+    in the build sandbox). (d) On the real-data backtest, count the no_data days and the
+    "PLAY CALLER: ... history session ... is unusable" alarms (PC-7) before paper.
 
 ## Known open items (not fixed; recorded so nothing is hidden)
 
@@ -203,6 +214,7 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 | A-16 (independent audit) | `easter_sundays` is only checked to be Sundays: a wrong Easter (e.g. 2027-03-21) loads, and Good Friday would be expected on the wrong day | Computing Easter needs numeric constants in `src` (the literal guard forbids them; no allow-literal markers). Each Easter is checked by hand against CME's Good Friday closure (checklist 23) |
 | A-18 (independent audit) | The hard-coded-literal guard misses small integers (under 10), `25_000`, `.25`, `Decimal(1)/4`, `2.5e3`, dates and strings from the non-instrument YAMLs, and does not look inside YAML lists | **Closed (grind stage 2026-10-10 09:06 UTC).** New AST guard `tests/test_no_hardcoded_literals_ast.py`: forbidden values are every leaf (dicts and lists walked) of every `config/**/*.yaml`: numbers (all but 0 and +-1, small integers included), strings and dates. Each `src/**/*.py` is parsed: numeric constants (so `25_000`, `.25`, `2.5e3` are seen as their values), numeric strings (`Decimal("0.25")`), `date(y, m, d)` calls and ISO date strings, words in strings, and numbers, words and dates in comments and docstrings (via tokenize). Forbidden values that are ordinary code (halving by 2, `yyyymmdd` slicing, the nth-weekday range, cache sizes, `uuid4().hex[:8]`, the percent bound 100, holiday and weekday schema keys, item numbers in prose) are listed per file and per value with their count in `REVIEWED` inside the test, each kind explained there; any new occurrence fails, and so does a reviewed one that went away. **The one in-line marker (core/config.py:24, `_PERCENT_MAX = Decimal(100)`) is removed**; a test fails on any marker under src/ (the old guard's `EXPECTED_ALLOW_MARKERS` is now 0). The old line guard now scans only non-Python files under src/ (README); the AST guard owns `.py`. **Real literals found: none** (every hit reviewed; `backtest/path.py`'s `_MINUTE - 5`, the backtest price path closing 5 s before the minute ends, is a path-model constant, not a trading rule; Andre may want it in config). Test first: with `REVIEWED` empty, the src scan and the marker test failed (77 code hits in 42 file/value pairs before review). Mutation evidence `qa/mutation/grind-a18.out`. Not covered by design: arithmetic that builds a value from unforbidden parts (e.g. `16 * 1562.5`) **G18-1 / G18-2 (LOW, review of 66840e1..d616114) fixed with tests (grind stage 2026-10-10 09:40 UTC; test file only, no src change).** G18-1: a minus over a numeric constant (`-750`, `-(3)`) is now read as that negative value when the negative is itself a config value (before, only the positive was compared, so a value in config only as a negative passed); otherwise the constant is scanned as written, so `-X` is still caught whenever `X` is forbidden. The existing `-2` uses (`scaleb(-2)`, `bars[-2]`, IBKR's market data type -2) moved from `code 2` to `code -2` in `REVIEWED`, same totals. G18-2: prose numbers with thousands separators (`$1,800`, `25,000`) are also read whole (they were split at the commas). Also fixed: with no string leaves at all the word pattern was empty and matched everywhere (test harness only; the real config has strings). Test `test_scanner_sees_negative_only_values_and_grouped_prose_numbers` failed first. Mutation evidence `qa/mutation/grind-g18.out` **G19-1 and G19-2 closed (grind stage 2026-10-10 10:04 UTC, review of d616114..0ebaecd; test file only, no src change).** G19-1: a number with a leading minus in a comment or docstring (`-900`, `-1,800`) was never read (the prose patterns refuse a digit glued to `-`, to skip dates and ranges); now a minus not glued to a word, digit, `.`, `:`, `,` or another `-` is a sign, and the number counts as its negative when that is forbidden, else as its value (the G18-1 rule). `2026-04-03`, `2100-2199`, `x-900`, `--900` are still not signs. G19-2: a string spelling of a negative (`Decimal("-900")`) counts as the value when only the positive is in config, as `-900` in code already did. No new hit in src. Test `test_scanner_reads_a_leading_minus_in_prose_and_in_number_strings` failed first. Mutation evidence `qa/mutation/grind-g19.out` **G20-1 closed (grind stage 2026-10-10 10:29 UTC, review of 0ebaecd..59e0935; test file only, no src change).** Both ends of a hyphen range (`900-1000`, `900-1,000`, `$900-$1,000`, `1.5-4`) are read as plain values, in prose and in string literals; the hyphen is not a sign. An ISO date, a range glued to a word (`G6-5`, `x900-1000`) and a clock time stay unread as numbers; a `$` right end is read once. Two new src hits reviewed into `REVIEWED` (not trading values): `core/config.py` message "nth must be 1-5" (`text 5`) and `execution/channels.py` E.164 regex `[1-9]` (`text 9`). G19's test now also expects the range ends it holds (`1-4`, `750-900`). Test `test_scanner_reads_both_ends_of_a_hyphen_range` failed first. Mutation evidence `qa/mutation/grind-g20.out` **G21-1, G21-2 and G21-3 closed (grind stage 2026-10-10 10:51 UTC, review of 59e0935..2c70003; test file only, no src change).** The range pattern became a chain pattern: every number of a hyphen chain (`900-1000`, `750-900-1000`, `$900-$1000-$1,200`, `.25-.5`) is read once as a plain value, `$` ends included; only the exact ISO date shape (`\d{4}-\d{2}-\d{2}`) is skipped (the date check reads dates). The chain, `PROSE_NUMBER` and `GROUPED_NUMBER` are atomic, so `900.0-1000` reads 900 once and `900.5-1000` no longer reads a false 900; `PROSE_NUMBER`/`GROUPED_NUMBER` leave a `$` end after `digit-` to the chain. A chain glued to a word, a colon or a further `.digit` (`G6-5-3`, `x900-1000-1200`, `2026-04-03T09:00`, `0.25-0.5.1`) still reads nothing. No new hit in src. Test `test_scanner_reads_every_end_of_a_hyphen_chain_once` failed first. Mutation evidence `qa/mutation/grind-g21.out` (12 mutants): M7 (`PROSE_NUMBER` also reads an ungrouped `$` chain end) survived the first run and is killed by `900-$1200` added to the test; **M12 (the chain not atomic) is argued equivalent**: every point the chain could backtrack to sits just before a digit, `_`, `,digit`, `.digit` or `-number`, and the chain's lookahead `(?![\w:-]|[,.]\d)` refuses each of them, so a non-atomic chain matches exactly what the atomic one does **G22-1 closed (grind stage 2026-10-10 11:18 UTC, review of 2c70003..99f1e31; test file only, no src change).** G21 made `PROSE_NUMBER`/`GROUPED_NUMBER` refuse every `$` number after `digit-`, leaving it to the chain; when no chain matched (the hyphen glued to a word or a clock time) nothing read it. Now the prose patterns skip only a `$` end that a matched chain actually reads (its start offset), so `x6-$900`, `10:30-$900`, `G6-$1,000` are read again and a chain's `$` end is still read once; this also removes a double count G21 left (`7_-$1,200` read twice). A wider claim (the whole chain span) was rejected: it would drop `900` from `2026-04-03,900`, which the chain swallows without reading. A differential fuzz (80,000 strings) against 99f1e31 shows only gains, plus the double count removed. No new hit in src. Test `test_scanner_reads_a_dollar_amount_after_a_hyphen_no_chain_takes` failed first. Mutation evidence `qa/mutation/grind-g22.out` |
 | A-19..A-21 (independent audit, info) | `BROKER_HOST` is not checked to be loopback (the paper guarantee holds through the DU and account-list checks); the ledger's day rolls at 04:00 PT while the calendar gives the evening session to the next day (only matters if overnight trading is enabled); `place` releases the lock between the readiness check and the send (a microsecond window in which a loss still sends) | Recorded only |
+| BT-FRI (greeks-veto-v1 review round 1, I5; pre-existing, not from this branch) | The backtest cannot size an entry late on a Friday: the nearest modelled expiry is Monday (3 days), its modelled premium is about 150 x root(3), about 260 points, so one contract costs about 5,150-5,280 dollars at the ask, over the 5,000 cap; Ezra refuses every such entry. Reviewer tested only 13:50 PT; how early on Friday it starts is not verified | Backtest only (live prices come from the market). Separate ticket; it goes away or changes with GV-4 (a model priced in volatility terms) |
 
 ## Data-day prep queue (Andre's order, 2026-10-10 ~10:30 PT)
 
@@ -597,3 +609,904 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
   (`ChainRow`, `data/chain_record.py`) carry no trading class. Nothing reads them yet;
   the first PR that replays recorded chains must add the class, or on a quarterly
   Friday it cannot tell the quarterly from the weekly (review trading-class R1, M2).
+
+## Decay exit (branch decay-exit-v1; Andre's DX-1, 2026-10-22)
+
+- **DX-1 (decided by Andre, 2026-10-22):** Theta may make Malik close an open trade, in
+  paper and the backtest only, when its open profit is above 0 and below
+  `risk.profit_target`, the trail has not locked, and the Black-76 decay over the next
+  `theta.decay_exit.window_minutes` (B76-1: price(now) minus price(now + window), calendar
+  time, the implied-volatility solve and expiry moment Theta already uses, through the one
+  shared `value_decay`), times the held contracts and the point value, is ABOVE
+  `theta.decay_exit.max_pct_of_open_profit` percent of the open profit. At or below it the
+  trade stays. Losing trades are left to the stop.
+- **How it was built (for Andre to check):**
+  - Open profit is trade management's own figure: on the BID, net of round-trip fees
+    (`fee_per_contract_per_side`), the same basis as Booker's trail, the target rule
+    (Q5.5-a) and every risk check. "Trail not locked" is read from Booker (`trailing`),
+    so a trade that reached the target and fell back below it stays with its locked trail.
+  - The option is found in the option chain at that moment (live: the market data's
+    chain; backtest: the modelled chain); the chain's underlying price is the forward and
+    the chain quote's MID is what the volatility is solved from, exactly as for an entry.
+  - No decay exit (the other exits run unchanged) when: no chain; a chain older than
+    `quotes.max_age_seconds` or stamped in the future; the held option not in the chain
+    (live, the chain offers only strikes near the money on the chosen expiry: a held
+    option that drifted out of it is NOT valued); an American or unknown class; the option
+    expires within the window (near expiry the decay exit stands aside; the close lead and
+    the stop still run); no implied volatility inside the bounds; inputs the model cannot
+    take. A decay exit that raises alarms once per position and says nothing.
+  - It is asked after every existing reason (stop, gap, close, news, news time stop,
+    daily and weekly loss, kill switch), only on a fresh quote, and never while an exit is
+    under way (no second seller). The exit is the existing one: stop cancelled first, one
+    limit sell at the bid in the stop's OCA group. Journal: exit reason `DECAY_EXIT`, and
+    an event line "decay exit: ..." with the decay, the limit, the open profit, the implied
+    volatility, the mid and the underlying.
+  - Paper only: trade management does not know paper from live; the live app hands it the
+    decay exit, and that app is paper only by the hard-coded D33 check. Going live is a
+    code change and must revisit DX-1.
+- **For Andre (DX-1 drafts, untested on real data):** `window_minutes: 30`,
+  `max_pct_of_open_profit: 50` (config/strategy.yaml, theta.decay_exit). `enabled` was
+  added by the builder (not in DX-1) so a backtest can be run with and without it. It
+  SHIPS `enabled: false` (review round 1, H1) until Andre rules on DX-2 below: paper and
+  the backtest run without the decay exit until then. Every test of the rule turns it on
+  explicitly; the backtest readout prints all three settings (review M1).
+- **DX-2 (for Andre, open; blocks turning the decay exit on):** with the drafts, the decay
+  exit closes **every normally paced winner** on its first small gain, not "almost every
+  trade".
+  - Why (structural): the rule compares a rate (decay per 30 minutes) with a stock (open
+    profit). Right after entry the open profit is always small, so the decay exceeds half
+    of it. In the backtest's 1-day option (F 23721, K 23725 call, mid 168.625) the
+    modelled decay over 30 minutes is $28.59 per contract (reviewer recomputed it
+    independently: IV 0.3083, 1.4293 points). The exit fires while open profit is between
+    $0 and 2 x $28.59 = about $57. Under the backtest model (delta 0.45 x $20, 2-point
+    spread, $5 round trip) that is an NQ move of about +5 to +11.4 points from entry;
+    every winner must cross it, and the engine (every 5 s) and live feed (every tick)
+    see it on a fresh quote. Only a jump that clears the whole band inside one 5-second
+    step escapes. The band widens toward expiry: Theta's entry veto admits a 60-minute
+    decay up to $250, so at entry the band can reach about $250 (about 33 NQ points).
+  - Measured on the real engine, decay exit off vs on (reviewer's script, reproduced by
+    the builder on this branch with the same results):
+
+    | Scenario | Off | On |
+    |---|---|---|
+    | +10/min x16, then back | +680 (STOP, trail) | **+10 (DECAY_EXIT)** |
+    | +20/min x10 | +1700 | **+5 (DECAY_EXIT)** |
+    | +40/min x5 | +1705 | **+50 (DECAY_EXIT)** |
+    | +5/min x40 | +1670 | **+20 (DECAY_EXIT)** |
+    | +120 in one bar | +990 | +990 (escapes the band) |
+
+  - What it does to the go-live gates (arithmetic, inference from the model, not a
+    backtest on real data): winners average about $20 to $50 (the measured wins above
+    average $21.25); losers are left to the stop, $750 (more with a $1,000 stop).
+    Payoff = average win / average loss = 20/750 to 50/750 = **0.027 to 0.067**, against
+    the gate of 1.5. Profit factor = (win rate / loss rate) x payoff; reaching 1.3 needs
+    win rate / loss rate >= 1.3 x 750 / average win = 48.75 (at $20) to 19.5 (at $50),
+    i.e. a **win rate of about 95% to 98%** (about 97% at the $28.59 decay itself),
+    against a gate of 45%. With the drafts on, the gates cannot be reached.
+  - Options for Andre (the builder does not pick one; each needs a new draft number and
+    a backtest with it on and off):
+    - (a) a minimum open profit before the decay exit may fire (for example a share of
+      `risk.profit_target`), so a trade must first get clear of the band;
+    - (b) a minimum hold time since entry before it may fire;
+    - (c) compare the decay with the distance left to the target (`profit_target` minus
+      open profit) instead of with the open profit, so a trade far from its target is
+      judged by what it still has to make;
+    - (d) keep it off (`enabled: false`, as shipped).
+- **DX-3 (for Andre, recorded, not fixed; review L4): backtest and live value different
+  chains.** The backtest's modelled chain lists 5 expiries and +/-6 strikes around the
+  money, so a held option is almost always in it and valued. The live chain lists only
+  the chosen expiry near the money (`_in_chain`: a held option from another expiry is
+  never offered; one whose quote is older than 5 s drops out). So a held option the
+  backtest values may not be valued live, and the decay exit is then silent for it
+  (now journaled once per position as "decay exit cannot value the held option",
+  review L3). Under the drafts this barely matters, because the band sits next to the
+  entry; any rule from DX-2 that fires later in a trade makes it matter more. Decide
+  whether the live chain should keep the held contract's own quote, before turning the
+  decay exit on in paper.
+- **Changed after review round 1 (decay-exit-v1):** shipped off (H1); readout prints the
+  settings (M1); the decay exit is pinned to be asked before a named exit rule (L1: both
+  sell at the same bid through the same path; asking it first only decides the journal's
+  reason, DECAY_EXIT, and keeps the decay note); the decay dollars are pinned to the
+  instrument's point value (L2); an option the decay exit cannot value is journaled on
+  the position and logged once per position (L3; not an alarm, which pages Andre, as
+  it is not a safety fault: the stop and the other exits run unchanged); the "decay
+  exit: ..." note now carries the time of the check its numbers come from, not the time
+  the sell went out (I1). I2 (the stop is cancelled before the sell, like every exit) is
+  the existing certified design and unchanged; for this optional profit-taking exit it
+  trades a step of protection for a $5 to $50 gain while the drafts stand.
+- Backtest goldens: the one golden trade is unchanged (it never reaches a profit). Review
+  M1 added three lines (the decay-exit settings) to the golden readout.md, readout.json
+  and printed readout. Two engine tests that test the trail and the dead-feed path run
+  with `enabled: false`; an engine test turns it on and shows it firing and journaled
+  with the drafts; another shows the shipped config riding the winner to the trail.
+
+## Greeks vetoes (branch greeks-veto-v1, stacked on trading-class-v1; 2026-10-22)
+
+Built from Andre's decisions of 2026-10-22 (GV-1, GV-2). After Theta, and before
+Dolores' full check, Vega, Delta and Gamma (agents/greeks.py) value the chosen option
+the way Theta does: a known European class only (B76-2), calendar time to its expiry
+moment (B76-1, core/expiry.py), the Black-76 implied volatility of its mid (core/
+implied_vol.py) with the chain's underlying price as the forward and `theta.rate`, then
+Black-76 delta, gamma and vega at that volatility. Veto only: each blocks the entry on
+its own hard danger and is otherwise silent; none scores. They run in the order Vega,
+Delta, Gamma; the first veto stops the entry and nothing after it runs. Every check
+(allowed or not) is journalled with its numbers (implied volatility, delta, gamma, vega,
+years, expiry moment) and an ApprovedEntry cannot be built with a vetoed, mismatched
+(other contract or size) or misplaced check. Anything an agent cannot value is no entry.
+
+- **For Andre (GV-1): every number is a DRAFT default, untested on any data.**
+  - Vega: no entry when no volatility in [`vega.min_implied_vol`, `vega.max_implied_vol`]
+    = [0.08, 1.0] prices the mid (this also covers a quote under its intrinsic value).
+    The band is also the bracket all three solve in. The loader requires it inside
+    Theta's [0.05, 1.5]: a vega bound outside Theta's could never be reached (Theta
+    refuses first). With the defaults, a volatility in [0.05, 0.08) or (1.0, 1.5] now
+    passes Theta and is refused by Vega.
+  - Delta: no entry when |delta| (a put's delta is negative) is outside
+    [`delta.min_abs_delta`, `delta.max_abs_delta`] = [0.45, 0.7]: a far out-of-the-money
+    option, or a deep in-the-money one that is mostly intrinsic value. Edges are inside.
+    The floor was 0.3 in the first draft; it is 0.45 since review round 1 (M1, see GV-5).
+  - Gamma: no entry with less than `gamma.min_hours_to_expiry` = 6 hours to the expiry
+    moment ("the danger zone near expiry"). Since review round 1 (L1) `load_profiles`
+    refuses a minimum longer than any entry can wait for its expiry: no option Felix
+    may pick could meet it, and a huge value used to crash Pipeline construction with
+    an OverflowError instead of a config error. Since review round 2 (R2-4) that bound
+    is derived from config, not "dte_max + 1 days": from a prime-session start
+    (`prime_session.start`, 04:00 PT; entries are made only in prime) to
+    `option_expiry.time` (13:00 PT) `dte_max` days later, on real clocks over the
+    maintained calendar (`calendar_from` to `calendar_through`). Today that is 82 hours
+    (3 days and 9 hours, plus the hour the clocks go back on 2026-11-01); 81 hours on
+    any other weekend. **The builder chose time, not a gamma cap**,
+    and asks Andre to confirm: (1) Black-76 gamma per point is about 1 / (price x vol x
+    root of time), so a fixed cap drifts with the index level and the volatility, while
+    time to expiry is the cause of the danger at any level; (2) for a bought option a
+    high gamma is not itself a loss; the danger near expiry is decay, jumps and the
+    model running away from the market. Gamma still journals its Black-76 gamma.
+    **Fact: with Felix's `dte_min: 1` this rule cannot bind today.** Entries stop 5
+    minutes before the 14:00 PT prime close and options expire at 13:00 PT, so a 1-day
+    option has at least about 23 hours left (about 20 when its expiry day is a stock
+    half day). It is a backstop for a later `dte_min: 0` (same-day options) or a
+    shorter session, not a rule that changes today's trades.
+  - One rate for every Black-76 valuation: `theta.rate` (0.04, UNVERIFIED). No second
+    rate was added.
+- **GV-2 NOT BUILT: stopped and documented, as instructed.** The only place the system
+  computes how far futures must move for the profit target is N, the levels room check
+  (`points_for_target` with `options.assumed_delta` 0.45; Grant's levels_room gate and
+  its +2 score inside Desmond's console). Felix, Ezra, Theta, the stop and the trail do
+  not use a delta. N runs inside the console, BEFORE Felix chooses a contract (Felix runs
+  only on a passing verdict, for the verdict's direction), so there is no chosen
+  contract and no live delta when it runs. Replacing it needs a pipeline change Andre
+  has not decided:
+  - (a) pick the contract first: when the trend has a direction, run Felix and Ezra
+    (and value the delta) before the console, and fail the levels gate when there is no
+    chain, no contract or no usable delta. Changes the decision order and every journal
+    record; the rule console (backtest rules) needs the same seam.
+  - (b) keep the console as is, and re-run Grant's room check after Delta with the live
+    delta (no entry if the live N finds a wall). One-sided: it can only remove trades
+    the 0.45 let through, never add ones 0.45 refused, and the +2 score still uses 0.45.
+  - (c) keep 0.45 until the option-history data exists.
+  - (d) (review round 1, I1) use IBKR's own delta for the contract Felix would pick. The
+    IBKR market layer already receives IBKR's computed Greeks, delta included
+    (`brokers/ibkr/market.py` `on_greeks`, checked by `core/options.py` `judge_greeks`),
+    but `OptionQuote` does not carry them, so nothing in the decision can read them
+    today. Needs the same "contract first" order as (a) or the re-check of (b), plus a
+    seam that hands a Greeks reading with the quote; live only (the backtest has no
+    IBKR Greeks).
+  Correction to (a) (review round 1, I2): the rule console (`backtest/rule_console.py`,
+  used by the gateless backtest entry rules) does not apply the levels gate at all, so N
+  is unused in those backtests and needs no seam there; only moving Felix before the
+  console would touch it.
+  Until Andre picks, `options.assumed_delta` stays the only delta in N. The journal now
+  carries the live delta of every entry that reaches Delta, so the gap can be measured:
+  live N = profit_target / (|delta| x point_value x risk.max_contracts). (Review round 1,
+  I3: the pipeline computes N once, at start-up, with `risk.max_contracts`, not the
+  plan's contracts; the two are equal today because max_contracts is 1.)
+- Other uses of `options.assumed_delta`, left unchanged on purpose: the backtest's
+  option model (`backtest/options_model.py`) uses it as the slope of its synthetic
+  premium (a pricing assumption, G4, not a target distance), and the readout prints it.
+- **GV-3 (backtest effect, fact; corrected after review round 1, H1):** the backtest runs
+  the same pipeline on its modelled quotes, so the vetoes run there too. The first text
+  said the contract Felix picks from the model's ordinary chains passes all three; it
+  had tested only 20,000 and 23,712, and it is true only over a band of prices. The
+  model prices the at-the-money option at a fixed `atm_premium_points` (150) x root(days
+  to expiry) whatever the futures price, so its implied volatility is about
+  150 x root(2 pi x 365) / price, roughly 7,200 / price. Measured with the draft numbers
+  (`model_problem` in `backtest/model_check.py`, in 25-point steps from 2,000 to
+  120,000, on a Tuesday at 04:01 and 13:50 PT and a Friday at 13:50 PT; the sweep test
+  in tests/backtest/test_model_vol_guard.py shows Felix's pick gets the same verdict
+  from the agents, long and short):
+  - below about 4,850-4,900 the volatility is above theta's 1.5: Theta vetoes every
+    entry (already so before this branch);
+  - from there to about 7,250-7,350 it is above vega's 1.0: Vega vetoes every entry
+    (new with this branch);
+  - from there to about 90,500-92,000 Felix's pick passes Theta and all three (near
+    each edge the verdict flips back and forth over tens of points, with the strike and
+    the option tick);
+  - above that it is below vega's 0.08: Vega vetoes every entry.
+  NQ traded below about 7,300 until 2019, so a backtest over 2010-2019 would trade
+  nothing there. That run is not possible today anyway (the exchange calendar starts at
+  `calendar_from` 2026-01-01 and the backtest refuses days before it), but it is the
+  research period. **Guard, built here:** before a backtest starts (`Backtest.__init__`,
+  so the command line and compare both get it), the model is checked at the lowest and
+  the highest price traded in the prime session; outside the band the run is refused
+  with an error naming that price, the contract, its volatility and the bound (exit 2,
+  INVALID, from the command line). The fix itself is GV-4.
+  **The guard has no safety margin at the band's edges (review round 2, R2-2).** It
+  checks one moment per extreme price. Near each edge the verdict flips with the time
+  of day and the strike offset; the reviewer measured the flip zones over 21 moments
+  as about 7,243 to 7,362 (lower edge, about 1.6% wide) and about 90,450 to 91,750
+  (upper edge). A run whose lowest (or highest) price falls inside a flip zone can pass
+  the guard while some entries near that price are vetoed: a partial loss of trades,
+  journalled, not the silent zero trades H1 was about. Not fixed (documented, as
+  allowed); the margin, if wanted, comes with GV-4.
+  A run with no traded bar in the prime session is also refused (round 2, R2-1, fail
+  closed: no entry is made outside prime, so it could only trade nothing). No existing
+  test or golden runs such a backtest (full gate passed with the refusal in place).
+  In the golden run (seam_default) the one fired entry read implied volatility 0.309, delta 0.495, 30.0 hours to expiry; its
+  trades, ledger and readout did not change, and every existing field of its 11
+  decision records is identical; each record only gained `vega`, `delta` and `gamma`
+  (null on the 10 records that never reached them). The modelled volatility is read from the model's own synthetic
+  prices: the backtest's Greeks are a model measured with another model, not market
+  facts (as TH-2 says for Theta).
+- **GV-3, also (review round 1, L3): the model and the vetoes count to different expiry
+  moments.** The model's time value runs to the prime close (14:00 PT, or the futures'
+  early close) on the expiry day; Theta, the Greeks agents and the guard count to the
+  option's expiry moment (`option_expiry.time`, 13:00 PT, or 10:00 PT on a stock half
+  day). So a modelled quote holds about an hour more time value than the vetoes assume,
+  and its implied volatility reads slightly high (about 2% with one day left,
+  root(24/23)). Not fixed here: it is not golden-neutral. Aligning the model to
+  `expiry_moment` was tried and failed the golden byte-identity test
+  (test_rules_seam.py) and test_calendar_early_close.py, because every modelled quote
+  changes; and how the model prices options is GV-4. Do it with GV-4.
+- **GV-4 (for Andre; review round 1, H1): how the backtest's option model prices an
+  option.** Today: a fixed `atm_premium_points` x root(days), whatever the price (see
+  GV-3). Options:
+  - (a) price the model in volatility terms: for example the Black-76 price at a
+    configured volatility, or at the day's VXN (R-2 chose VXN as the research
+    volatility). The modelled volatility then no longer drifts with the price level and
+    the guard should always pass. Changes every modelled quote, so every backtest
+    golden; L3 (the expiry moment) should be aligned in the same change.
+  - (b) keep the model; the guard (GV-3) refuses any run whose prices fall outside the
+    band, so the 2010-2019 research period cannot be backtested.
+  Until Andre decides: (b), with the guard.
+- **GV-5 (for Andre; review round 1, M1): the floor of the Delta band.** N (the levels
+  room check) assumes `options.assumed_delta` 0.45, and G4 calls it pessimistic; that
+  holds only while every entry Delta lets through has |delta| of at least 0.45. With
+  the first draft floor of 0.3 it did not: Felix takes the strike nearest the price, up
+  to `max_strike_distance` away, and (reviewer's figures) a 1-day option 50 points out
+  of the money at 0.15 volatility has |delta| about 0.38, so its true N is about 18%
+  larger than the room check assumed. **Interim rule, built here:** the loader refuses
+  `delta.min_abs_delta` below `options.assumed_delta`, and the draft floor is now 0.45.
+  This narrows the band: entries with |delta| from 0.30 to 0.45 are now vetoed. The
+  golden run's one entry (|delta| 0.4952) still passes; the only golden change is the
+  band printed in its Delta reason ("[0.45, 0.7]" for "[0.3, 0.7]").
+  **What the 0.45 floor costs, in points (review round 2, R2-3; the reviewer's own
+  Black-76, NQ at 25,000, not checked on a live chain):** Delta vetoes an
+  out-of-the-money nearest strike once it is about this far from the price:
+
+  | Implied vol | 1-day option (23 h left), call / put | 3 days 9 h left (81 h), call / put |
+  |---|---|---|
+  | 0.10 | 16 / 16 points | 31 / 29 points |
+  | 0.15 | 25 / 23 points | 48 / 43 points |
+  | 0.20 | 33 / 31 points | 65 / 56 points |
+
+  Felix allows up to 50 points (`execution.contract.max_strike_distance`). With
+  10-point strikes near the money the floor would almost never bind; with 25- or
+  50-point strikes in a quiet, low-volatility tape it will veto real entries. Puts are
+  cut slightly sooner (an at-the-money put's delta is under 0.5). **NQ's live strike
+  spacing near the money is NOT verified.** On the backtest model's chains Delta never
+  vetoes (smallest |delta| of Felix's pick seen by the reviewer: 0.474).
+  Options: (a) keep the floor at `assumed_delta` (the interim rule); (b) a lower floor,
+  with GV-2 deciding how N uses the live delta (then drop the loader rule); (c) another
+  number.
+
+## Play caller: regime reader (branch playcaller-v1; 2026-10-21)
+
+- **PC-1 (Andre): sign off the draft rules** in
+  `claude/playcaller-preregistration-draft-2026-10-21.md` (config/regime.yaml holds them as
+  DEFAULTs). Nothing has been run on data; once signed, the rules are judged once.
+  **SIGNED by Andre 2026-10-22 (Q&A): the rules as written** (see B76 "Also decided that
+  night"). config/regime.yaml still says DEFAULT (draft) on each number: the numbers are
+  the signed rules, untested on any data.
+- **PC-2 (integration, before wiring): history.** A call needs `history_sessions` trading
+  days of bars (61 with the defaults). The backtest hands decisions
+  `history_minutes: 43200` (about 30 sessions), so wired as is the reader would always
+  stand aside. Wiring must raise the history (or feed the reader its own longer series)
+  and check it at start-up (built on playcaller-wire-v1: see that section). Also: a day that
+  fails closed is recomputed on every call (about 20 ms each); with too little history
+  that is several seconds per simulated day. Labels are kept per reader, keyed on today's
+  bars: one reader per run (a replay of corrected history needs a new reader). A kept
+  label costs a bisect of the input per call (review round 3 measured a full scan at
+  6-16 ms per call before this; now only today's slice is copied).
+- **PC-3 (research): the calendar.** The reader refuses history before the maintained
+  calendar (`calendar_from`, 2026-01-01), so in live/paper it cannot label a day until
+  about 60 sessions into the calendar (warm-up), and it cannot run on 2010-2024 data.
+  Research labels days with the pure `opening_efficiency` and `classify` functions on its
+  own session days, so both use exactly the same rules.
+- **PC-4 (Andre to confirm):** CHOP does not use the overnight, but an unusable overnight
+  still stands aside (fail-closed on every input). And: data failures are not kept, so a
+  day can first be labelled after the decision time once late bars arrive (no lookahead);
+  should the console act on a late label, or only on one made at the decision minute?
+  **Andre 2026-10-22: only on time; a bad overnight stands aside. Built on
+  playcaller-wire-v1.**
+- Independent review of e83e96d (branch regime-v1): NOT CERTIFIED. Reworked here: label
+  kept for the day once made from sound data (data failures are not kept); bars out of
+  order, duplicated or off the whole minute refused; history before the calendar refused;
+  the calendar's search failure stands aside; decision_minutes must end inside the cash
+  session; all surviving mutants tested (qa/mutation/playcaller-v1.notes.md).
+
+## Play caller wired to the entries (branch playcaller-wire-v1; 2026-10-22)
+
+Built on playcaller-v1 (PR 39, cherry-picked) and trading-class-v1 (PR 41). Code:
+`src/footprint/decision/play.py`, called by the pipeline on every decision.
+
+- **Signed by Andre on 2026-10-22 (Q&A; project notes decisions-2026-10-22-qa and
+  -greeks-wiring):** PC-1 (the rules as written), PC-4 (a late label means stand aside; a
+  bad overnight stands aside), PC-5 (below). Still open for Andre: PC-2 (95 days), the
+  60-second window number in PC-4, the M1 reading of PC-4 below, PC-6, PC-7, and the
+  behaviour change below (explicit acknowledgement).
+- **PC-5 (Andre, 2026-10-22), built:** a TREND day runs the existing breakout entry (the
+  live momentum entry and console, unchanged). A CHOP day and a STAND ASIDE day take no new
+  entries. There is no chop play.
+- **Behaviour change, for Andre: no new entries before the decision time, on any day.**
+  With the defaults that is 10:00 ET (07:00 PT). Before this branch the breakout could fire
+  from the prime open (04:00 PT) and through 09:30-10:00 ET; now nothing enters before
+  10:00 ET, and after it only on a TREND day. Entries end where they did (the close lead).
+
+  | Merge-time behaviour change (review round 1, I2) | Andre acknowledges |
+  |---|---|
+  | No new entries before 10:00 ET on any day, and after it only on a TREND day. Every earlier backtest result of the breakout (entries from 04:00 PT) no longer describes the system. PC-1/PC-4/PC-5 are signed, but PC-2 (95 days) and the 60 s window are DEFAULT drafts; none of the rules has been run on real data. | PENDING: Andre, in writing, before merge |
+- **Exits never depend on the label.** The runner asks the pipeline for a decision only
+  with nothing open or working; managing an open position never reads the play. A test runs
+  the same trade with the label turning CHOP while it is open: same exit, same P&L.
+- **PC-4, built:** the on-time window is `play.on_time_seconds` from the decision time
+  (config/play.yaml, **DEFAULT (draft, Andre PC-4): 60, the decision minute**).
+  - Inside it, while the opening's final minute (09:59 ET) has not arrived yet (no closed
+    bar at or after it among the bars read), nothing is fixed: the play is `waiting` (no
+    new entries) and the next decision asks again (review round 1, M1: one minute bar
+    arriving a few seconds late, which IBKR's poll can do, no longer burns the day).
+  - Inside it, once that minute (or a later one) is there, the reader's label stands for
+    the whole trading day, whatever it is: TREND, CHOP or the rules' STAND ASIDE at
+    once, and a data failure is NOT retried (with a later minute already there the final
+    minute is missing, not late).
+  - After it the reader is never asked (PC-4: a label first available after the window
+    never counts). A day still waiting is fixed `no_data` ("the opening's final minute
+    ... had not arrived by the end of the on-time window"); a day never asked inside the
+    window (data late, broker away or reconciling, a restart after the decision minute)
+    is `late`.
+  - **For Andre (M1, builder's reading of PC-4, confirm or reject): a bar that arrives
+    inside the window is not a late label.** Rejecting it means going back to "the first
+    decision at or after 10:00:00 ET fixes the day", where one stale minute stands the
+    whole day aside. **For Andre (PC-6): a
+  restart after 10:00 ET means no new entries for the rest of that day** (the label is kept
+  in memory only). Persisting it in the ledger would avoid that; not built.
+- Causes (journal `plays.jsonl`, one record per trading day, and the backtest readout):
+  trend, chop, rules (neither), no_data, warm_up, late, reader_failed. A label the rules
+  made always has its rank; a data failure never does (that is how no_data is told apart).
+  `waiting`, `before_decision` and `outside_prime` fix nothing and are not journaled as
+  the day's label (they show as "play:" reasons on the decision records).
+  The day's record is written from the decision that fixed it; if that write fails it is
+  alarmed (as before) and retried on every later decision until written (review round
+  1, L3). The decision record is written first, so it is never lost to it. The retry is
+  in memory: a restart fixes and journals the day afresh (usually `late`).
+- **PC-7 (for Andre; review round 1, M2): one bad history session blocks many days.**
+  Any unusable history session in the reader's lookback (an opening of the previous 60
+  sessions, a night of the previous 20) stands the day aside, by the signed rules, for
+  every day it stays in the lookback: up to about 3 months for one opening. Built now:
+  alarm only. On the decision that fixes such a day, the runner alarms once ("PLAY
+  CALLER: no new entries on <day>: history session <date> is unusable (<reason>) ...
+  (PC-7)"), so the bad date is in front of Andre; the rule is unchanged. Options for
+  Andre: (a) alarm only (now); (b) skip a bad history session and rank against the
+  remaining ones, or replace it with the next older one; (c) a shorter lookback. NOT
+  VERIFIED how often IBKR's 1-minute history has holes long enough (max_gap_minutes) on
+  real data; measure on the real-data backtest (paper checklist 30d). (The reviewer's
+  label for this was PC-6; PC-6 was already taken by the restart item, so it is PC-7.)
+- **Start-up refusals (review round 1, L1 and L4).** `load_profiles` refuses
+  (ConfigError) `market_data.bar_poll_delay_seconds` at or above `play.on_time_seconds`
+  (the 09:59 ET bar could never be read on time: every live day would stand aside), and a
+  `regime.decision_minutes` that does not end inside the cash session (the reader's own
+  check, now made at load). `python -m footprint.live` prints any ConfigError as
+  "REFUSED: ..." and exits 2 (before: a traceback), and `check_live_history` turns a
+  regime config the reader refuses into the same REFUSED exit (PlayRefused). The exit
+  code and message of `main` are checked by AST only here (it imports ibapi): NOT
+  VERIFIED by running it.
+- **PC-2, built (history):** the reader reads `history_sessions` (61 with the defaults).
+  - Live: the reader reads the bars handed to each decision, which are market data's whole
+    spliced history. `market_data.history_days` raised 35 -> **95 (DEFAULT, draft, Andre
+    PC-2)**. `check_live_history` computes, over every labellable day of the maintained
+    calendar, the calendar days the reader needs (its oldest bar: the opening of the 60th
+    previous session; worst case 91 days) and the live start is
+    refused (exit 2, "REFUSED: ... Raise market_data.history_days to at least N") when
+    history_days is less. Consequences, NOT VERIFIED on IBKR: the history load at start
+    grows from ~30 to ~80 one-day requests (~3 min at 2 s apart); the crew now also reads 95
+    days instead of 35 (every reader is lookback-bounded except the trend EMAs, whose seed is
+    further back: values should match to many decimals but are not bit-identical). The
+    back-adjusted splice barely changes labels: a constant shift inside a window cancels
+    (efficiency is a ratio of price differences, the overnight range a difference), but a
+    window that straddles the splice mixes two contracts, so it picks up the basis drift
+    between them across the cut (small, not zero; review round 1, I1). The `history`
+    export also loads 95 days now.
+  - Backtest: the reader gets its own source, every closed bar from the start of the data,
+    instead of raising `history_minutes` for the whole crew (which would make every reader
+    of every simulated minute read ~2x more bars and change the crew's inputs). It is read
+    once a trading day, so the cost is one pass a day. `history_minutes` stays 43200: the
+    crew's inputs and every pre-wiring golden are unchanged.
+- **PC-3, built (reported):** a day whose 60 previous sessions reach before calendar_from
+  (2026-01-01) is WARM_UP: stand aside. The first labellable day of the calendar is
+  2026-03-31, so a backtest over Jan-Mar 2026 cannot trade; its readout says "no trading
+  day was labelled TREND, so the entry never ran: warm_up N (...PC-3)". The same line names
+  the causes whenever a run had labels but no TREND day (e.g. too little data before the
+  traded window: no_data).
+- Goldens: `golden/seam_default` (the backtest tests' stand-in play caller says TREND every
+  day: journal, trades and ledger byte-identical to before; the readout gains its play
+  caller section, `play_days: {}`). New `golden/seam_real_play`: the real play caller on
+  the 26-session scenario labels the day no_data at the decision minute, nothing trades
+  (17 decisions instead of 11, since nothing is open), plays.jsonl has the one record.
+- Tests that check the crew, execution or exits on the short synthetic market hand the
+  pipeline a stand-in play (tests/decision/plays.py); production code has no way to switch
+  the play caller off. Backtest tests get the stand-in by an autouse fixture unless marked
+  `real_play`. The stand-in keeps the real clock (review round 1, L2): before the decision
+  time it says before_decision, outside prime outside_prime, so no test passes on an entry
+  production could never make. An end-to-end backtest test runs the REAL play caller
+  (small lookbacks) on the scenario: the day is labelled trend and the breakout trades.
+- Not done: a chop play; persisting the day's label across a restart (PC-6); verifying the
+  95-day history load against IBKR's pacing (paper checklist).
+
+## Research harness (branch research-v1, PR 37; 2026-10-21)
+
+Research only: nothing on the trading path imports `footprint.research` (AST test), and
+it does not import `footprint.backtest` (the rules-seam guard). Settings in
+`config/research.yaml`; the exits read `risk.yaml`, the gates `backtest.yaml`.
+
+Changed after hostile review round 1 (24be374, NOT CERTIFIED):
+- **37-H1 (fixed):** the strike is now chosen and rounded at the reference price level,
+  after rescaling. Before, it was rounded at the data's own level and the rounding error
+  was magnified by the scale (up to about 125 points of moneyness at 2010 levels). Tests:
+  the same percentage path at several levels, rounding on, gives equal dollars (the
+  reviewer's 0.1x / 0.1003x / 0.1006x case included); moneyness at the reference level is
+  within half a strike step.
+- **37-M1 (fixed):** an engine test pins that the session day's vol (the close dated
+  before it) prices the trade.
+- **37-M2 (fixed):** a report test pins that the verdict reads trades in order.
+- **37-M3 (fixed):** each trade now records its open profit at every path point; the
+  whole run's drawdown gate takes the worse of the realized curve and that marked curve,
+  as the backtest readout does. Difference kept: research marks to the model mid, the
+  backtest to the bid.
+- **37-L1 (fixed):** the green-stop input is pinned with three trades in a day.
+- **37-L2 (fixed):** a "not ruined" gate fails the verdict when equity reaches zero or
+  below, and the report prints the trade. The run itself is not stopped there.
+- **37-L3 (fixed):** a futures stop at the entry price is refused (test).
+- **37-L4 (documented):** research judges the stop and lock on the model mid, net of the
+  whole modelled round trip (170). Live judges the stop on the bid and its lock net of
+  fees only. In `research/exits.py` and in every report.
+
+For Andre:
+- **R-1 (data, blocking any result):** the harness needs UNADJUSTED bars (raw contract
+  prices; ratio-adjusted is also acceptable). It rescales by the entry price, so a
+  difference (Panama) back-adjusted series distorts every number. The project's
+  `build_continuous.py` has a `raw` mode that writes unadjusted prices; use it for these
+  runs. The CLI prints this as a known limit; it cannot check it.
+- **R-2:** costs (170 per contract round trip) and the vol index as implied vol stay
+  UNVERIFIED until checked against real quotes.
+
+## London session test (branch london-v1, PR 38; 2026-10-21)
+
+Pre-registered in `docs/research/london-v1.md` (committed before the rule). The rule is
+`research/rules/london_orb.py`, settings in `config/research.yaml` `rules.london_orb`.
+Not run on real data yet.
+
+Changed after hostile review round 1 (a2edcbb, CERTIFIED WITH CONDITIONS):
+- **38-M1 (fixed):** a test with a trigger bar whose high (or low) pokes outside the
+  range but closes inside it: no entry. The reviewer's mutant is in the spec.
+- **38-M2 (fixed):** the report prints the sessions not traded for want of a full
+  03:00-03:15 range, per year, so the sample selection (thin early years) is visible.
+- **38-I1 (documented):** the results state that in the weeks when US and UK clocks
+  change on different dates, the window sits an hour differently against London.
+- PR 37's fixes, including 37-H1 (strike chosen at the reference level), are in this
+  branch, so every L1 dollar figure now goes through the corrected strike.
+
+For Andre:
+- **L-1:** run the 8 pre-registered scenarios only after R-1 (unadjusted bars) is
+  settled; each is judged once.
+
+## Noise-band ES test (branch noiseband-v1; 2026-10-23)
+
+Pre-registered and signed in `docs/research/noiseband-es-v1.md` (implementation notes and
+the ES run commands: `docs/research/noiseband-es-v1-implementation.md`; committed before the
+rule). The rule is `research/rules/noise_band.py`; the N2 exit is the new `adr_bracket`
+kind in `research/exits.py`; the engine gained a next-bar-open entry and a rule
+`prepare(days)` hook. Research only. NOT run on ES data; built and tested on synthetic
+data, signal parity checked on NQ (1437 of 1437 first-signal days agree with
+tournament.py). Not certified: independent review pending.
+
+For Andre:
+- **NB-1 (flat and gaps, harness semantics kept):** flat at the OPEN of the first bar
+  opening at or after 15:55 ET; tournament.py exits at the CLOSE of the 15:55 bar (one
+  minute later). A stop or target the price opens through fills at the open's value
+  (tournament.py: at the level). Both make the harness slightly more conservative; the
+  signals are unaffected.
+- **NB-2 (DEFAULT, draft):** ES reference price 7700 (research.yaml
+  `instruments.es.yaml.reference_price`), about the ES level at signing.
+- **NB-3:** the cost sensitivities 30 and 90 run through the new CLI flag `--cost`; the
+  judged 45 is config. The report says when `--cost` was given.
+- **NB-4 (DEFAULT, draft, UNVERIFIED; corrected after review L-1):** ES strike step 5
+  index points (`instruments.es.yaml.strike_step`). It has NO effect on this run: with
+  moneyness 0 the entry price is rescaled to exactly the reference price (7700), and
+  7700 is a multiple of 5 and of 25 alike, so the strike is 7700 either way (the
+  reviewer checked several entry prices, both directions). The earlier reason given
+  here (25 would put the strike up to 12.5 points from the money) was wrong. The value
+  matters only if moneyness or the reference price changes. Confirm against CME's ES
+  options listing before then.
+- **NB-5 (UNVERIFIED, unused by research):** every es.yaml value other than symbol,
+  exchange, point value (50) and tick (0.25) is copied from nq.yaml so the profile loads.
+  Nothing on the trading path loads es.yaml.
+  Integration (integration-v1, 2026-10-24/25): theta-v1 (PR 40) made `option_expiry` a
+  required instrument key, and backtest-history-v1 (PR 47) extended nq.yaml's calendar
+  back to 2010-06-01 with new required keys (`early_close_periods`, the "Independence
+  Day eve" rule, `first_year`, older `option_expiry.early_close_dates`). es.yaml from
+  `option_expiry` to the end is copied from nq.yaml byte for byte, under this same rule
+  (UNVERIFIED for ES, unused by research; NQ's class lists refuse every ES option class,
+  so it fails closed if anything ever read it); `test_es_profile_values` (es mirrors nq)
+  holds.
+- **NB-6 (inherited, pre-registered):** a day is kept only with at least 300 regular
+  bars, a count known only at the day's end (the source rule's own lookahead). Printed
+  in the report.
+- **NB-7 (config restructure):** the reference price and round trip cost moved from
+  research.yaml `option`/`costs` to `instruments.<profile>`; a profile not listed is
+  refused. NQ's values (20000, 170, backtest strike step) are unchanged.
+- **NB-8:** the t bar is per rule (`judging.min_t_stat`); only noise_band has one (2.3).
+  London's pre-registered verdict is unchanged.
+- **NB-9 (A-18 reviewed entry):** channels.py's E.164 regex `{7,14}` became a forbidden
+  value when the warm-up 14 entered config; listed as REVIEWED (not a trading value).
+- **NB-10 (data, not verified):** the ES file's format and adjustment were not opened or
+  checked by the builder (by design). Like R-1, it must be UNADJUSTED (raw) bars.
+
+Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
+- **M-1 (fixed):** `judging.min_t_stat` names are checked twice. At load, every name
+  must have a section under `rules` (a typo such as `noise_bnad` is refused). At the
+  CLI, every name must be a registered rule, and a rule registered with
+  `t_bar_required` (noise_band) is refused when it has no t bar. The report prints the
+  bar in use ("t bar: 2.3 (judging.min_t_stat.noise_band)" or "none configured").
+- **L-1 (fixed):** NB-4's reason corrected above and in research.yaml.
+- **L-3 (fixed, report only, rule unchanged):** the rule notes list every weekday the
+  keep rule drops whose regular bars still run to the close (last bar opening in the
+  session's last minute), so a mid-day data gap (true lookahead from the bar count) is
+  visible with its date. Announced early closes are not listed.
+- **L-4 (fixed):** `instruments.<profile>.vol_index` names the vol index (nq VXN, es VIX).
+  The CLI refuses a `--vol` file whose name's first part (before the first "_" or ".",
+  case aside) is not that index: `VIX_History.csv` passes for ES, `VXN_History.csv` and
+  `VIX9D_History.csv` are refused. The content cannot tell (same header), so the file
+  name is the check: fail closed. The report prints the index and the file name.
+- **L-2 (no change):** the reviewer's three equivalent mutants are noted in
+  qa/mutation/noiseband-v1-r1.notes.md.
+- **NB-11 (new, fail closed):** a signal whose next bar opens at or after 15:55 (a data
+  gap) is refused and the day is not traded. tournament.py would still enter. The rule
+  notes print the count and the dates. 0 on NQ.
+- **NB-12 (new, fail closed):** a kept day whose last regular bar opens before 15:55 is
+  not traded. tournament.py would trade it and exit at the last regular close; the
+  harness can only flat at a bar from 15:55 on, which may be after the session. Like
+  the keep rule (NB-6), this is known only at the day's end; it only removes trades.
+  The rule notes print the count and the dates. 0 on NQ
+  (qa/research/noiseband-nq-parity.out: NB-11 0, NB-12 0, L-3 0; parity 1437 of 1437).
+
+## Position cap raised to $6,000 (branch cap10k-v1; CAP-1 $10,000 on 2026-10-23, amended by M2 (b) on 2026-10-24; Andre)
+
+- **CAP-1 (Andre, decided 2026-10-23 08:38 PT): `risk.position_cap` 5000 -> 10000.** A
+  config change; the only code change in the PR is that the backtest readout now prints
+  `risk.position_cap` among its assumptions (review L1). Ezra still buys one contract
+  (`max_contracts: 1`) and refuses any contract whose worst allowed fill plus the entry fee
+  is over the cap. `overnight_position_cap` (2500) is unchanged; v1 does not trade overnight.
+  - **2026-10-24 (Andre, 22:39 PT): M2 decided (b): cap 6000. Worst gap-through-stop is now
+    about $6,000, 1.2x the kill-switch drawdown.** `risk.position_cap` is 6000, not 10000.
+    The figures below are restated for 6000 where they depend on the cap; the $10,000
+    figures are kept only where marked as the original CAP-1 analysis.
+  - **What it actually changes: Friday entries.** Felix always takes the NEAREST expiry
+    inside 1-3 days, so Monday to Thursday he buys a 1-day option. A 2- or 3-day option is
+    chosen only when no 1-day one exists: on Fridays (Monday expiry, 3 days) and on the day
+    before a holiday (e.g. Wed 2026-11-25 -> Friday, 2 days). The cap does not let Ezra buy
+    2-3 day options in general; it mainly decides whether Fridays trade.
+    - Backtest model evidence (review M1; Felix + Ezra over modelled chains, delta 0.45,
+      2026-09-14 to 2026-11-12, five times a day): Monday-Thursday, 180 of 180 entries fit
+      under both caps ($3,127-$3,692). Friday, **0 of 40 fit at $5,000; 40 of 40 fit at
+      $10,000** ($5,322-$5,702).
+    - Rechecked at 6000 (builder, 2026-10-24; same window, five times a day, long, a fixed
+      underlying of 24,012.50, so a narrower range than the review's): Friday 40 of 40 are
+      3-day options costing $5,372.50-$5,617.50 and **all 40 fit at $6,000**;
+      Monday-Thursday 180 of 180 are 1-day options ($3,212.50-$3,557.50), all fit. The
+      review's highest Friday cost ($5,702) leaves about $298 of room under $6,000.
+    - **Backtest vs live gap on Fridays (review round 3, R3-1).** On the live-quote
+      estimates below, a Friday 3-day at-the-money option costs more than $6,000 (about
+      $6,430-$7,440 at exactly 3 days, and a Friday prime-session option has 3.04-3.375
+      days left, so more), so at current implied volatility **most or all live Friday
+      entries would be refused at $6,000**. The backtest takes them only because its option
+      model (`atm_premium_points` 150 per root-day, UNVERIFIED) is cheaper: at 158 every
+      modelled Friday entry still fits (max $5,962.50), at 160 it starts refusing them (8 of
+      120), at 165 52 of 120. Live quotes imply 184-214 points per root-day. The real-data
+      backtest cannot settle this (it uses real futures bars but still models option
+      prices); only paper trading on real quotes (or recorded chains, once they carry the
+      trading class, TC-1) will. Until then, read backtest Friday trades as possibly not
+      available live.
+    - **Results from the backtest engine (`footprint.backtest`) on the default config
+      before CAP-1, such as the Bollinger results, excluded all Fridays and are not
+      comparable with engine runs after CAP-1.** Treat them as "Fridays excluded
+      (pre-CAP-1)". The research harness (`footprint.research`, London-v1) prices with
+      Black-76 and never reads the cap, so it is unaffected. The tournament and NQ
+      out-of-sample 2010-2024 results came from scratch scripts that are no longer on disk;
+      whether they used the cap is NOT VERIFIED (review round 2, LOW).
+    - Why no golden changed: the only golden (seam_default) is one Tuesday window with one
+      entry at $3,337.50, which fits under both caps.
+  - **Option prices (all ESTIMATES, from the review; not checked against a full set of real
+    quotes).** The London shadow quote of 2026-10-22 (at-the-money NQ, mid ~178.5 points,
+    ~$3,570) was taken Thu 20:27 PT for the Fri 13:00 PT expiry: about **0.69 day** left, not
+    1 day. Scaled by the square root of time:
+
+    | Basis | 2-day | 3-day |
+    |---|---|---|
+    | Shadow quote, rescaled from 0.69 day | ~$6,080 | ~$7,440 |
+    | Oct 30 quote (~505 points at ~7.4 days) | ~$5,250 | ~$6,430 |
+    | Backtest model (150 points per root-day) | ~$4,243 | ~$5,196 |
+
+    So a 2-3 day at-the-money option costs roughly **$5,000-$7,500 (estimated)**. In the
+    backtest model alone, 2-day options already fit the old cap; only 3-day (Friday)
+    options did not. Live, at evening implied volatility (~214 points per root-day), even a
+    1-day option at the 04:00 PT open is about 251 points, **~$5,020**, so the old cap would
+    also have refused some Monday-Thursday entries at the open.
+  - **Unchanged:** the $750 hard stop, `stop_min`/`stop_max`, the $1,000 target, the daily
+    ($2,000) and weekly ($3,500) loss limits and the kill switch. The planned loss per trade
+    in dollars is the same. All exit maths is dollars per contract: at a 299.75-point fill
+    (the largest under the 6000 cap) the hard stop is 262.25, the resting limit 257.25 (worst
+    stop fill plus fees $855, inside `stop_max`), and the trail arms at a bid of 350.00 and
+    moves the stop to 325.00 (pinned by a test).
+  - **Other effects:**
+    - Up to 24% of the $25,000 bankroll can sit in one option, up from 20% (40% at the
+      original $10,000).
+    - $750 is a smaller share of a pricier option (12.5% of $6,000, against 15% of $5,000), so ordinary
+      noise reaches the stop more often. The real-data backtest is what measures this.
+    - Line 12 of this file (the withdrawal policy) says position size steps up toward $10,000
+      "only at the same percent-of-bankroll risk". The dollar risk per trade is unchanged;
+      the premium held is not. Andre's call that this is consistent with that policy.
+  - **M2: one trade's worst case now exceeds the kill switch. DECIDED (b), cap 6000 (Andre,
+    2026-10-24).**
+    If the price gaps through the resting stop-limit and the position is then flattened
+    lower, one trade can lose up to the premium paid. At the original $10,000 that was 40% of
+    the bankroll: 2x the kill-switch drawdown, 2.9x the weekly limit, 5x the daily limit and
+    2.7x the go-live drawdown gate. **At 6000 the worst case is about $6,000 (the largest
+    allowed cost is $5,997.50), 24% of the bankroll: 1.2x the kill-switch drawdown ($5,000 =
+    20% of $25,000), 1.7x the weekly limit ($3,500), 3x the daily limit ($2,000) and 1.6x the
+    15% go-live drawdown gate ($3,750).** At the old cap the worst case ($5,000) equalled the
+    kill-switch amount.
+    The limits only veto the NEXT entry; they cannot cap a loss in progress. A realistic
+    intraday gap is far smaller than the whole premium (positions are flat at the close),
+    but the exposure is real.
+    - (a) Accept the $10,000 worst case.
+    - (b) Lower the cap (for example to the kill-switch amount, $5,000-$6,000, accepting
+      fewer or no Friday entries). **Chosen: 6000.**
+  - **M3: the spread filter scales with the premium. STILL AWAITING ANDRE'S SIGN-OFF.**
+    `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread. Restated for the
+    6000 cap (code-checked 2026-10-24): at the largest fill under the cap, a 288.75/303.50
+    quote (spread 14.75 points, $295, 4.98% of mid) is accepted; Ezra's worst allowed fill
+    is 299.75 (cost $5,997.50) and its stop 262.25 sits **~$530** above the bid. At exactly
+    5.0% (282.75/297.25, fill 293.50, cost $5,872.50) the room is **~$535**. For a ~$5,000
+    entry (243.75/256.25, fill 253.00, spread 12.5 points) the same room is **~$565**. So at
+    6000 the extra noise exposure from the spread filter is about $30-$35 of stop room, far
+    smaller than at $10,000 (a 477.75/502.25 quote is now refused: cost $9,922.50, over the
+    cap; at $10,000 its room was ~$385). Real quotes
+    seen: Oct 30 NQ spread 9 points on ~500 (1.8%, fine); Oct 23 weekly 28 points on 178
+    (refused).
+    - (a) Accept the percent-of-mid filter as is.
+    - (b) Add an absolute spread cap in points to `config/execution.yaml` (a draft number
+      for Andre to set; NOT built in this PR).
+  - **Tests:** `tests/test_config.py` pins 6000 and accepts a cap equal to the bankroll;
+    the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 5,997.50 (fits) /
+    6,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
+    at a 299.75 fill; `tests/backtest/test_position_cap_fridays.py` shows a modelled Friday
+    entry ($5,567.50) refused at $5,000 and taken at the shipped $6,000 (Monday and Thursday
+    take a 1-day option that fits both);
+    `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
+    `risk.position_cap`.
+
+## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)
+
+Lets the real backtest (`footprint.backtest`: the pipeline, the agents, sizing, exits,
+the runner) run on the NQ 1-minute history 2010-06 to 2024-09 (Databento, raw
+unadjusted front month, `ts` = bar open, UTC). The live trading path does not change:
+the calendar loader only gained optional rule fields and a period list (the 2026-27
+dates are untouched), and everything else is in `footprint.backtest`. **No result on
+history has been read or reported: the full 2010-2024 run is a pre-registered test
+Andre signs first.** Only two short smoke windows were run, to prove it runs end to end.
+
+Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
+
+- **BH-1 (calendar window).** `calendar_from` moves from 2026-01-01 to 2010-06-01; the
+  lists carry every holiday, no-trade day, early close, option early-close date and
+  Easter Sunday from then, and the loader's completeness check runs over the whole
+  window. Two rule refinements make the check exact for history: `first_year`
+  (Juneteenth counts from 2022: the stock market and CME equity first observed it in
+  2022; in the data June 19 was a full session before, and 2022-06-20, 2023-06-19,
+  2024-06-19 halted at 12:00 CT) and `weekdays` (a new required rule, "Independence Day
+  eve": the stock market's July 3 half day, only Monday to Thursday; on a Friday July 3
+  is the observed holiday itself). The completeness check for early-close rules counts
+  only LISTED early closes, never a BH-3 period day (found while building: the routine
+  13:15 halt would otherwise hide a missing half day, e.g. 2019-07-03; a test pins it).
+  One-off closures: 2012-10-29 and 2012-10-30 (Hurricane Sandy), 2018-12-05 (G.H.W. Bush
+  mourning day), 2025-01-09 (Carter mourning day, UNVERIFIED: after the data).
+- **How the history dates were verified.** Derived from the shipped `holiday_rules`
+  (with the refinements above), then checked day by day against the data with the
+  repo's own loader and calendar functions: every weekday 2010-06-07..2024-09-27 was
+  classed by the data (bars in the prime session or not; where the last bar before a
+  halt was; any gap of 10+ minutes inside the calendar's prime session). Result: no
+  calendar trading day ends earlier in the data than the calendar says (by more than
+  15 minutes); no holiday has a bar at or after 06:30 PT; every no-trade day's halt is
+  where the data's last bar is. The remaining differences are not calendar items:
+  data gaps (no bars at all on 2014-06-12, 2014-06-13, 2014-09-23..25, 2014-12-31; late
+  start 2014-09-26) and the March 2020 circuit-breaker halts (13 to 32 minutes on
+  2020-03-09, -12, -16, -18). Dates after 2024-09-27 (2024-11-28 on, all of 2025) have
+  no data: **UNVERIFIED**, from the CME/NYSE pattern, with the shipped earlier closes.
+  The early closes were checked only against this one data set, not against CME notices.
+- **BH-2 (price-level rescaling, backtest only): `option_model.reference_price: 20000`.**
+  The model's fixed premium means something only near the level it was set for (GV-3):
+  without this, 2010's NQ (about 1,800) was refused by the model guard (it refuses below
+  about 7,300). Now options are modelled as if the future traded at the reference:
+  - rescaled: the futures price the option model is quoted at, F x reference / anchor,
+    where the anchor is the futures price at the last moment nothing was live (no
+    working entry, no position, no reconcile): the price the trade's entry was decided
+    at, fixed until the trade is closed and reconciled. While idle the model sees the
+    reference itself, so every entry is EXACTLY at the money (the nearest strike is the
+    reference; live, the offset is 0-12.5 points): that leans the delta, vega and theta
+    verdicts slightly toward at-the-money (review round 1, I1). Since review round 1
+    (L1) a decision made in the same step a working entry ended unfilled is re-anchored
+    too: the chain it sees is rebuilt at the price then, and put in the book. Strikes
+    are listed and rounded at the reference level (25-point strike_step there), never
+    rounded at the data's level and scaled (that would magnify the rounding about 11x
+    in 2010);
+  - not rescaled: premiums (`atm_premium_points`), spread, option ticks, every dollar
+    amount (stops, targets, trail, fees, caps, loss limits: option and account values,
+    already at the model's level), and the bars the readers see;
+  - converted back: the levels room N (futures points that make the profit target, G4,
+    about 111 points) is compared with the bars at the data's level, N x anchor /
+    reference (BH-4);
+  - the model guard checks the model at the reference (at the moments of the lowest and
+    highest traded prime bars), and names reference_price when the reference itself is
+    outside the band;
+  - `reference_price: null` turns all of it off: the model at the data's own price, as
+    before. The readout lists the reference and a "price level" line.
+  Proved by tests: where the anchor equals the reference, a trade's dollars (entry,
+  exit, net P&L, final equity, marked drawdown, worst open loss) equal the un-rescaled
+  run's, and the golden run's trade record and ledger are byte-identical; the same
+  percentage path at 2x, 0.5x and 0.075x the level gives the same dollars (and,
+  unscaled, does not). The reference is not checked against any real option chain.
+- **BH-3 (the CME maintenance halt).** Until 2021-06-25 CME equity futures halted
+  15:15-15:30 CT (13:15-13:30 PT) every day, inside Footprint's prime session (and until
+  late 2012 Fridays closed at 15:15 CT outright). New instrument key
+  `early_close_periods`: from 2010-06-01 through 2021-06-25 the prime session ends at
+  13:15 PT every trading day (an earlier listed close wins; holidays skipped). So in
+  that span no entry after 13:10 and everything flat by 13:10 (close_lead 5), never a
+  position held into a 15-minute halt with no quotes. It costs the 13:30-14:00 PT
+  minutes of those years. Verified in the data: before 2021-06-28 no bar starts in
+  13:16-13:28 PT on any day; 80 days have one single bar at the halt's edges (76 at
+  13:15, e.g. 2010-08-24 and most days 2018-05-07..08-03; 4 at 13:29: 2020-03-30..04-01
+  and 2020-06-30); from 2021-06-28 a bar starts in every minute of it. (Corrected in
+  review round 1, L2: the first text said no bar at all in 13:15-13:29.)
+- **BH-4 (levels room at the data's level).** With BH-2, the option reaches the $1,000
+  target after a data-level move of N x anchor / reference (about 10 points in 2010, not
+  111). The console's levels room is judged with that converted N, through a
+  backtest-only wrapper (`price_level.LevelConsole`) on the pipeline's existing console
+  seam; nothing else in the decision changes. Without it, 2010 entries would need about
+  11x the room 2024 entries need. Round numbers stay reported only (not walls); they
+  are at the data's level. Andre: accept, or say if N should stay unconverted.
+- **BH-5 (the stock market's half days).** Day after Thanksgiving, Christmas Eve
+  (weekdays) and July 3 (Monday to Thursday): the futures halted 12:15 CT; prime close
+  10:15 PT (the data's last bar before the halt is 10:14; 2015-11-27 has one at 10:15;
+  2012-07-03 reopened at 13:30 PT, ignored). Options stop at 10:00 PT those days
+  (`option_expiry.early_close_dates`, all 34 listed). After the data: 10:00 PT.
+- **BH-6 (US-holiday sessions).** No-trade days as before; their halt: 08:30 PT (10:30 CT)
+  in 2010-2012 and 10:00 PT (12:00 CT) from 2014-05-26, as in the data; after it 10:00.
+- **BH-7 (days closed in the data are holidays).** Where the data shows the exchange
+  closed through the cash open, the day is a `holiday`, not a no-trade day: Thanksgiving
+  2012, the 2013 US holidays and MLK/Presidents Day 2014 (no prime bar at all), the Good
+  Fridays with an 08:15 CT jobs-report session (2012, 2015, 2021, 2023), Sandy, Bush, and
+  Carter (UNVERIFIED). Then no option expiry is modelled on them and their evening
+  session is closed (Footprint does not trade overnight in v1).
+- **BH-8 (a counterfactual instrument; for Andre).** The model lists a European option
+  expiring every trading day, 1-3 days out. NQ did not list daily expiries in most of
+  2010-2024 (Friday weeklies first, other weekdays added over the years; exact dates
+  NOT verified here). A history run therefore trades an option that did not exist in
+  those years, priced by a model never checked against real NQ option quotes (GV-4).
+  Andre: accept for the pre-registered run, or restrict the window to years with daily
+  expiries.
+- **BH-9 (the raw splice; corrected in review round 1, M1).** The series switches to
+  the next contract at a session open (the builder rolls by session volume: 58 rolls
+  2010-06..2024-09, each on a Friday or a Monday session, no fixed calendar rule). No
+  position crosses it: v1 flattens before the prime close and does not trade overnight.
+  The readers' look-back does, and the jump is NOT small (the first text said "tens of
+  points"): the reviewer measured the largest session-open jump in each roll window as
+  +111.75 (2022-09) to +258.5 (2024-06) points, 1.2-3.5 N at the data's level; the
+  builder measured the jump at the first bar of each roll session (open minus the
+  previous bar's close) as +111.75, +118.5, +121.5, +168.25, +188.75, +207.25, +245.5,
+  +258.5 and +229.5 for 2022-09-12 .. 2024-09-16, 1.6-2.4 N (N about 111 x price /
+  20,000: 65-111 points then). Earlier rolls (2010-06 .. 2022-06) are smaller: by the
+  builder's measure all under 60 points in size except 2020-03-16 (+96.75) and
+  2020-06-15 (-118.00); the reviewer's measure gives about -120 and -130 for 2020-03 and
+  2020-06. On a roll day prior-day
+  levels, the VWAP side and the multi-session averages are off by that much: enough to
+  flip the levels room (wall below 1 N, full support from 1.5 N).
+  **Built (fail closed), DEFAULT (draft, Andre BH-9): `rolls.block_first_session: true`
+  in backtest.yaml.** No new entry on the trading day whose session is the first on a new
+  contract (a failed `roll_session` console gate, journalled); a run must name those
+  sessions (`--rolls FILE`: a CSV, `session` header, one date per line; or `--rolls none`)
+  or it is refused (exit 2). The roll file for nq_raw.csv is in the repo (review round
+  2, R2-1): `data/rolls/nq_raw_rolls.csv`, 58 sessions 2010-06-11 .. 2024-09-16, built by
+  `scripts/build_rolls.py` (the history builder's own rule; tests/test_build_rolls.py
+  pins the rule and the file's hash). Provenance (sha256):
+  - `data/rolls/nq_raw_rolls.csv`: e6d86612552b0fd755e0196ac79d309b408ed36bede0aa24fa16702c8675c116
+  - the bars, /home/claude/data/nq/nq_raw.csv: 0e597f0365fee644ab14158e2e34b1e00ff5246b127a581c0c99f1f9b7d4eb72
+  - the Databento source, /home/claude/data/nq/nq.csv.zst: 5ce4da84e18db2b0cc6d5b9f2b5d0bba3743ff96f684d5d8e7892e7a4732079c
+    (decompressed, nq.csv: 78582eba1fd072ab43b0e6ff2394fb68b4388e5bb2ef731fc6c63a72199d2fae;
+    the script reads the decompressed file and reproduced the committed file byte for
+    byte on 2026-10-25)
+  The reviewer independently matched every bar of nq_raw.csv to its contract in the
+  source: the same 58 switches, each at a session open. Two guards (review round 2):
+  a listed roll session outside the bars' span (the first to the last bar's local date)
+  is refused (R2-3: a list for other data, or for a longer span; a run on a window of
+  the history therefore needs the file cut to that window), and a roll session on a
+  day Footprint does not trade blocks the next tradable day instead (R2-4; none of the
+  58 does). The readout names the count, the file, and the first and last roll. It
+  costs about four trading days a year.
+  **Alternative for Andre (not built):** back-adjust the look-back across the splice
+  (shift every bar before the roll by the splice difference when a decision's window
+  spans it), which keeps the roll days tradable. Andre decides before the pre-registered
+  run: keep the block, switch it off, or have the back-adjustment built.
+- **BH-10 (halts and gaps the calendar cannot know).** A trade open during a data gap or
+  an unannounced halt (March 2020) sees no quotes: the engine steps through, as on a dead
+  feed; the trade-management alarms or a halt may end the run early, and the readout
+  says why. Not handled further.
+- **BH-11 (cost of a full run; not measured).** The command line loads every bar into
+  memory (4.8 million bars for 2010-2024) and decides every prime minute. Neither memory
+  nor run time of a full run is measured. Smoke runs (below): about 8,300-9,000
+  decisions in 4,481-4,769 s each, about 2 decisions a second, on a shared 2-core box
+  (two runs, the full gate and the mutation run at once). At that rate a 2010-2024 run
+  (about 3,600 sessions of about 555 prime minutes) would take days; measure on the
+  machine that runs it before the pre-registered run.
+- **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
+  2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
+  (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
+  bars, traded from 2024-07-15: ran to the end, 0 trades, exit 1, same. No P&L is
+  reported (none exists); the full run waits for the pre-registration.
+- **BH-14 (found by the smoke run; measured in review round 1, M2; Andre's decision):
+  the early years' overnight data is too thin for the levels reader.** On 14 of the 15 traded 2010 days the levels (and so VWAP side and the
+  confirmer score) were unavailable all session: "overnight session before today: N of
+  780 minutes", N about 450-650, under `data.min_session_coverage_pct` 90 (a minute with
+  no trade has no bar in this data). In 2024 levels were available on every traded day.
+  So with the live strategy rules the early years can make almost no entries, by data
+  density, not by market behaviour. Not changed (a strategy number, and fail closed):
+  Andre to decide, before the pre-registered run, whether history uses another coverage
+  rule (for example counting a quiet minute as covered), starts later, or stays as is.
+  The reviewer's count (share of weekdays whose overnight session, 15:00-03:59 PT, has at
+  least 702 of 780 one-minute bars = the 90% rule; approximate: the reviewer's own
+  counter, not the repo's reader, holidays not excluded):
+
+  | Year | 2010 | 2011 | 2012 | 2013 | 2014 | 2015 | 2016 | 2017 | 2018-2024 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Overnight sessions passing | 7% | 32% | 20% | 18% | 29% | 48% | 72% | 98% | 98-100% |
+
+  So with the live rules a "2010-2024" run mostly tests 2017-2024. **Andre's decision
+  (nothing is implemented):** (a) a history-only coverage rule (for example a quiet
+  minute counts as covered, or a lower share for the backtest only); (b) a later start
+  year (2017 is the first year that passes on almost every session); or (c) keep the
+  rule and state in the pre-registration that the early years barely trade.
+- **BH-12 (fail closed, expiries).** The model lists no expiry after calendar_through
+  (no holiday known there): near the end fewer expiries, possibly none in 1-3 days, so no
+  entry.
+- **BH-13 (fail closed, look-back).** A backtest whose bars start before calendar_from
+  is refused, look-back bars included (was allowed: delta review 2): the readers take
+  sessions from look-back bars, and before calendar_from a holiday stub could be read as
+  a session.
+- Unchanged and still open: BT-FRI (late Friday entries refused at sizing; the
+  reference level changes the premium nothing), GV-4 (how to price the model).
+- Tests: the pre-existing engine tests now pin the unscaled model (the backtest test
+  fixture `settings` sets reference_price null); the golden run (seam_default) uses a
+  copy of the shipped config with reference_price null: its journal and ledger are
+  byte-identical, and its readout gained one assumption line ("option model
+  reference_price: None") in readout.md, readout.json and the printed readout. The
+  calendar tests written for the 2026-27 calendar run on that slice of the shipped file
+  (a fixture cuts it; several option-expiry refusal tests would otherwise have passed
+  for the wrong reason, on a missing 2010 date).

@@ -45,6 +45,10 @@ Drawdown marked to the bid: 3.08% (770.00). Worst open loss in any trade: -770.0
 
 - STOP: 1
 
+## Play caller (one label per trading day; only TREND trades)
+
+- no day's label was journaled
+
 ## Assumptions (read every result through these)
 
 - option prices: MODELLED from the futures price (no options history)
@@ -56,10 +60,15 @@ Drawdown marked to the bid: 3.08% (770.00). Worst open loss in any trade: -770.0
 - option model open_interest: 500
 - option model expiries_listed: 5
 - option model trading_class: Q3C
+- option model reference_price: None
 - fees per contract per side: 2.5
 - risk.profit_target: 1000
 - risk.trail_keep_pct: 50
 - risk.stop_loss: 750
+- risk.position_cap: 6000
+- theta.decay_exit.enabled: false
+- theta.decay_exit.window_minutes: 30
+- theta.decay_exit.max_pct_of_open_profit: 50
 - news blackouts: NONE supplied
 - intrabar path: adverse-first against an open trade
 - bars: <TMP>/bars.csv

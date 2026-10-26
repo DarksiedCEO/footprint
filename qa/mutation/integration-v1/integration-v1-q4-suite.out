@@ -1,0 +1,5 @@
+source: 541c774438eb9bd00f2d35aab2af6d3982bc411d tree-dirty: 0 files
+baseline [level]: passed
+  1 KILLED   [level] src/footprint/backtest/price_level.py: reviewer-r2 Q4 (data_points not rescaled) against #47's own level tests
+1 mutants, 0 survived or errored
+exit=0

@@ -1,4 +1,8 @@
+import csv
+import re
+import shutil
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -16,14 +20,81 @@ MINUTE = timedelta(minutes=1)
 TRADE_FROM = DECISION_TIME - MINUTE  # earlier bars are the readers' look-back only
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "real_play: run the backtest with the real play caller (no stand-in)"
+    )
+
+
+@pytest.fixture(autouse=True)
+def trend_every_day(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The backtest tests written before the play caller was wired check the crew, the
+    console, the exits, the CLI and the readout on a 26-session synthetic market that
+    the real regime reader can never label (it needs ~61 sessions). For them the
+    backtest builds a stand-in play caller that says TREND every day, so they keep
+    testing what they were written for. Tests marked `real_play` (and every test that
+    hands Backtest its own `play`) run with the real one; tests/backtest/
+    test_engine_play.py covers the real play caller in the backtest."""
+    if request.node.get_closest_marker("real_play") is not None:
+        return
+    from footprint.backtest import engine
+    from tests.decision.plays import open_play
+
+    monkeypatch.setattr(engine, "PlayCaller", lambda *args, **kwargs: open_play())
+
+
 @pytest.fixture(scope="session")
 def profiles() -> Profiles:
     return load_profiles(REPO_ROOT / "config", "nq.yaml")
 
 
 @pytest.fixture(scope="session")
-def settings() -> BacktestSettings:
+def shipped_settings() -> BacktestSettings:
+    """config/backtest.yaml as shipped: option prices rescaled to reference_price (BH-2)."""
     return load_backtest(REPO_ROOT / "config" / "backtest.yaml")
+
+
+@pytest.fixture(scope="session")
+def settings(shipped_settings: BacktestSettings) -> BacktestSettings:
+    """The shipped settings with price-level rescaling OFF (reference_price null): the
+    option model exactly as it was before backtest-history-v1. The engine tests written
+    before it pin that model; the rescaled one has its own tests
+    (test_price_level.py, test_backtest_history.py)."""
+    model = replace(shipped_settings.option_model, reference_price=None)
+    # and with roll sessions not blocked (BH-9): those tests' bars have no contract roll
+    rolls = replace(shipped_settings.rolls, block_first_session=False)
+    return replace(shipped_settings, option_model=model, rolls=rolls)
+
+
+_REFERENCE_LINE = re.compile(r"^(  reference_price: )\S+", re.MULTILINE)
+
+
+_ROLLS_LINE = re.compile(r"^(  block_first_session: )\S+", re.MULTILINE)
+
+
+def config_copy(target: Path, reference: Decimal | None, *, block_rolls: bool = False) -> Path:
+    """A copy of config/ with option_model.reference_price set to `reference` (None:
+    rescaling off) and rolls.block_first_session set to `block_rolls` (off unless asked:
+    the tests' bars have no contract roll); every other byte is the shipped file's."""
+    shutil.copytree(REPO_ROOT / "config", target)
+    path = target / "backtest.yaml"
+    text, n = _REFERENCE_LINE.subn(
+        lambda m: m.group(1) + ("null" if reference is None else str(reference)),
+        path.read_text(encoding="utf-8"),
+    )
+    assert n == 1, "backtest.yaml must carry exactly one reference_price line"
+    text, n = _ROLLS_LINE.subn(lambda m: m.group(1) + str(block_rolls).lower(), text)
+    assert n == 1, "backtest.yaml must carry exactly one block_first_session line"
+    path.write_text(text, encoding="utf-8")
+    return target
+
+
+def write_csv(path: Path, bars: Sequence[Bar]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ts", "open", "high", "low", "close", "volume"])
+        for b in bars:
+            writer.writerow([b.ts.isoformat(), b.open, b.high, b.low, b.close, b.volume])
 
 
 @pytest.fixture(scope="session")

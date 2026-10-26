@@ -1,0 +1,67 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [regime]: passed
+  1 KILLED   [regime] src/footprint/agents/regime_reader.py: prime-session check removed
+  2 KILLED   [regime] src/footprint/agents/regime_reader.py: decision one minute early
+  3 KILLED   [regime] src/footprint/agents/regime_reader.py: decision minute itself refused
+  4 KILLED   [regime] src/footprint/agents/regime_reader.py: kept label ignored
+  5 KILLED   [regime] src/footprint/agents/regime_reader.py: data failures kept for the day
+  6 KILLED   [regime] src/footprint/agents/regime_reader.py: label never kept
+  7 KILLED   [regime] src/footprint/agents/regime_reader.py: kept label keeps its old ts
+  8 KILLED   [regime] src/footprint/agents/regime_reader.py: duplicates accepted
+  9 KILLED   [regime] src/footprint/agents/regime_reader.py: flat opening not refused
+ 10 KILLED   [regime] src/footprint/agents/regime_reader.py: one history day short
+ 11 KILLED   [regime] src/footprint/agents/regime_reader.py: history min not max
+ 12 KILLED   [regime] src/footprint/agents/regime_reader.py: efficiency history one day too long
+ 13 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight history one day too long
+ 14 KILLED   [regime] src/footprint/agents/regime_reader.py: flat history day skipped
+ 15 KILLED   [regime] src/footprint/agents/regime_reader.py: calendar end raises
+ 16 KILLED   [regime] src/footprint/agents/regime_reader.py: ties counted as lower
+ 17 KILLED   [regime] src/footprint/agents/regime_reader.py: one history day left out of the rank
+ 18 KILLED   [regime] src/footprint/agents/regime_reader.py: rank denominator
+ 19 KILLED   [regime] src/footprint/agents/regime_reader.py: mean not median
+ 20 KILLED   [regime] src/footprint/agents/regime_reader.py: trend threshold exclusive
+ 21 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight at median not enough
+ 22 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight condition removed
+ 23 KILLED   [regime] src/footprint/agents/regime_reader.py: chop threshold inclusive
+ 24 KILLED   [regime] src/footprint/agents/regime_reader.py: chop never called
+ 25 KILLED   [regime] src/footprint/agents/regime_reader.py: empty overnight history accepted
+ 26 KILLED   [regime] src/footprint/agents/regime_reader.py: first move dropped
+ 27 KILLED   [regime] src/footprint/agents/regime_reader.py: path not absolute
+ 28 KILLED   [regime] src/footprint/agents/regime_reader.py: zero path not handled
+ 29 KILLED   [regime] src/footprint/agents/regime_reader.py: net move not absolute (down days)
+ 30 KILLED   [regime] src/footprint/agents/regime_reader.py: net from first close
+ 31 KILLED   [regime] src/footprint/agents/regime_reader.py: empty opening_efficiency accepted
+ 32 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight always starts the day before
+ 33 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight starts the same day
+ 34 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight zone from cash session
+ 35 KILLED   [regime] src/footprint/agents/regime_reader.py: opening last minute not required
+ 36 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight last minute required
+ 37 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight range from closes
+ 38 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight range drops the first minute
+ 39 KILLED   [regime] src/footprint/agents/regime_reader.py: overnight range drops the last minute
+ 40 KILLED   [regime] src/footprint/agents/regime_reader.py: window includes the end minute
+ 41 KILLED   [regime] src/footprint/agents/regime_reader.py: off-minute bars accepted
+ 42 KILLED   [regime] src/footprint/agents/regime_reader.py: coverage check removed
+ 43 KILLED   [regime] src/footprint/agents/regime_reader.py: coverage exactly at the minimum refused
+ 44 KILLED   [regime] src/footprint/agents/regime_reader.py: gap check removed
+ 45 KILLED   [regime] src/footprint/agents/regime_reader.py: gap exactly at the limit refused
+ 46 KILLED   [regime] src/footprint/agents/regime_reader.py: start gap ignored
+ 47 KILLED   [regime] src/footprint/agents/regime_reader.py: end gap ignored
+ 48 KILLED   [regime] src/footprint/agents/regime_reader.py: last-minute check removed
+ 49 KILLED   [regime] src/footprint/agents/regime_reader.py: decision may end at the cash close
+ 50 KILLED   [regime] src/footprint/agents/regime_reader.py: decision bound removed
+ 51 KILLED   [regime] src/footprint/core/config.py: equal thresholds accepted
+ 52 KILLED   [regime] src/footprint/core/config.py: rank above 100 accepted
+ 53 KILLED   [regime] src/footprint/core/config.py: trend 100 refused
+ 54 KILLED   [regime] src/footprint/core/config.py: zero decision minutes accepted
+ 55 KILLED   [regime] src/footprint/agents/regime_reader.py: history before the calendar accepted
+ 56 KILLED   [regime] src/footprint/agents/regime_reader.py: C1: kept label served for different bars
+ 57 KILLED   [regime] src/footprint/agents/regime_reader.py: C2: calendar's first day refused as history
+ 58 KILLED   [regime] src/footprint/agents/regime_reader.py: C2: microseconds ignored
+ 59 KILLED   [regime] src/footprint/agents/regime_reader.py: C2: rule-based stand-aside not kept
+ 60 KILLED   [regime] src/footprint/agents/regime_reader.py: R3: key = opening only
+ 61 KILLED   [regime] src/footprint/agents/regime_reader.py: R3: key = overnight only
+ 62 KILLED   [regime] src/footprint/agents/regime_reader.py: R3: key runs to the end (post-decision bars)
+ 63 KILLED   [regime] src/footprint/agents/regime_reader.py: R3: key drops the night's first bar
+ 64 KILLED   [regime] src/footprint/agents/regime_reader.py: R3: key drops the opening's last bar
+64 mutants, 0 survived or errored

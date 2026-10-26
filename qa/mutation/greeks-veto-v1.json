@@ -1,0 +1,445 @@
+{
+ "groups": {
+  "agents": [
+   "tests/agents/test_greeks_vetoes.py"
+  ],
+  "pipeline": [
+   "tests/decision/test_pipeline_greeks.py"
+  ],
+  "journal": [
+   "tests/decision/test_pipeline_greeks.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    if is_american(quote, instrument):",
+   "    if False:",
+   "American class valued"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    if not is_european_class(quote.trading_class, instrument):",
+   "    if False:",
+   "unknown class valued"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    if expires_at <= as_of:",
+   "    if expires_at < as_of:",
+   "option at its expiry moment valued"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    if expires_at <= as_of:",
+   "    if False:",
+   "expired option valued"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "_YEAR = timedelta(days=365)  # B76-1: calendar years",
+   "_YEAR = timedelta(days=366)  # B76-1: calendar years",
+   "wrong year length"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    years = (expires_at - as_of) / _YEAR",
+   "    years = (expires_at - as_of) / _YEAR * 1.01",
+   "years off"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    right = Right76.CALL if quote.right is Right.CALL else Right76.PUT",
+   "    right = Right76.CALL",
+   "put valued as call"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        forward = float(underlying_price)",
+   "        forward = float(quote.strike)",
+   "forward is the strike"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            rate=float(rate),\n            price=float(quote.mid),",
+   "            rate=0.0,\n            price=float(quote.mid),",
+   "rate ignored in the solve"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            right, forward=forward, strike=strike, years=years, vol=vol, rate=float(rate)",
+   "            right, forward=forward, strike=strike, years=years, vol=vol, rate=0.0",
+   "rate ignored in greeks"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            price=float(quote.mid),",
+   "            price=float(quote.ask),",
+   "ask, not mid"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            low=float(band.min_implied_vol),",
+   "            low=float(band.min_implied_vol) / 2,",
+   "band low widened"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            high=float(band.max_implied_vol),\n        )",
+   "            high=float(band.max_implied_vol) * 2,\n        )",
+   "band high widened"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "    except ValueError as exc:  # inputs the model cannot take: fail closed",
+   "    except ZeroDivisionError as exc:  # inputs the model cannot take: fail closed",
+   "bad input raises"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        require_utc(as_of, \"as_of\")",
+   "        pass",
+   "non-UTC accepted"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            return self._check(plan, early)",
+   "            pass",
+   "before-valuing veto ignored"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            return self._check(plan, self._refusal(quote, valued))",
+   "            return self._check(plan, valued)",
+   "vega refusal wording skipped"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            contracts=plan.contracts,\n            expires_at=valued.expires_at,",
+   "            contracts=1,\n            expires_at=valued.expires_at,",
+   "contracts not carried"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            delta=m.delta,",
+   "            delta=-m.delta,",
+   "delta sign flipped in record"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            gamma=m.gamma,",
+   "            gamma=m.vega,",
+   "gamma recorded wrong"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            vega=m.vega,\n        )",
+   "            vega=m.gamma,\n        )",
+   "vega recorded wrong"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            implied_vol=m.vol,",
+   "            implied_vol=None,",
+   "vol not recorded"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            years=valued.years,",
+   "            years=None,",
+   "years not recorded"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        bound = self._band.min_implied_vol if exc.side == \"below\" else self._band.max_implied_vol",
+   "        bound = self._band.max_implied_vol",
+   "vega names the wrong bound"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        if exc is None:\n            return refused",
+   "        if True:\n            return refused",
+   "vega wording never used"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            f\"the {bound} bound (hard danger)\",\n            expires_at=refused.expires_at,",
+   "            f\"the {bound} bound (hard danger)\",\n            expires_at=None,",
+   "vega veto drops expiry"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        return True, (\n            f\"{quote.contract_id}: implied volatility",
+   "        return False, (\n            f\"{quote.contract_id}: implied volatility",
+   "vega always vetoes"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        inside = float(s.min_abs_delta) <= abs(delta) <= float(s.max_abs_delta)",
+   "        inside = float(s.min_abs_delta) < abs(delta) <= float(s.max_abs_delta)",
+   "min edge excluded"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        inside = float(s.min_abs_delta) <= abs(delta) <= float(s.max_abs_delta)",
+   "        inside = float(s.min_abs_delta) <= abs(delta) < float(s.max_abs_delta)",
+   "max edge excluded"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        inside = float(s.min_abs_delta) <= abs(delta) <= float(s.max_abs_delta)",
+   "        inside = float(s.min_abs_delta) <= delta <= float(s.max_abs_delta)",
+   "signed delta compared"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        inside = float(s.min_abs_delta) <= abs(delta) <= float(s.max_abs_delta)",
+   "        inside = abs(delta) <= float(s.max_abs_delta)",
+   "no minimum"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        inside = float(s.min_abs_delta) <= abs(delta) <= float(s.max_abs_delta)",
+   "        inside = float(s.min_abs_delta) <= abs(delta)",
+   "no maximum"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        return inside, (",
+   "        return True, (",
+   "delta never vetoes"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        if left >= self._minimum:",
+   "        if left > self._minimum:",
+   "exact minimum vetoed"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        if left >= self._minimum:",
+   "        if True:",
+   "gamma never vetoes"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        self._minimum = timedelta(hours=float(settings.min_hours_to_expiry))",
+   "        self._minimum = timedelta(minutes=float(settings.min_hours_to_expiry))",
+   "minutes, not hours"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "        self._minimum = timedelta(hours=float(settings.min_hours_to_expiry))",
+   "        self._minimum = timedelta(hours=int(settings.min_hours_to_expiry))",
+   "fractional hours truncated"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            years=left / _YEAR,\n        )",
+   "            years=None,\n        )",
+   "gamma veto drops years"
+  ],
+  [
+   "agents",
+   "src/footprint/agents/greeks.py",
+   "            f\"{quote.contract_id}: {left / _HOUR:.2f} hours to expiry at \"",
+   "            f\"{quote.contract_id}: hours to expiry at \"",
+   "gamma reason loses hours"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            if check.agent_id != name:",
+   "            if False:",
+   "misplaced check accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            if not check.allowed:\n                raise PermissionError(f\"an entry {name} vetoed",
+   "            if False:\n                raise PermissionError(f\"an entry {name} vetoed",
+   "vetoed greek approved"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                self.plan.choice.quote.contract_id,\n                self.plan.contracts,\n            ):\n                raise PermissionError(f\"{name}",
+   "                check.contract_id,\n                self.plan.contracts,\n            ):\n                raise PermissionError(f\"{name}",
+   "contract mismatch accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                self.plan.choice.quote.contract_id,\n                self.plan.contracts,\n            ):\n                raise PermissionError(f\"{name}",
+   "                self.plan.choice.quote.contract_id,\n                check.contracts,\n            ):\n                raise PermissionError(f\"{name}",
+   "size mismatch accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        for name, check in ((\"vega\", self.vega), (\"delta\", self.delta), (\"gamma\", self.gamma)):",
+   "        for name, check in ((\"vega\", self.vega), (\"delta\", self.delta)):",
+   "gamma slot unchecked"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            if check is not None and not check.allowed:\n                out.append",
+   "            if False:\n                out.append",
+   "greek veto not a reason"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        for check in (self.vega, self.delta, self.gamma):",
+   "        for check in (self.vega, self.delta):",
+   "gamma veto not a reason"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            if not check.allowed:\n                return stop(",
+   "            if False:\n                return stop(",
+   "greek veto ignored in decide"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            DeltaAgent(s.delta, s.vega, s.theta.rate, inst),\n",
+   "",
+   "delta agent dropped"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            VegaAgent(s.vega, s.theta.rate, inst),\n            DeltaAgent(s.delta, s.vega, s.theta.rate, inst),",
+   "            DeltaAgent(s.delta, s.vega, s.theta.rate, inst),\n            VegaAgent(s.vega, s.theta.rate, inst),",
+   "order swapped"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            check = agent.assess(plan, chain.underlying_price, as_of)",
+   "            check = agent.assess(plan, plan.choice.quote.strike, as_of)",
+   "wrong forward"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                gamma=found.get(\"gamma\"),",
+   "                gamma=None,",
+   "gamma not on the decision"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                return stop(verdict=verdict, contract=choice, plan=plan, theta=theta, greeks=greeks)",
+   "                return stop(verdict=verdict, contract=choice, plan=plan, theta=theta)",
+   "veto checks dropped from record"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "                theta=theta,\n                greeks=greeks,\n            )",
+   "                theta=theta,\n            )",
+   "checks dropped on risk veto"
+  ],
+  [
+   "journal",
+   "src/footprint/execution/journal/josephine.py",
+   "                \"gamma\": decision.gamma,\n",
+   "",
+   "journal drops gamma"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if vega.max_implied_vol <= vega.min_implied_vol:",
+   "    if vega.max_implied_vol < vega.min_implied_vol:",
+   "equal vega band accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:",
+   "    if vega.max_implied_vol > theta.max_implied_vol:",
+   "vega min below theta accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:",
+   "    if vega.min_implied_vol < theta.min_implied_vol:",
+   "vega max above theta accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if vega.min_implied_vol < theta.min_implied_vol or vega.max_implied_vol > theta.max_implied_vol:",
+   "    if vega.min_implied_vol <= theta.min_implied_vol or vega.max_implied_vol >= theta.max_implied_vol:",
+   "theta edges refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.max_abs_delta <= delta.min_abs_delta:",
+   "    if delta.max_abs_delta < delta.min_abs_delta:",
+   "equal delta band accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.max_abs_delta > 1:",
+   "    if delta.max_abs_delta >= 1:",
+   "delta max 1 refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if delta.max_abs_delta > 1:",
+   "    if False:",
+   "delta above 1 accepted"
+  ]
+ ]
+}

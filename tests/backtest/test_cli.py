@@ -34,6 +34,8 @@ def test_a_run_from_the_command_line_writes_its_readout(tmp_path: Path) -> None:
             str(REPO_ROOT / "config"),
             "--trade-from",
             TRADE_FROM.isoformat(),
+            "--rolls",
+            "none",  # these bars have no contract roll (BH-9)
         ]
     )
     assert code == 1  # one trade: NOT ENOUGH TRADES

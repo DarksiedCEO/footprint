@@ -1,0 +1,75 @@
+source: 36d452c0903aa80e5ac96068fdd4e30417d893ae tree-dirty: 0 files
+baseline [bracket]: passed
+baseline [nb]: passed
+baseline [plumb]: passed
+  1 KILLED   [nb] src/footprint/research/rules/noise_band.py: rth_end may equal rth_start
+  2 KILLED   [nb] src/footprint/research/rules/noise_band.py: roll check off
+  3 KILLED   [nb] src/footprint/research/rules/noise_band.py: flat may equal rth_end
+  4 KILLED   [nb] src/footprint/research/rules/noise_band.py: min bars 0 allowed
+  5 KILLED   [nb] src/footprint/research/rules/noise_band.py: negative first check allowed
+  6 KILLED   [nb] src/footprint/research/rules/noise_band.py: rth end inclusive
+  7 KILLED   [nb] src/footprint/research/rules/noise_band.py: rth start exclusive
+  8 KILLED   [nb] src/footprint/research/rules/noise_band.py: weekends kept
+  9 KILLED   [nb] src/footprint/research/rules/noise_band.py: min bars exclusive
+ 10 KILLED   [nb] src/footprint/research/rules/noise_band.py: count all bars, not regular
+ 11 KILLED   [nb] src/footprint/research/rules/noise_band.py: first open from close
+ 12 KILLED   [nb] src/footprint/research/rules/noise_band.py: first open of the whole day
+ 13 KILLED   [nb] src/footprint/research/rules/noise_band.py: last close incl. post-session bars
+ 14 KILLED   [nb] src/footprint/research/rules/noise_band.py: range over the whole day
+ 15 KILLED   [nb] src/footprint/research/rules/noise_band.py: range from closes
+ 16 KILLED   [nb] src/footprint/research/rules/noise_band.py: warm-up one day short
+ 17 KILLED   [nb] src/footprint/research/rules/noise_band.py: history one day long
+ 18 KILLED   [nb] src/footprint/research/rules/noise_band.py: previous close = previous open
+ 19 KILLED   [nb] src/footprint/research/rules/noise_band.py: unkept days enter history
+ 20 KILLED   [nb] src/footprint/research/rules/noise_band.py: days reversed
+ 21 KILLED   [nb] src/footprint/research/rules/noise_band.py: next bar, not at-or-before
+ 22 KILLED   [nb] src/footprint/research/rules/noise_band.py: later-starting day not left out
+ 23 KILLED   [nb] src/footprint/research/rules/noise_band.py: signed move, not absolute
+ 24 KILLED   [nb] src/footprint/research/rules/noise_band.py: past first close not open
+ 25 KILLED   [nb] src/footprint/research/rules/noise_band.py: median not mean
+ 26 KILLED   [nb] src/footprint/research/rules/noise_band.py: top ignores previous close
+ 27 KILLED   [nb] src/footprint/research/rules/noise_band.py: bottom ignores previous close
+ 28 KILLED   [nb] src/footprint/research/rules/noise_band.py: multiple ignored
+ 29 KILLED   [nb] src/footprint/research/rules/noise_band.py: second trade allowed
+ 30 KILLED   [nb] src/footprint/research/rules/noise_band.py: last regular bar may signal
+ 31 KILLED   [nb] src/footprint/research/rules/noise_band.py: flat bar may signal
+ 32 KILLED   [nb] src/footprint/research/rules/noise_band.py: first check exclusive
+ 33 KILLED   [nb] src/footprint/research/rules/noise_band.py: checkpoint off by one
+ 34 KILLED   [nb] src/footprint/research/rules/noise_band.py: first check ignored
+ 35 KILLED   [nb] src/footprint/research/rules/noise_band.py: top inclusive
+ 36 KILLED   [nb] src/footprint/research/rules/noise_band.py: bottom inclusive
+ 37 KILLED   [nb] src/footprint/research/rules/noise_band.py: high not close
+ 38 KILLED   [nb] src/footprint/research/rules/noise_band.py: call enters at close
+ 39 KILLED   [nb] src/footprint/research/rules/noise_band.py: put without range
+ 40 KILLED   [nb] src/footprint/research/rules/noise_band.py: report not-kept count
+ 41 KILLED   [bracket] src/footprint/research/engine.py: entry bar open walked again
+ 42 KILLED   [bracket] src/footprint/research/engine.py: entry open re-checked
+ 43 KILLED   [bracket] src/footprint/research/engine.py: next bar past the end
+ 44 KILLED   [bracket] src/footprint/research/engine.py: next-open price = trigger close
+ 45 KILLED   [bracket] src/footprint/research/engine.py: next-open time = trigger close time
+ 46 KILLED   [bracket] src/footprint/research/engine.py: prepare not called
+ 47 KILLED   [bracket] src/footprint/research/engine.py: zero range accepted
+ 48 KILLED   [bracket] src/footprint/research/engine.py: stop uses target fraction
+ 49 KILLED   [bracket] src/footprint/research/engine.py: target uses stop fraction
+ 50 KILLED   [bracket] src/footprint/research/engine.py: stop ignores direction
+ 51 KILLED   [bracket] src/footprint/research/engine.py: levels for the wrong exits
+ 52 KILLED   [bracket] src/footprint/research/engine.py: target valued at the stop
+ 53 KILLED   [bracket] src/footprint/research/exits.py: bracket contracts from booker
+ 54 KILLED   [bracket] src/footprint/research/exits.py: bracket kind runs the booker
+ 55 KILLED   [bracket] src/footprint/research/exits.py: rule stop lower wins
+ 56 KILLED   [bracket] src/footprint/research/exits.py: stop exclusive
+ 57 KILLED   [bracket] src/footprint/research/exits.py: stop gap fills at level
+ 58 KILLED   [bracket] src/footprint/research/exits.py: target exclusive
+ 59 KILLED   [bracket] src/footprint/research/exits.py: target gap fills at level
+ 60 KILLED   [bracket] src/footprint/research/exits.py: target sells one contract
+ 61 KILLED   [plumb] src/footprint/research/settings.py: unlisted instrument accepted
+ 62 KILLED   [plumb] src/footprint/research/settings.py: instrument strike step ignored
+ 63 KILLED   [plumb] src/footprint/research/settings.py: negative cost accepted
+ 64 KILLED   [plumb] src/footprint/research/settings.py: zero bracket contracts
+ 65 KILLED   [plumb] src/footprint/research/settings.py: t bars dropped
+ 66 KILLED   [plumb] src/footprint/research/stats.py: t bar loosened
+ 67 KILLED   [plumb] src/footprint/research/stats.py: t bar never fails
+ 68 KILLED   [plumb] src/footprint/research/__main__.py: infinite cost accepted
+ 69 KILLED   [plumb] src/footprint/research/__main__.py: --cost ignored
+ 70 KILLED   [plumb] src/footprint/research/__main__.py: CLI drops the t bar
+70 mutants, 0 survived or errored

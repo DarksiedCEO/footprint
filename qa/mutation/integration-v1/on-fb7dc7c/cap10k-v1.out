@@ -1,0 +1,9 @@
+source: fb7dc7c2c5d4d4140d521a3352753e3f7001cb95 tree-dirty: 0 files
+baseline [config]: passed
+baseline [sizing]: passed
+BAD MUTANT 1 (0 matches): config/risk.yaml: 'position_cap: 10000 '
+BAD MUTANT 2 (0 matches): config/risk.yaml: 'position_cap: 10000 '
+BAD MUTANT 3 (0 matches): config/risk.yaml: 'position_cap: 10000 '
+  4 KILLED   [sizing] src/footprint/decision/sizing.py: Ezra sizes against the wrong cap
+  5 KILLED   [config] src/footprint/core/config.py: overnight cap checked against the bankroll, not the day cap
+5 mutants, 3 survived or errored

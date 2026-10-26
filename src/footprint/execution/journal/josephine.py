@@ -1,9 +1,11 @@
 """Josephine (journal): an append-only record of every decision and every trade.
 
-Two JSON-lines files:
+Three JSON-lines files:
 - decisions: why the system did or did not trade at each decision point (every
   gate, read, score, contract, size and risk veto);
-- trades: each closed trade's full fingerprint (money, birth story, exit story).
+- trades: each closed trade's full fingerprint (money, birth story, exit story);
+- plays: the day's play caller label and its reason, once per trading day (from the
+  decision that fixed it).
 Each record is written and fsynced before the call returns. Records are never
 rewritten; the journal is the evidence the intelligence layer and Andre audit.
 """
@@ -45,12 +47,38 @@ class Journal:
         directory.mkdir(parents=True, exist_ok=True)
         self._decisions = directory / "decisions.jsonl"
         self._trades = directory / "trades.jsonl"
+        self._plays = directory / "plays.jsonl"
+        self._owed_plays: list[dict[str, Any]] = []  # play records not yet written
 
     @property
     def agent_id(self) -> str:
         return "journal"
 
     def record_decision(self, decision: Decision) -> None:
+        """The decision record, then the day's play record if one is owed. A play record
+        that fails to write is kept and tried again on each later decision until it is
+        written (the failure still raises, so the runner alarms it); the decision record
+        is written first, so it is never lost to it. Kept in memory only: a restart
+        fixes (and journals) the day afresh."""
+        play = decision.play
+        if play is not None and play.first:
+            self._owed_plays.append(
+                {
+                    "day": play.day,
+                    "as_of": decision.as_of,
+                    "regime": play.regime,
+                    "cause": play.cause,
+                    "entries_allowed": play.entries_allowed,
+                    "reason": play.reason,
+                    "label": play.label,
+                }
+            )
+        self._record_decision(decision)
+        while self._owed_plays:
+            self._append(self._plays, self._owed_plays[0])
+            self._owed_plays.pop(0)
+
+    def _record_decision(self, decision: Decision) -> None:
         verdict = decision.verdict
         self._append(
             self._decisions,
@@ -67,6 +95,9 @@ class Journal:
                 "contract": decision.contract,
                 "plan": decision.plan,
                 "theta": decision.theta,
+                "vega": decision.vega,
+                "delta": decision.delta,
+                "gamma": decision.gamma,
                 "risk": decision.risk,
             },
         )
@@ -111,6 +142,9 @@ class Journal:
 
     def trades(self) -> list[dict[str, Any]]:
         return self._read(self._trades)
+
+    def plays(self) -> list[dict[str, Any]]:
+        return self._read(self._plays)
 
     @staticmethod
     def _read(path: Path) -> list[dict[str, Any]]:

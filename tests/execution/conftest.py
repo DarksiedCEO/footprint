@@ -18,6 +18,7 @@ from footprint.execution.management.malik import Alarm, Closed, Manager
 from footprint.execution.market import QuoteBook
 from footprint.execution.orders import Quote, SimulatedBroker, TrackedBroker
 from tests.conftest import REPO_ROOT
+from tests.decision.plays import open_play
 from tests.decision.scenario import DECISION_TIME, chain_for, market
 
 D = Decimal
@@ -90,7 +91,7 @@ class Stack:
 
 @pytest.fixture
 def stack(profiles: Profiles, bars: list[Bar], tmp_path: Path) -> Stack:
-    pipeline = Pipeline(profiles)
+    pipeline = Pipeline(profiles, play=open_play())
     store_path = tmp_path / "ledger.json"
     ledger = Ledger(profiles.risk, profiles.instrument, StateStore(store_path), create=True)
     decision = pipeline.decide(

@@ -12,6 +12,10 @@ A rule is one of:
         not_saturday (Sunday -> Monday; a Saturday is not observed), or none
     the nth (or, with -1, the last) weekday of a month
     a number of days from Easter Sunday (Easter dates are listed, not computed)
+and, on any of them (backtest-history-v1, BH-1):
+    `first_year`: the rule exists only from that year on (none before it)
+    `weekdays`: the rule's day counts only when it falls on one of these weekdays
+        (checked on the day the exchange observes, after `observed` and `days_after`)
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ REQUIRED_RULES: dict[str, str] = {
     "Labor Day": "closed",
     "Thanksgiving": "closed",
     "Day after Thanksgiving": "early_close",
+    "Independence Day eve": "early_close",
     "Christmas Eve": "early_close",
     "Christmas Day": "closed",
 }
@@ -60,6 +65,8 @@ class HolidayRule:
     days_from_easter: int | None = None
     days_after: int = 0  # moved this many days after the rule's date (day after X)
     kind: str = "closed"
+    first_year: int | None = None  # None: every year
+    weekdays: frozenset[int] | None = None  # None: any weekday
 
 
 class MissingEaster(ValueError):
@@ -91,7 +98,17 @@ def _observed(day: date, how: str) -> date | None:
 
 
 def rule_date(rule: HolidayRule, year: int, easters: Mapping[int, date]) -> date | None:
-    """The rule's day in `year` (None when not observed that year)."""
+    """The rule's day in `year` (None when not observed that year, before its
+    `first_year`, or on a weekday outside its `weekdays`)."""
+    if rule.first_year is not None and year < rule.first_year:
+        return None
+    day = _unfiltered(rule, year, easters)
+    if day is None or (rule.weekdays is not None and day.weekday() not in rule.weekdays):
+        return None
+    return day
+
+
+def _unfiltered(rule: HolidayRule, year: int, easters: Mapping[int, date]) -> date | None:
     if rule.days_from_easter is not None:
         if year not in easters:
             raise MissingEaster(f"easter_sundays has no date in {year} (needed by {rule.name})")

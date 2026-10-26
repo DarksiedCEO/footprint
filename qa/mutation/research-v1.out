@@ -1,0 +1,88 @@
+source: 8f30bc29cabd414960737d11b98b1f05ebb1c980 tree-dirty: 0 files
+baseline [bars]: passed
+baseline [cli]: passed
+baseline [engine]: passed
+baseline [exits]: passed
+baseline [pricing]: passed
+baseline [stats]: passed
+  1 KILLED   [bars] src/footprint/research/bars.py: roll minutes ignored
+  2 KILLED   [bars] src/footprint/research/bars.py: no roll at all
+  3 KILLED   [bars] src/footprint/research/bars.py: zone ignored (UTC wall)
+  4 KILLED   [bars] src/footprint/research/bars.py: duplicate ts accepted
+  5 KILLED   [bars] src/footprint/research/bars.py: days not split
+  6 KILLED   [bars] src/footprint/research/bars.py: clock in UTC
+  7 KILLED   [bars] src/footprint/research/settings.py: window end inclusive
+  8 KILLED   [bars] src/footprint/research/settings.py: wrapped start exclusive
+  9 KILLED   [bars] src/footprint/research/settings.py: wrapped end inclusive
+ 10 KILLED   [bars] src/footprint/research/sessions.py: unassigned minute labelled with the last session
+ 11 KILLED   [bars] src/footprint/research/vol.py: same-day close used (lookahead)
+ 12 KILLED   [bars] src/footprint/research/vol.py: stale by a day accepted
+ 13 KILLED   [bars] src/footprint/research/vol.py: max age exclusive
+ 14 KILLED   [bars] src/footprint/research/vol.py: divisor ignored
+ 15 KILLED   [bars] src/footprint/research/vol.py: nan/inf close accepted
+ 16 KILLED   [bars] src/footprint/research/vol.py: duplicate date accepted
+ 17 KILLED   [pricing] src/footprint/research/pricing.py: strike truncated not rounded
+ 18 KILLED   [pricing] src/footprint/research/pricing.py: no rescaling
+ 19 KILLED   [pricing] src/footprint/research/pricing.py: always a call
+ 20 KILLED   [pricing] src/footprint/research/pricing.py: bad direction accepted
+ 21 KILLED   [pricing] src/footprint/research/pricing.py: days per year hardcoded
+ 22 KILLED   [pricing] src/footprint/research/pricing.py: valued after expiry
+ 23 KILLED   [pricing] src/footprint/research/pricing.py: rate ignored
+ 24 KILLED   [pricing] src/footprint/research/pricing.py: cost not per contract
+ 25 KILLED   [exits] src/footprint/research/exits.py: lock start exclusive
+ 26 KILLED   [exits] src/footprint/research/exits.py: lock fraction hardcoded
+ 27 KILLED   [exits] src/footprint/research/exits.py: lock/target gross not net
+ 28 KILLED   [exits] src/footprint/research/exits.py: peak never follows
+ 29 KILLED   [exits] src/footprint/research/exits.py: lowest level wins
+ 30 KILLED   [exits] src/footprint/research/exits.py: touching the level does not fill
+ 31 KILLED   [exits] src/footprint/research/exits.py: gap fills at the level
+ 32 KILLED   [exits] src/footprint/research/exits.py: target exclusive
+ 33 KILLED   [exits] src/footprint/research/exits.py: target sells nothing
+ 34 KILLED   [exits] src/footprint/research/exits.py: flat sells twice
+ 35 KILLED   [exits] src/footprint/research/exits.py: booker takes a target
+ 36 KILLED   [engine] src/footprint/research/engine.py: favourable extreme first
+ 37 KILLED   [engine] src/footprint/research/engine.py: flat bar at the flat time not closed
+ 38 KILLED   [engine] src/footprint/research/engine.py: open not a gap
+ 39 KILLED   [engine] src/footprint/research/engine.py: entry at flat time accepted
+ 40 KILLED   [engine] src/footprint/research/engine.py: rule asked on the exit bar
+ 41 KILLED   [engine] src/footprint/research/engine.py: skipped day retried
+ 42 KILLED   [engine] src/footprint/research/engine.py: realized not tracked
+ 43 KILLED   [engine] src/footprint/research/engine.py: entry at the trigger open
+ 44 KILLED   [stats] src/footprint/research/stats.py: PF inf with no losses
+ 45 KILLED   [stats] src/footprint/research/stats.py: t-stat with no spread
+ 46 KILLED   [stats] src/footprint/research/stats.py: in/out of sample swapped
+ 47 KILLED   [stats] src/footprint/research/stats.py: oos drawdown from the start equity
+ 48 KILLED   [stats] src/footprint/research/stats.py: positive parts exclusive
+ 49 KILLED   [stats] src/footprint/research/stats.py: zero counted as a win
+ 50 KILLED   [stats] src/footprint/research/stats.py: gate floor exclusive
+ 51 KILLED   [cli] src/footprint/research/__main__.py: sessions not split
+ 52 KILLED   [cli] src/footprint/research/settings.py: overlapping sessions accepted
+ 53 KILLED   [cli] src/footprint/research/settings.py: one-contract scale-out accepted
+ 54 KILLED   [cli] src/footprint/research/settings.py: lock fraction not a fraction
+ 55 KILLED   [cli] src/footprint/research/settings.py: negative cost accepted
+ 56 KILLED   [cli] src/footprint/research/settings.py: a 100% gate accepted
+ 57 KILLED   [cli] src/footprint/research/settings.py: zero min_trades accepted
+ 58 KILLED   [cli] src/footprint/research/settings.py: profit factor gate read from payoff
+ 59 KILLED   [pricing] src/footprint/research/pricing.py: 37-H1: strike chosen at the data's own level
+ 60 KILLED   [pricing] src/footprint/research/pricing.py: 37-H1: no strike rounding
+ 61 KILLED   [engine] src/footprint/research/engine.py: 37-M1: next day's vol (lookahead)
+ 62 KILLED   [engine] src/footprint/research/engine.py: 37-L1: realized not summed
+ 63 KILLED   [engine] src/footprint/research/engine.py: 37-L3: stop at the entry price accepted
+ 64 KILLED   [engine] src/footprint/research/engine.py: 37-M3: no path marks
+ 65 KILLED   [engine] src/footprint/research/engine.py: 37-M3: no entry mark
+ 66 KILLED   [cli] src/footprint/research/__main__.py: 37-M2: verdict on sorted trades
+ 67 KILLED   [cli] src/footprint/research/__main__.py: 37-L2: ruin not reported
+ 68 KILLED   [stats] src/footprint/research/stats.py: ruin only below zero
+ 69 KILLED   [stats] src/footprint/research/stats.py: 37-M3: marked drawdown not gated
+ 70 KILLED   [stats] src/footprint/research/stats.py: marked curve does not carry closed trades
+ 71 KILLED   [stats] src/footprint/research/stats.py: marked drawdown applied to the held-out share
+ 72 KILLED   [stats] src/footprint/research/stats.py: ruin does not fail
+ 73 KILLED   [exits] src/footprint/research/exits.py: marks without costs
+ 74 KILLED   [exits] src/footprint/research/exits.py: marks forget sold contracts
+ 75 KILLED   [pricing] src/footprint/research/pricing.py: moneyness sign flipped
+ 76 KILLED   [pricing] src/footprint/research/pricing.py: forward not rescaled
+ 77 KILLED   [exits] src/footprint/research/exits.py: target gap fills at the level
+ 78 KILLED   [stats] src/footprint/research/stats.py: drawdown pct never computed
+ 79 KILLED   [stats] src/footprint/research/stats.py: 37-R2-M1: marked curve carries the first mark
+ 80 KILLED   [engine] src/footprint/research/engine.py: 37-R2-L1: a mark recorded at a fill point
+80 mutants, 0 survived or errored

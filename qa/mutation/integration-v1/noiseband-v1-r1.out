@@ -1,0 +1,31 @@
+source: f287f740fdacd72df3690aad90cf1eb563d643a3 tree-dirty: 0 files
+baseline [r1]: passed
+  1 KILLED   [r1] src/footprint/research/rules/noise_band.py: L-3: to-close off by one
+  2 KILLED   [r1] src/footprint/research/rules/noise_band.py: L-3: to-close strict
+  3 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-12: a bar at flat counts as early
+  4 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-12 off
+  5 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-12 not applied to signals
+  6 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-11 strict
+  7 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-11 off
+  8 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-11 report strict
+  9 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-11 report counts days without a signal
+ 10 KILLED   [r1] src/footprint/research/rules/noise_band.py: L-3 lists weekends
+ 11 KILLED   [r1] src/footprint/research/rules/noise_band.py: L-3 lists kept days
+ 12 KILLED   [r1] src/footprint/research/rules/noise_band.py: L-3 lists early closes
+ 13 KILLED   [r1] src/footprint/research/rules/noise_band.py: NB-12 report counts warm-up days
+ 14 KILLED   [r1] src/footprint/research/rules/noise_band.py: dates not listed
+ 15 KILLED   [r1] src/footprint/research/rules/__init__.py: unregistered t-bar names accepted
+ 16 KILLED   [r1] src/footprint/research/rules/__init__.py: missing t bar accepted
+ 17 KILLED   [r1] src/footprint/research/rules/__init__.py: noise_band does not require a t bar
+ 18 KILLED   [r1] src/footprint/research/settings.py: load accepts misspelt t-bar names
+ 19 KILLED   [r1] src/footprint/research/settings.py: vol_index any string
+ 20 KILLED   [r1] src/footprint/research/settings.py: vol_index fixed
+ 21 KILLED   [r1] src/footprint/research/vol.py: dot not a separator
+ 22 KILLED   [r1] src/footprint/research/vol.py: underscore not a separator
+ 23 KILLED   [r1] src/footprint/research/vol.py: case matters
+ 24 KILLED   [r1] src/footprint/research/vol.py: prefix match
+ 25 KILLED   [r1] src/footprint/research/__main__.py: CLI skips the t-bar check
+ 26 KILLED   [r1] src/footprint/research/__main__.py: CLI skips the vol check
+ 27 KILLED   [r1] src/footprint/research/__main__.py: t bar source not printed
+ 28 KILLED   [r1] src/footprint/research/__main__.py: no-t-bar line silent
+28 mutants, 0 survived or errored
