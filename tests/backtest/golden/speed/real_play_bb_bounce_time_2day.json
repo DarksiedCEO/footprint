@@ -1,0 +1,20 @@
+{
+  "hashes": {
+    "exit": "1",
+    "journal/decisions.jsonl": "99e07655ff02c4938e2a3a1fae759535f43afc3f0a1effe2c8166220dc914bbe",
+    "journal/plays.jsonl": "5fbe5034aa0cfdfd51eb0d73e0d7e726e688222a6721677712269586ba9563ca",
+    "journal/trades.jsonl": "ed4005641659cf2e41f40ce2acb132923b9fe295201f6043d61ecc4710516665",
+    "ledger.json": "04410127d2880d59f204fe44f378615a7337879ff0f2c830ce13e501371d26b0",
+    "readout.json": "429b5ffe4d76ec997a159cf4a2463542393bc2e3e9782271c4ca6ad25d95f52f",
+    "readout.md": "ff6a8e478bb8cd934015f77005599309e3963806a7701b620eadf7287645adbf",
+    "stdout.txt": "be13a62662ab9902598f50f4799b7b9839590ba8ca7743f2918cf121bcbe9a4e"
+  },
+  "made_on": "928ca71622b33a4e7489331b7b21da5f332b6262",
+  "scenario": "real_play_bb_bounce_time_2day",
+  "summary": {
+    "decisions": 1165,
+    "fired": 20,
+    "plays": 2,
+    "trades": 4
+  }
+}

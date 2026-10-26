@@ -122,21 +122,21 @@
   [
    "rules",
    "src/footprint/decision/news_rules.py",
-   "            time_stop=self._s.time_stop_after_daily,\n        )\n\n    def _pre_news",
+   "            time_stop=event.time_stop,\n        )\n\n    def _pre_news",
    "            time_stop=True,\n        )\n\n    def _pre_news",
-   "daily windows ignore N-OPEN-2 switch"
+   "daily windows ignore their own N-OPEN-2 switch"
   ],
   [
    "rules",
    "src/footprint/decision/news_rules.py",
-   "            end,\n            time_stop=self._s.time_stop_after_daily,",
+   "            end,\n            time_stop=self._s.pre_news_time_stop,",
    "            end,\n            time_stop=True,",
-   "N4 window ignores N-OPEN-2 switch"
+   "N4 window ignores pre_news_time_stop switch"
   ],
   [
    "rules",
    "src/footprint/decision/news_rules.py",
-   "            end,\n            time_stop=self._s.time_stop_after_daily,",
+   "            end,\n            time_stop=self._s.pre_news_time_stop,",
    "            end,\n            time_stop=False,",
    "N4 window never starts the time stop"
   ],
@@ -276,15 +276,15 @@
   [
    "rules",
    "src/footprint/core/config.py",
-   "        lead_minutes=_integer(raw, \"lead_minutes\", where, minimum=0),",
-   "        lead_minutes=_integer(raw, \"lead_minutes\", where, minimum=-5),",
+   "    lead = _integer(raw, \"lead_minutes\", where, minimum=0)",
+   "    lead = _integer(raw, \"lead_minutes\", where, minimum=-5)",
    "negative lead accepted"
   ],
   [
    "rules",
    "src/footprint/core/config.py",
-   "        lag_minutes=_integer(raw, \"lag_minutes\", where, minimum=0),",
-   "        lag_minutes=_integer(raw, \"lag_minutes\", where, minimum=-5),",
+   "    lag = _integer(raw, \"lag_minutes\", where, minimum=0)",
+   "    lag = _integer(raw, \"lag_minutes\", where, minimum=-5)",
    "negative lag accepted"
   ],
   [
@@ -307,6 +307,181 @@
    "        blackouts=with_news_rules(p, blackouts),",
    "        blackouts=blackouts,",
    "live without the scheduled windows"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            time_stop=event.time_stop,\n        )\n\n    def _pre_news",
+   "            time_stop=self._s.pre_news_time_stop,\n        )\n\n    def _pre_news",
+   "C2: daily windows follow the N4 switch, not their own"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            _boolean(body, \"time_stop\", inner),",
+   "            True,",
+   "C2: loader ignores a daily window's time_stop"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        pre_news_time_stop=_boolean(raw, \"pre_news_time_stop\", where),",
+   "        pre_news_time_stop=True,",
+   "C2: loader ignores pre_news_time_stop"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if timedelta(minutes=lead + lag) >= timedelta(days=1):",
+   "    if timedelta(minutes=lead + lag) > timedelta(days=1):",
+   "M3: exactly one day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if timedelta(minutes=lead + lag) >= timedelta(days=1):",
+   "    if timedelta(minutes=lead) >= timedelta(days=1):",
+   "M3: lag left out of the bound"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if timedelta(minutes=lead + lag) >= timedelta(days=1):",
+   "    if False:",
+   "M3: no bound"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if timedelta(minutes=lead + lag) >= timedelta(days=1):",
+   "    if timedelta(minutes=lead + lag) >= timedelta(hours=23):",
+   "M3: bound below a day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        today = now.astimezone(self._zone).date()",
+   "        today = now.date()",
+   "R1: windows keyed on the UTC date"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return session.start <= clock <= session.end",
+   "        return session.start < clock <= session.end",
+   "R2: non-wrapping session start excluded"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        return (*rules.windows(now), *extra(now))",
+   "        return (*extra(now), *rules.windows(now))",
+   "R3: CSV windows listed first"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if end < start:",
+   "        if end <= start:",
+   "R4: N4 refusal at equality (EQUIVALENT, see notes)"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        while day <= instrument.calendar_through:",
+   "        while day < instrument.calendar_through:",
+   "R5: last calendar day not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        ends_on = day + _DAY if start > session.end else day",
+   "        ends_on = day + _DAY if start >= session.end else day",
+   "R9: midnight test at equality (EQUIVALENT, see notes)"
+  ],
+  [
+   "exits",
+   "src/footprint/execution/management/malik.py",
+   "            b.time_stop and b.end < position.entry_ts <= b.end + window for b in blackouts",
+   "            b.time_stop and b.end < position.entry_ts < b.end + window for b in blackouts",
+   "R12: time stop look-back end exclusive"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "f\"{_clock_text(e.at, -lead)}-{_clock_text(e.at, lag)} {s.timezone} \"",
+   "f\"{_clock_text(e.at)}-{_clock_text(e.at, lag)} {s.timezone} \"",
+   "C3: readout window start without the lead"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "(whole end minute); {_stop_text(e.time_stop)}",
+   "(whole end minute); {_stop_text(True)}",
+   "C3: readout hides a daily window's switch"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "(whole end minute); {_stop_text(s.pre_news_time_stop)}",
+   "(whole end minute); {_stop_text(True)}",
+   "C3: readout hides the N4 switch"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "\"news.pre_news_time_stop\": \"true\" if s.pre_news_time_stop else \"false\",",
+   "\"news.pre_news_time_stop\": \"true\",",
+   "C3: readout value fixed"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "\"news.lag_minutes\": str(s.lag_minutes),",
+   "\"news.lag_minutes\": str(s.lead_minutes),",
+   "C3: readout lag shows the lead"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "f\"{_clock_text(prime.start)} {prime.timezone}-",
+   "f\"{_clock_text(prime.start)} {s.timezone}-",
+   "C3: N4 start on the wrong clock"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "f\"{_clock_text(s.overnight_flat_from)}-{_clock_text(night.end)} {night.timezone} \"",
+   "f\"{_clock_text(s.overnight_flat_from)}-{_clock_text(night.start)} {night.timezone} \"",
+   "C3: overnight end shows its start"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    return \"time stop after: \" + (\"on\" if on else \"off\")",
+   "    return \"time stop after: on\"",
+   "C3: switch text constant"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/__main__.py",
+   "        **news_assumptions(profiles, args.config / \"news.yaml\"),\n",
+   "",
+   "C3: CLI readout drops the rules"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/__main__.py",
+   "        **news_assumptions(profiles, args.config / \"news.yaml\"),\n",
+   "        **news_assumptions(profiles, Path(\"config/news.yaml\")),\n",
+   "C3: CLI readout names a fixed path, not the run's config"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/__main__.py",
+   "\"news blackouts CSV\": str(args.blackouts) if args.blackouts else \"NONE supplied\",",
+   "\"news blackouts CSV\": \"NONE supplied\",",
+   "C3: CSV path dropped"
   ]
  ]
 }

@@ -10,10 +10,18 @@ timezone: America/New_York      # N1: release times are defined on the releases'
 lead_minutes: 5                 # N2 DEFAULT (Andre 2026-10-14): a daily window starts this
                                 #   long before its event ...
 lag_minutes: 2                  # N2 DEFAULT: ... and ends this long after it
-daily_events:                   # N1 and N3, every day, news or not; never expire
-  - {name: "8:30 ET releases (N1)", at: "08:30"}   # 05:25-05:32 PT; jobless claims included
-  - {name: "cash open (N3)", at: "09:30"}          # N3 DEFAULT 06:25-06:32 PT: flat into the open
-  - {name: "10:00 ET releases (N1)", at: "10:00"}  # 06:55-07:02 PT
+# lead_minutes + lag_minutes must be shorter than one day (the loader refuses it).
+# daily_events: N1 and N3, every day, news or not; never expire.
+# time_stop (N-OPEN-2, PENDING-ANDRE, per window): true = an entry made in the first
+# minutes after this window ends gets the news time stop (execution.yaml news:: closed
+# after time_stop_minutes unless up time_stop_min_gain net); false = it does not.
+#   Built default (PENDING-ANDRE): true on every window (and pre_news_time_stop below).
+#   Narrow reading (the question as asked): true only on "8:30 ET releases (N1)",
+#   false on the other two and on pre_news_time_stop.
+daily_events:
+  - {name: "8:30 ET releases (N1)", at: "08:30", time_stop: true}   # 05:25-05:32 PT; jobless claims included
+  - {name: "cash open (N3)", at: "09:30", time_stop: true}          # N3 DEFAULT 06:25-06:32 PT: flat into the open
+  - {name: "10:00 ET releases (N1)", at: "10:00", time_stop: true}  # 06:55-07:02 PT
 # N4 with N-OPEN-1 (DEFAULT, PENDING Andre): with N1 every day is a news day, so N4
 # applies every day: no new entries from the prime session's start (04:00 PT) until
 # this daily event's window ends (the latest morning release window, 10:02 ET). The
@@ -21,12 +29,13 @@ daily_events:                   # N1 and N3, every day, news or not; never expir
 # 03:59 PT). Fewest-entries reading; the alternative ("until the 8:30 window ends") is
 # for Andre.
 pre_news_until: "10:00 ET releases (N1)"
-# N-OPEN-2 (DEFAULT, PENDING Andre): true = the news time stop (execution.yaml news:)
-# also applies after every daily window (N1, N3, N4), every day; false = only after the
-# other windows (FOMC, CSV releases). True is the flatter reading. With the play caller
-# (no entries before 10:00 ET) it applies to entries in the first minutes after the
-# 10:02 ET window ends, every day.
-time_stop_after_daily: true
+# N-OPEN-2 for the N4 window (PENDING-ANDRE; built default true, narrow reading false).
+# N4 ends with the pre_news_until window, so while that window's own time_stop is true
+# this switch changes nothing; it matters only if the two are set differently.
+# With the play caller (no entries before 10:00 ET) the only one that bites today is the
+# 10:00 ET window's: true gives every entry from 10:03:00 to 10:15:59 ET the time stop, every
+# day. The overnight window (N-OPEN-3) and every --blackouts CSV window always carry it.
+pre_news_time_stop: true
 # N5 (Andre 2026-10-14): on an FOMC decision day, flat by this time (ET) and no new
 # entries for the rest of the prime session (to its close, 14:00 PT or an early close).
 fomc_flat_from: "13:55"         # N5 DEFAULT: 10:55 PT, before the 11:00 PT decision

@@ -1108,6 +1108,7 @@ class DailyEvent:
 
     name: str
     at: time
+    time_stop: bool  # N-OPEN-2: an entry just after this window gets the news time stop
 
 
 @dataclass(frozen=True, slots=True)
@@ -1295,9 +1296,9 @@ class NewsRulesSettings:
     timezone: str
     lead_minutes: int  # N2: a daily window starts this long before its event
     lag_minutes: int  # N2: ... and ends this long after it (its whole end minute)
-    daily_events: tuple[DailyEvent, ...]  # N1, N3
+    daily_events: tuple[DailyEvent, ...]  # N1, N3 (each with its N-OPEN-2 switch)
     pre_news_until: str  # N4 / N-OPEN-1: the daily event whose window ends it
-    time_stop_after_daily: bool  # N-OPEN-2
+    pre_news_time_stop: bool  # N-OPEN-2 for the N4 window
     overnight_flat_from: time  # N-OPEN-3, on the overnight session's clock
     fomc_flat_from: time  # N5, on the news clock
     fomc_warn_days: int  # N6
@@ -1310,8 +1311,13 @@ def _daily_events(raw: Mapping[str, object], key: str, where: str) -> tuple[Dail
         raise ConfigError(f"{where}: {key} must be a non-empty list")
     events: list[DailyEvent] = []
     for item in items:
-        body = _check_keys(item, {"name", "at"}, f"{where}: {key}")
-        event = DailyEvent(_text(body, "name", f"{where}: {key}"), _clock(body, "at", where))
+        inner = f"{where}: {key}"
+        body = _check_keys(item, {f.name for f in fields(DailyEvent)}, inner)
+        event = DailyEvent(
+            _text(body, "name", inner),
+            _clock(body, "at", where),
+            _boolean(body, "time_stop", inner),
+        )
         if any(e.name == event.name for e in events):
             raise ConfigError(f"{where}: {key}: {event.name!r} is listed twice")
         events.append(event)
@@ -1325,13 +1331,21 @@ def load_news_rules(path: Path, fomc_path: Path) -> NewsRulesSettings:
     until = _text(raw, "pre_news_until", where)
     if until not in {e.name for e in events}:
         raise ConfigError(f"{where}: pre_news_until {until!r} is not one of the daily_events")
+    lead = _integer(raw, "lead_minutes", where, minimum=0)
+    lag = _integer(raw, "lag_minutes", where, minimum=0)
+    # The rules look for windows on the day before, of and after a moment only: a window
+    # of a day or more could hide the one the news time stop must look back to.
+    if timedelta(minutes=lead + lag) >= timedelta(days=1):
+        raise ConfigError(
+            f"{where}: lead_minutes + lag_minutes ({lead} + {lag}) must be shorter than one day"
+        )
     return NewsRulesSettings(
         timezone=_timezone(raw, "timezone", where),
-        lead_minutes=_integer(raw, "lead_minutes", where, minimum=0),
-        lag_minutes=_integer(raw, "lag_minutes", where, minimum=0),
+        lead_minutes=lead,
+        lag_minutes=lag,
         daily_events=events,
         pre_news_until=until,
-        time_stop_after_daily=_boolean(raw, "time_stop_after_daily", where),
+        pre_news_time_stop=_boolean(raw, "pre_news_time_stop", where),
         overnight_flat_from=_clock(raw, "overnight_flat_from", where),
         fomc_flat_from=_clock(raw, "fomc_flat_from", where),
         fomc_warn_days=_integer(raw, "fomc_warn_days", where, minimum=0),
@@ -1348,6 +1362,7 @@ class QuoteSettings:
 @dataclass(frozen=True, slots=True)
 class ContractSettings:
     max_spread_pct_of_mid: Decimal
+    max_spread_points: Decimal
     min_open_interest: int
     max_strike_distance: Decimal
 
@@ -1456,6 +1471,7 @@ def load_execution(path: Path) -> ExecutionProfile:
     c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)
     contract = ContractSettings(
         max_spread_pct_of_mid=_positive_decimal(c, "max_spread_pct_of_mid", c_where),
+        max_spread_points=_positive_decimal(c, "max_spread_points", c_where),
         min_open_interest=_integer(c, "min_open_interest", c_where, minimum=1),
         max_strike_distance=_positive_decimal(c, "max_strike_distance", c_where),
     )
@@ -1585,6 +1601,9 @@ def check_consistency(
     The worst fill of the resting stop-limit (its limit price) plus the round-trip
     fees must stay within stop_max, so the "wide limit" (G1) can never turn the
     hard stop into a bigger loss than the money model allows.
+
+    Felix's absolute spread cap (contract.max_spread_points) must be at least one
+    option tick: a smaller one refuses every quote that is not locked.
     """
     per_contract = instrument.option_tick_size * instrument.point_value
     worst = (
@@ -1596,6 +1615,13 @@ def check_consistency(
         raise ConfigError(
             f"a stop filled at its limit loses {worst}, over stop_max {risk.stop_max}: "
             "reduce stop_order.limit_offset_ticks or stop_loss"
+        )
+    # M3 (b), review F3: a spread cap under one option tick would refuse every quote
+    # that is not locked, silently stopping all entries.
+    if execution.contract.max_spread_points < instrument.option_tick_size:
+        raise ConfigError(
+            f"contract.max_spread_points {execution.contract.max_spread_points} is under "
+            f"one option tick ({instrument.option_tick_size}): every quote would be refused"
         )
 
 

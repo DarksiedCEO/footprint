@@ -34,6 +34,10 @@ FED_DECISION_DAYS = {
 }
 
 
+def _event(name: str, at: str) -> dict[str, object]:
+    return {"name": name, "at": at, "time_stop": True}
+
+
 def _write(tmp_path: Path, profile: Path, **changes: Any) -> Path:
     data = yaml.safe_load(profile.read_text())
     for key, value in changes.items():
@@ -78,13 +82,14 @@ def test_the_shipped_news_rules_load() -> None:
     rules = load_news_rules(NEWS, FOMC)
     assert rules.timezone == "America/New_York"
     assert (rules.lead_minutes, rules.lag_minutes) == (5, 2)
-    assert [(e.name, e.at) for e in rules.daily_events] == [
-        ("8:30 ET releases (N1)", time(8, 30)),
-        ("cash open (N3)", time(9, 30)),
-        ("10:00 ET releases (N1)", time(10, 0)),
+    assert [(e.name, e.at, e.time_stop) for e in rules.daily_events] == [
+        ("8:30 ET releases (N1)", time(8, 30), True),
+        ("cash open (N3)", time(9, 30), True),
+        ("10:00 ET releases (N1)", time(10, 0), True),
     ]
     assert rules.pre_news_until == "10:00 ET releases (N1)"
-    assert rules.time_stop_after_daily is True
+    # N-OPEN-2 built default (PENDING Andre): every daily window carries the time stop.
+    assert rules.pre_news_time_stop is True
     assert rules.overnight_flat_from == time(15, 0)
     assert rules.fomc_flat_from == time(13, 55)
     assert rules.fomc_warn_days == 30
@@ -136,12 +141,15 @@ def test_profiles_carry_the_news_rules() -> None:
         ({"lead_minutes": True}, "lead_minutes must be an integer"),
         ({"daily_events": []}, "daily_events must be a non-empty list"),
         ({"daily_events": "x"}, "daily_events must be a non-empty list"),
-        ({"daily_events": [{"name": "a", "at": "08:30"}, {"name": "a", "at": "09:00"}]}, "twice"),
-        ({"daily_events": [{"name": "a"}]}, "missing keys"),
-        ({"daily_events": [{"name": "a", "at": "8h30"}]}, "must be HH:MM"),
-        ({"daily_events": [{"name": " ", "at": "08:30"}]}, "non-empty string"),
+        ({"daily_events": [_event("a", "08:30"), _event("a", "09:00")]}, "twice"),
+        ({"daily_events": [{"name": "a", "time_stop": True}]}, "missing keys"),
+        ({"daily_events": [{"name": "a", "at": "08:30"}]}, "missing keys"),
+        ({"daily_events": [_event("a", "8h30")]}, "must be HH:MM"),
+        ({"daily_events": [_event(" ", "08:30")]}, "non-empty string"),
+        ({"daily_events": [{**_event("a", "08:30"), "time_stop": "yes"}]}, "true or false"),
         ({"pre_news_until": "no such event"}, "pre_news_until"),
-        ({"time_stop_after_daily": "yes"}, "true or false"),
+        ({"pre_news_time_stop": "yes"}, "true or false"),
+        ({"time_stop_after_daily": True}, "unknown keys"),  # replaced by the per-window switch
         ({"overnight_flat_from": "15:00:30"}, "no seconds"),
         ({"fomc_flat_from": "13:55:30"}, "no seconds"),
         ({"fomc_warn_days": -1}, "fomc_warn_days must be >= 0"),
@@ -404,3 +412,35 @@ def test_verified_must_be_written_true_or_false(tmp_path: Path, word: str) -> No
     target.write_text(text.replace("verified: true,", f"verified: {word},", 1))
     with pytest.raises(ConfigError, match="true or false"):
         load_fomc(target)
+
+
+# --- review round 1 M3: a window must be shorter than a day ------------------------
+
+
+@pytest.mark.parametrize(("lead", "lag"), [(1440, 0), (0, 1440), (1000, 440), (2000, 5)])
+def test_lead_and_lag_of_a_day_or_more_are_refused(tmp_path: Path, lead: int, lag: int) -> None:
+    """windows() looks at the day before, of and after a moment only: a longer window
+    could drop the time stop's look-back to an older one (fail open)."""
+    with pytest.raises(ConfigError, match="shorter than one day"):
+        load_news_rules(_write(tmp_path, NEWS, lead_minutes=lead, lag_minutes=lag), FOMC)
+
+
+def test_lead_and_lag_just_under_a_day_load(tmp_path: Path) -> None:
+    rules = load_news_rules(_write(tmp_path, NEWS, lead_minutes=1000, lag_minutes=439), FOMC)
+    assert (rules.lead_minutes, rules.lag_minutes) == (1000, 439)
+
+
+# --- review round 1 C2 / N-OPEN-2: the per-window switch ---------------------------
+
+
+def test_the_narrow_n_open_2_reading_loads(tmp_path: Path) -> None:
+    """Only after the 8:30 ET window: the other daily windows and N4 carry no time stop."""
+    data = yaml.safe_load(NEWS.read_text())
+    for event in data["daily_events"]:
+        event["time_stop"] = event["name"] == "8:30 ET releases (N1)"
+    data["pre_news_time_stop"] = False
+    path = tmp_path / "news.yaml"
+    path.write_text(yaml.safe_dump(data))
+    rules = load_news_rules(path, FOMC)
+    assert [e.time_stop for e in rules.daily_events] == [True, False, False]
+    assert rules.pre_news_time_stop is False
