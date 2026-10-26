@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import calendar
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, datetime, time
@@ -21,6 +21,7 @@ from footprint.core.holiday_rules import (
     MissingEaster,
     missing_days,
 )
+from footprint.core.options import is_trading_class
 
 _PERCENT_MAX = Decimal(100)  # upper bound of a percentage (reviewed in the A-18 guard)
 
@@ -59,17 +60,18 @@ class OptionExpiry:
 
     An option expires at `time` (in `timezone`) on its expiry date; on a date in
     `early_close_dates` (the stock market's early closes, not the futures halts), at the
-    earlier of `early_close_time` and `time`. An expiry on the
-    `american_week_of_month`-th `american_weekday` of a month in `american_months` is a
-    quarterly (American-style) one."""
+    earlier of `early_close_time` and `time`. An option whose trading class is in
+    `american_trading_classes` is a quarterly (American-style) one, whatever its date: a
+    weekly class is listed on the quarterly Fridays too. Only a class matching one of
+    `european_trading_class_patterns` (whole name, regular expressions) is valued as
+    European; any other class is refused, never assumed European."""
 
     early_close_time: time  # (before `time`: that field name shadows the type below it)
     time: time
     early_close_dates: frozenset[date]
     timezone: str
-    american_months: frozenset[int]
-    american_weekday: int  # as date.weekday() counts: Monday is 0
-    american_week_of_month: int
+    american_trading_classes: frozenset[str]
+    european_trading_class_patterns: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,34 +378,48 @@ def _timezone(body: Mapping[str, object], key: str, where: str) -> str:
     return zone
 
 
-_MONTHS = range(1, len(calendar.month_name))  # 1 (January) to December
-# The most weeks a month can touch a weekday in: its longest length, in whole weeks.
-_LONGEST_MONTH = max(calendar.monthrange(date.min.year, month)[1] for month in _MONTHS)
-_MAX_WEEK_OF_MONTH = (_LONGEST_MONTH - 1) // len(_WEEKDAYS) + 1
-
-
 def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExpiry:
     where = f"{where}: {key}"
     body = _check_keys(raw[key], {f.name for f in fields(OptionExpiry)}, where)
-    months = body["american_months"]
-    if not isinstance(months, list) or not months:
-        raise ConfigError(f"{where}: american_months must be a non-empty list of month numbers")
-    for month in months:
-        if isinstance(month, bool) or not isinstance(month, int) or month not in _MONTHS:
-            raise ConfigError(
-                f"{where}: american_months entries must be month numbers (January is 1), "
-                f"got {month!r}"
-            )
-    if len(set(months)) != len(months):
-        raise ConfigError(f"{where}: american_months has duplicate months")
-    weekday = body["american_weekday"]
-    if not isinstance(weekday, str) or weekday not in _WEEKDAYS:
-        raise ConfigError(f"{where}: american_weekday must be one of {_WEEKDAYS}, got {weekday!r}")
-    week = _integer(body, "american_week_of_month", where, minimum=1)
-    if week > _MAX_WEEK_OF_MONTH:
+    classes = body["american_trading_classes"]
+    if not isinstance(classes, list) or not classes:
         raise ConfigError(
-            f"{where}: american_week_of_month must be <= {_MAX_WEEK_OF_MONTH}, got {week}"
+            f"{where}: american_trading_classes must be a non-empty list of trading classes"
         )
+    for name in classes:
+        if not is_trading_class(name):
+            raise ConfigError(
+                f"{where}: american_trading_classes entries must be non-empty names with no "
+                f"spaces, got {name!r}"
+            )
+    if len(set(classes)) != len(classes):
+        raise ConfigError(f"{where}: american_trading_classes has duplicates")
+    patterns = body["european_trading_class_patterns"]
+    if not isinstance(patterns, list) or not patterns:
+        raise ConfigError(
+            f"{where}: european_trading_class_patterns must be a non-empty list of patterns"
+        )
+    for pattern in patterns:
+        if not is_trading_class(pattern):
+            raise ConfigError(
+                f"{where}: european_trading_class_patterns entries must be non-empty "
+                f"patterns with no spaces, got {pattern!r}"
+            )
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            raise ConfigError(
+                f"{where}: european_trading_class_patterns {pattern!r} is not a valid "
+                f"pattern: {exc}"
+            ) from exc
+        for name in classes:
+            if compiled.fullmatch(name):
+                raise ConfigError(
+                    f"{where}: european_trading_class_patterns {pattern!r} matches the "
+                    f"American class {name!r}"
+                )
+    if len(set(patterns)) != len(patterns):
+        raise ConfigError(f"{where}: european_trading_class_patterns has duplicates")
     normal = _clock(body, "time", where)
     early = _clock(body, "early_close_time", where)
     if early >= normal:
@@ -413,9 +429,8 @@ def _option_expiry(raw: Mapping[str, object], key: str, where: str) -> OptionExp
         early_close_time=early,
         early_close_dates=_holidays(body, "early_close_dates", where),
         timezone=_timezone(body, "timezone", where),
-        american_months=frozenset(months),
-        american_weekday=_WEEKDAYS.index(weekday),
-        american_week_of_month=week,
+        american_trading_classes=frozenset(classes),
+        european_trading_class_patterns=tuple(patterns),
     )
 
 

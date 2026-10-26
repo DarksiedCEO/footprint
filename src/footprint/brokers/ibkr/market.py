@@ -59,6 +59,7 @@ from footprint.brokers.ibkr.gateway import (
 )
 from footprint.core.calendar import trading_day_at
 from footprint.core.config import ExecutionProfile, InstrumentProfile
+from footprint.core.expiry import is_european_class
 from footprint.core.models import Bar, require_utc
 from footprint.core.options import (
     GreeksVerdict,
@@ -295,9 +296,10 @@ class MarketData:
         require_utc(now, "now")
         with self._lock:
             offered = self._offered(now)
-            if offered is None:
+            if offered is None or self._chosen is None:
                 return None
             under, options = offered
+            trading_class = self._chosen[1]  # every offered option is on the chosen chain
             quotes = [
                 OptionQuote(
                     contract_id=o.quote.contract_id,
@@ -307,6 +309,7 @@ class MarketData:
                     bid=o.quote.bid,
                     ask=o.quote.ask,
                     open_interest=o.open_interest or 0,  # unknown: fails the OI check
+                    trading_class=trading_class,
                 )
                 for o in options
             ]
@@ -939,13 +942,16 @@ class MarketData:
     def _choose_expiry(
         self, params: list[tuple[str, str, frozenset[str], frozenset[Decimal]]], today: date
     ) -> tuple[str, str] | None:
-        """The nearest expiry in the DTE range; if several trading classes list it, the
-        one with the most strikes (then by name), so the choice is always the same."""
+        """The nearest expiry in the DTE range, among the instrument's European classes
+        only; if several list it, the one with the most strikes (then by name), so the
+        choice is always the same."""
         lo, hi = self._instrument.dte_min, self._instrument.dte_max
         best: tuple[date, int, str, str] | None = None
         for trading_class, multiplier, expirations, strikes in params:
             if _as_decimal(multiplier) != self._instrument.point_value:
                 continue
+            if not is_european_class(trading_class, self._instrument):
+                continue  # an American (quarterly) or unknown class is never the chain
             for text in expirations:
                 expiry = _expiry_date(text)
                 if expiry is None or not lo <= (expiry - today).days <= hi:

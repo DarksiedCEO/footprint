@@ -684,9 +684,8 @@ def test_the_option_expiry_rules_load(instrument_path: Path) -> None:
     assert rules.early_close_time == time(10, 0)
     assert rules.early_close_dates == frozenset({date(2026, 11, 27), date(2026, 12, 24)})
     assert rules.timezone == "America/Los_Angeles"
-    assert rules.american_months == frozenset({3, 6, 9, 12})
-    assert rules.american_weekday == 4  # Friday, as date.weekday() counts
-    assert rules.american_week_of_month == 3
+    assert rules.american_trading_classes == frozenset({"NQ"})
+    assert rules.european_trading_class_patterns == ("Q[1-5][A-D]", "QN[1-5]", "QNE")
 
 
 def expiry(**changes: Any) -> dict[str, Any]:
@@ -695,9 +694,8 @@ def expiry(**changes: Any) -> dict[str, Any]:
         "early_close_time": "10:00",
         "early_close_dates": [date(2026, 11, 27), date(2026, 12, 24)],
         "timezone": "America/Los_Angeles",
-        "american_months": [3, 6, 9, 12],
-        "american_weekday": "FRI",
-        "american_week_of_month": 3,
+        "american_trading_classes": ["NQ"],
+        "european_trading_class_patterns": ["Q[1-5][A-D]", "QN[1-5]", "QNE"],
     } | changes
 
 
@@ -718,15 +716,22 @@ def expiry(**changes: Any) -> dict[str, Any]:
         expiry(early_close_dates=[date(2026, 11, 28)]),  # a Saturday
         expiry(timezone="Mars/Olympus"),
         expiry(timezone="/etc/localtime"),  # malformed key: ValueError inside zoneinfo
-        expiry(american_months=[]),
-        expiry(american_months=[0]),
-        expiry(american_months=[13]),
-        expiry(american_months=[3, 3]),
-        expiry(american_months=["MAR"]),
-        expiry(american_months=[True]),
-        expiry(american_weekday="FRIDAY"),
-        expiry(american_week_of_month=0),
-        expiry(american_week_of_month=6),
+        expiry(american_trading_classes=[]),
+        expiry(american_trading_classes="NQ"),  # a list, not a string
+        expiry(american_trading_classes=[""]),
+        expiry(american_trading_classes=["NQ "]),  # IBKR's classes have no spaces
+        expiry(american_trading_classes=["NQ", "NQ"]),
+        expiry(american_trading_classes=[1]),
+        expiry(american_trading_classes=[True]),
+        expiry(american_trading_classes=None),
+        expiry(european_trading_class_patterns=[]),
+        expiry(european_trading_class_patterns="QNE"),  # a list, not a string
+        expiry(european_trading_class_patterns=[""]),
+        expiry(european_trading_class_patterns=["QN[1-5"]),  # not a valid pattern
+        expiry(european_trading_class_patterns=["QN[1-5]", "QN[1-5]"]),
+        expiry(european_trading_class_patterns=[3]),
+        expiry(european_trading_class_patterns=["N."]),  # matches the American NQ
+        expiry(european_trading_class_patterns=["Q N"]),
         expiry(extra=1),
         {k: v for k, v in expiry().items() if k != "time"},
     ],
@@ -738,11 +743,18 @@ def test_bad_option_expiry_rules_are_rejected(
         load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
 
 
-def test_week_five_is_a_valid_week_of_month(instrument_path: Path, tmp_path: Path) -> None:
-    profile = load_instrument(
-        rewrite(instrument_path, tmp_path, option_expiry=expiry(american_week_of_month=5))
-    )
-    assert profile.option_expiry.american_week_of_month == 5
+def test_several_american_classes_load(instrument_path: Path, tmp_path: Path) -> None:
+    rules = expiry(american_trading_classes=["NQ", "XQ"])
+    profile = load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
+    assert profile.option_expiry.american_trading_classes == frozenset({"NQ", "XQ"})
+
+
+def test_the_old_date_rule_keys_are_refused(instrument_path: Path, tmp_path: Path) -> None:
+    # The quarterly-by-date rule was wrong (a weekly is listed on quarterly Fridays): a
+    # config still carrying it must not load as if it meant something.
+    rules = expiry(american_months=[3, 6, 9, 12])
+    with pytest.raises(ConfigError, match="option_expiry"):
+        load_instrument(rewrite(instrument_path, tmp_path, option_expiry=rules))
 
 
 def test_an_option_early_close_outside_the_calendar_names_the_window(

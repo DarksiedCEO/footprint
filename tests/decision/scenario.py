@@ -112,7 +112,9 @@ def decision_time(spike_minute: int = SPIKE_MINUTE) -> datetime:
 DECISION_TIME = decision_time()  # 07:01 PT
 
 
-def chain_for(price: Decimal, ts: datetime = DECISION_TIME) -> OptionChain:
+def chain_for(
+    price: Decimal, ts: datetime = DECISION_TIME, trading_class: str = "Q3C"
+) -> OptionChain:
     expiry = LAST_DAY + timedelta(days=1)
     atm = (price / 25).to_integral_value() * 25
     quotes = []
@@ -128,6 +130,7 @@ def chain_for(price: Decimal, ts: datetime = DECISION_TIME) -> OptionChain:
                     bid=D(150),
                     ask=D(152),
                     open_interest=500,
+                    trading_class=trading_class,
                 )
             )
     return OptionChain("NQ", ts, price, tuple(quotes))

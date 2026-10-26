@@ -207,3 +207,23 @@ def test_the_journal_records_the_theta_check(
     assert record["theta"]["reason"] == decision.theta.reason  # type: ignore[union-attr]
     assert any(r.startswith("theta: ") for r in record["reasons"])
     json.dumps(record)  # plain JSON all the way down
+
+
+@pytest.mark.parametrize(
+    ("trading_class", "words"),
+    [("NQ", "American"), ("ZZZ", "not a known European class")],
+)
+def test_a_quarterly_or_unknown_class_never_reaches_an_approved_entry(
+    profiles: Profiles, up_market: list[Bar], trading_class: str, words: str
+) -> None:
+    # End to end (review trading-class R1, M3): the same market that fires with a daily
+    # class gives no approved entry when the chain's options are a quarterly (American)
+    # or an unrecognised class, and the record says why.
+    closed = [b for b in up_market if b.ts + timedelta(minutes=1) <= DECISION_TIME]
+    chain = chain_for(closed[-1].close, DECISION_TIME, trading_class)
+    decision = Pipeline(profiles).decide(up_market, chain, clean(profiles), (), DECISION_TIME)
+    assert not decision.fired
+    assert decision.approved is None
+    assert decision.theta is not None
+    assert not decision.theta.allowed
+    assert any(r.startswith("theta: ") and words in r for r in decision.reasons())

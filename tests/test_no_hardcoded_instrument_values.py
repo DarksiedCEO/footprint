@@ -101,7 +101,6 @@ def test_profiles_yield_the_expected_forbidden_values(
         "06:30",
         "13:00",
         "10:00",  # the early closes
-        "FRI",  # option_expiry.american_weekday
     }
 
 
