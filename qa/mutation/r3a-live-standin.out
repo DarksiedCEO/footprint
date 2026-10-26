@@ -1,0 +1,5 @@
+source: 8e87a3a42564e22ac7906d98313af4ddfca5780d tree-dirty: 0 files
+baseline [es]: passed
+  1 KILLED   [es] src/footprint/live/__main__.py: R3A-1 live ignores --instrument (es.yaml would run as nq and reach the broker)
+  2 KILLED   [es] src/footprint/live/__main__.py: R3A-2 live profile refusal exits 0 instead of 2
+2 mutants, 0 survived or errored
