@@ -1,0 +1,88 @@
+{
+ "groups": {
+  "rules": [
+   "tests/backtest/test_entry_stairstep.py",
+   "tests/backtest/test_entry_breakout.py",
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=True)\n",
+   "Q52R-1: stairstep gains the volume condition"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=True)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "Q52R-2: stairstep_vol loses the volume condition"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "_ENTRY_BARS = timedelta(minutes=1)",
+   "_ENTRY_BARS = timedelta(minutes=5)",
+   "Q52R-3: the stair reads a 5-minute interval on 1-minute bars"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    \"stairstep_vol\": stairstep_vol,\n",
+   "    \"stairstep_vol\": stairstep,\n",
+   "Q52R-4: stairstep_vol is registered as the plain rule"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return MomentumReader(profiles.strategy.volume, profiles.instrument)\n",
+   "    return StairTrigger(rule_settings.stairstep, _ENTRY_BARS, with_volume=False)\n",
+   "Q52R-5: breakout builds the stair trigger"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/__main__.py",
+   "ENTRY_RULES[args.entry](profiles, settings.rules)",
+   "ENTRY_RULES[args.entry](profiles, type(settings.rules)(stairstep=type(settings.rules.stairstep)(1, settings.rules.stairstep.max_giveback, 1, 1)))",
+   "Q52R-6: the CLI hands the rule numbers other than the file's"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/__main__.py",
+   "ENTRY_RULES[args.entry](profiles, settings.rules)",
+   "ENTRY_RULES[args.entry](profiles, load_backtest(Path(\"config\") / \"backtest.yaml\").rules)",
+   "Q52R-7: the rule numbers come from ./config, not --config (G47-2)"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/__main__.py",
+   "        assumptions.update(entry_rule_numbers(args.entry, settings.rules))\n",
+   "",
+   "Q52R-8: the readout omits the stair numbers (G47-1)"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "_STAIR_RULES = frozenset({\"stairstep\", \"stairstep_vol\"})",
+   "_STAIR_RULES = frozenset({\"stairstep\"})",
+   "Q52R-9: stairstep_vol's readout omits its numbers"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "_STAIR_RULES = frozenset({\"stairstep\", \"stairstep_vol\"})",
+   "_STAIR_RULES = frozenset({\"stairstep\", \"stairstep_vol\", \"breakout\"})",
+   "Q52R-10: breakout's readout names stair numbers it does not read"
+  ],
+  [
+   "rules",
+   "src/footprint/backtest/rules.py",
+   "    return {f\"rule stairstep {f.name}\": str(getattr(stair, f.name)) for f in fields(StairSettings)}",
+   "    return {f\"rule stairstep {f.name}\": str(getattr(stair, f.name)) for f in fields(StairSettings)[:-1]}",
+   "Q52R-11: one stair number is left out of the readout"
+  ]
+ ]
+}

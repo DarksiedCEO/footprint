@@ -1,0 +1,86 @@
+{
+ "groups": {
+  "set": [
+   "tests/backtest/test_rule_settings.py"
+  ]
+ },
+ "mutants": [
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    max_pause_bars = _integer(s, \"max_pause_bars\", s_where, minimum=1)\n",
+   "    max_pause_bars = _integer(s, \"max_stair_bars\", s_where, minimum=1)\n",
+   "Q52S-1: max_pause_bars is read from the wrong key"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "        stairstep = StairSettings(steps, max_giveback, max_pause_bars, max_stair_bars)\n",
+   "        stairstep = StairSettings(steps, max_giveback, max_stair_bars, max_pause_bars)\n",
+   "Q52S-2: the two bar limits are swapped"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "        raise ConfigError(f\"{s_where}: {exc}\") from exc\n",
+   "        raise\n",
+   "Q52S-3: a giveback above 1 escapes as a bare ValueError, not a ConfigError"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    r = _check_keys(raw, {f.name for f in fields(RuleSettings)}, r_where)\n",
+   "    r = raw if isinstance(raw, dict) else {}\n",
+   "Q52S-4: an unknown rule section is accepted"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    s = _check_keys(r[\"stairstep\"], {f.name for f in fields(StairSettings)}, s_where)\n",
+   "    s = r[\"stairstep\"]\n",
+   "Q52S-5: unknown or missing stairstep keys are not refused as config errors"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    steps = _integer(s, \"steps\", s_where, minimum=1)\n",
+   "    steps = int(s[\"steps\"])\n",
+   "Q52S-6: steps is not type-checked"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    max_giveback = _positive_decimal(s, \"max_giveback\", s_where)\n",
+   "    max_giveback = Decimal(\"0.5\")\n",
+   "Q52S-7: the configured giveback is ignored"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    max_giveback = _positive_decimal(s, \"max_giveback\", s_where)\n",
+   "    max_giveback = Decimal(str(s[\"max_giveback\"]))\n",
+   "Q52S-8: the giveback's type is not checked by the loader (G46-1a)"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    steps = _integer(s, \"steps\", s_where, minimum=1)\n",
+   "    steps = _integer(s, \"steps\", s_where, minimum=2)\n",
+   "Q52S-9: a legal steps of one is refused (G46-1b)"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    max_pause_bars = _integer(s, \"max_pause_bars\", s_where, minimum=1)\n",
+   "    max_pause_bars = _integer(s, \"max_pause_bars\", s_where, minimum=2)\n",
+   "Q52S-10: a legal max_pause_bars of one is refused (G46-1b)"
+  ],
+  [
+   "set",
+   "src/footprint/backtest/settings.py",
+   "    max_stair_bars = _integer(s, \"max_stair_bars\", s_where, minimum=1)\n",
+   "    max_stair_bars = _integer(s, \"max_stair_bars\", s_where, minimum=2)\n",
+   "Q52S-11: a legal max_stair_bars of one is refused (G46-1b)"
+  ]
+ ]
+}
