@@ -455,3 +455,59 @@ Not covered by N1–N9, and accepted: Fed minutes (11:00 PT, three weeks after e
 - **N-OPEN-1 (D3 interaction, important):** D3 (open) says the effective prime entry window is **06:31–13:55 PT**: VWAP is anchored at the cash open, so the levels and VWAP checks fail closed before 06:30. While D3 stays as it is, **no entry can happen between 04:00 and 06:30 PT**, so the 05:32–05:45 news entry window, N4 and the 05:25 blackout change nothing in prime. A trade positioned before the open, which Andre asked about, would need D3 changed: anchor VWAP at the 04:00 prime start.
 - **N-OPEN-2:** if D3 changes, does the news time stop (10 minutes, +$250) apply to the 05:32–05:45 window every day under N1, or only on days with a real release?
 - **N-OPEN-3:** Andre named a flat window ending at 03:59 AM PT ("… to 3:59 AM"), but its start time did not come through. Today the code only requires an overnight position to be flat by 03:59 PT (`overnight_must_be_flat`); nothing blocks entries earlier in the overnight session.
+
+## Bollinger Band entries (branch bb-rules-v1, backtest only; Andre 2026-10-17)
+
+- **BB-0 APPROVED BY ANDRE 2026-10-17:** the rule sheet in docs/strategy-rules.md
+  ("Bollinger Band entries"), 3 setups x 2 timeframes x 2 scalp exits, old confirmers OFF.
+- **BB-1 built:** `src/footprint/backtest/bollinger.py` (detectors + trigger),
+  `src/footprint/backtest/rule_console.py` (prime-session and close-lead gates only;
+  direction from the rule), `Pipeline(profiles, trigger, console)` and
+  `Backtest(..., console=...)` take an optional console. With none named, the live console
+  is built exactly as before (test pins it); nothing outside footprint.backtest imports
+  the rule console.
+- **BB-2 for Andre (DEFAULTS):** every number under `rules: bollinger:` (period, width,
+  bar lengths, squeeze lookback/window, walk lookback/closes/window, slope bars, bounce
+  window).
+- **BB-3 for Andre (readings):** population standard deviation; a "touch" at or beyond the
+  line; a close "outside" strictly beyond; 5-minute rules answer once per completed bar
+  (a 5-minute bucket whose last minute never printed is skipped); bands continue across
+  session breaks; S2: a close beyond the far band on ANY bar after the last walk close
+  cancels (the touch bar included, and a later "touch" cannot restart the pullback after
+  a break; fixed 2026-10-17 after the hostile review, so bb_walk_* runs made before this
+  fix are void); S2: a touch bar may lie wholly beyond the middle line; S3: the latest
+  touch in the window decides; S3: the slope is measured at the signal bar, not the touch
+  bar; "closes up" = close above open (a doji is neither up nor down). DECIDED BY ANDRE
+  2026-10-17: S2: a far-band break inside the lookback resets the walk count (only walk
+  closes after the last break count); S2 and S3: a bar that itself fired cannot be the
+  touch for a second entry (one setup, one entry); a touch bar that looks like an entry
+  but did not fire still arms. bb_walk_* and bb_bounce_* runs made before 2026-10-17's
+  round 2 fixes are void; bb_squeeze_* runs are unaffected. Limits of the "one setup,
+  one entry" check (round 3 review, CONDITIONAL): it recurses along chains of bars that
+  are both a touch and an entry, so `bollinger.history` must stay well under 1,000 bars
+  (Python's recursion limit; today 151); and a chain reaching back past the start of the
+  history tail is judged from that start (0 mismatches found on the shipped numbers).
+- **BB-4 test configs (Andre's Mac, never committed):** copies of config/ with
+  risk.profit_target/stop_loss/stop_min set to 500/400/400 (E1) or 700/500/500 (E2),
+  max_trades_prime 8 and daily_max_stopouts 8; daily_max_loss stays 2000.
+- **BB-5 for Andre:** iron condors / credit spreads parked: they sell option legs, which
+  "never go short" forbids as written.
+- **BB-6 mutation evidence:** `qa/mutation/bb-rules.json` / `.out`: 51 mutants, 51 killed on
+  clean 0dd76b8 (round 1 was 24/24 on 961ab8e, round 2 39/39 on e18041b). Argued equivalent, not run: (a) S3 "the latest touch decides" replaced by
+  scanning older touches: an older touch can only pass "first confirm since the touch" if
+  no confirm lies after it, which also holds for the latest touch, so the answer is the
+  same; (b) the one-minute fast path (no resample) gives the same bars as resampling at one
+  minute (speed only); (c) the rule console's `rule_has_direction` gate: a verdict with no
+  direction is never a go anyway (it is there for the journal's reason); (d) the `+ 1` in
+  `BollingerSettings.history`: one spare bar of look-back, never read by any setup.
+  Round 2 (hostile review of 82b2b5a, NOT_CERTIFIED): the reviewer's 11 probes P1-P11 are
+  folded into the spec; see `bb-rules.out` for the re-run. Argued equivalent: (e) the S2
+  cancel scan starting at the last walk close instead of the bar after it: a walk close
+  is at or beyond the near band, so it can never be beyond the far band.
+  Round 2 (hostile review of 998821b, NOT_CERTIFIED): probes Q1, Q3-Q8 and R5-R10 added.
+  Argued equivalent: Q2 (`max(fast, slow)` replaced by `slow`), since BollingerSettings
+  now refuses fast_minutes >= slow_minutes; Q9 is claim (e); (f) R1 (the cancel scan
+  from the touch bar instead of the bar after the last walk close) is now equivalent and
+  dropped from the spec: every bar between them lies inside the lookback after the last
+  walk close, so a break there resets the walk count to zero and the touch is already
+  refused before the scan.

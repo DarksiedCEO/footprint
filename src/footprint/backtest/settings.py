@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from footprint.backtest.bollinger import BollingerSettings
 from footprint.backtest.exits import TimeExitSettings
 from footprint.backtest.pullback import PullbackSettings
 from footprint.backtest.stairstep import StairSettings
@@ -56,6 +57,7 @@ class RuleSettings:
     stairstep: StairSettings
     pullback: PullbackSettings
     time: TimeExitSettings
+    bollinger: BollingerSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,9 +106,14 @@ def load_backtest(path: Path) -> BacktestSettings:
     for name in ("min_win_rate_pct", "max_drawdown_pct", "out_of_sample_pct"):
         if getattr(gates, name) >= _PERCENT_MAX:
             raise ConfigError(f"{g_where}: {name} must be below {_PERCENT_MAX}")
-    return BacktestSettings(
-        option_model=option_model, engine=engine, gates=gates, rules=_rules(raw["rules"], where)
-    )
+    rules = _rules(raw["rules"], where)
+    b = rules.bollinger
+    need = b.history * max(b.fast_minutes, b.slow_minutes)
+    if engine.history_minutes < need:
+        raise ConfigError(
+            f"{e_where}: history_minutes must cover the bollinger rules ({need} minutes)"
+        )
+    return BacktestSettings(option_model=option_model, engine=engine, gates=gates, rules=rules)
 
 
 def _rules(raw: object, where: str) -> RuleSettings:
@@ -133,4 +140,15 @@ def _rules(raw: object, where: str) -> RuleSettings:
         minutes=_integer(t, "minutes", t_where, minimum=1),
         min_gain=_positive_decimal(t, "min_gain", t_where),
     )
-    return RuleSettings(stairstep=stairstep, pullback=pullback, time=time)
+    b_where = f"{r_where}: bollinger"
+    b = _check_keys(r["bollinger"], {f.name for f in fields(BollingerSettings)}, b_where)
+    counts = {
+        f.name: _integer(b, f.name, b_where, minimum=1)
+        for f in fields(BollingerSettings)
+        if f.name != "width"
+    }
+    try:  # BollingerSettings checks the rest (period above one, closes within lookback)
+        bollinger = BollingerSettings(width=_positive_decimal(b, "width", b_where), **counts)
+    except ValueError as exc:
+        raise ConfigError(f"{b_where}: {exc}") from exc
+    return RuleSettings(stairstep=stairstep, pullback=pullback, time=time, bollinger=bollinger)

@@ -38,3 +38,17 @@ rules:                        # Q5 backtest rule library (docs/strategy-rules.md
   time:                       # Q5.6 exit "time" (backtest only)
     minutes: 10               # APPROVED BY ANDRE 2026-10-10: judged this many minutes after the entry fill
     min_gain: 250             # APPROVED BY ANDRE 2026-10-10: open profit below this then closes the position
+  bollinger:                  # Bollinger Band entries (docs/strategy-rules.md); backtest only.
+                              #   APPROVED BY ANDRE 2026-10-17 (rule sheet); every number
+                              #   below is a DEFAULT for him to confirm after real-data runs
+    period: 20                # DEFAULT: bars in the middle line (simple moving average)
+    width: 2                  # DEFAULT: standard deviations from the middle to each band
+    fast_minutes: 1           # DEFAULT: bar length for the "_fast" rules (minutes)
+    slow_minutes: 5           # DEFAULT: bar length for the "_slow" rules (minutes)
+    squeeze_lookback: 120     # DEFAULT: a squeeze bar has the lowest bandwidth of this many bars
+    squeeze_window: 10        # DEFAULT: bars after a squeeze in which the breakout may come
+    walk_lookback: 10         # DEFAULT: bars before the touch counted for the walk
+    walk_min_closes: 3        # DEFAULT: closes on or beyond the band needed in those bars
+    walk_window: 10           # DEFAULT: bars after the touch in which the entry may come
+    slope_bars: 5             # DEFAULT: middle line compared with this many bars ago
+    bounce_window: 5          # DEFAULT: bars after the band touch in which the entry may come

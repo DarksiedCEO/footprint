@@ -120,10 +120,23 @@ class EntryTrigger(Protocol):
     def read(self, bars: Sequence[Bar]) -> Read: ...
 
 
+class Gatekeeper(Protocol):
+    """The console's job: the crew's reads in, a go / no-go verdict out."""
+
+    def evaluate(self, inputs: ConsoleInputs) -> ConsoleVerdict: ...
+
+
 class Pipeline:
-    def __init__(self, profiles: Profiles, trigger: EntryTrigger | None = None) -> None:
+    def __init__(
+        self,
+        profiles: Profiles,
+        trigger: EntryTrigger | None = None,
+        console: Gatekeeper | None = None,
+    ) -> None:
         """`trigger` replaces only the momentum read (backtest rule library); None, as
-        the live runner builds it, is the momentum reader (Darius)."""
+        the live runner builds it, is the momentum reader (Darius). `console` replaces
+        the console (backtest rule library only); None, as the live runner builds it,
+        is the live console (Desmond)."""
         self._p = profiles
         s, inst = profiles.strategy, profiles.instrument
         self._trend = TrendReader(s.trend)
@@ -134,7 +147,9 @@ class Pipeline:
         self._zero_day = ZeroDayAgent(s.zeroday, s.data, inst)
         self._levels = LevelsReader(s.levels, s.trend, s.data, inst)
         self._range = RangeReader(s.range)
-        self._console = Console(s.console, inst, self._levels, self._range)
+        self._console: Gatekeeper = (
+            Console(s.console, inst, self._levels, self._range) if console is None else console
+        )
         self._contract = ContractPicker(profiles.execution, inst)
         self._issued: dict[int, ApprovedEntry] = {}
         self._n_points = points_for_target(

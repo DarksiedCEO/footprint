@@ -24,6 +24,7 @@ from dataclasses import fields
 from datetime import timedelta
 
 from footprint.agents.momentum_reader import MomentumReader
+from footprint.backtest.bollinger import BollingerSettings, BollingerTrigger
 from footprint.backtest.exits import TargetExit, TimeExit, TimeExitSettings
 from footprint.backtest.pullback import PullbackSettings, PullbackTrigger
 from footprint.backtest.settings import RuleSettings
@@ -72,12 +73,35 @@ def pullback(profiles: Profiles, rule_settings: RuleSettings) -> EntryTrigger:
     )
 
 
+def _bollinger(setup: str, slow: bool) -> EntryRule:
+    """A Bollinger entry (approved 2026-10-17, docs/strategy-rules.md) on the fast or
+    slow bar length from config/backtest.yaml `rules: bollinger:`. It runs with the old
+    confirmers OFF: see GATELESS_ENTRY_RULES."""
+
+    def build(profiles: Profiles, rule_settings: RuleSettings) -> EntryTrigger:
+        b = rule_settings.bollinger
+        return BollingerTrigger(b, setup, b.slow_minutes if slow else b.fast_minutes)
+
+    return build
+
+
+_BOLLINGER = {
+    f"bb_{setup}_{speed}": _bollinger(setup, speed == "slow")
+    for setup in ("squeeze", "walk", "bounce")
+    for speed in ("fast", "slow")
+}
+
 ENTRY_RULES: dict[str, EntryRule] = {
     "breakout": breakout,
     "pullback": pullback,
     "stairstep": stairstep,
     "stairstep_vol": stairstep_vol,
+    **_BOLLINGER,
 }
+GATELESS_ENTRY_RULES = frozenset(_BOLLINGER)
+"""Entry rules Andre approved to run with the old confirmers OFF (2026-10-17): the
+backtest builds them with the rule console (footprint.backtest.rule_console) instead of
+the live console. Every other rule keeps the live console."""
 _STAIR_RULES = frozenset({"stairstep", "stairstep_vol"})
 
 
@@ -89,6 +113,12 @@ def entry_rule_numbers(name: str, rule_settings: RuleSettings) -> dict[str, str]
         stair = rule_settings.stairstep
         return {
             f"rule stairstep {f.name}": str(getattr(stair, f.name)) for f in fields(StairSettings)
+        }
+    if name in GATELESS_ENTRY_RULES:
+        numbers = rule_settings.bollinger
+        return {
+            f"rule bollinger {f.name}": str(getattr(numbers, f.name))
+            for f in fields(BollingerSettings)
         }
     if name == "pullback":
         life = rule_settings.pullback

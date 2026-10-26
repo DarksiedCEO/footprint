@@ -47,7 +47,7 @@ from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import require_series
-from footprint.decision.pipeline import EntryTrigger, Pipeline
+from footprint.decision.pipeline import EntryTrigger, Gatekeeper, Pipeline
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
 from footprint.execution.executor.diego import Executor
@@ -96,12 +96,14 @@ class Backtest:
         trade_from: datetime | None = None,
         trigger: EntryTrigger | None = None,
         exit_rule: ExitRule | None = None,
+        console: Gatekeeper | None = None,
     ) -> None:
         """`trade_from`: bars before it are history only (the readers' look-back); the
         clock starts at the first bar at or after it. None: start at the first bar.
         `trigger`: a named entry rule's trigger (footprint.backtest.rules); None is
         the live entry, unchanged. `exit_rule`: a named exit rule; None is the live
-        exit, unchanged."""
+        exit, unchanged. `console`: a rule's console (footprint.backtest.rule_console);
+        None is the live console, unchanged."""
         self._p = profiles
         self._s = settings
         self._bars = tuple(bars)
@@ -135,7 +137,9 @@ class Backtest:
         tracked = TrackedBroker(self.broker)
         self.halt = Halt()
         self.ledger = Ledger(p.risk, p.instrument, StateStore(workdir / "ledger.json"), create=True)
-        pipeline = Pipeline(p) if trigger is None else Pipeline(p, trigger)
+        pipeline = (
+            Pipeline(p) if trigger is None and console is None else Pipeline(p, trigger, console)
+        )
         stops = StopKeeper(p.risk, p.instrument, p.execution)
         executor = Executor(p, pipeline, tracked, stops, self.ledger, self.halt, self.book)
         manager = (
