@@ -40,6 +40,11 @@ alarms:
   retry_seconds: 5            # DEFAULT: wait between tries while the alarm line is down
   max_pending: 500            # DEFAULT: alarms kept while the line is down; beyond this
                               #   the oldest are dropped and the count is reported
+  channel_timeout_seconds: 8  # DEFAULT: give up on one Telegram/Twilio request after this
+                              #   (then retried; the SMS fallback takes over after retry_seconds)
+  call_cooldown_seconds: 1800  # DEFAULT: ring at most once in this long per kind of
+                               #   critical alarm (a kind ringing never silences another);
+                               #   the alarm still goes by push and SMS every time (D20)
 ibkr:
   ack_timeout_seconds: 5      # DEFAULT: wait this long for IBKR's answer to a send, modify
                               #   or cancel before treating the answer as lost

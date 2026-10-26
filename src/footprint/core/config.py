@@ -614,6 +614,8 @@ class MarketDataSettings:
 class AlarmSettings:
     retry_seconds: int
     max_pending: int
+    channel_timeout_seconds: int
+    call_cooldown_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -695,7 +697,14 @@ def load_execution(path: Path) -> ExecutionProfile:
     alarms = AlarmSettings(
         retry_seconds=_integer(al, "retry_seconds", a_where, minimum=1),
         max_pending=_integer(al, "max_pending", a_where, minimum=1),
+        channel_timeout_seconds=_integer(al, "channel_timeout_seconds", a_where, minimum=1),
+        call_cooldown_seconds=_integer(al, "call_cooldown_seconds", a_where, minimum=0),
     )
+    if alarms.channel_timeout_seconds >= alarms.retry_seconds * 2:
+        raise ConfigError(
+            f"{a_where}: channel_timeout_seconds must be under twice retry_seconds, or a "
+            "hung channel holds back the fallback too long"
+        )
     i_where = f"{where}: ibkr"
     ib = _check_keys(raw["ibkr"], {f.name for f in fields(IbkrConfig)}, i_where)
     ibkr = IbkrConfig(
