@@ -3,7 +3,7 @@
 # held when it starts is closed through the normal exit path (the resting stop's cancel
 # confirmed first, then a limit sell; never a market order). A window includes every
 # second of its end minute. No rule depends on the weekday (N7): the daily windows apply
-# to every calendar day. (N5/N6, the FOMC days, are a separate piece stacked on this one.)
+# to every calendar day, the FOMC window to the decision days in fomc.yaml.
 # These windows are always on, in the backtest and live alike, on top of any
 # --blackouts CSV (which keeps working as before).
 timezone: America/New_York      # N1: release times are defined on the releases' own clock
@@ -40,6 +40,10 @@ pre_news_until: "10:00 ET releases (N1)"
 # 10:00 ET window's: true gives every entry from 10:03:00 to 10:15:59 ET the time stop, every
 # day. The overnight window (N-OPEN-3) and every --blackouts CSV window always carry it.
 pre_news_time_stop: true
+# N5 (Andre 2026-10-14): on an FOMC decision day, flat by this time (ET) and no new
+# entries for the rest of the prime session (to its close, 14:00 PT or an early close).
+fomc_flat_from: "13:55"         # N5 DEFAULT: 10:55 PT, before the 11:00 PT decision
+fomc_warn_days: 30              # N6: alarm this many days before fomc.yaml's valid_through
 # N-OPEN-3 (DEFAULT, PENDING Andre): the start of Andre's overnight flat window "... to
 # 3:59 AM" did not come through. Fewest-entries reading: from the overnight session's
 # own start (overnight_session.timezone), i.e. no new overnight entries at all and flat

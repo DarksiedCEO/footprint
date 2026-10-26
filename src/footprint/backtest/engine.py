@@ -66,7 +66,7 @@ from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
 from footprint.core.series import BarSeries
-from footprint.decision.news_rules import with_news_rules
+from footprint.decision.news_rules import check_fomc_span, with_news_rules
 from footprint.decision.pipeline import EntryTrigger, Gatekeeper, Pipeline
 from footprint.decision.play import PlayCaller, PlayGate
 from footprint.decision.session import NewsBlackout
@@ -171,6 +171,7 @@ class Backtest:
         if self._first >= len(self._bars):
             raise ValueError("trade_from is after the last bar")
         self._inside_calendar(self._bars[0].ts, self._bars[self._first].ts, self._bars[-1].ts)
+        check_fomc_span(profiles, self._bars[self._first].ts, self._bars[-1].ts)  # N6
         self._model = OptionModel(
             settings.option_model, profiles.instrument, profiles.strategy.options.assumed_delta
         )

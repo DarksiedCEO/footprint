@@ -9,7 +9,7 @@ the commit it was made on (or DIR/<scenario>.json with --out, to compare without
 overwriting). It applies the backtest tests' stand-ins, as tests/backtest/conftest.py
 does inside pytest: the always-TREND play caller (unless the scenario runs the real
 one) and no scheduled news windows (`no_scheduled_news`: the engine's with_news_rules
-and the CLI readout's news_assumptions).
+and check_fomc_span, and the CLI readout's news_assumptions).
 """
 
 from __future__ import annotations
@@ -52,15 +52,18 @@ def main(argv: list[str]) -> int:
         return 2
     real = engine.PlayCaller
     real_rules, real_lines = engine.with_news_rules, cli.news_assumptions
+    real_span = engine.check_fomc_span
     # conftest's no_scheduled_news, outside pytest: the CSV windows alone, readout OFF.
     engine.with_news_rules = lambda profiles, extra: extra  # type: ignore[assignment,return-value]
     cli.news_assumptions = lambda profiles, source: {"news rules": f"OFF ({STAND_IN})"}
+    engine.check_fomc_span = lambda profiles, first, last: None  # type: ignore[assignment]
     try:
         _run(scenarios, names, commit, out, real)
     finally:
         engine.PlayCaller = real
         engine.with_news_rules = real_rules
         cli.news_assumptions = real_lines
+        engine.check_fomc_span = real_span
     return 0
 
 

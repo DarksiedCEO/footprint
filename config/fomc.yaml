@@ -1,0 +1,243 @@
+# FOMC meeting dates (N6, Andre 2026-10-14). Source: the Federal Reserve's own pages
+# ONLY, never guessed; every entry names the federalreserve.gov page that confirms it:
+#   2021-2027: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+#     ("Meeting calendars, statements, and minutes (2021-2027)", read 2026-10-26);
+#     2027 also the Board's release of 2025-09-05 (monetary20250905a.htm)
+#   2017-2020: https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm
+#     (read 2026-10-26; BH-14: the history backtest starts in 2017), and the FOMC
+#     press releases named on each intermeeting action below
+# The policy statement comes at 2 p.m. ET on the second day of each regularly scheduled
+# meeting (the decision day); N5 applies on the decision day.
+#
+# verified: false = UNVERIFIED. The Fed's page says: "Each meeting date is tentative
+# until confirmed at the meeting immediately preceding it." So every date after the
+# next meeting still to be held when read (2026-10-27/28) is UNVERIFIED: 2026-12-09
+# and all of 2027. Each such WHOLE decision day is a blackout (fail closed) until Andre
+# sets verified: true after the Fed confirms it at the meeting before.
+#
+# Not listed (accepted, N1-N9 notes): minutes, testimony, speeches, and any action not
+# on the Fed's meeting pages. Intermeeting actions that are listed (unscheduled
+# meetings, notation votes) are whole-day blackouts (`intermeeting`, below).
+#
+# FAIL CLOSED like the exchange calendar (D34): a day outside valid_from..valid_through
+# is a blackout all day (no new entries; anything held is closed), live shows a critical
+# "FOMC CALENDAR EXPIRED" alarm, and a backtest outside it is refused (before 2017:
+# consistent with BH-14). Loading refuses a full calendar year in range without
+# meetings_per_year meetings (scheduled plus cancelled).
+source: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+read_on: 2026-10-26
+valid_from: 2017-01-01
+valid_through: 2027-12-31
+meetings_per_year: 8
+max_gap_days: 60    # DEFAULT (draft, review M1): the loader refuses a gap longer than
+                    #   this between valid_from, consecutive decision days (held or
+                    #   cancelled) and valid_through, so a span cannot be extended past
+                    #   meetings it does not list (the longest gap listed, 2017-2027, is 56:
+                    #   late July to late September)
+max_edge_days: 35   # DEFAULT (draft, review round 2 R2-M1): the loader refuses more than
+                    #   this from valid_from to the first meeting's first day, or from the
+                    #   last decision day to valid_through. Below the shortest gap between
+                    #   two meetings (41 days), so neither edge can reach past an unlisted
+                    #   meeting. Shipped edges: 30 and 23
+meetings:
+  - {first_day: 2017-01-31, decision_day: 2017-02-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-03-14, decision_day: 2017-03-15, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-05-02, decision_day: 2017-05-03, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-06-13, decision_day: 2017-06-14, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-07-25, decision_day: 2017-07-26, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-09-19, decision_day: 2017-09-20, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-10-31, decision_day: 2017-11-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2017-12-12, decision_day: 2017-12-13, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
+  - {first_day: 2018-01-30, decision_day: 2018-01-31, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-03-20, decision_day: 2018-03-21, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-05-01, decision_day: 2018-05-02, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-06-12, decision_day: 2018-06-13, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-07-31, decision_day: 2018-08-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-09-25, decision_day: 2018-09-26, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-11-07, decision_day: 2018-11-08, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2018-12-18, decision_day: 2018-12-19, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2018.htm"}
+  - {first_day: 2019-01-29, decision_day: 2019-01-30, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-03-19, decision_day: 2019-03-20, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-04-30, decision_day: 2019-05-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-06-18, decision_day: 2019-06-19, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-07-30, decision_day: 2019-07-31, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-09-17, decision_day: 2019-09-18, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-10-29, decision_day: 2019-10-30, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2019-12-10, decision_day: 2019-12-11, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}
+  - {first_day: 2020-01-28, decision_day: 2020-01-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-04-28, decision_day: 2020-04-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-06-09, decision_day: 2020-06-10, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-07-28, decision_day: 2020-07-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-09-15, decision_day: 2020-09-16, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-11-04, decision_day: 2020-11-05, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2020-12-15, decision_day: 2020-12-16, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}
+  - {first_day: 2021-01-26, decision_day: 2021-01-27, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-03-16, decision_day: 2021-03-17, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-04-27, decision_day: 2021-04-28, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-06-15, decision_day: 2021-06-16, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-07-27, decision_day: 2021-07-28, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-09-21, decision_day: 2021-09-22, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-11-02, decision_day: 2021-11-03, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2021-12-14, decision_day: 2021-12-15, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-01-25, decision_day: 2022-01-26, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-03-15, decision_day: 2022-03-16, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-05-03, decision_day: 2022-05-04, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-06-14, decision_day: 2022-06-15, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-07-26, decision_day: 2022-07-27, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-09-20, decision_day: 2022-09-21, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-11-01, decision_day: 2022-11-02, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2022-12-13, decision_day: 2022-12-14, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-01-31, decision_day: 2023-02-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-03-21, decision_day: 2023-03-22, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-05-02, decision_day: 2023-05-03, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-06-13, decision_day: 2023-06-14, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-07-25, decision_day: 2023-07-26, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-09-19, decision_day: 2023-09-20, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-10-31, decision_day: 2023-11-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2023-12-12, decision_day: 2023-12-13, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-01-30, decision_day: 2024-01-31, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-03-19, decision_day: 2024-03-20, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-04-30, decision_day: 2024-05-01, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-06-11, decision_day: 2024-06-12, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-07-30, decision_day: 2024-07-31, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-09-17, decision_day: 2024-09-18, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-11-06, decision_day: 2024-11-07, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2024-12-17, decision_day: 2024-12-18, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-01-28, decision_day: 2025-01-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-03-18, decision_day: 2025-03-19, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-05-06, decision_day: 2025-05-07, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-06-17, decision_day: 2025-06-18, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-07-29, decision_day: 2025-07-30, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-09-16, decision_day: 2025-09-17, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-10-28, decision_day: 2025-10-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2025-12-09, decision_day: 2025-12-10, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-01-27, decision_day: 2026-01-28, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-03-17, decision_day: 2026-03-18, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-04-28, decision_day: 2026-04-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-06-16, decision_day: 2026-06-17, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-07-28, decision_day: 2026-07-29, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-09-15, decision_day: 2026-09-16, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-10-27, decision_day: 2026-10-28, verified: true,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-12-08, decision_day: 2026-12-09, verified: false,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}  # tentative until the Oct 27-28 meeting confirms it
+  - {first_day: 2027-01-26, decision_day: 2027-01-27, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-03-16, decision_day: 2027-03-17, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-04-27, decision_day: 2027-04-28, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-06-08, decision_day: 2027-06-09, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-07-27, decision_day: 2027-07-28, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-09-14, decision_day: 2027-09-15, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-10-26, decision_day: 2027-10-27, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+  - {first_day: 2027-12-07, decision_day: 2027-12-08, verified: false,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
+# A scheduled meeting the Fed cancelled: still on its published calendar, so it counts
+# toward meetings_per_year, and (fail closed) its decision day is a blackout all day.
+cancelled:
+  - {first_day: 2020-03-17, decision_day: 2020-03-18,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}  # "March 17-18 (cancelled)"
+# Intermeeting actions (unscheduled meetings and notation votes) listed on the Fed's
+# pages, and the day each was announced where that differs. Fail closed: each day here
+# is a blackout ALL DAY (no new entries; anything held is closed), whatever time of day
+# the action came out. Only days confirmed on federalreserve.gov are verified.
+intermeeting:
+  - {day: 2019-10-04, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2019.htm"}  # "October 4 (unscheduled)"
+  - {day: 2019-10-11, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20191011a.htm"}  # notation vote completed Oct 11; 11:00 ET release
+  - {day: 2020-03-02, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}  # "March 2 (unscheduled)"
+  - {day: 2020-03-03, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200303a.htm"}  # cut, 10:00 ET
+  - {day: 2020-03-15, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200315a.htm"}  # Sunday cut ("March 15 (unscheduled)")
+  - {day: 2020-03-19, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200319b.htm"}  # "March 19 (notation vote)", same-day 9:00 ET release
+  - {day: 2020-03-23, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200323a.htm"}  # "March 23 (notation vote)", FOMC statement
+  - {day: 2020-03-31, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200331a.htm"}  # "March 31 (notation vote)", same-day 8:30 ET release
+  - {day: 2020-08-27, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200827a.htm"}  # "August 27 (notation vote)", same-day 9:10 ET release
+  - {day: 2025-08-22, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}  # "August: 22 (notation vote)"

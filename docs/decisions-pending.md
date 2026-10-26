@@ -471,7 +471,7 @@ Under Andre's wrap-up order of 2026-10-10 04:27 PT, no further edge cases of the
 
 ## News, open and Fed rules (Andre, 2026-10-14)
 
-Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **N1-N4 are built on branch news-rules-build-v1 (see its section below); N5/N6 are the next stacked PR; N8 and N9 are not built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
+Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the morning's 8:30 ET CPI-time move on /NQ. **N1-N4 are built and merged (#52, merged into main as 214019a); N5/N6 are built on fomc-rules-build-v1 (#54, based on main; see their sections below); N8 and N9 are not built.** Each row needs its own piece (tests first, mutation-checked, independently reviewed) and his review before merge. Every number marked DEFAULT is backtested as a variant before paper; none is trusted on its own. Release times are defined in **America/New_York** (the releases' own clock); the PT times are for reading only (ET and PT change clocks on the same dates).
 
 | ID | Rule | Status |
 |---|---|---|
@@ -479,8 +479,8 @@ Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the
 | N2 | **Blackout edges:** 5 minutes before a release, 2 minutes after (DEFAULT). Getting flat needs time: confirm the stop is cancelled, then a limit sell. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1)**: `lead_minutes` 5, `lag_minutes` 2 in config/news.yaml (DEFAULT) |
 | N3 | **Opening bell:** a daily blackout 06:25–06:32 PT (DEFAULT): flat into the cash open, no entries during it. A trade entered in the news window is closed at 06:25; no news trade is carried through the open. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1)**: the 09:30 ET event in config/news.yaml (DEFAULT) |
 | N4 | **Before news on a news day:** no entries from 04:00 PT until the blackout ends. See **N-OPEN-1**: with N1 every day has an 8:30 blackout, so it must be settled whether N4 applies every day. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1) on the N-OPEN-1 DEFAULT below (every day, to 10:02 ET): PENDING Andre** |
-| N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. Not built here: the next PR, stacked on news-rules-build-v1 (fomc-rules-build-v1) |
-| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. Not built here: the next PR, stacked on news-rules-build-v1 (fomc-rules-build-v1) |
+| N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. **BUILT (fomc-rules-build-v1, stacked on news-rules-build-v1)**: `fomc_flat_from` 13:55 ET (DEFAULT) |
+| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. **BUILT (fomc-rules-build-v1)**: config/fomc.yaml 2017-2027 from federalreserve.gov, each date with its confirming page; intermeeting actions are whole-day blackouts (FOMC-INTER below) |
 | N7 | **Day of week:** no rule depends on the weekday. The daily windows and the FOMC dates decide. | APPROVED 2026-10-14 (no build needed). Tested: every day of a week has the same windows (news-rules-build-v1) |
 | N8 | **The spike-size veto on news bars:** the zero-day spike-bar tripwire (`zeroday.spike_bar_trip_multiple`, 8) may veto the news-window entry itself. First replay 2026-10-14 05:25–07:00 PT from the real 1-minute export and record what fired or was vetoed, and why. Then Andre decides whether news-window entries get a different limit. | APPROVED as a step (replay first). Nothing built: NOT DONE, the 2026-10-14 1-minute export is not in the build sandbox (its NQ history ends 2024-09-27). Needs Andre's export |
 | N9 | **Carry versus flat at the open, long term:** start with N3 (flat). Backtest "carry" against "flat" only once there is enough history (a year or more, 50+ news days). | APPROVED 2026-10-14. Backtest later |
@@ -1809,4 +1809,109 @@ question of its own, below in that PR's section).
 - **M4:** "`false` limits the time stop to the CSV windows" was wrong (the overnight
   window always carries it); reworded above. The live `--no-blackouts` help now says
   "no CSV news calendar (the scheduled windows in config/news.yaml stay on)".
+
+## FOMC rules built (branch fomc-rules-build-v1, PR #54 on main; N5, N6; 2026-10-26)
+
+Code: `decision/news_rules.py` (`_fed`, `fomc_warning`, `check_fomc_span`), config
+`config/fomc.yaml` and `fomc_flat_from` / `fomc_warn_days` in `config/news.yaml`; live
+`Live.check_calendar` alarms daily; "FOMC CALENDAR EXPIRED" is a critical marker (rings).
+Review: round 1 and round 2 CERTIFIED WITH CONDITIONS (independent hostile review);
+round-2 fixes (R2-M1, R2-L1, R2-L2) below, re-review pending; Andre's review and the
+sign-offs D-A, FOMC-INTER and L6 still open. #52 (N1-N4) is merged into main as 214019a;
+this branch is based on main.
+
+- **N5:** on each FOMC decision day (the meeting's second day, when the 2 p.m. ET
+  statement comes), a blackout from 13:55 ET (10:55 PT, `fomc_flat_from`, DEFAULT) to
+  the prime close of that day (14:00 PT, its whole minute; an early close ends it
+  sooner; a day closing before 10:55 PT adds nothing: the prime close already
+  flattens). No entries for the rest of prime; a held position is closed at 10:55 PT
+  through the LIMIT exit path. Overnight trading from 15:00 PT is untouched. Start-up
+  refuses a `fomc_flat_from` not before the normal prime close (N5 could never bite).
+- **N6, source:** dates only from federalreserve.gov, and every entry names the page
+  that confirms it (`source`): 2021-2027 the calendar page
+  (https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm, read 2026-10-26) and,
+  for 2027, the Board's release of 2025-09-05; **2017-2020 (added for BH-14, the history
+  backtest from 2017)** the Fed's historical pages
+  https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm (read 2026-10-26),
+  plus the FOMC press releases for the intermeeting announcements. The loader refuses a
+  `source` not on federalreserve.gov, entries out of order or outside the span, a
+  cancelled meeting on a held meeting's day, and any whole year without
+  `meetings_per_year` (8) meetings (held plus cancelled). Added: 31 scheduled meetings
+  held 2017-2020, 1 cancelled (2020-03-17/18), 10 intermeeting days (9 in 2019-2020 and
+  2025-08-22): 42 dates, each with its source.
+- **FOMC-INTER (builder's fail-closed decision, for Andre):** every intermeeting action
+  on the Fed's pages (an "unscheduled" meeting or a "notation vote") is a **whole-day
+  blackout** (ET calendar day: no new entries, anything held closed), and so is the day
+  it was announced when the Fed's release is dated later. Days: 2019-10-04
+  (unscheduled) and 2019-10-11 (released 11:00 ET, monetary20191011a.htm); 2020-03-02
+  (unscheduled) and 2020-03-03 (cut at 10:00 ET, monetary20200303a.htm); 2020-03-15
+  (Sunday unscheduled cut, monetary20200315a.htm; the Sunday evening session is inside
+  that ET day); 2020-03-19, 2020-03-23 (FOMC statement, monetary20200323a.htm),
+  2020-03-31 and 2020-08-27 (notation votes, fomchistorical2020.htm); 2025-08-22
+  (notation vote, fomccalendars.htm; earlier left out, now in, fail closed). Why whole
+  day: an intermeeting action has no fixed time (10:00 ET, 11:00 ET, a Sunday evening),
+  so no N5-style window fits. The notation votes of 2020-03-19, 2020-03-31 and
+  2020-08-27 are each confirmed by the Fed's same-day release (monetary20200319b.htm
+  9:00 ET, monetary20200331a.htm 8:30 ET, monetary20200827a.htm 9:10 ET; review round
+  1, L4), so all ten intermeeting days are verified. Not covered: an action the Fed's
+  meeting pages do not
+  list, and the days after an action (2020-03-16 traded normally under these rules).
+- **Cancelled meetings:** 2020-03-17/18 ("cancelled" on fomchistorical2020.htm): it
+  counts toward 2020's 8 meetings and its decision day is a whole-day blackout (fail
+  closed: it was on the published calendar).
+- **N6, UNVERIFIED:** the Fed's page says 2027 dates are "tentative until confirmed at
+  the meeting immediately preceding it": every date after the next meeting still to
+  be held when read (2026-10-27/28) is `verified: false`: **2026-12-09** (review round 1,
+  L5: fail closed until the October meeting confirms it) and all eight 2027 dates,
+  so each of those **whole days is a blackout** (fail closed), and live warns
+  `fomc_warn_days` (30, DEFAULT) ahead (of an UNVERIFIED intermeeting day too). Andre
+  flips each to true once the Fed confirms it. Note: a tentative date that MOVES is not
+  protected on its new day until the file is updated (re-read the Fed's page after
+  each meeting).
+- **N6, fail closed:** every day (on the ET clock) before `valid_from` (**2017-01-01**,
+  BH-14) or after `valid_through` (2027-12-31) is a whole-day blackout ("FOMC CALENDAR
+  EXPIRED on ..."); live alarms it daily as critical, and 30 days before. A backtest
+  trading outside the span is refused (like D34): **a backtest trading before 2017 is
+  refused** (consistent with BH-14; the 2010-2016 history needs those years added from
+  the Fed's historical pages first).
+- **History note:** in 2017 to 2021-06-25 the prime session ended at CME's 13:15 PT halt
+  (BH-3), so N5 runs 10:55-13:15 PT on those FOMC days.
+- **Review round 1 fixes (loader):** (M1) a span whose edges outrun its meetings was
+  accepted (valid_through moved into 2028 with no 2028 meetings: those FOMC days had no
+  blackout). Now the loader refuses any gap longer than `max_gap_days` (config/fomc.yaml,
+  **DEFAULT (draft, review M1): 60**; the longest listed gap, late July to late
+  September, is 56) between valid_from, consecutive decision days (held or cancelled)
+  and valid_through. (L2) a `source` must parse as https with host exactly
+  www.federalreserve.gov (no look-alike suffix, user or port). (L3) a scheduled or
+  cancelled meeting must be two days (decision day = first day + 1), end on a weekday
+  and not overlap the meeting before. `verified` must be written `true` or `false`
+  (YAML's yes/no/on/off are refused in this file).
+- **Review round 2 fix (R2-M1, loader edges):** the gap limit (60) is above the
+  shortest real gap between two meetings (41 days), so a span edge could still reach one
+  meeting past what is listed (valid_from 2016-12-03, valid_through 2028-02-06 loaded).
+  Now the edges have their own limit, `max_edge_days` (config/fomc.yaml, **DEFAULT
+  (draft, review R2-M1): 35**, below 41): valid_from to the first meeting's first day,
+  and the last decision day to valid_through (shipped: 30 and 23). `max_gap_days` now
+  applies between meetings only (held and cancelled; an intermeeting day never fills a
+  gap, R2-L2, tested). R2-L1: a test pins that the last valid day gives the "calendar
+  ends ... (0 days)" warning, not the critical EXPIRED alarm. Noted only: qa/ is outside
+  the mypy gate config (R2-I1).
+- **Review round 1, noted only (not changed):** (L6) the live FOMC alarm is dated on the
+  PT calendar day, the blackouts on the ET day: the EXPIRED alarm can come up to 3 hours
+  after the blackout starts (the blackout itself is right). (I1) inside the last
+  `fomc_warn_days` the "calendar ends" warning hides an UNVERIFIED-date warning (both
+  days are blacked out anyway). (I2) `read_on` in the future is accepted. (I3) the
+  start-up check of `fomc_flat_from` skips early-close days (all of 2017 to mid-2021,
+  BH-3): a late flat time there gives no N5 window, which is harmless (the prime close
+  flattens). (I4) the research harness does not apply N5/N6. **D-A for Andre:** a
+  backtest before 2017 is refused until those years are added from the Fed's pages.
+- **Merged with #52 at e427e3d:** the FOMC windows carry the news time stop always (N5
+  and N6 windows are not daily windows; #52's per-window N-OPEN-2 switch does not apply
+  to them). The backtest readout's rules listing (#52, C3) also names the FOMC rules:
+  `news.fomc_flat_from`, `news.fomc_warn_days`, the calendar file, span, source and
+  `max_gap_days`, the day counts, and the N5 and N6 windows.
+- **Backtest goldens: unchanged** (the pre-existing tests run with the stand-in, which
+  now also skips the span check: tests/backtest/conftest.py `no_scheduled_news`).
+- **Not verified:** the live alarm wiring is checked by AST only (ibapi). The research
+  harness does not apply N5/N6.
 

@@ -1,0 +1,550 @@
+{
+ "groups": {
+  "rules": [
+   "tests/decision/test_news_rules.py",
+   "tests/test_config_news_rules.py"
+  ],
+  "exits": [
+   "tests/execution/test_news_rules_exits.py"
+  ],
+  "wiring": [
+   "tests/live/test_news_rules_wiring.py",
+   "tests/backtest/test_engine_news_rules.py",
+   "tests/decision/test_news_rules.py"
+  ]
+ },
+ "mutants": [
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if start >= close:\n            return None",
+   "        if start > close:\n            return None",
+   "flat time at the close minute accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if start >= close:\n            return None",
+   "        if False:\n            return None",
+   "N5 window even when the prime closes first"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "return NewsBlackout(f\"FOMC decision day {day} (N5)\", start, _end_of_minute(close))",
+   "return NewsBlackout(f\"FOMC decision day {day} (N5)\", start, close)",
+   "N5 drops the close minute"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        start = _utc(day, self._s.fomc_flat_from, self._zone)",
+   "        start = _utc(day, self._s.fomc_flat_from, ZoneInfo(prime.timezone))",
+   "flat time on the prime clock"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        close = _utc(day, prime_close(day, self._instrument), ZoneInfo(prime.timezone))",
+   "        close = _utc(day, prime.end, ZoneInfo(prime.timezone))",
+   "N5 ignores early closes"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            if instrument.early_closes.get(m.decision_day) is None and self._fomc(m) is None:",
+   "            if False:",
+   "unreachable flat time accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            if instrument.early_closes.get(m.decision_day) is None and self._fomc(m) is None:",
+   "            if self._fomc(m) is None:",
+   "early-close FOMC day refuses the config"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day > fomc.valid_through:",
+   "        if day > fomc.valid_through + _DAY:",
+   "expiry a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day > fomc.valid_through:",
+   "        if day >= fomc.valid_through:",
+   "expiry a day early"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day < fomc.valid_from:",
+   "        if day < fomc.valid_from - _DAY:",
+   "start a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day < fomc.valid_from:",
+   "        if day <= fomc.valid_from:",
+   "start a day early"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "                *self._fed(day),\n",
+   "",
+   "FOMC windows never listed"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        start = _utc(day, time.min, self._zone)",
+   "        start = _utc(day, time.min, ZoneInfo(self._instrument.prime_session.timezone))",
+   "whole day on the prime clock"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "_utc(day + _DAY, time.min, self._zone) - timedelta.resolution",
+   "_utc(day, time.max, ZoneInfo(self._instrument.prime_session.timezone))",
+   "whole day ends on the prime clock"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._decisions = {m.decision_day: m for m in fomc.meetings}",
+   "self._decisions = {m.first_day: m for m in fomc.meetings}",
+   "N5 on the meeting's first day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    if today > fomc.valid_through:\n        return (",
+   "    if today > fomc.valid_through + _DAY:\n        return (",
+   "expired alarm a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    if fomc.valid_through <= horizon:",
+   "    if fomc.valid_through < horizon:",
+   "ending warning a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    horizon = today + timedelta(days=settings.fomc_warn_days)",
+   "    horizon = today",
+   "no warning horizon"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    if start < s.fomc.valid_from:",
+   "    if False:",
+   "backtest before the calendar allowed"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    if end > s.fomc.valid_through:",
+   "    if False:",
+   "backtest past the calendar allowed"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    if start < s.fomc.valid_from:",
+   "    if start <= s.fomc.valid_from:",
+   "backtest on the first valid day refused"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    if end > s.fomc.valid_through:",
+   "    if end >= s.fomc.valid_through:",
+   "backtest on the last valid day refused"
+  ],
+  [
+   "wiring",
+   "src/footprint/backtest/engine.py",
+   "        check_fomc_span(profiles, self._bars[self._first].ts, self._bars[-1].ts)  # N6\n",
+   "",
+   "backtest span not checked"
+  ],
+  [
+   "wiring",
+   "src/footprint/live/app.py",
+   "        if fed is not None:\n            self.alarm(fed)",
+   "        if False:\n            self.alarm(fed)",
+   "live never alarms the FOMC calendar"
+  ],
+  [
+   "wiring",
+   "src/footprint/execution/channels.py",
+   "    \"FOMC CALENDAR EXPIRED\",  # N6: no new entries until config/fomc.yaml is extended\n",
+   "",
+   "expired FOMC calendar does not ring"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meetings and meeting.decision_day <= meetings[-1].decision_day:",
+   "        if meetings and meeting.decision_day < meetings[-1].decision_day:",
+   "duplicate meeting accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if calendar.valid_from > calendar.valid_through:",
+   "    if False:",
+   "inverted span accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if whole and listed != calendar.meetings_per_year:",
+   "        if False:",
+   "incomplete year accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if whole and listed != calendar.meetings_per_year:",
+   "        if listed != calendar.meetings_per_year:",
+   "partial years counted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        whole = calendar.valid_from <= jan_first and (",
+   "        whole = (",
+   "partial first year counted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        meetings_per_year=_integer(raw, \"meetings_per_year\", where, minimum=1),",
+   "        meetings_per_year=_integer(raw, \"meetings_per_year\", where, minimum=0),",
+   "zero meetings a year accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        fomc_warn_days=_integer(raw, \"fomc_warn_days\", where, minimum=0),",
+   "        fomc_warn_days=_integer(raw, \"fomc_warn_days\", where, minimum=-9),",
+   "negative warn days accepted"
+  ],
+  [
+   "exits",
+   "src/footprint/decision/news_rules.py",
+   "                *self._fed(day),\n",
+   "",
+   "held position not closed on an FOMC day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        for action in self._actions.get(day, ()):",
+   "        for action in ():",
+   "intermeeting days not blacked out"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            flag = \"\" if action.verified else \" UNVERIFIED\"",
+   "            flag = \"\"",
+   "unverified action not named"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day in self._cancelled:",
+   "        if False:",
+   "cancelled day not blacked out"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._cancelled = frozenset(m.decision_day for m in fomc.cancelled)",
+   "self._cancelled = frozenset(m.first_day for m in fomc.cancelled)",
+   "cancelled blackout on the first day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._actions.setdefault(action.day, []).append(action)",
+   "self._actions.setdefault(action.day + _DAY, []).append(action)",
+   "action blackout a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        + [a.day for a in fomc.intermeeting if not a.verified]\n",
+   "",
+   "unverified actions not warned"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if m.decision_day in held:",
+   "        if False:",
+   "cancelled on a held day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    for day in (*days, *(a.day for a in calendar.intermeeting)):",
+   "    for day in days:",
+   "intermeeting outside the span accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    days = [m.decision_day for m in (*calendar.meetings, *calendar.cancelled)]",
+   "    days = [m.decision_day for m in calendar.meetings]",
+   "cancelled not counted in its year"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if actions and action.day <= actions[-1].day:",
+   "        if actions and action.day < actions[-1].day:",
+   "duplicate action accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if actions and action.day <= actions[-1].day:",
+   "        if False:",
+   "out-of-order actions accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            _boolean(body, \"verified\", where),\n            _fed_source(body, \"source\", where),\n        )\n        if actions",
+   "            bool(body[\"verified\"]),\n            _fed_source(body, \"source\", where),\n        )\n        if actions",
+   "non-bool action verified accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if not isinstance(items, list) or (not items and not empty):",
+   "    if not isinstance(items, list):",
+   "empty meetings list accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if not isinstance(items, list) or (not items and not empty):",
+   "    if not isinstance(items, list) or not items:",
+   "empty optional lists refused"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if meeting is not None and not meeting.verified:",
+   "        if False:",
+   "UNVERIFIED treated as verified"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if meeting is not None and not meeting.verified:",
+   "        if meeting is not None and meeting.verified:",
+   "verified treated as UNVERIFIED"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    ahead = [day for day in ahead if today <= day <= horizon]",
+   "    ahead = [day for day in ahead if today < day <= horizon]",
+   "unverified warning stops on the day itself"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    ahead = [day for day in ahead if today <= day <= horizon]",
+   "    ahead = [day for day in ahead if today <= day]",
+   "unverified warning with no horizon"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "[m.decision_day for m in fomc.meetings if not m.verified]",
+   "[m.decision_day for m in fomc.meetings]",
+   "warns of verified dates"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if not calendar.valid_from <= day <= calendar.valid_through:",
+   "        if False:",
+   "meeting outside the span accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=1),",
+   "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=0),",
+   "M1: zero gap limit accepted"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    start, end = first.astimezone(zone).date(), last.astimezone(zone).date()",
+   "    start, end = first.date(), last.date()",
+   "L1: span check on UTC dates"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.scheme != _FED_SCHEME or not parts.netloc.startswith(_FED_HOST):",
+   "L2: look-alike host suffix accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.netloc != _FED_HOST:",
+   "L2: http accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.scheme != _FED_SCHEME or parts.hostname != _FED_HOST:",
+   "L2: user/port in the authority accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day - meeting.first_day != _ONE_DAY:",
+   "        if meeting.decision_day - meeting.first_day < _ONE_DAY:",
+   "L3: long meeting accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day - meeting.first_day != _ONE_DAY:",
+   "        if meeting.decision_day - meeting.first_day > _ONE_DAY:",
+   "L3: one-day meeting accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day.weekday() >= SATURDAY:",
+   "        if False:",
+   "L3: weekend decision day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meetings and meeting.first_day <= meetings[-1].decision_day:",
+   "        if False:",
+   "L3: overlapping meetings accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meetings and meeting.first_day <= meetings[-1].decision_day:",
+   "        if meetings and meeting.first_day < meetings[-1].decision_day:",
+   "L3: meeting starting on the previous decision day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)}, _StrictBoolLoader)",
+   "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})",
+   "yes/on read as true"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days:",
+   "        if False:",
+   "M1: no gap check between meetings"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days:",
+   "        if (later.decision_day - earlier.decision_day).days > calendar.max_gap_days + 1:",
+   "M1: gap limit off by one"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if False:",
+   "R2-M1: no edge check"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if (after - before).days > calendar.max_gap_days:",
+   "R2-M1: edges use the gap limit"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            if (after - before).days > calendar.max_edge_days:",
+   "            if (after - before).days > calendar.max_edge_days + 1:",
+   "R2-M1: edge limit off by one"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (calendar.valid_from, anchors[0].first_day),\n",
+   "",
+   "R2-M1: start edge not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (anchors[-1].decision_day, calendar.valid_through),\n",
+   "",
+   "R2-M1: end edge not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            (calendar.valid_from, anchors[0].first_day),",
+   "            (calendar.valid_from, anchors[0].decision_day),",
+   "R2-M1: start edge to the decision day"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        max_edge_days=_integer(raw, \"max_edge_days\", where, minimum=1),",
+   "        max_edge_days=_integer(raw, \"max_edge_days\", where, minimum=0),",
+   "R2-M1: zero edge limit accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled), key=lambda m: m.decision_day)",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled, *(FomcMeeting(a.day - _ONE_DAY, a.day, True, a.source) for a in calendar.intermeeting)), key=lambda m: m.decision_day)",
+   "R2-L2: intermeeting days fill gaps"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    anchors = sorted((*calendar.meetings, *calendar.cancelled), key=lambda m: m.decision_day)",
+   "    anchors = sorted(calendar.meetings, key=lambda m: m.decision_day)",
+   "M1: cancelled meetings not gap anchors"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    if today > fomc.valid_through:",
+   "    if today >= fomc.valid_through:",
+   "R2-L1: EXPIRED alarm a day early"
+  ]
+ ]
+}
