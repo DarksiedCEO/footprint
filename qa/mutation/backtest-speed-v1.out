@@ -1,0 +1,55 @@
+source: d1a23f32ca59417bfd7636862ce3c2e42dcc2821 tree-dirty: 0 files
+baseline [engine]: passed
+baseline [windows]: passed
+  1 KILLED   [windows] src/footprint/data/aggregate.py: completed(): a bar still open counts as closed (look-ahead)
+  2 KILLED   [windows] src/footprint/data/aggregate.py: completed(): the bar closing exactly at as_of left out (bisect bound)
+  3 KILLED   [windows] src/footprint/data/aggregate.py: completed(): the whole window returned, open bars included (stale)
+  4 KILLED   [windows] src/footprint/data/aggregate.py: buckets: the last bucket's end one short
+  5 KILLED   [windows] src/footprint/data/aggregate.py: resample: the bucket holding the window's first bar skipped when cut (bisect off by one)
+  6 KILLED   [windows] src/footprint/data/aggregate.py: resample: one bucket past the window's end considered
+  7 KILLED   [windows] src/footprint/data/aggregate.py: resample: a bucket cut by the window's start taken whole (bars before the window)
+  8 KILLED   [windows] src/footprint/data/aggregate.py: resample: a bucket cut by one bar at the window's end taken whole (look-ahead)
+  9 KILLED   [windows] src/footprint/data/aggregate.py: resample: a bucket not yet closed emitted
+ 10 KILLED   [windows] src/footprint/data/aggregate.py: buckets: cache key missing the bucket length (stale cache)
+ 11 KILLED   [windows] src/footprint/data/aggregate.py: session days: a day cut by the window's end taken whole (look-ahead)
+ 12 KILLED   [windows] src/footprint/data/aggregate.py: session days: a day cut by the window's start taken whole
+ 13 KILLED   [windows] src/footprint/data/aggregate.py: session days: the window's first day skipped
+ 14 KILLED   [windows] src/footprint/data/aggregate.py: session days: cache key missing the session (stale cache)
+ 15 KILLED   [windows] src/footprint/data/aggregate.py: session days: a series whose local dates go back searched as if in order
+ 16 KILLED   [windows] src/footprint/agents/_series.py: same time: the bar itself counted as an earlier one
+ 17 KILLED   [windows] src/footprint/agents/_series.py: same time: bars before the window counted
+ 18 KILLED   [windows] src/footprint/agents/_series.py: same time: one bar too many
+ 19 KILLED   [windows] src/footprint/agents/_series.py: clock index: cache key missing the time zone (stale cache)
+ 20 KILLED   [windows] src/footprint/agents/_series.py: last two swings: stops at the first
+ 21 KILLED   [windows] src/footprint/agents/_series.py: last two swings: an unconfirmed last value can be a swing (look-ahead)
+ 22 KILLED   [windows] src/footprint/core/series.py: require_series: an empty window passes
+ 23 KILLED   [windows] src/footprint/core/series.py: require_series: a window passes a timeframe its series was never checked for
+ 24 KILLED   [windows] src/footprint/core/series.py: window: bounds past the series accepted
+ 25 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: a day with out-of-order clocks read by prefix
+ 26 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: a day cut by the window's end taken whole (look-ahead)
+ 27 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: the bar at the cutoff counted
+ 28 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: a series whose local dates go back searched as if in order
+ 29 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: the last of equal highs kept, not the first
+ 30 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: the last of equal lows kept, not the first
+ 31 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: holidays and weekends counted on the window path
+ 32 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: the window's first day skipped
+ 33 KILLED   [windows] src/footprint/agents/zero_day.py: zero-day range: cache key missing zone and start (stale cache)
+ 34 KILLED   [windows] src/footprint/agents/levels.py: levels: the bar at a window's end counted
+ 35 KILLED   [windows] src/footprint/agents/levels.py: levels: bars before the decision window counted
+ 36 KILLED   [windows] src/footprint/agents/levels.py: levels: minutes after the window counted present (look-ahead)
+ 37 KILLED   [windows] src/footprint/agents/levels.py: levels: the closed-minute memo keyed by the wrong minute
+ 38 KILLED   [windows] src/footprint/decision/pipeline.py: range days: bars after the window read (look-ahead)
+ 39 KILLED   [windows] src/footprint/decision/pipeline.py: range days: today's later bars searched from the day's end (none found)
+ 40 KILLED   [windows] src/footprint/agents/regime_reader.py: regime: start times from the series' start, not the window's
+ 41 SURVIVED [windows] src/footprint/agents/levels.py: levels: the closed-minute memo never starts over (memory only: argued equivalent)
+ 42 SURVIVED [windows] src/footprint/decision/pipeline.py: range days: no day of margin before today's midnight (argued equivalent)
+ 43 KILLED   [windows] src/footprint/agents/zero_day.py: review R7: zero-day range: a day one bar past the window's end taken whole (look-ahead)
+ 44 KILLED   [windows] src/footprint/agents/_series.py: review R1: clock index reused from the first series ever seen
+ 45 KILLED   [windows] src/footprint/agents/levels.py: review R5: the closed-minute memo shared by every reader and instrument
+ 46 KILLED   [engine] src/footprint/backtest/engine.py: play caller history: the open bar included (look-ahead)
+ 47 KILLED   [engine] src/footprint/backtest/engine.py: decision window: one bar past the closed ones (look-ahead)
+ 48 KILLED   [windows] src/footprint/decision/pipeline.py: review R8 (LOW-2): range days search today's after-close bars before the window
+ 49 KILLED   [windows] src/footprint/core/series.py: review LOW-1: __reduce__ removed (copy, deepcopy and pickle fail)
+ 50 KILLED   [windows] src/footprint/core/series.py: LOW-1: a copy remade from the series start, not the window start
+ 51 KILLED   [windows] src/footprint/core/series.py: LOW-1: a copy remade as a plain tuple (loses its series and bounds)
+51 mutants, 2 survived or errored

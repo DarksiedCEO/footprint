@@ -70,3 +70,24 @@ the only way round, and nothing does). Cost: none measurable. Interleaved runs o
 
 47 mutants: 45 killed, 2 survived: M41 and M42, the argued equivalences above. The
 previous final run (44 mutants on 8a5a27b) is kept as `backtest-speed-v1-on-8a5a27b.out`.
+
+## Review of 99f7d54 (CERTIFIED WITH CONDITIONS; PR #49 merged) — follow-up branch
+
+The reviewer's R8 survived (range days searched from the series start instead of the
+window start). New test `test_the_range_days_of_a_window_starting_after_todays_cash_close_read_only_its_bars`
+(St. John's, 2010-11-06, cash 22:00-23:30: the clock goes back from 00:01 to 23:01, so
+a window starting at the second 23:10 holds today's cash bars while the first pass's
+after-close bars lie before it) failed under R8 first, then passed. LOW-1: three
+mutants on the new `BarWindow.__reduce__` (removed; remade from the series start;
+remade as a plain tuple), killed by `test_a_window_survives_copy_deepcopy_and_pickle`
+(which failed with `__new__() missing 'start' and 'end'` before the fix).
+
+R2 (regime reader `starts[start:end]` -> `[start:]`) is not in the spec: argued
+equivalent by the reviewer and here. `starts` only bounds a bisect whose result slices
+the window's own `bars`; the slice clamps at the window's end, so later start times
+never pull in a bar.
+
+## Final run (`backtest-speed-v1.out`, on d1a23f3 = origin/main bfd335b + the follow-up, tree clean)
+
+51 mutants: 49 killed, 2 survived: M41 and M42, the argued equivalences above. The
+previous final run (47 mutants on a3bb464) is kept as `backtest-speed-v1-on-a3bb464.out`.

@@ -1567,6 +1567,16 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   (two series alive, two instruments' levels readers: R1 and R5 killed), F4 (BarSeries
   and BarWindow read-only, no measurable cost). Mutation after it: 47 mutants, 45
   killed, the 2 argued equivalences survive.
+  **Review of 99f7d54: CERTIFIED WITH CONDITIONS; merged as PR #49.** Its conditions
+  are on branch backtest-speed-followup-v1 (review not done): LOW-1 `BarWindow` copies,
+  deep-copies and pickles (`__reduce__`; `dataclasses.asdict` stays out of scope and is
+  pinned), LOW-2 a range-days test that kills the reviewer's R8; mutation 51 mutants,
+  49 killed, M41 and M42 argued equivalent. **Condition 3 measured** on the full
+  nq_raw.csv (4.8M bars loaded, traded from 2017-01-01; details in
+  `qa/speed/profile-notes.md`): peak RSS **3.45 GB** (3.0 GB of it is the load);
+  2017 = 138,890 decisions, 0 trades, **2,273 s user CPU** (7,496 s wall on a shared,
+  overloaded 2-core box). Stopped at 2018-01-03; 2017-2024 is estimated (not measured)
+  at about 5 CPU-hours.
 - **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
   2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02
