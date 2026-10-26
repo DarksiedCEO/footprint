@@ -75,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
         "delta (G4, fixed)": str(profiles.strategy.options.assumed_delta),
         **{f"option model {k}": str(v) for k, v in asdict(settings.option_model).items()},
         "fees per contract per side": str(profiles.risk.fee_per_contract_per_side),
+        # The exit numbers this run ran with, from the profiles it loaded (G52-2).
+        "risk.profit_target": str(profiles.risk.profit_target),
+        "risk.trail_keep_pct": str(profiles.risk.trail_keep_pct),
+        "risk.stop_loss": str(profiles.risk.stop_loss),
         "news blackouts": str(args.blackouts) if args.blackouts else "NONE supplied",
         "intrabar path": "adverse-first against an open trade",
         "bars": str(args.bars),
