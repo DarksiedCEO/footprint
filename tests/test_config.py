@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -54,7 +54,7 @@ def test_risk_profile_loads(risk_path: Path) -> None:
     assert profile.daily_max_loss == Decimal("2000")
     assert profile.weekly_max_loss == Decimal("3500")
     assert profile.kill_switch_drawdown_pct == Decimal("20")
-    assert (profile.max_trades_prime, profile.max_trades_overnight) == (4, 1)
+    assert (profile.max_trades_prime, profile.max_trades_overnight) == (4, 0)
 
 
 @pytest.mark.parametrize(
@@ -111,7 +111,8 @@ def overnight(**changes: str) -> dict[str, str]:
 def test_instrument_rejects_overlapping_sessions(
     instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
 ) -> None:
-    with pytest.raises(ConfigError, match="must not overlap"):
+    # A prime window that wraps midnight is rejected even earlier, as crossing midnight.
+    with pytest.raises(ConfigError, match=r"must not overlap|must not cross midnight"):
         load_instrument(rewrite(instrument_path, tmp_path, **changes))
 
 
@@ -186,3 +187,58 @@ def test_rejects_malformed_files(tmp_path: Path, content: str) -> None:
 def test_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="cannot read"):
         load_risk(tmp_path / "nope.yaml")
+
+
+@pytest.mark.parametrize("bad_time", ["03:59:30", "03:59:00.5"])
+def test_session_times_with_seconds_are_rejected(
+    instrument_path: Path, tmp_path: Path, bad_time: str
+) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    data["overnight_session"]["end"] = bad_time
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="no seconds"):
+        load_instrument(target)
+
+
+def test_trading_days_and_holidays_load(instrument_path: Path) -> None:
+    profile = load_instrument(instrument_path)
+    assert profile.trading_days == frozenset({0, 1, 2, 3, 4})  # Mon-Fri
+    assert profile.holidays == frozenset()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"trading_days": []},
+        {"trading_days": ["MON", "MON"]},
+        {"trading_days": ["Monday"]},
+        {"trading_days": "MON"},
+        {"holidays": ["2026-12-25"]},
+        {"holidays": "2026-12-25"},
+        {"trading_days": ...},
+        {"holidays": ...},
+    ],
+)
+def test_bad_trading_calendar_is_rejected(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    with pytest.raises(ConfigError):
+        load_instrument(rewrite(instrument_path, tmp_path, **changes))
+
+
+def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data).replace("holidays: []", "holidays: [2026-12-25]"))
+    assert load_instrument(target).holidays == frozenset({date(2026, 12, 25)})
+
+
+def test_prime_session_crossing_midnight_is_rejected(instrument_path: Path, tmp_path: Path) -> None:
+    data = yaml.safe_load(instrument_path.read_text())
+    data["prime_session"] = session(start="22:00", end="02:00")
+    data["overnight_session"] = session(start="03:00", end="20:00")
+    target = tmp_path / "nq.yaml"
+    target.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="cross midnight"):
+        load_instrument(target)

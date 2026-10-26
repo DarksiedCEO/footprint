@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum, IntEnum
 from types import MappingProxyType
 
 
-def _require_utc(ts: datetime, field: str) -> None:
+def require_utc(ts: datetime, field: str) -> None:
+    """Accept only datetimes whose tzinfo is UTC itself (not merely offset zero).
+
+    The single UTC check for the whole codebase.
+    """
     if not isinstance(ts, datetime):
         raise TypeError(f"{field} must be a datetime, got {type(ts).__name__}")
-    if ts.tzinfo is None or ts.utcoffset() != timedelta(0):
-        raise ValueError(f"{field} must be timezone-aware UTC, got {ts!r}")
+    if ts.tzinfo is not UTC:
+        raise ValueError(f"{field} must be timezone-aware UTC (tzinfo=UTC), got {ts!r}")
 
 
 def _require_text(value: str, field: str) -> None:
@@ -34,7 +38,7 @@ class Bar:
 
     def __post_init__(self) -> None:
         _require_text(self.symbol, "Bar.symbol")
-        _require_utc(self.ts, "Bar.ts")
+        require_utc(self.ts, "Bar.ts")
         for name in ("open", "high", "low", "close"):
             price = getattr(self, name)
             if not isinstance(price, Decimal):
@@ -74,7 +78,7 @@ class Read:
 
     def __post_init__(self) -> None:
         _require_text(self.agent_id, "Read.agent_id")
-        _require_utc(self.ts, "Read.ts")
+        require_utc(self.ts, "Read.ts")
         if not isinstance(self.score, Score):
             raise ValueError(f"Read.score must be a Score (-1, 0 or +1), got {self.score!r}")
         _require_text(self.reason, "Read.reason")
@@ -92,7 +96,7 @@ class Signal:
     reads: tuple[Read, ...]
 
     def __post_init__(self) -> None:
-        _require_utc(self.ts, "Signal.ts")
+        require_utc(self.ts, "Signal.ts")
         if not isinstance(self.direction, Direction):
             raise ValueError(f"Signal.direction must be a Direction, got {self.direction!r}")
         if not isinstance(self.reads, tuple):
@@ -154,7 +158,7 @@ class TradeEvent:
     note: str = ""
 
     def __post_init__(self) -> None:
-        _require_utc(self.ts, "TradeEvent.ts")
+        require_utc(self.ts, "TradeEvent.ts")
         if not isinstance(self.state, TradeState):
             raise ValueError(f"TradeEvent.state must be a TradeState, got {self.state!r}")
         if not isinstance(self.note, str):
