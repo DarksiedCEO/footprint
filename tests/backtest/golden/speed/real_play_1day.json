@@ -1,0 +1,19 @@
+{
+  "hashes": {
+    "exit": "1",
+    "journal/decisions.jsonl": "e4ba3133a04215e96a3ec4e55cf79797fdc9575a2b1355940312a3994537cf45",
+    "journal/plays.jsonl": "0157eb7183e61cdb46d0c0190f3cb091b6446912b2dac0008d8c373ec782607c",
+    "ledger.json": "2352d760a87c00d12c3e19cc991b05b1127802883a0e30bedbb1993797e0372b",
+    "readout.json": "f3fd811efb478739ee62b6566189c133542130375914fc3a031e24756085f8ca",
+    "readout.md": "a4597b7fb3b6f4165cf8013188827a7e790b2ad5eaeb1badf3a26a34f59117e4",
+    "stdout.txt": "b503367aa91b21b46fafca1c66aa800f070474068fa114a0015c1209b2bc3050"
+  },
+  "made_on": "928ca71622b33a4e7489331b7b21da5f332b6262",
+  "scenario": "real_play_1day",
+  "summary": {
+    "decisions": 601,
+    "fired": 0,
+    "plays": 1,
+    "trades": 0
+  }
+}
