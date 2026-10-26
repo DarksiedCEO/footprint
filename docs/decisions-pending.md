@@ -1568,6 +1568,26 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   (two series alive, two instruments' levels readers: R1 and R5 killed), F4 (BarSeries
   and BarWindow read-only, no measurable cost). Mutation after it: 47 mutants, 45
   killed, the 2 argued equivalences survive.
+  **Review of 99f7d54: CERTIFIED WITH CONDITIONS; merged as PR #49.** Its conditions
+  are on branch backtest-speed-followup-v1 (review not done): LOW-1 `BarWindow` copies,
+  deep-copies and pickles (`__reduce__`; `dataclasses.asdict` stays out of scope and is
+  pinned), LOW-2 a range-days test that kills the reviewer's R8; mutation 51 mutants,
+  49 killed, M41 and M42 argued equivalent. **Condition 3 measured** on the full
+  nq_raw.csv (4.8M bars loaded, traded from 2017-01-01; details in
+  `qa/speed/profile-notes.md`; measured on the src of 5d2b0ca): peak RSS **3.45 GB**
+  (3.0 GB of it is the load); 2017 = 138,890 decisions, 0 trades, **2,273 s user CPU**
+  (7,496 s wall on a shared, overloaded 2-core box). Why 0 trades (review of PR #55):
+  of 251 play days, 94 PC-7 missing-data stand-asides caused by 6 bad history days, 75
+  RULES (opening neither trend nor chop), 54 CHOP, 28 TREND; on the 28 TREND days all
+  10,500 decisions after 10:00 ET were blocked by the entry gates (first failing: trend
+  direction 6,405, momentum 3,912; other 183: before_close_lead 140, levels_room 18,
+  zero_day_clear 16, confirmer_score 9; only 33 failed a single gate: 24 momentum, 9
+  confirmer). PC-7 thus blacks out 37% of 2017: worth deciding before a 2017-2024 run.
+  Copying or pickling a `BarWindow` copies its whole series (review L-2, measured: a
+  300-bar window of a 50,000-bar series pickles to 4.4 MB against 25 KB for
+  `tuple(window)`; a deepcopy allocates 31.8 MB): the `__reduce__` docstring says to
+  store `tuple(window)` in journals and readouts. Nothing copies a window today. Stopped at 2018-01-03; 2017-2024 is estimated (not measured)
+  at about 5 CPU-hours.
 - **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
   2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02

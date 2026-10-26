@@ -1,5 +1,4 @@
-warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
-source: a3bb464a90aa685edc0380344c231519abe38d29 tree-dirty: 0 files
+source: d1a23f32ca59417bfd7636862ce3c2e42dcc2821 tree-dirty: 0 files
 baseline [engine]: passed
 baseline [windows]: passed
   1 KILLED   [windows] src/footprint/data/aggregate.py: completed(): a bar still open counts as closed (look-ahead)
@@ -49,4 +48,8 @@ baseline [windows]: passed
  45 KILLED   [windows] src/footprint/agents/levels.py: review R5: the closed-minute memo shared by every reader and instrument
  46 KILLED   [engine] src/footprint/backtest/engine.py: play caller history: the open bar included (look-ahead)
  47 KILLED   [engine] src/footprint/backtest/engine.py: decision window: one bar past the closed ones (look-ahead)
-47 mutants, 2 survived or errored
+ 48 KILLED   [windows] src/footprint/decision/pipeline.py: review R8 (LOW-2): range days search today's after-close bars before the window
+ 49 KILLED   [windows] src/footprint/core/series.py: review LOW-1: __reduce__ removed (copy, deepcopy and pickle fail)
+ 50 KILLED   [windows] src/footprint/core/series.py: LOW-1: a copy remade from the series start, not the window start
+ 51 KILLED   [windows] src/footprint/core/series.py: LOW-1: a copy remade as a plain tuple (loses its series and bounds)
+51 mutants, 2 survived or errored

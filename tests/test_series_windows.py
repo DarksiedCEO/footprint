@@ -10,9 +10,11 @@ read one bar outside its window (look-ahead included) would answer differently.
 
 from __future__ import annotations
 
+import copy
+import pickle
 import random
 from bisect import bisect_right
-from dataclasses import replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -31,6 +33,7 @@ from footprint.agents.zero_day import ZeroDayAgent
 from footprint.core.config import Profiles, Session, load_profiles
 from footprint.core.models import Bar
 from footprint.core.series import BarSeries, BarWindow, require_series
+from footprint.core.timecache import local_time
 from footprint.data.aggregate import completed, resample, session_days
 from footprint.decision.pipeline import Pipeline
 from tests.backtest.speed_market import speed_market
@@ -619,3 +622,92 @@ def test_a_series_and_its_windows_are_read_only() -> None:
     with pytest.raises(AttributeError):
         del window.start
     assert (window.start, window.end, window.series) == (5, 20, series)
+
+
+def test_the_range_days_of_a_window_starting_after_todays_cash_close_read_only_its_bars(
+    profiles: Profiles,
+) -> None:
+    """LOW-2 (reviewer's R8). St. John's, 2010-11-06, with a cash session of 22:00-23:30:
+    the clock goes back at 00:01 of the 7th to 23:01 of the 6th, so the 6th's 23:01-23:59
+    comes twice. A window starting at the second 23:10 holds a cash session of the 6th
+    (23:10-23:29) while the first pass's after-close bars of the 6th (23:30-23:59) lie
+    before the window. The range days read from the window only, as for the list of its
+    bars: those earlier after-close bars are never searched."""
+    series = _across_a_date_going_back()
+    cash = Session(start=time(22, 0), end=time(23, 30), timezone="America/St_Johns")
+    pipeline = Pipeline(
+        replace(profiles, instrument=replace(profiles.instrument, cash_session=cash))
+    )
+    first_after = series.starts.index(datetime(2010, 11, 7, 2, 0, tzinfo=UTC))  # 23:30 NDT
+    start = series.starts.index(datetime(2010, 11, 7, 2, 40, tzinfo=UTC))  # 23:10 NST
+    as_of = datetime(2010, 11, 7, 3, 15, tzinfo=UTC)  # 23:45 NST on the 6th, after the close
+    end = series.starts.index(as_of)
+    window = series.window(start, end)
+    earlier = series.bars[first_after:start]
+    assert len(earlier) == 40  # the first 23:30-23:59, 00:00, then the second 23:01-23:09
+    for b in earlier[:30]:  # today's after-close bars, before the window
+        assert local_time(b.ts, cash.timezone).date() == date(2010, 11, 6)
+        assert local_time(b.ts, cash.timezone).time() >= cash.end
+    got = pipeline._range_days(window, as_of)
+    assert got is not None
+    assert got == pipeline._range_days(list(window), as_of)
+    today = got[-1]
+    in_window = [b for b in window if b.ts >= datetime(2010, 11, 7, 2, 40, tzinfo=UTC)]
+    assert today.volume == sum(b.volume for b in in_window)  # nothing from before the window
+
+
+def _helper_results(window: tuple[Bar, ...], profiles: Profiles) -> list[object]:
+    """Every series helper's answer on `window` at its last bar's close."""
+    as_of = window[-1].ts + MINUTE
+    s = profiles.strategy
+    cash = profiles.instrument.cash_session
+    return [
+        tuple(window),
+        completed(window, as_of, 1),
+        resample(window, 15, as_of),
+        session_days(window, cash, as_of),
+        ZeroDayAgent(s.zeroday, s.data, profiles.instrument).check(window, as_of),
+        LevelsReader(s.levels, s.trend, s.data, profiles.instrument).snapshot(window, as_of),
+        Pipeline(profiles)._range_days(window, as_of),
+    ]
+
+
+def test_a_window_survives_copy_deepcopy_and_pickle(profiles: Profiles) -> None:
+    """LOW-1: a window copies, deep-copies and pickles to an equal window of an equal
+    series, and every helper answers the copy as it answers the original."""
+    series = BarSeries(_sessions(profiles, date(2024, 3, 4), 3, 0), 1, "bars")
+    window = series.window(200, len(series.bars) - 50)
+    expected = _helper_results(window, profiles)
+    shallow = copy.copy(window)
+    deep = copy.deepcopy(window)
+    pickled = pickle.loads(pickle.dumps(window))
+    assert shallow.series is series  # a shallow copy shares the series
+    for twin in (shallow, deep, pickled):
+        assert type(twin) is BarWindow
+        assert twin == window
+        assert (twin.start, twin.end) == (window.start, window.end)
+        assert twin.series.bars == series.bars
+        assert twin.series.starts == series.starts
+        assert twin.series.timeframe_minutes == series.timeframe_minutes
+        assert _helper_results(twin, profiles) == expected
+        with pytest.raises(AttributeError):
+            twin.start = 0
+    for holder in ((window,), [window], {"w": window}):
+        assert copy.deepcopy(holder) == holder
+        assert pickle.loads(pickle.dumps(holder)) == holder
+
+
+def test_a_dataclass_holding_a_window_cannot_go_through_asdict() -> None:
+    """Out of scope (LOW-1): `dataclasses.asdict` rebuilds a tuple subclass as
+    type(obj)(converted items), and a window's items would be dicts, not bars of a
+    series, so no window can be made of them. Pinned so a change is seen; nothing in
+    src keeps a window in a journal or readout dataclass."""
+
+    @dataclass(frozen=True)
+    class Holder:
+        bars: tuple[Bar, ...]
+
+    window = BarSeries(random_bars(23, 40), 1, "bars").window(3, 30)
+    with pytest.raises(TypeError):
+        asdict(Holder(window))
+    assert asdict(Holder(tuple(window)))["bars"][0]["ts"] == window[0].ts

@@ -122,6 +122,19 @@ class BarWindow(tuple[Bar, ...]):
     def __delattr__(self, name: str) -> None:
         raise AttributeError(f"a BarWindow is read-only: cannot delete {name!r}")
 
+    def __reduce__(self) -> tuple[type[BarWindow], tuple[BarSeries, int, int]]:
+        """Copy, deep-copy and pickle remake the window from its series and bounds
+        (a tuple subclass is otherwise remade from its items alone, which `__new__`
+        refuses). `dataclasses.asdict` is not covered: it remakes a tuple subclass
+        from its converted items (dicts), which no window can hold.
+
+        Cost: deep-copying or pickling a window copies its WHOLE series, not just the
+        window's bars: a small window of a long series pickles to orders of magnitude
+        more than `tuple(window)` (measured in the PR #55 review; figures in the BH-11
+        row of docs/decisions-pending.md). Store `tuple(window)` in journals, readouts
+        and anything else that is copied or saved."""
+        return (BarWindow, (self.series, self.start, self.end))
+
     @property
     def end(self) -> int:
         """One past the window's last bar, as an index into the series."""
