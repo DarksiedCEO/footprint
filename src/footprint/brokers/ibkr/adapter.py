@@ -322,9 +322,19 @@ class IbkrBroker:
             # Extra copies share their order id at IBKR, and a hand-placed order may
             # not be ours to cancel by id: only a broker-wide cancel reaches them. It
             # would also cancel orders on anything else in the account, so it is not
-            # sent while any are open: Andre cancels by hand instead.
+            # sent while any are open: Andre cancels by hand instead. The open orders
+            # are listed afresh first (one placed since the last listing may be unseen).
+            listed = self._audit(order_id)
             with self._cv:
+                self._require_ready()
                 outside = len(self._outside_orders)
+            if not listed:
+                self._alarm(
+                    f"CANCEL BY HAND: {order_id} needs a broker-wide cancel, but IBKR's "
+                    "open orders could not be listed afresh to check what else it would reach"
+                )
+                with self._cv:
+                    return self._status(order_id)
             if outside:
                 self._alarm(
                     f"CANCEL BY HAND: {order_id} needs a broker-wide cancel, but "
@@ -333,7 +343,12 @@ class IbkrBroker:
                 with self._cv:
                     return self._status(order_id)
             self._alarm(f"broker-wide cancel to reach {order_id}")
-            self._gw.global_cancel()
+            try:
+                self._gw.global_cancel()
+            except PermissionError as exc:  # it would reach orders that are not ours
+                self._alarm(f"CANCEL BY HAND: {order_id} needs a broker-wide cancel: {exc}")
+                with self._cv:
+                    return self._status(order_id)
             with self._cv:
                 self._cv.wait_for(lambda: not self._is_live(order_id), self._timeout)
                 return self._status(order_id)
@@ -417,6 +432,18 @@ class IbkrBroker:
                 ]
             return listed
 
+    @property
+    def ready(self) -> bool:
+        """Connected and resynced: calls will be answered."""
+        with self._cv:
+            return self._connected and self._ready
+
+    @property
+    def outside_open_orders(self) -> int:
+        """Live orders on anything outside the system's scope (seen at the last resync)."""
+        with self._cv:
+            return len(self._outside_orders)
+
     # --- IbEvents: called by the gateway binding, on its own thread --------------------
 
     def on_connection(self, state: Connection, next_valid_id: int | None = None) -> None:
@@ -464,8 +491,13 @@ class IbkrBroker:
                 return
             if self._listing is not None:
                 self._listing.listed.add(perm_id)
-            order_id = order_ref or self._order_of_ib.get(ib_id) or f"ib-{perm_id}"
-            if order_ref:
+            # An order of another client (ib_id 0) is never matched to ours by its
+            # orderRef or id: it is listed as foreign.
+            mine = ib_id > 0
+            order_id = (
+                (order_ref if mine else "") or self._order_of_ib.get(ib_id) or f"ib-{perm_id}"
+            )
+            if order_ref and ib_id > 0:  # 0: another client's order, not ours by id
                 self._ids.setdefault(order_ref, ib_id)
                 self._order_of_ib[ib_id] = order_ref
             order = self._rebuild(
@@ -812,13 +844,13 @@ class IbkrBroker:
             self._bump(copy.ib_id)
         return alarms
 
-    def _audit(self, order_id: str) -> None:
-        """Ask IBKR for every open order, and settle ours it no longer lists. Called
-        without the lock."""
+    def _audit(self, order_id: str) -> bool:
+        """Ask IBKR for every open order, and settle ours it no longer lists. True if
+        the listing completed. Called without the lock."""
         with self._cv:
             self._cv.wait_for(lambda: self._listing is None, self._timeout)
             if self._listing is not None or not self._ready:
-                return
+                return False
             listing = _Listing({c.perm_id for c in self._copies.values() if c.live}, False)
             self._listing = listing
             self._ask("orders")
@@ -828,6 +860,7 @@ class IbkrBroker:
             self._cv.wait_for(lambda: listing.done or not self._connected, self._timeout)
             if self._listing is listing:
                 self._listing = None  # no answer: the next audit asks again
+            return listing.done
 
     def _rebuild(
         self,

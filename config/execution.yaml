@@ -47,3 +47,11 @@ ibkr:
                               #   disagreeing this long is alarmed and resynced (meanwhile no
                               #   position is reported at all); a resync not complete after
                               #   this long is alarmed
+  reconnect_seconds: 15       # DEFAULT: wait between attempts to reach IB Gateway after
+                              #   the connection drops (each attempt is followed by a full
+                              #   resync before anything is sent)
+  option_security_type: FOP   # IBKR's security type for the instrument's options; the
+                              #   system sees nothing else in the account
+  require_paper: true         # SAFETY: refuse to connect unless the account is a paper
+                              #   account. Changing this to false is going live: Andre only
+  paper_account_prefix: DU    # IBKR paper account ids begin with this
