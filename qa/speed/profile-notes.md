@@ -75,7 +75,8 @@ on the src of 5d2b0ca): of the 251 play days (2018-01-02, also journalled, exclu
 sessions; 75 were RULES stand-asides (opening efficiency neither trend nor chop); 54
 CHOP; **28 TREND with entries allowed**. On those 28 TREND days every one of the 10,500
 decisions at or after 10:00 ET was blocked by the entry gates (first failing gate:
-trend direction 6,405, momentum 3,912); only 62 failed a single gate (53 momentum,
+trend direction 6,405, momentum 3,912; other 183: before_close_lead 140, levels_room 18,
+zero_day_clear 16, confirmer_score 9); only 33 failed a single gate (24 momentum,
 9 confirmer). So the system behaved as built; the causes are the PC-7 data blackouts,
 the play caller's rules and CHOP, then the momentum and confirmer gates on TREND days.
 

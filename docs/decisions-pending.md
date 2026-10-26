@@ -1579,7 +1579,8 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   of 251 play days, 94 PC-7 missing-data stand-asides caused by 6 bad history days, 75
   RULES (opening neither trend nor chop), 54 CHOP, 28 TREND; on the 28 TREND days all
   10,500 decisions after 10:00 ET were blocked by the entry gates (first failing: trend
-  direction 6,405, momentum 3,912; only 62 single-gate near misses: 53 momentum, 9
+  direction 6,405, momentum 3,912; other 183: before_close_lead 140, levels_room 18,
+  zero_day_clear 16, confirmer_score 9; only 33 failed a single gate: 24 momentum, 9
   confirmer). PC-7 thus blacks out 37% of 2017: worth deciding before a 2017-2024 run.
   Copying or pickling a `BarWindow` copies its whole series (review L-2, measured: a
   300-bar window of a 50,000-bar series pickles to 4.4 MB against 25 KB for
