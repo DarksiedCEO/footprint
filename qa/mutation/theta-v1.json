@@ -1,0 +1,618 @@
+{
+ "groups": {
+  "theta": [
+   "tests/agents/test_theta.py"
+  ],
+  "iv": [
+   "tests/test_implied_vol.py"
+  ],
+  "expiry": [
+   "tests/agents/test_theta.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "pipeline": [
+   "tests/decision/test_pipeline_theta.py",
+   "tests/decision/test_console_pipeline.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "if is_american_expiry(quote.expiry, self._instrument):",
+   "if False:",
+   "American expiry not refused"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "if left <= hold:",
+   "if left < hold:",
+   "expiry exactly at the end of the hold accepted"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "if left <= hold:",
+   "if left <= timedelta(0):",
+   "expiry within the hold accepted"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "_YEAR = timedelta(days=365)",
+   "_YEAR = timedelta(days=360)",
+   "wrong year length"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "years = left / _YEAR",
+   "years = left / _YEAR / 2",
+   "years mis-scaled"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "right = Right76.CALL if quote.right is Right.CALL else Right76.PUT",
+   "right = Right76.CALL",
+   "puts valued as calls"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "forward = float(underlying_price)",
+   "forward = float(quote.strike)",
+   "strike used as the forward"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "rate = float(s.rate)",
+   "rate = 0.0",
+   "configured rate ignored"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "price=float(quote.mid),",
+   "price=float(quote.ask),",
+   "ask used instead of mid"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "low=float(s.min_implied_vol),",
+   "low=float(s.min_implied_vol) / 2,",
+   "lower vol bound loosened"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "high=float(s.max_implied_vol),",
+   "high=float(s.max_implied_vol) * 2,",
+   "upper vol bound loosened"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "bound = s.min_implied_vol if exc.side == \"below\" else s.max_implied_vol",
+   "bound = s.max_implied_vol if exc.side == \"below\" else s.min_implied_vol",
+   "wrong bound named"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "        except ValueError as exc:  # inputs the model cannot take: fail closed\n",
+   "        except ZeroDivisionError as exc:  # inputs the model cannot take: fail closed\n",
+   "unvaluable inputs raise"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = value(years) - value(years - hold / _YEAR / 2)",
+   "half the hold charged"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = value(years + hold / _YEAR) - value(years)",
+   "decay measured backwards in time"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_dollars = Decimal(str(decay_points)) * self._instrument.point_value * plan.contracts",
+   "decay_dollars = Decimal(str(decay_points)) * self._instrument.point_value",
+   "contracts ignored"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_dollars = Decimal(str(decay_points)) * self._instrument.point_value * plan.contracts",
+   "decay_dollars = Decimal(str(decay_points)) * plan.contracts",
+   "point value ignored"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "over = decay_dollars > self._budget",
+   "over = decay_dollars >= self._budget",
+   "decay at the budget refused"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "over = decay_dollars > self._budget",
+   "over = decay_dollars > self._budget * 2",
+   "budget doubled"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "self._budget = risk.profit_target * settings.max_decay_pct_of_target / _PERCENT_MAX",
+   "self._budget = risk.profit_target * settings.max_decay_pct_of_target",
+   "percent not divided"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "            not over,\n",
+   "            True,\n",
+   "over-budget allowed"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "contract_id=quote.contract_id,",
+   "contract_id=\"?\",",
+   "contract id not recorded"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "contracts=plan.contracts,",
+   "contracts=1,",
+   "contracts not recorded"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "require_utc(as_of, \"as_of\")",
+   "pass",
+   "time not checked for UTC"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "implied_vol=vol,",
+   "implied_vol=None,",
+   "vol not recorded"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "years=years,\n                implied_vol",
+   "years=None,\n                implied_vol",
+   "years not recorded"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "expires_at=expires_at,\n                years=years,\n                implied_vol",
+   "expires_at=None,\n                years=years,\n                implied_vol",
+   "expiry not recorded"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if quoted <= 0:",
+   "if quoted < 0:",
+   "zero price accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if lo <= 0 or hi <= lo:",
+   "if lo < 0 or hi <= lo:",
+   "zero low bound accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if lo <= 0 or hi <= lo:",
+   "if lo <= 0 or hi < lo:",
+   "equal bounds accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if t <= 0:",
+   "if t < 0:",
+   "zero time accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if quoted < value(lo):",
+   "if False:",
+   "below-range price not refused"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if quoted > value(hi):",
+   "if False:",
+   "above-range price not refused"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "raise ImpliedVolOutOfRange(\"below\", lo, quoted)",
+   "raise ImpliedVolOutOfRange(\"above\", lo, quoted)",
+   "below reported as above"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if value(middle) < quoted:",
+   "if value(middle) > quoted:",
+   "bisection goes the wrong way"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if not math.isfinite(number):",
+   "if math.isnan(number):",
+   "infinite input accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "if isinstance(value, bool) or not isinstance(value, int | float):",
+   "if not isinstance(value, int | float):",
+   "bool accepted"
+  ],
+  [
+   "iv",
+   "src/footprint/core/implied_vol.py",
+   "middle = fmean((lo, hi))",
+   "middle = fmean((lo, hi, hi))",
+   "bisection off-centre"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "if expiry in rules.early_close_dates:",
+   "if False:",
+   "early close ignored"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "stop = min(stop, rules.early_close_time)",
+   "stop = rules.early_close_time",
+   "early close can make expiry later"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(instrument.prime_session.timezone)).astimezone(UTC)",
+   "rule timezone ignored (R8)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone)).astimezone(UTC)",
+   "moment = datetime.combine(expiry, stop, ZoneInfo(rules.timezone))",
+   "moment not converted to UTC (R9)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "if halt is not None:",
+   "if False:",
+   "futures halt does not cap expiry (R2-2)"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "moment = min(moment, datetime.combine(expiry, halt, zone).astimezone(UTC))",
+   "moment = datetime.combine(expiry, halt, zone).astimezone(UTC)",
+   "futures halt can make expiry later"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "zone = ZoneInfo(instrument.prime_session.timezone)\n        moment",
+   "zone = ZoneInfo(rules.timezone)\n        moment",
+   "halt read in the wrong timezone"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "if expiry.month not in rules.american_months or expiry.weekday() != rules.american_weekday:",
+   "if expiry.weekday() != rules.american_weekday:",
+   "months ignored"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "if expiry.month not in rules.american_months or expiry.weekday() != rules.american_weekday:",
+   "if expiry.month not in rules.american_months:",
+   "weekday ignored"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "week = (expiry.day - 1) // _DAYS_PER_WEEK + 1",
+   "week = expiry.day // _DAYS_PER_WEEK + 1",
+   "week counted off by one day"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "return week == rules.american_week_of_month",
+   "return week >= rules.american_week_of_month",
+   "later weeks counted"
+  ],
+  [
+   "expiry",
+   "src/footprint/core/expiry.py",
+   "    if not isinstance(expiry, date) or isinstance(expiry, datetime):\n        raise TypeError(f\"expiry must be a date, got {expiry!r}\")\n    rules = instrument.option_expiry\n    stop",
+   "    if not isinstance(expiry, date):\n        raise TypeError(f\"expiry must be a date, got {expiry!r}\")\n    rules = instrument.option_expiry\n    stop",
+   "datetime accepted as an expiry"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if theta.max_implied_vol <= theta.min_implied_vol:",
+   "if theta.max_implied_vol < theta.min_implied_vol:",
+   "equal vol bounds accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if theta.max_decay_pct_of_target > _PERCENT_MAX:",
+   "if theta.max_decay_pct_of_target >= _PERCENT_MAX:",
+   "100% budget refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if theta.max_decay_pct_of_target > _PERCENT_MAX:",
+   "if False:",
+   "over 100% budget accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if not theta.rate.is_finite():",
+   "if False:",
+   "infinite rate accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "planned_hold_minutes=_integer(th, \"planned_hold_minutes\", th_where, minimum=1),",
+   "planned_hold_minutes=_integer(th, \"planned_hold_minutes\", th_where, minimum=0),",
+   "zero hold accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if isinstance(rate, bool) or not isinstance(rate, int | float):",
+   "if isinstance(rate, str):",
+   "bool rate accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if isinstance(month, bool) or not isinstance(month, int) or month not in _MONTHS:",
+   "if not isinstance(month, int):",
+   "month range unchecked"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if len(set(months)) != len(months):",
+   "if False:",
+   "duplicate months accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if week > _MAX_WEEK_OF_MONTH:",
+   "if week >= _MAX_WEEK_OF_MONTH:",
+   "week five refused"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if week > _MAX_WEEK_OF_MONTH:",
+   "if False:",
+   "week six accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "week = _integer(body, \"american_week_of_month\", where, minimum=1)",
+   "week = _integer(body, \"american_week_of_month\", where, minimum=0)",
+   "week zero accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "american_weekday=_WEEKDAYS.index(weekday),",
+   "american_weekday=_WEEKDAYS.index(weekday) + 1,",
+   "weekday shifted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if not isinstance(weekday, str) or weekday not in _WEEKDAYS:",
+   "if not isinstance(weekday, str):",
+   "bad weekday name accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if not isinstance(months, list) or not months:",
+   "if not isinstance(months, list):",
+   "empty month list accepted"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if not theta.allowed:\n            return stop(verdict=verdict, contract=choice, plan=plan, theta=theta)",
+   "        if False:\n            return stop(verdict=verdict, contract=choice, plan=plan, theta=theta)",
+   "theta veto ignored"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if not self.theta.allowed:\n            raise PermissionError",
+   "        if False:\n            raise PermissionError",
+   "approval with a vetoed theta"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if (self.theta.contract_id, self.theta.contracts) != (",
+   "        if False and (self.theta.contract_id, self.theta.contracts) != (",
+   "approval with another plan's theta"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = abs(value(years) - value(years - hold / _YEAR))",
+   "negative decay made positive (R6)"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "decay_points = value(years) - value(years - hold / _YEAR)",
+   "decay_points = max(0.0, value(years) - value(years - hold / _YEAR))",
+   "negative decay floored (R7)"
+  ],
+  [
+   "theta",
+   "src/footprint/agents/theta.py",
+   "                f\"planned {s.planned_hold_minutes}-minute hold\",\n                expires_at=expires_at,",
+   "                f\"planned {s.planned_hold_minutes}-minute hold\",",
+   "within-hold veto drops expires_at (R12)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if parsed.second or parsed.microsecond or parsed.tzinfo is not None:\n        raise ConfigError(f\"{where}: {key} must be HH:MM with no seconds, got {text!r}\")\n    return parsed",
+   "    if parsed.second or parsed.microsecond:\n        raise ConfigError(f\"{where}: {key} must be HH:MM with no seconds, got {text!r}\")\n    return parsed",
+   "clock with a UTC offset accepted (R10)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        ZoneInfo(zone)\n    except (ZoneInfoNotFoundError, ValueError) as exc:",
+   "        ZoneInfo(zone)\n    except ZoneInfoNotFoundError as exc:",
+   "malformed zone escapes as ValueError (R11)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if early >= normal:",
+   "if early > normal:",
+   "early close at the normal time accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        \"option_expiry early_close_dates\": profile.option_expiry.early_close_dates,\n",
+   "",
+   "weekend early-close date accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "if not profile.calendar_from <= day <= profile.calendar_through:",
+   "if False:",
+   "early-close date outside the calendar accepted (R2-1)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if missing:\n        day, name = missing[0]\n        raise ConfigError(\n            f\"{where}: option_expiry: early_close_dates lacks",
+   "    if False:\n        day, name = missing[0]\n        raise ConfigError(\n            f\"{where}: option_expiry: early_close_dates lacks",
+   "incomplete early-close list accepted (R2-1)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "early_rules = [rule for rule in profile.holiday_rules if rule.kind == early_kind]",
+   "early_rules = [rule for rule in profile.holiday_rules if rule.kind != early_kind]",
+   "closure rules checked instead"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    _check_option_early_closes(profile, where)\n",
+   "",
+   "option early-close check never runs"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "        if (self.theta.contract_id, self.theta.contracts) != (\n            self.plan.choice.quote.contract_id,\n            self.plan.contracts,\n        ):",
+   "        if self.theta.contract_id != self.plan.choice.quote.contract_id:",
+   "size half of the cross-check removed (R15)"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "if self.theta is not None and not self.theta.allowed:",
+   "if self.theta is not None:",
+   "allowed theta listed as a reason"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "theta = self._theta.assess(plan, chain.underlying_price, as_of)",
+   "theta = self._theta.assess(plan, plan.choice.quote.strike, as_of)",
+   "strike passed as the underlying"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            return stop(\n                verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk, theta=theta\n            )",
+   "            return stop(verdict=verdict, contract=choice, plan=plan, entry=entry, risk=risk)",
+   "theta dropped on a risk veto"
+  ],
+  [
+   "pipeline",
+   "src/footprint/decision/pipeline.py",
+   "            approved=approved,\n            theta=theta,\n        )",
+   "            approved=approved,\n        )",
+   "theta dropped on a fired decision"
+  ],
+  [
+   "pipeline",
+   "src/footprint/execution/journal/josephine.py",
+   "                \"theta\": decision.theta,\n",
+   "",
+   "journal drops theta"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "        set(profile.holidays),  # no_trade_days do not count: the stock market still opens\n",
+   "        {*profile.holidays, *profile.no_trade_days},\n",
+   "no-trade day excuses an option early close (R3-1)"
+  ]
+ ]
+}
