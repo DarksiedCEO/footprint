@@ -290,6 +290,20 @@
    "regime: start times from the series' start, not the window's"
   ],
   [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "            if len(self._closed_at) >= _CLOSED_MEMO:",
+   "            if False:",
+   "levels: the closed-minute memo never starts over (memory only: argued equivalent)"
+  ],
+  [
+   "windows",
+   "src/footprint/decision/pipeline.py",
+   "    since = datetime.combine(today, time.min, zone).astimezone(UTC) - timedelta(days=1)",
+   "    since = datetime.combine(today, time.min, zone).astimezone(UTC)",
+   "range days: no day of margin before today's midnight (argued equivalent)"
+  ],
+  [
    "engine",
    "src/footprint/backtest/engine.py",
    "        return self._series.window(0, bisect_right(self._starts, now - _MINUTE))",

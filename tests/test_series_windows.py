@@ -380,3 +380,153 @@ def test_the_zero_day_range_where_local_dates_go_back_is_measured_as_for_a_list(
         window = series.window(rng.randrange(end), end)
         cutoff = time(rng.randrange(24), rng.randrange(60))
         assert agent._window_spans(window, cutoff) == agent._spans(list(window), cutoff)
+
+
+def test_the_zero_day_range_skips_days_that_do_not_count_on_a_window_too(
+    profiles: Profiles,
+) -> None:
+    """Bars every minute through a weekend and a holiday (as a holiday's stub session
+    has bars in the data): those days' ranges never count, on a window as for a list."""
+    bars = random_bars(14, 8000)
+    start = datetime(2024, 3, 28, 7, 0, tzinfo=UTC)  # Thursday; Good Friday is a holiday
+    series = BarSeries([replace(b, ts=start + MINUTE * i) for i, b in enumerate(bars)], 1, "b")
+    agent = ZeroDayAgent(profiles.strategy.zeroday, profiles.strategy.data, profiles.instrument)
+    whole = series.window(0, len(series.bars))
+    for cutoff in (time(5, 0), time(9, 30), time(13, 59)):
+        got = agent._window_spans(whole, cutoff)
+        assert got == agent._spans(list(whole), cutoff)
+        assert date(2024, 3, 29) not in got  # the holiday
+        assert date(2024, 3, 30) not in got  # Saturday
+        assert date(2024, 4, 1) in got  # Monday counts
+
+
+def test_the_zero_day_range_on_a_day_whose_clock_goes_back_inside_the_cutoff_hour(
+    profiles: Profiles,
+) -> None:
+    """The autumn change repeats 01:00-01:59: with a cutoff inside that hour the bars
+    before it are not a prefix of the day, so the whole day is measured from its bars."""
+    bars = random_bars(15, 4000)
+    start = datetime(2026, 10, 31, 20, 0, tzinfo=UTC)
+    series = BarSeries([replace(b, ts=start + MINUTE * i) for i, b in enumerate(bars)], 1, "b")
+    prime = replace(profiles.instrument.prime_session, start=time(0, 0))
+    instrument = replace(
+        profiles.instrument,
+        prime_session=prime,
+        trading_days=frozenset(range(7)),
+        holidays=frozenset(),
+        no_trade_days=frozenset(),
+    )
+    agent = ZeroDayAgent(profiles.strategy.zeroday, profiles.strategy.data, instrument)
+    whole = series.window(0, len(series.bars))
+    for minute in range(0, 60, 3):
+        cutoff = time(1, minute)
+        got = agent._window_spans(whole, cutoff)
+        assert got == agent._spans(list(whole), cutoff)
+        assert date(2026, 11, 1) in got
+
+
+def _starting_or_ending_inside_the_repeat(at: str) -> BarSeries:
+    """St. John's, 2010-11-07: 00:00 of the 7th (02:30 UTC), then the 6th's 23:01 again.
+    A series that starts at that minute (the 7th before the 6th) or ends inside the
+    repeated hour (the 6th after the 7th): the days' spans are out of order."""
+    bars = random_bars(16, 600)
+    if at == "start":
+        first = datetime(2010, 11, 7, 2, 30, tzinfo=UTC)
+    else:
+        first = datetime(2010, 11, 7, 2, 45, tzinfo=UTC) - MINUTE * (len(bars) - 1)
+    return BarSeries([replace(b, ts=first + MINUTE * i) for i, b in enumerate(bars)], 1, "b")
+
+
+@pytest.mark.parametrize("at", ["start", "end"])
+def test_days_out_of_order_in_a_series_are_grouped_as_for_a_list(
+    profiles: Profiles, at: str
+) -> None:
+    series = _starting_or_ending_inside_the_repeat(at)
+    zone = "America/St_Johns"
+    session = Session(start=time(0, 0), end=time(23, 59), timezone=zone)
+    prime = replace(profiles.instrument.prime_session, start=time(0, 0), timezone=zone)
+    instrument = replace(
+        profiles.instrument,
+        prime_session=prime,
+        trading_days=frozenset(range(7)),
+        holidays=frozenset(),
+        no_trade_days=frozenset(),
+    )
+    agent = ZeroDayAgent(profiles.strategy.zeroday, profiles.strategy.data, instrument)
+    n = len(series.bars)
+    for lo, hi in ((0, 1), (0, 2), (0, n), (n - 1, n), (n - 20, n), (1, n), (0, n - 1)):
+        window = series.window(lo, hi)
+        as_of = window[-1].ts + MINUTE
+        assert session_days(window, session, as_of) == session_days(list(window), session, as_of)
+        for cutoff in (time(0, 30), time(23, 30), time(23, 59)):
+            assert agent._window_spans(window, cutoff) == agent._spans(list(window), cutoff)
+
+
+def test_one_series_read_with_two_prime_sessions_keeps_each_ones_days(
+    profiles: Profiles,
+) -> None:
+    """The per-series days are kept per prime timezone and start."""
+    bars = _sessions(profiles, date(2024, 4, 1), 4, 17)
+    series = BarSeries(bars, 1, "bars")
+    s, inst = profiles.strategy, profiles.instrument
+    agents = [
+        ZeroDayAgent(s.zeroday, s.data, inst),
+        ZeroDayAgent(
+            s.zeroday,
+            s.data,
+            replace(inst, prime_session=replace(inst.prime_session, start=time(8, 0))),
+        ),
+        ZeroDayAgent(
+            s.zeroday,
+            s.data,
+            replace(inst, prime_session=replace(inst.prime_session, timezone="Europe/London")),
+        ),
+    ]
+    whole = series.window(0, len(bars))
+    for _ in range(2):
+        for agent in agents:
+            for cutoff in (time(9, 0), time(12, 30)):
+                assert agent._window_spans(whole, cutoff) == agent._spans(list(whole), cutoff)
+
+
+def test_the_levels_closed_minute_memo_answers_as_session_at(
+    profiles: Profiles, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every minute across a prime close, a closed hour, a weekend and an early close,
+    asked in order and again, also with a memo small enough to start over."""
+    from footprint.agents import levels as levels_module
+    from footprint.core.calendar import SessionKind, session_at
+
+    s = profiles.strategy
+    start = datetime(2024, 11, 27, 20, 0, tzinfo=UTC)  # into Thanksgiving and its half day
+    moments = [start + MINUTE * i for i in range(4 * 24 * 60)]
+    expected = [session_at(m, profiles.instrument) is SessionKind.CLOSED for m in moments]
+    for cap in (100_000, 7):
+        monkeypatch.setattr(levels_module, "_CLOSED_MEMO", cap)
+        reader = LevelsReader(s.levels, s.trend, s.data, profiles.instrument)
+        for _ in range(2):
+            assert [reader._closed(m) for m in moments] == expected
+    assert any(expected)
+    assert not all(expected)
+
+
+def test_the_levels_snapshot_on_a_window_ending_inside_a_trend_bucket(
+    profiles: Profiles,
+) -> None:
+    """A window that ends a minute or two before a trend bucket closes, read when the
+    bucket has closed: the minutes after the window are not present."""
+    bars = _sessions(profiles, date(2024, 4, 1), 6, 18)
+    series = BarSeries(bars, 1, "bars")
+    s = profiles.strategy
+    reader = LevelsReader(s.levels, s.trend, s.data, profiles.instrument)
+    frame = s.trend.timeframe_minutes
+    checked = 0
+    for end in range(len(bars) - 600, len(bars) - 300):
+        closes = bars[end].ts + MINUTE  # the minute after the window's next bar
+        if (closes - datetime(1970, 1, 1, tzinfo=UTC)) % (MINUTE * frame):
+            continue  # the window's next bar is not a bucket's last minute
+        window = series.window(max(0, end - 43_200), end - 1)  # two minutes short
+        got = reader.snapshot(window, closes)
+        assert got == reader.snapshot(list(window), closes)
+        checked += 1
+    assert checked
