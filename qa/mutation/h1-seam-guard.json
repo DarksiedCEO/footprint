@@ -1,0 +1,114 @@
+{
+ "groups": {
+  "t": [
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "                len(node.args) != 1 or isinstance(node.args[0], ast.Starred) or node.keywords\n",
+   "                len(node.args) != 1 or node.keywords\n",
+   "H1S-1: starred Pipeline args unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "    if isinstance(node, ast.Attribute) and node.attr in _LIVE_BUILT:\n",
+   "    if False:\n",
+   "H1S-2: Pipeline/Manager through a module unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            if _BACKTEST_MODULE.fullmatch(node.value):\n",
+   "            if False:\n",
+   "H1S-3: module path in a string unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            if node.value in (\"exit_rule\", \"_exit_rule\"):\n",
+   "            if node.value in (\"exit_rule\",):\n",
+   "H1S-4: '_exit_rule' by name unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            if built is not None and any(k.arg is None for k in node.keywords):\n",
+   "            if False:\n",
+   "H1S-5: spread keywords unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            and id(node) not in in_annotation\n",
+   "",
+   "H1S-6: annotations flagged"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            and id(node) not in called\n",
+   "",
+   "H1S-7: plain calls flagged as handed on"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found.append(f\"{named} handed on instead of built\")\n",
+   "            pass\n",
+   "H1S-8: class handed on unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if isinstance(node, ast.Attribute) and node.attr == \"_exit_rule\" and not owns_exit_rule:\n",
+   "        if isinstance(node, ast.Attribute) and node.attr == \"_exit_rule\":\n",
+   "H1S-9: trade management's own rule flagged"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if isinstance(node, ast.Attribute) and node.attr == \"_exit_rule\" and not owns_exit_rule:\n",
+   "        if False:\n",
+   "H1S-10: rule set by attribute unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if isinstance(node, ast.AnnAssign):\n",
+   "        if False:\n",
+   "H1S-11: annotated names flagged"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns:\n",
+   "        if False:\n",
+   "H1S-12: return annotations flagged"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "_BACKTEST_MODULE = re.compile(r\"footprint\\.backtest(\\..*)?\")\n",
+   "_BACKTEST_MODULE = re.compile(r\"footprint\\.backtest\\..*\")\n",
+   "H1S-13: the bare package name unseen"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            assert set(found) == {\"touches _exit_rule\"}, (path, found)\n",
+   "            pass\n",
+   "H1S-14: trade management may hold anything else"
+  ],
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "        if path == malik:  # trade management keeps the rule it is given, and only it\n",
+   "        if path.name == \"malik.py\" or path.name == \"app.py\":\n",
+   "H1S-15: a second module may hold the rule"
+  ]
+ ]
+}

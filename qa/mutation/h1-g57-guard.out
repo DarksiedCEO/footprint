@@ -1,0 +1,7 @@
+source: 1679c398cdf5132ec29652781c5fddc90366fafe tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] tests/backtest/test_rules_seam.py: G57-1: plain imports not read
+  2 KILLED   [t] tests/backtest/test_rules_seam.py: G57-1: plain imports read by prefix (the old check)
+  3 KILLED   [t] tests/backtest/test_rules_seam.py: G57-1: plain imports matched at the start only
+  4 KILLED   [t] tests/backtest/test_rules_seam.py: G57-1: no imported name read
+4 mutants, 0 survived or errored

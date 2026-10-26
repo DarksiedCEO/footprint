@@ -1,0 +1,10 @@
+source: 767f745e37433a8f8363671b1fafbdde2dbf0891 tree-dirty: 0 files
+baseline [seam]: passed
+  1 KILLED   [seam] src/footprint/decision/pipeline.py: Q50-1: the pipeline ignores the trigger
+  2 KILLED   [seam] src/footprint/decision/pipeline.py: Q50-2: no default momentum reader
+  3 KILLED   [seam] src/footprint/backtest/engine.py: Q50-3: the engine drops the trigger
+  4 KILLED   [seam] src/footprint/backtest/__main__.py: Q50-4: --entry parsed but not used
+  5 KILLED   [seam] src/footprint/backtest/__main__.py: Q50-5: the readout does not name the entry rule
+  6 KILLED   [seam] src/footprint/backtest/__main__.py: Q50-6: the default run's readout gains an entry-rule line
+  7 KILLED   [seam] src/footprint/backtest/__main__.py: Q50-7: an unknown rule name is not refused by the parser
+7 mutants, 0 survived or errored

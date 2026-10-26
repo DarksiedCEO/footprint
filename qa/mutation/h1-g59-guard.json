@@ -1,0 +1,16 @@
+{
+ "groups": {
+  "t": [
+   "tests/backtest/test_rules_seam.py"
+  ]
+ },
+ "mutants": [
+  [
+   "t",
+   "tests/backtest/test_rules_seam.py",
+   "            found += [f\"imports {a.name}\" for a in node.names if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "            found += [f\"imports {a.name}\" for a in node.names[-1:] if _BACKTEST_MODULE.fullmatch(a.name)]\n",
+   "G59-1: only the last name of a plain import read"
+  ]
+ ]
+}
