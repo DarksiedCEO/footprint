@@ -1510,3 +1510,51 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   calendar tests written for the 2026-27 calendar run on that slice of the shipped file
   (a fixture cuts it; several option-expiry refusal tests would otherwise have passed
   for the wrong reason, on a missing 2010 date).
+
+## Andre's sign-offs of 2026-10-25 (merge and build completion)
+
+Records: PR #21 comments 6406089783 (18:18 PT) and 6406972973 (19:36 PT); project doc
+claude/decision-2026-10-25-merge-signoff.md.
+
+- **18:18 PT, the 15 merge-blocking items** ("Let's get the 15 things out of the way then.
+  You have my thumbs up on that"). Signed as Claude recommended:
+  - FREEZE-21: waived; the CONDITIONAL reviews on #21 are sufficient for #1 to #41.
+  - L1 and L2: signed as built.
+  - GV-2: (c), keep the fixed delta of 0.45.
+  - GV-3/L3: deferred to GV-4.
+  - GV-4: (b), keep the model and its price-band guard.
+  - GV-5: (a), keep the delta floor at 0.45.
+  - PC-2: 95 days.
+  - PC-4: a 60 s window. M1 confirmed: a bar arriving inside the window is not a late
+    label.
+  - PC-6: accepted.
+  - PC-7: (a), alarm only.
+  - PC-ACK: no entries before 10:00 ET.
+  - M2: (b), $6,000.
+  - M3: (b), an absolute spread cap in points.
+  All 47 PRs were then merged into main (merge commits; #39 closed as superseded by #44).
+- **19:36 PT** ("YES To all"):
+  - D41: (b).
+  - BH-11: the backtest speed-up is approved.
+  - BH-14: the history backtest starts in 2017.
+  - BH-9: keep the roll-day block.
+- **Not signed by either:** every "before paper" and "before go-live" row stays open.
+
+### R3-A (integration-v1 review round 3, LOW): done
+
+- **The test gap.** The live runner's es.yaml refusal test could not show that the
+  profile is its only stop. The nq.yaml control stopped earlier, at "phone alarms are
+  not set up", so it never reached the stand-in broker.
+- **The fix.** The live runner's stand-in .env now carries six dummy alarm keys. They are
+  fake values in the right formats; nothing is sent, and every socket connect ends the
+  child.
+- **What the tests now show.** Under nq.yaml the live runner reaches the stand-in
+  (exit 97, "BROKER TOUCHED"). Under es.yaml it still refuses with "over stop_max"
+  before any connection. All four broker commands are now proven the same way.
+- **Test first.** Without the keys, the new control fails (1 failed, 14 passed); with
+  them it passes (15 passed).
+- **Evidence.** Mutation `qa/mutation/r3a-live-standin.json`. Test only: `src/` is
+  unchanged.
+- **Runbook.** `docs/live-paper-runbook.md` "Before the first run" items 7–8:
+  - no live IBKR login anywhere else while the bot runs (IBKR 10197, seen 2026-10-25);
+  - never hand-trade NQ options in the paper account.

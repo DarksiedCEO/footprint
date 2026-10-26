@@ -23,6 +23,22 @@ and a login that manages any non-paper account. There is no live switch to find.
    without one (`--no-blackouts`).
 6. Phone alarms (D20): all six keys for FULL alerting. Without them the program refuses
    to start unless you choose a degraded mode explicitly (see "Degraded alerting").
+7. **No live IBKR login anywhere else while the bot runs.** The paper login shares the
+   live account's market-data subscription. While the live username is signed in
+   somewhere else (IBKR Mobile, the IBKR website, TWS or a Gateway on another computer,
+   an app or connector linked to the live account), IBKR sends the paper login no
+   quotes: `IBKR 10197: No market data during competing live session`, often with
+   `IBKR 162: ... Trading TWS session is connected from a different IP address`. The bot
+   then has no prices and opens nothing (it fails closed and alarms), so a forgotten
+   login can quietly cost whole days. Watch the market somewhere other than IBKR (for
+   example thinkorswim). Fix: log out of the other session (closing an app is not
+   logging out), wait a few minutes, re-run `check --market-data`. Seen on 2026-10-25:
+   the check passed only after Andre's other live sessions were closed (which one was
+   the cause is not verified).
+8. **Never hand-trade NQ futures options in the paper account** while the bot runs. Any
+   NQ option position or order there is in the bot's scope (`system scope NQ FOP`), so a
+   position or order it did not place is a broker/ledger mismatch, which it reconciles
+   or halts on.
 
 ## Phone alarms (D20)
 

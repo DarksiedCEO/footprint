@@ -18,9 +18,11 @@ The commands that import IBKR's ibapi (the live runner, check, record_chain, his
 run in a child process with a stand-in ibapi whose every class, if ever built, ends the
 child with a marker (exit 97), with socket connects blocked the same way, and with a
 filled stand-in .env (a paper DU account, nothing real), so the profile is the only
-thing that can stop the es.yaml run. Under nq.yaml, check, record_chain and history do
-reach the stand-in (the harness is live); the live runner stops earlier, at its alarm
-channels, which this sandbox has no terminal for.
+thing that can stop the es.yaml run. The live runner's stand-in .env also carries six
+dummy alarm keys (fake values in the right format; nothing is sent, every socket connect
+ends the child), so it gets past its alarm set-up too. Under nq.yaml all four commands
+reach the stand-in (the harness is live), so under es.yaml the profile is the only stop
+(review R3-A).
 """
 
 from __future__ import annotations
@@ -140,12 +142,22 @@ def _stub_ibapi(root: Path) -> Path:
     return root
 
 
-def _env(tmp: Path) -> Path:
-    """A filled stand-in .env: a paper DU account id that is not a real one."""
+# Six alarm keys in the formats the live runner checks, none of them real (R3-A): with
+# them the runner gets past its alarm set-up, so only the profile can stop it first.
+_DUMMY_ALARMS = (
+    "TELEGRAM_BOT_TOKEN=1:abc\nTELEGRAM_CHAT_ID=1\n"
+    "TWILIO_ACCOUNT_SID=AC00000000000000000000000000000000\nTWILIO_AUTH_TOKEN=x\n"
+    "TWILIO_FROM_NUMBER=+15550100001\nALARM_PHONE_NUMBER=+15550100002\n"
+)
+
+
+def _env(tmp: Path, *, alarms: bool = False) -> Path:
+    """A filled stand-in .env: a paper DU account id that is not a real one, plus dummy
+    alarm keys when `alarms` is set (the live runner)."""
     path = tmp / ".env"
     path.write_text(
         "BROKER_HOST=127.0.0.1\nBROKER_PORT=4002\nBROKER_ACCOUNT_ID=DU0000000\n"
-        "BROKER_CLIENT_ID=0\n",
+        "BROKER_CLIENT_ID=0\n" + (_DUMMY_ALARMS if alarms else ""),
         encoding="utf-8",
     )
     return path
@@ -169,7 +181,8 @@ def _child(tmp: Path, module: str, argv: list[str]) -> subprocess.CompletedProce
 
 
 def _argv(module: str, tmp: Path, instrument: str) -> list[str]:
-    common = ["--config", str(CONFIG), "--instrument", instrument, "--env", str(_env(tmp))]
+    env = _env(tmp, alarms=module == LIVE)
+    common = ["--config", str(CONFIG), "--instrument", instrument, "--env", str(env)]
     if module == LIVE:
         return [*common, "--no-blackouts", "--state", str(tmp / "state")]
     if module == RECORD_CHAIN:
@@ -304,11 +317,12 @@ def test_with_nq_the_broker_commands_reach_the_stand_in_broker(tmp_path: Path, m
     assert REFUSAL not in done.stdout + done.stderr
 
 
-def test_with_nq_the_live_runner_never_shows_that_refusal(tmp_path: Path) -> None:
-    """The control: with nq.yaml the live runner gets past the profile. It then stops at
-    its alarm channels (the stand-in .env has none), never with the stop_max refusal."""
+def test_with_nq_the_live_runner_reaches_the_stand_in_broker(tmp_path: Path) -> None:
+    """The control (R3-A): with nq.yaml and the dummy alarm keys, the live runner gets past
+    the profile and its alarm set-up and reaches the stand-in. So the es.yaml live run
+    above stops at the profile alone, before any broker or alarm connection."""
     done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, NQ))
-    assert done.returncode == 0, done.stderr
-    assert TOUCHED not in done.stdout
+    assert done.returncode == _TOUCHED_EXIT, (done.stdout, done.stderr)
+    assert TOUCHED in done.stdout
     assert REFUSAL not in done.stdout + done.stderr
-    assert "phone alarms are not set up" in done.stderr
+    assert "phone alarms are not set up" not in done.stderr

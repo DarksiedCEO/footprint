@@ -1,0 +1,23 @@
+{
+ "groups": {
+  "es": [
+   "tests/test_es_profile_refused.py"
+  ]
+ },
+ "mutants": [
+  [
+   "es",
+   "src/footprint/live/__main__.py",
+   "        profiles = load_profiles(args.config, args.instrument)",
+   "        profiles = load_profiles(args.config, \"nq.yaml\")",
+   "R3A-1 live ignores --instrument (es.yaml would run as nq and reach the broker)"
+  ],
+  [
+   "es",
+   "src/footprint/live/__main__.py",
+   "        profiles = load_profiles(args.config, args.instrument)\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2",
+   "        profiles = load_profiles(args.config, args.instrument)\n    except ConfigError as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 0",
+   "R3A-2 live profile refusal exits 0 instead of 2"
+  ]
+ ]
+}
