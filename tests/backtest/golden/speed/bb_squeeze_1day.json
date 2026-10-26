@@ -1,0 +1,19 @@
+{
+  "hashes": {
+    "exit": "1",
+    "journal/decisions.jsonl": "737af5ae0c183dee3cbf9750ff666b7b92102b5f535f63cefd4cad43155fec04",
+    "journal/trades.jsonl": "43d708aa55f5edb82b9886f19241198ff7224f20169e97eea3d4b17b5bdb219d",
+    "ledger.json": "b18b8bb38bfeef022da70e1608518d4a13abb617dfaa271f6b0fd06235da7f67",
+    "readout.json": "eee06b9909fadd25bc8d96f94d501223bbc4d37dfe64484ef2f006df67dda592",
+    "readout.md": "239ca71940ef966f9e66bba7f53230264e1cd88edce6eb5517c128219370b2bd",
+    "stdout.txt": "5aed0818e2adae9cef09367929fd4e9acf434c2faa82325ed1a45216081e6715"
+  },
+  "made_on": "928ca71622b33a4e7489331b7b21da5f332b6262",
+  "scenario": "bb_squeeze_1day",
+  "summary": {
+    "decisions": 453,
+    "fired": 3,
+    "plays": 0,
+    "trades": 1
+  }
+}

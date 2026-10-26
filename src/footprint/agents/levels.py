@@ -17,6 +17,7 @@ docs/decisions-pending.md.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -38,10 +39,11 @@ from footprint.core.config import (
     TrendSettings,
 )
 from footprint.core.models import Bar, Direction, Read, Score, require_utc
-from footprint.core.series import require_series
+from footprint.core.series import BarWindow, require_series
 from footprint.data.aggregate import completed, resample
 
 _MINUTE = timedelta(minutes=1)
+_CLOSED_MEMO = 100_000  # moments remembered by _closed before it starts over (memory only)
 
 
 def points_for_target(
@@ -98,6 +100,7 @@ class LevelsReader:
         self._trend = trend
         self._data = data
         self._instrument = instrument
+        self._closed_at: dict[datetime, bool] = {}
 
     @property
     def agent_id(self) -> str:
@@ -171,16 +174,16 @@ class LevelsReader:
         for earlier, later in pairwise(recent):
             missing = earlier.ts + frame
             while missing < later.ts:
-                if session_at(missing + _MINUTE, inst) is not SessionKind.CLOSED:
+                if not self._closed(missing + _MINUTE):
                     return Unavailable(as_of, f"gap in trend bars: no bucket at {missing}")
                 missing += frame
-        present = {bar.ts for bar in minutes if bar.ts >= recent[0].ts}
+        present = _starts_from(minutes, recent[0].ts)
         need_share = self._data.min_session_coverage_pct.scaleb(-2)
         for bucket in recent:
             open_minutes = [
                 bucket.ts + _MINUTE * i
                 for i in range(tf_minutes)
-                if session_at(bucket.ts + _MINUTE * i, inst) is not SessionKind.CLOSED
+                if not self._closed(bucket.ts + _MINUTE * i)
             ]
             have = sum(1 for ts in open_minutes if ts in present)
             if Decimal(have) < Decimal(len(open_minutes)) * need_share:
@@ -221,6 +224,17 @@ class LevelsReader:
             round_below=below,
             round_above=above,
         )
+
+    def _closed(self, moment: datetime) -> bool:
+        """session_at(moment) is CLOSED. Remembered per moment (a function of the moment
+        and the instrument alone): the same trend buckets are checked every minute."""
+        closed = self._closed_at.get(moment)
+        if closed is None:
+            if len(self._closed_at) >= _CLOSED_MEMO:
+                self._closed_at.clear()
+            closed = session_at(moment, self._instrument) is SessionKind.CLOSED
+            self._closed_at[moment] = closed
+        return closed
 
     def _window_problem(
         self, bars: Sequence[Bar], begin: datetime, end: datetime, *, need_last: bool
@@ -285,4 +299,17 @@ class LevelsReader:
 
 
 def _between(bars: Sequence[Bar], begin: datetime, end: datetime) -> list[Bar]:
+    if isinstance(bars, BarWindow):  # in time order: the bars of [begin, end) are a run
+        starts = bars.series.starts
+        first = bisect_left(starts, begin, bars.start, bars.end)
+        last = bisect_left(starts, end, first, bars.end)
+        return list(bars.series.bars[first:last])
     return [bar for bar in bars if begin <= bar.ts < end]
+
+
+def _starts_from(bars: Sequence[Bar], begin: datetime) -> set[datetime]:
+    """The start times of the bars stamped at or after `begin`."""
+    if isinstance(bars, BarWindow):  # in time order: those bars are a suffix
+        starts = bars.series.starts
+        return set(starts[bisect_left(starts, begin, bars.start, bars.end) : bars.end])
+    return {bar.ts for bar in bars if bar.ts >= begin}

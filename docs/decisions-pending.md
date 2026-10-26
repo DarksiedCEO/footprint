@@ -1466,6 +1466,50 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   (two runs, the full gate and the mutation run at once). At that rate a 2010-2024 run
   (about 3,600 sessions of about 555 prime minutes) would take days; measure on the
   machine that runs it before the pre-registered run.
+- **BH-11 speed-up (branch backtest-speed-v1; Andre approved "a speed-up PR"
+  2026-10-25 19:36 PT). Speed only: every result byte-identical.** What changed: the
+  backtest hands each decision a `BarWindow` (core/series.py), its 43,200-bar look-back
+  as a plain tuple of exactly those bars that also says where it lies in the
+  backtest's checked `BarSeries`. The series helpers reuse work done once per series
+  instead of re-scanning the window on every decision: `completed` (a prefix, by
+  bisect), `require_series` (a run of a checked series), `resample` (the series'
+  15-minute buckets merged once; a bucket the window cuts is merged from the window's
+  own bars), `session_days` (the series' days merged once; a cut day from the window's
+  bars), the same-time index (one per series, searched inside the window), the
+  zero-day tripwires (values only for the bars compared; the day ranges from per-day
+  running highs and lows that keep the first of equal values, as max() and min() do),
+  the levels reader (bisect slices; the closed-minute test remembered per minute), the
+  trend reader (only the last two swings searched for, from the end), the range days
+  and the regime reader (searched by time). A series whose local dates go back (a
+  clock change across midnight) or a day whose clock times go back falls back to the
+  old grouping. No cache shows a decision a bar outside its window. Not touched:
+  brokers, execution, live, the paper boundary, config, `ibkr.require_paper`.
+  **Measured** (same synthetic 130-session file, 179,400 bars, last 3 sessions traded,
+  1,801 decisions, the shipped config, the same 2-core box, each run alone): before
+  (main 928ca71) 464.2 s = **3.9 decisions/s**; after 38.9 s = **46.3 decisions/s**
+  (about 12x); peak RSS 168 MB before, 160 MB after. Profile and hotspots:
+  `qa/speed/profile-notes.md`. **This is synthetic timing, NOT a promise about the real
+  2017-2024 (or 2010-2024) run**: real data has gaps and more trades, and the play
+  caller's history grows with the run; time and memory still need measuring on the
+  machine that runs it (unmeasured). What is left is mostly the trend reader's exact
+  Decimal EMAs, the option model's chain, and the runner's, ledger's and journal's own
+  per-decision work (execution: out of scope). **Evidence:** equivalence harness first
+  (`tests/backtest/test_speed_equivalence.py`, reference hashes written by the old code
+  on 928ca71: `qa/speed/make_reference.py`): four one-day runs in the normal pytest
+  run (real play caller; always-TREND stand-in; two rules that trade, one with a named
+  exit) and a 130-session, three-day run with `FOOTPRINT_SPEED_LONG=1`, all
+  byte-identical (journal, ledger, readout.md, readout.json, printed readout, exit
+  code); the seam goldens unchanged; every helper on windows against the same bars as a
+  list (`tests/test_series_windows.py`). Mutation: `qa/mutation/backtest-speed-v1.out`
+  and `.notes.md`.
+  **Independent review of 689321b: CERTIFIED WITH CONDITIONS** (no look-ahead, no
+  behaviour change; 13 adversarial datasets byte-identical, 4 trading, 18 trades).
+  Conditions met on the branch with tests first: F1 (a window one bar short of a day's
+  extreme; the reviewer's R7 now killed), F2 (a fast scenario where the real play
+  caller labels TREND and a rule trades: 4 trades, reference written on 928ca71), F3
+  (two series alive, two instruments' levels readers: R1 and R5 killed), F4 (BarSeries
+  and BarWindow read-only, no measurable cost). Mutation after it: 47 mutants, 45
+  killed, the 2 argued equivalences survive.
 - **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
   2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02

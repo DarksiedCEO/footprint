@@ -58,6 +58,7 @@ from footprint.core.config import (
     RegimeSettings,
 )
 from footprint.core.models import Bar, require_utc
+from footprint.core.series import BarWindow
 from footprint.data.aggregate import completed
 
 _MINUTE = timedelta(minutes=1)
@@ -236,9 +237,13 @@ class RegimeReader:
             return call, False
 
         bars = completed(minute_bars, as_of, 1)
-        starts = [bar.ts for bar in bars]
-        if any(later <= earlier for earlier, later in pairwise(starts)):
-            return aside("bars are out of order or duplicated")
+        starts: Sequence[datetime]
+        if isinstance(bars, BarWindow):  # a run of a checked series: in order already
+            starts = bars.series.starts[bars.start : bars.end]
+        else:
+            starts = [bar.ts for bar in bars]
+            if any(later <= earlier for earlier, later in pairwise(starts)):
+                return aside("bars are out of order or duplicated")
         try:
             efficiency = opening_efficiency(self._opening(bars, starts, today))
         except _Unusable as exc:
