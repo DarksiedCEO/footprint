@@ -64,9 +64,20 @@ cleaner number.
 | Load to the first decision (2017-01-03) | ~80 s wall, ~60 s user CPU |
 | RSS after loading, before the first decision | 3.02-3.08 GB |
 | Peak RSS (VmHWM) through 2017 | **3.45 GB** (3.41 GB at 2017-02-06, 3.45 GB at 2018-01-02: about +40 MB over the year) |
-| 2017 traded (2017-01-03 .. 2017-12-29) | 138,890 decisions, 252 plays, 0 trades (the real play caller stood aside or labelled CHOP; equity 25,000 at 2018-01-02) |
+| 2017 traded (2017-01-03 .. 2017-12-29) | 138,890 decisions, 251 play days, 0 trades (equity 25,000 at 2018-01-02; why: below) |
 | Time to finish 2017 | **7,496 s wall** (contended), **2,273 s user + 55 s sys CPU** |
 | Rate | about 60 decisions per CPU-second (18.5 per wall-second on this busy box) |
+
+Why 0 trades in 2017 (independent review of PR #55, from this run's journal, measured
+on the src of 5d2b0ca): of the 251 play days (2018-01-02, also journalled, excluded),
+**94 were PC-7 missing-data stand-asides** (37%), all caused by 6 bad history days
+(2016-12-27, 2017-01-30, 02-22, 03-15, 05-01, 12-26), each blacking out up to 20
+sessions; 75 were RULES stand-asides (opening efficiency neither trend nor chop); 54
+CHOP; **28 TREND with entries allowed**. On those 28 TREND days every one of the 10,500
+decisions at or after 10:00 ET was blocked by the entry gates (first failing gate:
+trend direction 6,405, momentum 3,912); only 62 failed a single gate (53 momentum,
+9 confirmer). So the system behaved as built; the causes are the PC-7 data blackouts,
+the play caller's rules and CHOP, then the momentum and confirmer gates on TREND days.
 
 The run was stopped (SIGTERM) at 2018-01-03 after 7,511 s: the full 2017-2024 span
 would not finish in ~90 minutes here. **Inference, not measured:** at about 2,300 CPU-s
