@@ -99,8 +99,11 @@ def _replacement_outcome(placed: OrderStatus) -> str:
     if placed.protects:
         return "placed"
     if placed.state is OrderState.FILLED:
+        # The count can lag the state: the IBKR adapter can answer FILLED with filled 0
+        # when the open-order message comes before the status (PR #53 review R3-F1).
+        sold = f" (sold {placed.filled})" if placed.filled > 0 else ""
         return (
-            f"placed and has already filled (sold {placed.filled}): the position is sold; "
+            f"placed and has already filled{sold}: the position is sold; "
             "do not place a stop by hand"
         )
     if placed.state is OrderState.WORKING:

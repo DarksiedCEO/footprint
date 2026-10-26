@@ -583,3 +583,26 @@ def test_a_live_held_back_replacement_that_sold_part_is_still_worded_live(
         "was sent, but it is live and held back at the broker: not protecting, and it can "
         "still sell; do not place another stop beside it"
     )
+
+
+# --- review round 3 (PR #53) -------------------------------------------------------------
+
+
+def test_a_replacement_reported_filled_before_its_count_never_says_sold_0(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-F1: the IBKR adapter can answer FILLED with filled=0 when the open-order message
+    arrives before the status message. The alarm then gives no count (never "sold 0"),
+    and still says the position is sold and forbids a hand stop."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    _place_reports(stack, monkeypatch, state=OrderState.FILLED, filled=0)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert alarm.endswith(
+        f"a new stop {ticket.position_id}-stop-wait was placed and has already filled: the "
+        "position is sold; do not place a stop by hand"
+    )
+    assert "sold 0" not in alarm
+    assert "sold 1" not in alarm
