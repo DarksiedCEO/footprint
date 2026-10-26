@@ -497,6 +497,12 @@ class ReconcileSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class IbkrConfig:
+    ack_timeout_seconds: int
+    positions_disagree_alarm_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class AlarmSettings:
     retry_seconds: int
     max_pending: int
@@ -512,6 +518,7 @@ class ExecutionProfile:
     runner: RunnerSettings
     reconcile: ReconcileSettings
     alarms: AlarmSettings
+    ibkr: IbkrConfig
 
 
 def load_execution(path: Path) -> ExecutionProfile:
@@ -580,6 +587,14 @@ def load_execution(path: Path) -> ExecutionProfile:
         retry_seconds=_integer(al, "retry_seconds", a_where, minimum=1),
         max_pending=_integer(al, "max_pending", a_where, minimum=1),
     )
+    i_where = f"{where}: ibkr"
+    ib = _check_keys(raw["ibkr"], {f.name for f in fields(IbkrConfig)}, i_where)
+    ibkr = IbkrConfig(
+        ack_timeout_seconds=_integer(ib, "ack_timeout_seconds", i_where, minimum=1),
+        positions_disagree_alarm_seconds=_integer(
+            ib, "positions_disagree_alarm_seconds", i_where, minimum=1
+        ),
+    )
     return ExecutionProfile(
         quotes=quotes,
         contract=contract,
@@ -589,6 +604,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         runner=runner,
         reconcile=reconcile,
         alarms=alarms,
+        ibkr=ibkr,
     )
 
 
