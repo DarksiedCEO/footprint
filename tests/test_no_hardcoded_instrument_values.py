@@ -83,9 +83,9 @@ def test_allow_marker_count_matches_the_reviewed_number() -> None:
 
 
 def test_profiles_yield_the_expected_forbidden_values(
-    instrument_path: Path, risk_path: Path, strategy_path: Path
+    instrument_path: Path, risk_path: Path, strategy_path: Path, execution_path: Path
 ) -> None:
-    numbers = forbidden_numbers(instrument_path, risk_path, strategy_path)
+    numbers = forbidden_numbers(instrument_path, risk_path, strategy_path, execution_path)
     assert {Decimal("20"), Decimal("0.25"), Decimal("100"), Decimal("25000")} <= numbers
     assert forbidden_words(instrument_path) == {
         "NQ",
@@ -100,11 +100,11 @@ def test_profiles_yield_the_expected_forbidden_values(
 
 
 def test_src_contains_no_literal_instrument_values(
-    instrument_path: Path, risk_path: Path, strategy_path: Path
+    instrument_path: Path, risk_path: Path, strategy_path: Path, execution_path: Path
 ) -> None:
     found = violations(
         SRC,
-        forbidden_numbers(instrument_path, risk_path, strategy_path),
+        forbidden_numbers(instrument_path, risk_path, strategy_path, execution_path),
         forbidden_words(instrument_path),
     )
     assert not found, "hardcoded profile values under src/:\n" + "\n".join(found)

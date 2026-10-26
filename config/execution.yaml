@@ -1,0 +1,19 @@
+# Contract choice and order handling. Every number lives here, never in code.
+# Values marked DEFAULT were not fixed by the spec; Andre may change them.
+quotes:
+  max_age_seconds: 5          # DEFAULT: an option quote older than this is not traded on
+contract:
+  max_spread_pct_of_mid: 5    # G3: skip if (ask - bid) is more than this % of the mid
+  min_open_interest: 100      # G3: UNCALIBRATED placeholder; calibrate from chain data
+  max_strike_distance: 50     # DEFAULT: skip if the nearest strike is further than this
+                              # many points from the underlying (a gappy chain)
+entry:
+  step_ticks: 1               # G5: start at mid, step this many ticks toward the ask
+  step_seconds: 5             # G5: ... this often
+  max_steps: 4                # G5: ... at most this many times
+  timeout_seconds: 30         # G5: cancel if still unfilled after this long
+  max_over_mid_pct_of_spread: 25  # G5: never pay more than mid + this % of the spread
+stop_order:
+  limit_offset_ticks: 20      # G1 DEFAULT: resting stop-limit's limit sits this many ticks
+                              # below its trigger; the watchdog flattens if price gaps
+                              # through the limit

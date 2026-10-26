@@ -6,7 +6,7 @@ Each rule gets its test in the PR that builds the component that owns it.
 
 | ID | Rule | Owner | Status |
 | --- | --- | --- | --- |
-| NB-01 | Stop can never be widened | stop (Booker) | pending component |
+| NB-01 | Stop can never be widened | stop (Booker) | **tested** (Booker ratchet + trail); enforcement on the live order pending execution |
 | NB-02 | Resting hard stop at the broker on every entry | execution (Diego) | pending component |
 | NB-03 | No order without risk-layer approval | execution (Diego) | pending component |
 | NB-04 | No AI agent touches sizing, stops or execution | core models | partial: `Read` carries no order fields (tests/test_models.py) |
@@ -22,4 +22,4 @@ Each rule gets its test in the PR that builds the component that owns it.
 | NB-14 | No countertrend entries | console (Desmond) | pending component |
 | NB-15 | VWAP side rule | console / levels (Grant) | pending component |
 | NB-16 | Flatten on unclear recovery | trade mgmt (Malik) | pending component |
-| NB-17 | Position cost within the cap | risk | **tested** |
+| NB-17 | Position cost within the cap | risk + sizing (Ezra) | **tested** (gate veto + Ezra sizes at the worst allowed price) |
