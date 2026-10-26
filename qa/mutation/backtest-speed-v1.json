@@ -337,6 +337,34 @@
    "            self._window, self._window_end = self._series.window(start, end), end",
    "            self._window, self._window_end = self._series.window(start, end + 1 if end < len(self._bars) else end), end",
    "decision window: one bar past the closed ones (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/decision/pipeline.py",
+   "    first = bisect_left(minutes.series.starts, since, minutes.start, minutes.end)",
+   "    first = bisect_left(minutes.series.starts, since, 0, minutes.end)",
+   "review R8 (LOW-2): range days search today's after-close bars before the window"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "    def __reduce__(self) -> tuple[type[BarWindow], tuple[BarSeries, int, int]]:",
+   "    def _no_reduce(self) -> tuple[type[BarWindow], tuple[BarSeries, int, int]]:",
+   "review LOW-1: __reduce__ removed (copy, deepcopy and pickle fail)"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "        return (BarWindow, (self.series, self.start, self.end))",
+   "        return (BarWindow, (self.series, 0, self.end))",
+   "LOW-1: a copy remade from the series start, not the window start"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "        return (BarWindow, (self.series, self.start, self.end))",
+   "        return (tuple, (tuple(self),))",
+   "LOW-1: a copy remade as a plain tuple (loses its series and bounds)"
   ]
  ]
 }
