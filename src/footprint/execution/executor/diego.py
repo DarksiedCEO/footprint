@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -156,6 +156,34 @@ class Executor:
         self._ledger = ledger
         self._claimed: set[int] = set()
         self._sequence = 0
+        # Andre's alarm line (the runner routes it); None: log only.
+        self._alarm_sink: Callable[[str], None] | None = None
+        # Positions already alarmed for a stop replaced during the price wait (D41).
+        self._wait_stop_alarmed: set[str] = set()
+
+    def route_alarms(self, sink: Callable[[str], None]) -> None:
+        """Send the executor's alarms to `sink` (the runner's one line to Andre, as
+        Halt.route). A later route replaces the earlier one."""
+        self._alarm_sink = sink
+
+    def _alarm_wait_stop(self, pid: str, gone: str, state: OrderState, outcome: str) -> None:
+        """D41 (b), signed by Andre 2026-10-25: ONE alarm per position whose stop
+        ended at the broker (nothing sold) while the entry waited for its price and was
+        replaced. Never raises: the alarm must not stop the protection it announces."""
+        if pid in self._wait_stop_alarmed:
+            return
+        self._wait_stop_alarmed.add(pid)
+        message = (
+            f"{pid}: stop {gone} was {state.value.lower()} at the broker during the price "
+            f"wait; a new stop {_wait_stop_id(pid)} was {outcome}"
+        )
+        log.critical(message)
+        if self._alarm_sink is None:
+            return
+        try:
+            self._alarm_sink(message)
+        except Exception:
+            log.exception("could not deliver an alarm")
 
     @property
     def agent_id(self) -> str:
@@ -440,7 +468,9 @@ class Executor:
           the entry's limit: no fill price is needed, nothing is booked), recorded as
           the ticket's stop before it is sent, so the fill adopts it and only it is
           asked about from then on. If that one is gone too, nothing more is sent:
-          halt, protect by hand."""
+          halt, protect by hand. Andre gets ONE alarm per position naming both stops
+          (D41 (b)): no halt, no flatten. A send refused before the broker (NotSent)
+          alarms nothing; its retry does."""
         stop_id = ticket.stop_order_id
         if stop_id is None:
             return
@@ -489,7 +519,7 @@ class Executor:
         spec = self._stops.preview(ticket.limit, filled)
         ticket.stop_order_id = replacement  # before the send: never a second beside it
         try:
-            self._broker.place(
+            placed = self._broker.place(
                 Order(
                     order_id=replacement,
                     contract_id=held.order.contract_id,
@@ -507,6 +537,17 @@ class Executor:
             # failure may have reached the broker: its id is kept.
             ticket.stop_order_id = stop_id
             raise
+        except Exception as exc:
+            self._alarm_wait_stop(
+                pid, stop_id, held.state, f"sent, but its outcome is unknown: {exc!r}"
+            )
+            raise
+        outcome = (
+            "placed"
+            if placed.protects
+            else f"sent, but it is not protecting at the broker ({placed.state.value})"
+        )
+        self._alarm_wait_stop(pid, stop_id, held.state, outcome)
 
     def _after(
         self,
