@@ -606,3 +606,26 @@ def test_a_replacement_reported_filled_before_its_count_never_says_sold_0(
     )
     assert "sold 0" not in alarm
     assert "sold 1" not in alarm
+
+
+def test_a_filled_replacement_names_the_count_the_broker_reported(
+    stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-F1 / N4: the count in the alarm is the broker's fill count, never the order's
+    size. Here FILLED is reported while the count still lags (1 of 2 counted)."""
+    sent = _routed(stack)
+    ticket, stop_id = _ticket(stack)
+    SimulatedBroker.cancel(stack.broker, stop_id)
+    placing = stack.broker.place
+
+    def place(order: Order) -> OrderStatus:
+        status = placing(order)
+        if order.order_id.endswith("-stop-wait"):
+            bigger = replace(status.order, quantity=2)
+            return replace(status, order=bigger, state=OrderState.FILLED, filled=1)
+        return status
+
+    monkeypatch.setattr(stack.broker, "place", place)
+    stack.executor._guard_pending_stop(ticket, 1)
+    (alarm,) = sent
+    assert "has already filled (sold 1): the position is sold" in alarm
