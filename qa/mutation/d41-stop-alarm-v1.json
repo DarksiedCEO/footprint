@@ -379,6 +379,41 @@
    "                \"check IBKR before placing any stop by hand\",\n",
    "                \"\",\n",
    "unknown outcome: check-IBKR warning dropped"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.protects:\n        return \"placed\"",
+   "    if placed.protects and placed.filled == 0:\n        return \"placed\"",
+   "N1 protecting part-filled not 'placed' (reviewer round 2)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.state is OrderState.WORKING:\n        why",
+   "    if placed.state is OrderState.WORKING and placed.filled == 0:\n        why",
+   "N2 live part-filled worded as ended/sold (reviewer round 2)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "        why = \"held back\" if placed.held_back else \"being cancelled\"",
+   "        why = \"being cancelled\" if placed.cancelling else \"held back\"",
+   "N3 held/cancel test inverted (equiv unless both) (reviewer round 2)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "f\"placed and has already filled (sold {placed.filled})",
+   "f\"placed and has already filled (sold {placed.order.quantity})",
+   "N4 FILLED qty from order (equiv) (reviewer round 2)"
+  ],
+  [
+   "d41",
+   "src/footprint/execution/executor/diego.py",
+   "    if placed.state is OrderState.FILLED:\n",
+   "    if placed.state is not OrderState.WORKING and placed.filled > 0 and placed.state is not OrderState.CANCELLED:\n",
+   "N5 FILLED test broadened to REJECTED+filled (reviewer round 2)"
   ]
  ]
 }

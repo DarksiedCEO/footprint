@@ -1,4 +1,4 @@
-source: d571023f6a391582772cdef64fac36ff93ba07d3 tree-dirty: 0 files
+source: beb7f2ec81a36c44f099cb12f95592e9d6508b3d tree-dirty: 0 files
 baseline [d41]: passed
   1 KILLED   [d41] src/footprint/execution/executor/diego.py: once-per-position check removed
   2 KILLED   [d41] src/footprint/execution/executor/diego.py: position never recorded as alarmed
@@ -53,4 +53,9 @@ baseline [d41]: passed
  51 KILLED   [d41] src/footprint/execution/executor/diego.py: ended replacement: state dropped
  52 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome: 'may be live or filled' dropped
  53 KILLED   [d41] src/footprint/execution/executor/diego.py: unknown outcome: check-IBKR warning dropped
-53 mutants, 0 survived or errored
+ 54 SURVIVED [d41] src/footprint/execution/executor/diego.py: N1 protecting part-filled not 'placed' (reviewer round 2)
+ 55 KILLED   [d41] src/footprint/execution/executor/diego.py: N2 live part-filled worded as ended/sold (reviewer round 2)
+ 56 SURVIVED [d41] src/footprint/execution/executor/diego.py: N3 held/cancel test inverted (equiv unless both) (reviewer round 2)
+ 57 SURVIVED [d41] src/footprint/execution/executor/diego.py: N4 FILLED qty from order (equiv) (reviewer round 2)
+ 58 KILLED   [d41] src/footprint/execution/executor/diego.py: N5 FILLED test broadened to REJECTED+filled (reviewer round 2)
+58 mutants, 3 survived or errored
