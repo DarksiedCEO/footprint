@@ -1,0 +1,143 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                self._cancelling_since.setdefault(stop_id, now)\n",
+   "",
+   "L-M1: manage never stamps the PendingCancel clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            else:\n                self._cancelling_since.pop(oid, None)\n",
+   "",
+   "L-M2: reconcile never resets the PendingCancel clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                self._cancelling_since.pop(stop_id, None)  # (AEGIS L2-3)\n",
+   "",
+   "L2-3: manage never resets the PendingCancel clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        reason = self._exit_started.setdefault(pid, reason)  # an exit keeps its first reason\n",
+   "        self._exit_started[pid] = reason\n",
+   "L-M3: exit reason overwritten by later reasons"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                self._reconcile_cancels.add(order_id)\n",
+   "",
+   "L-M5: reconcile's cancels not recorded as ours"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                # Our own exit's cancel landed: the exit carries on, no false alarm.\n                position.stop_order_id = None\n",
+   "                # Our own exit's cancel landed: the exit carries on, no false alarm.\n",
+   "L-M7: landed branch keeps the stop id (cancel sent again)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_id in self._exit_cancels or stop_id in self._reconcile_cancels:\n                    started = self._exit_started.get(pid, ExitReason.UNPROTECTED)",
+   "                if stop_id in self._exit_cancels or stop_id in self._reconcile_cancels:\n                    started = ExitReason.UNPROTECTED",
+   "L-M8: cancelling-ours branch loses the exit reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                position.stop_order_id = None\n                started = self._exit_started.get(pid, ExitReason.UNPROTECTED)",
+   "                position.stop_order_id = None\n                started = ExitReason.UNPROTECTED",
+   "L-M9: landed branch loses the exit reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._held_back_alarmed.add(pid)\n                    self._alarm(\n                        now,\n                        f\"{pid}: resting stop being cancelled",
+   "                    self._alarm(\n                        now,\n                        f\"{pid}: resting stop being cancelled",
+   "L-M14: hand-cancel alarm repeated every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._abandon_exit(position)\n",
+   "",
+   "L2-2: an abandoned exit keeps its record (hand cancel taken for ours)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._exit_started.pop(pid, None)\n",
+   "",
+   "L2-2: an abandoned exit keeps its reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._exit_cancels.discard(position.stop_order_id)\n",
+   "",
+   "L2-2: an abandoned exit keeps its cancel record"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._reconcile_cancels.discard(position.stop_order_id)\n",
+   "",
+   "L2-2: reconcile's cancel record kept after the stop protects again"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stop_stuck_since.pop(pid, None)\n        if position.stop_order_id is not None:",
+   "        if position.stop_order_id is not None:",
+   "L2-3: an abandoned exit keeps its stuck clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if not (current.cancelling and stop_id in self._exit_cancels):",
+   "                if True:",
+   "an acknowledged cancel re-sent every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    if cancelled.cancelling:",
+   "                    if False:",
+   "L2-4: PendingCancel on a normal exit alarms"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if gone.state is OrderState.CANCELLED and gone.filled == 0:",
+   "                if False:",
+   "L2-1: our exit's landed cancel is a reconcile mismatch"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if gone.state is OrderState.CANCELLED and gone.filled == 0:",
+   "                if gone.state is OrderState.CANCELLED:",
+   "L2-1: a stop that filled before its cancel is expected gone"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            if after.state is not OrderState.CANCELLED:",
+   "            if False:",
+   "L2-6: wrong-size stop's cancel unconfirmed, second stop placed"
+  ]
+ ]
+}

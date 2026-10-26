@@ -1,0 +1,63 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_reconcile_hardening.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/execution/test_attached_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{pid}: {order_id} filled, price and holding not reported\")\n        return True\n",
+   "        return False\n",
+   "N3-2: the old fallback (past the wait, reconcile sells on the lagging report)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._stand_down(now, f\"{pid}: {order_id} filled, price and holding not reported\")\n        return True\n",
+   "        return True\n",
+   "N3-2: no latch and no halt reason of its own past the wait"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if pid not in self._pending_overdue:\n            self._pending_overdue.add(pid)\n            self._alarm(",
+   "        if True:\n            self._pending_overdue.add(pid)\n            self._alarm(",
+   "N3-2: CHECK THE FILL alarmed every round, not once"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                f\"{pid}: CHECK THE FILL: {order_id} sold this position",
+   "                f\"{pid}: {order_id} sold this position",
+   "N3-2: the alarm loses its CHECK THE FILL headline"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "\"and flatten by hand only what is really held\",",
+   "\"and check what is really held\",",
+   "N3-2: the alarm no longer says flatten by hand"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return True\n",
+   "            log.warning(\"reconcile: %s already sold by %s (price pending)\", contract_id, order_id)\n            return False\n",
+   "N3-2: inside the wait reconcile sells too"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            unpriced = self._unpriced_sell(position)\n            if unpriced is None:\n                return False\n",
+   "            unpriced = None\n            if unpriced is None:\n                return False\n",
+   "N3-2: reconcile never finds an unpriced filled sell itself"
+  ]
+ ]
+}

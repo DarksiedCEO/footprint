@@ -1,0 +1,66 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ],
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if status.order.order_id not in stuck_before or total + remaining > held:",
+   "            if status.order.order_id not in stuck_before or total + remaining > held or status.held_back:",
+   "AEGIS J-M2 held-back stuck stop never re-priced"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            copy.settled_unseen = copy.cancel_confirmed = False\n",
+   "            copy.settled_unseen = False\n",
+   "AEGIS J-M5 revival of settled-unseen keeps cancel_confirmed (later Inactive reads dead)"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            c.status in (_INACTIVE, _PENDING_CANCEL) or c.cancel_sent for c in live",
+   "            c.status == _INACTIVE or c.cancel_sent for c in live",
+   "J-1: PendingCancel stop counts as protection"
+  ]
+ ]
+}

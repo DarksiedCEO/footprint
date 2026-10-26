@@ -492,6 +492,11 @@ def test_an_immediate_unprotected_fill_is_flattened_on_the_same_step(
                 self._orders[order.order_id] = status
             return status
 
+        def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+            refused = OrderStatus(child, OrderState.REJECTED, 0, None)
+            self._orders[child.order_id] = refused
+            return self.place(parent), refused
+
     broker = FillsAtOnceRefusesStops(stack.book, stack.profiles.execution.quotes.max_age_seconds)
     stack.use_broker(broker)
     runner, _, alarms = runner_for(stack, bars, tmp_path)
@@ -799,6 +804,10 @@ def test_no_decision_is_made_while_the_broker_cannot_answer(
         runner.step(DECISION_TIME + second * SEC)
     assert journal.decisions() == []
     assert runner.last_decided is None
+    assert runner.reconciling  # D35: back means reconcile first
     stack.broker.ready = True  # type: ignore[attr-defined]
-    runner.step(DECISION_TIME + 4 * SEC)
+    runner.step(DECISION_TIME + 4 * SEC)  # back: reconciles (agrees), decides nothing
+    assert not runner.reconciling
+    assert journal.decisions() == []
+    runner.step(DECISION_TIME + 5 * SEC)
     assert len(journal.decisions()) == 1

@@ -1,0 +1,3 @@
+  1 KILLED   [paper] src/footprint/brokers/ibkr/binding.py: pre-connect check off
+  2 KILLED   [guard] tests/conftest.py: proxy left in the environment
+2 mutants, 0 survived

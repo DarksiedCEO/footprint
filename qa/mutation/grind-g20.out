@@ -1,0 +1,13 @@
+source: 1df6981b51c7ff708b93a24c2c33bbe4a3a4448f tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M1: ranges are not read
+  2 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M2: a range glued to a word (G6-5, x900-1000) is read
+  3 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M3: the right end may be glued to another minus (an ISO date is read)
+  4 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M4: a $ right end is read twice
+  5 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M5: the right end is never read
+  6 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M6: the left end is never read
+  7 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M7: separators are not stripped in a range end
+  8 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M8: a decimal range end is not read whole
+  9 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M9: a $ before the right end is not allowed
+ 10 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G20-1 M10: the reviewed range end in channels.py is dropped
+10 mutants, 0 survived or errored

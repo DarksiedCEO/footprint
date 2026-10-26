@@ -92,12 +92,17 @@ _LIVE = frozenset({"ApiPending", "PendingSubmit", "PreSubmitted", "Submitted", "
 _CANCELLED = frozenset({"Cancelled", "ApiCancelled"})
 _FILLED = "Filled"
 _INACTIVE = "Inactive"
+_PENDING_CANCEL = "PendingCancel"
+_ACTING = frozenset({"PreSubmitted", "Submitted"})  # live and able to act (not cancelling)
 _CANCELLED_STATUS = "Cancelled"
 _CANNOT_MODIFY_FILLED = 104
 _EXISTS = frozenset({103, _CANNOT_MODIFY_FILLED, 105})  # the order is already at IBKR
 _REJECTED = frozenset({110, 201})
 _CANCEL_SETTLED = frozenset({135, 161, 202})  # not found / not cancellable / cancelled
 _LOST, _RESTORED_DATA_LOST, _RESTORED = 1100, 1101, 1102
+# ibapi's own answer to a request it could not send (the socket is gone): it does not
+# raise, it reports this code through error() (delta review 2, N-3).
+_NOT_CONNECTED = 504
 # Warnings and notices, not answers: farm status (2100-2199), order message warning,
 # delayed data, TIF set from a preset (the order stays live).
 _WARNINGS = frozenset({165, 399, 10167, 10349})
@@ -170,9 +175,17 @@ class _Copy:
     status: str
     filled: int = 0
     avg_price: Decimal | None = None
+    told_avg: Decimal | None = None  # IBKR's own average, when real (> 0)...
+    told_filled: int = 0  # ...and the size it is the average of
     cancel_sent: bool = False  # an Inactive copy the adapter asked IBKR to cancel
     cancel_confirmed: bool = False  # ...and IBKR answered that cancel
     settled_unseen: bool = False  # taken as finished because IBKR stopped listing it
+    refusals: int = 0  # times IBKR put it back to acting from PendingCancel (cancel refused)
+
+    def set_status(self, status: str) -> None:
+        if self.status == _PENDING_CANCEL and status in _ACTING:
+            self.refusals += 1  # a cancel IBKR acknowledged, then refused (AEGIS M3-1)
+        self.status = status
 
     @property
     def live(self) -> bool:
@@ -240,6 +253,10 @@ class IbkrBroker:
         self._doubt_limit = settings.positions_disagree_alarm.total_seconds()
         self._realarm = settings.resync_realarm.total_seconds()
         self._on_alarm = on_alarm
+        # The runner must reconcile: called on a lost connection, BEFORE the adapter
+        # turns ready again after a resync (so no step can see "ready" without the
+        # doubt already set), and when IBKR shows something unexpected. It may be
+        # called under the adapter's lock: it must only set a flag, never call back in.
         self._on_resync = on_resync
         self._cv = threading.Condition()
         self._connected = False
@@ -258,6 +275,7 @@ class IbkrBroker:
         self._ids: dict[str, int] = {}
         self._order_of_ib: dict[int, str] = {}
         self._sent: dict[str, Order] = {}
+        self._refused: dict[str, Order] = {}  # refused by IBKR on arrival (no copy there)
         self._copies: dict[int, _Copy] = {}
         self._updates: dict[int, int] = {}
         self._errors: dict[int, list[int]] = {}
@@ -288,17 +306,57 @@ class IbkrBroker:
         self._gw.place_order(self._request(ib_id, order, contract))
         with self._cv:
             self._wait(lambda: self._answered(ib_id, seen), f"placing {order.order_id}")
-            codes = self._errors.get(ib_id, [])
-            if _EXISTS & set(codes):
-                raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
-            if _REJECTED & set(codes) and not self._copies_of(order.order_id):
-                return OrderStatus(order, OrderState.REJECTED, 0, None)
-            # Rejected with a copy at IBKR (Inactive): it reports working until its
-            # cancel is confirmed.
-            unknown = [c for c in codes if c not in _REJECTED]
-            if unknown and not self._copies_of(order.order_id):
-                raise RuntimeError(f"IBKR error {unknown} placing {order.order_id}")
-            return self._status(order.order_id)
+            return self._placed(order, ib_id)
+
+    def place_attached(self, parent: Order, child: Order) -> tuple[OrderStatus, OrderStatus]:
+        """A bracket (H-2): the parent with transmit off, then the child naming it with
+        transmit on, so IBKR takes both together and activates the child the moment
+        the parent fills, whether or not we are connected then."""
+        if child.parent_id != parent.order_id:
+            raise ValueError(f"{child.order_id} is not attached to {parent.order_id}")
+        try:
+            contracts = [self._contracts.ib(o.contract_id) for o in (parent, child)]
+        except KeyError:
+            raise UnknownContract(parent.contract_id) from None
+        with self._cv:
+            self._require_ready()
+            ids: list[int] = []
+            for order in (parent, child):
+                ib_id = self._ids.get(order.order_id)
+                if ib_id is None:
+                    ib_id = self._allocate(order.order_id)
+                self._sent[order.order_id] = order
+                self._errors[ib_id] = []
+                ids.append(ib_id)
+            seen = [self._updates.get(ib_id, 0) for ib_id in ids]
+        parent_id, child_id = ids
+        self._gw.place_order(
+            replace(self._request(parent_id, parent, contracts[0]), transmit=False)
+        )
+        self._gw.place_order(
+            replace(self._request(child_id, child, contracts[1]), parent_ib_id=parent_id)
+        )
+        with self._cv:
+            self._wait(
+                lambda: self._answered(parent_id, seen[0]) and self._answered(child_id, seen[1]),
+                f"placing {parent.order_id} with {child.order_id} attached",
+            )
+            return self._placed(parent, parent_id), self._placed(child, child_id)
+
+    def _placed(self, order: Order, ib_id: int) -> OrderStatus:
+        """Under the lock: what a place's answer means."""
+        codes = self._errors.get(ib_id, [])
+        if _EXISTS & set(codes):
+            raise DuplicateOrderId(f"{order.order_id} is already at IBKR ({codes})")
+        if _REJECTED & set(codes) and not self._copies_of(order.order_id):
+            self._refused[order.order_id] = order  # asked again later: still refused
+            return OrderStatus(order, OrderState.REJECTED, 0, None)
+        # Rejected with a copy at IBKR (Inactive): it reports working until its
+        # cancel is confirmed.
+        unknown = [c for c in codes if c not in _REJECTED]
+        if unknown and not self._copies_of(order.order_id):
+            raise RuntimeError(f"IBKR error {unknown} placing {order.order_id}")
+        return self._status(order.order_id)
 
     def modify(
         self, order_id: str, limit_price: Decimal, stop_price: Decimal | None
@@ -496,6 +554,7 @@ class IbkrBroker:
                     self._next_id = max(next_valid_id, self._next_id or 0)
                 self._begin_resync()
         if state is Connection.LOST:
+            self._on_resync()  # no entry from now until it is back, resynced and reconciled
             self._alarm("IBKR connection lost: nothing is sent until it is back and resynced")
             return
         self._request_resync()
@@ -544,17 +603,22 @@ class IbkrBroker:
             if copy is None:
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
             else:
-                copy.order, copy.status = order, status
+                copy.order = order
+                copy.set_status(status)
             back = self._came_back(copy)
             alarms += back
-            alarms += self._check_duplicates(order_id)
+            duplicated = self._check_duplicates(order_id)
+            alarms += duplicated
             cancel = self._inactive(copy, alarms)
+            waiting = cancel is None and self._inactive_waiting(copy)
             self._bump(ib_id)
-        self._after_event(alarms, cancel, doubt=bool(back))
+        # A second live copy is not what we believe IBKR holds: reconcile (audit A-1).
+        self._after_event(alarms, cancel, doubt=bool(back or duplicated or waiting))
 
     def on_open_orders_end(self) -> None:
         resynced = False
         alarms: list[str] = []
+        cancels: list[int] = []
         with self._cv:
             listing = self._listing
             if not self._last_end("orders") or listing is None:
@@ -565,11 +629,11 @@ class IbkrBroker:
             if listing.resync:
                 self._unlisted_at_resync = unlisted
                 self._awaiting.discard("orders")
-                resynced = self._maybe_ready(alarms)
+                resynced = self._maybe_ready(alarms, cancels)
             else:
                 alarms += self._settle_unlisted(unlisted)
             self._cv.notify_all()
-        self._after_event(alarms, None)
+        self._after_event(alarms, None, more=cancels)
         if resynced:
             self._resynced()
 
@@ -598,15 +662,19 @@ class IbkrBroker:
                     self._bump(ib_id)
                     return  # an order we know nothing of yet: its openOrder will follow
                 copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)
-            copy.status = status
+            copy.set_status(status)
             back = self._came_back(copy)
             alarms += back
             copy.filled = max(filled, self._exec_filled(perm_id))
-            copy.avg_price = avg_fill_price if filled else self._exec_price(perm_id)
-            alarms += self._check_duplicates(copy.order_id)
+            if filled and avg_fill_price > 0:
+                copy.told_avg, copy.told_filled = avg_fill_price, filled
+            self._reprice(copy)
+            duplicated = self._check_duplicates(copy.order_id)
+            alarms += duplicated
             cancel = self._inactive(copy, alarms)
+            waiting = cancel is None and self._inactive_waiting(copy)
             self._bump(ib_id)
-        self._after_event(alarms, cancel, doubt=bool(back))
+        self._after_event(alarms, cancel, doubt=bool(back or duplicated or waiting))
 
     def on_execution(
         self,
@@ -646,6 +714,7 @@ class IbkrBroker:
             copy = self._copies.get(perm_id)
             if copy is not None:
                 copy.filled = max(copy.filled, self._exec_filled(perm_id))
+                self._reprice(copy)  # every execution prices the fill again (F-1, F-4)
             self._cv.notify_all()
 
     def on_executions_end(self) -> None:
@@ -672,6 +741,7 @@ class IbkrBroker:
     def on_positions_end(self) -> None:
         resynced, again = False, False
         alarms: list[str] = []
+        cancels: list[int] = []
         with self._cv:
             if not self._last_end("positions") or not self._positions_round:
                 return
@@ -686,11 +756,11 @@ class IbkrBroker:
                 self._delta = {}
                 self._disagree_since, self._disagree_alarmed = None, False
                 self._awaiting.discard("positions")
-                resynced = self._maybe_ready(alarms)
+                resynced = self._maybe_ready(alarms, cancels)
         if again:
             log.warning("IBKR: a fill arrived during the position snapshot; taking it again")
             self._gw.request_positions()
-        self._after_event(alarms, None)
+        self._after_event(alarms, None, more=cancels)
         if resynced:
             self._resynced()
 
@@ -707,14 +777,30 @@ class IbkrBroker:
         if req_id <= 0 or code in _WARNINGS or code in _NOTICES:
             log.info("IBKR notice %s on %s: %s", code, req_id, message)
             return
+        unsent = False
         with self._cv:
             self._errors.setdefault(req_id, []).append(code)
             if code in _CANCEL_SETTLED:
                 for copy in self._copies.values():
                     if copy.ib_id == req_id and copy.status == _INACTIVE and copy.cancel_sent:
                         copy.cancel_confirmed = True  # IBKR answered the cancel
+            if code == _NOT_CONNECTED:
+                # A cancel of an Inactive order that never left (N-3): not forgotten. It
+                # is sent again once IBKR is ready (as for a send that raised, F-3).
+                for copy in self._copies.values():
+                    if (
+                        copy.ib_id == req_id
+                        and copy.status == _INACTIVE
+                        and copy.cancel_sent
+                        and not copy.cancel_confirmed
+                    ):
+                        copy.cancel_sent = False
+                        unsent = True
             self._bump(req_id)
         log.warning("IBKR error %s on %s: %s", code, req_id, message)
+        if unsent:
+            log.warning("IBKR: cancel of %s not sent; again once ready", req_id)
+            self._on_resync()  # what IBKR holds is in doubt: the runner reconciles
 
     # --- internals (callers hold the lock unless noted) --------------------------------
 
@@ -807,20 +893,37 @@ class IbkrBroker:
         if _EXTRA in order_id:
             copy = self._copies[int(order_id.rsplit(_EXTRA, 1)[1])]
             order = replace(copy.order, order_id=order_id)
-            return OrderStatus(order, copy.state, copy.filled, copy.avg_price)
+            return OrderStatus(
+                order, copy.state, copy.filled, copy.avg_price, cancel_refusals=copy.refusals
+            )
         copies = sorted(self._copies_of(order_id), key=lambda c: c.perm_id)
+        if not copies and order_id in self._refused:
+            return OrderStatus(self._refused[order_id], OrderState.REJECTED, 0, None)
         if not copies:
             raise KeyError(order_id)  # IBKR has not acknowledged it (yet)
         live = [c for c in copies if c.live]
         order = (live or copies)[0].order  # as IBKR holds it, never as asked
         filled = sum(c.filled for c in copies)
-        priced = [c for c in copies if c.filled and c.avg_price is not None]
+        # A price only when every filled copy has a real one: a copy filled at an
+        # unknown price makes the whole average unknown, never partly guessed (A-2).
+        with_fills = [c for c in copies if c.filled]
+        priced = [c for c in with_fills if c.avg_price is not None and c.avg_price > 0]
         avg = (
             sum((c.avg_price * c.filled for c in priced if c.avg_price is not None), Decimal(0))
             / sum(c.filled for c in priced)
-            if priced
+            if priced and len(priced) == len(with_fills)
             else None
         )
+        # A copy that can still act: live, not Inactive, not being cancelled. With none,
+        # the order is no protection. Held back if any copy is Inactive (or cancelled by
+        # us after it was) (AEGIS N1); otherwise every copy is PendingCancel: cancelling,
+        # still live and able to fill (AEGIS J-1, K-1, K-2, K-M2).
+        acting = [
+            c for c in live if c.status not in (_INACTIVE, _PENDING_CANCEL) and not c.cancel_sent
+        ]
+        unable = bool(live) and not acting
+        held_back = unable and any(c.status == _INACTIVE or c.cancel_sent for c in live)
+        cancelling = unable and not held_back
         if live:
             state = OrderState.WORKING
         elif any(c.status == _FILLED for c in copies):
@@ -829,15 +932,37 @@ class IbkrBroker:
             state = OrderState.CANCELLED
         else:
             state = OrderState.REJECTED
-        return OrderStatus(order, state, filled, avg)
+        return OrderStatus(
+            order,
+            state,
+            filled,
+            avg,
+            held_back=held_back,
+            cancelling=cancelling,
+            cancel_refusals=sum(c.refusals for c in copies),
+        )
 
     def _exec_filled(self, perm_id: int) -> int:
         return sum(abs(f.signed) for f in self._fills.values() if f.perm_id == perm_id)
 
+    def _reprice(self, copy: _Copy) -> None:
+        """Under the lock: a copy's fill price, never guessed (independent audit A-2 and
+        its delta review F-1, F-4, F-5). From the executions when they cover everything
+        filled; else IBKR's own average when it is real and for exactly that size; else
+        none yet. Never from part of the fill, never 0."""
+        if copy.filled <= 0:
+            copy.avg_price = None
+        elif self._exec_filled(copy.perm_id) >= copy.filled:
+            copy.avg_price = self._exec_price(copy.perm_id)
+        elif copy.told_avg is not None and copy.told_filled == copy.filled:
+            copy.avg_price = copy.told_avg
+        else:
+            copy.avg_price = None
+
     def _exec_price(self, perm_id: int) -> Decimal | None:
         fills = [f for f in self._fills.values() if f.perm_id == perm_id and f.signed]
-        if not fills:
-            return None
+        if not fills or any(f.price <= 0 for f in fills):
+            return None  # an execution at 0 (or below) is no price
         return sum((f.price * abs(f.signed) for f in fills), Decimal(0)) / sum(
             abs(f.signed) for f in fills
         )
@@ -849,24 +974,66 @@ class IbkrBroker:
             return None
         if copy.ib_id <= 0 or self._ids.get(copy.order_id) != copy.ib_id:
             return None  # not ours to cancel by id
+        if not (self._connected and self._ready):
+            # D35: nothing is sent while IBKR is away or resyncing (audit A-3). It counts
+            # as held back meanwhile (not protection), and is cancelled once ready.
+            return None
+        # (An attached stop reported Inactive is cancelled too, even while its entry is
+        # live: Inactive is not protection, and Diego then cancels the entry. Fail
+        # closed until paper shows how IBKR reports a held stop: checklist 27.)
         copy.cancel_sent = True
         alarms.append(f"{copy.order_id} is Inactive at IBKR: cancelling it")
         return copy.ib_id
 
-    def _came_back(self, copy: _Copy) -> list[str]:
-        """An order taken as finished unseen that IBKR now reports live again."""
-        if not copy.settled_unseen or copy.status not in _LIVE:
-            return []
-        copy.settled_unseen = copy.cancel_confirmed = False
-        return [f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"]
+    def _inactive_waiting(self, copy: _Copy) -> bool:
+        """Under the lock: an Inactive order of ours whose cancel waits for IBKR to be
+        ready (A-3). Not protection: the runner reconciles."""
+        return (
+            copy.status == _INACTIVE
+            and not copy.cancel_sent
+            and copy.ib_id > 0
+            and not (self._connected and self._ready)
+        )
 
-    def _after_event(self, alarms: list[str], cancel: int | None, *, doubt: bool = False) -> None:
-        """Outside the lock: the alarms an event raised, a cancel it needs, and the
+    def _came_back(self, copy: _Copy) -> list[str]:
+        """An order IBKR reports live (able to act) again after it was taken as finished
+        unseen, or after it was Inactive and cancelled by us (AEGIS F2/F4: whatever was
+        decided meanwhile, a new stop or a flatten, may now sit beside it): reconcile."""
+        if copy.settled_unseen and copy.status in _LIVE:  # any live status (AEGIS I-4)
+            copy.settled_unseen = copy.cancel_confirmed = False
+            return [
+                f"{copy.order_id} is LIVE again at IBKR after it was taken as finished; reconcile"
+            ]
+        if copy.cancel_sent and copy.status in _ACTING:
+            copy.cancel_sent = copy.cancel_confirmed = False  # (it acts again: not held back)
+            return [f"{copy.order_id} is LIVE again at IBKR after it was Inactive; reconcile"]
+        return []
+
+    def _after_event(
+        self,
+        alarms: list[str],
+        cancel: int | None,
+        *,
+        doubt: bool = False,
+        more: list[int] | None = None,
+    ) -> None:
+        """Outside the lock: the alarms an event raised, the cancels it needs, and the
         runner sent to reconcile when what IBKR holds is not what we believed."""
         for message in alarms:
             self._alarm(message)
-        if cancel is not None:
-            self._gw.cancel_order(cancel)
+        for ib_id in [*([] if cancel is None else [cancel]), *(more or [])]:
+            try:
+                self._gw.cancel_order(ib_id)
+            except Exception as exc:
+                # Lost as IBKR drops (delta review F-3): not forgotten. The copy is still
+                # held back (no protection), its cancel is sent again once IBKR is ready,
+                # and the runner reconciles. The other cancels still go.
+                log.warning("IBKR: cancel of %s not sent (%r); again once ready", ib_id, exc)
+                with self._cv:
+                    for copy in self._copies.values():
+                        if copy.ib_id == ib_id and copy.status == _INACTIVE:
+                            copy.cancel_sent = False
+                doubt = True
         if doubt:
             self._on_resync()
 
@@ -878,7 +1045,7 @@ class IbkrBroker:
             if copy is None or not copy.live:
                 continue  # its status arrived meanwhile
             copy.filled = max(copy.filled, self._exec_filled(perm))
-            copy.avg_price = self._exec_price(perm) or copy.avg_price
+            self._reprice(copy)
             copy.status = _FILLED if copy.filled >= copy.order.quantity else _CANCELLED_STATUS
             copy.cancel_confirmed = copy.settled_unseen = True
             if copy.status == _FILLED:
@@ -998,19 +1165,31 @@ class IbkrBroker:
         self._gw.request_open_orders()
         self._gw.request_executions()
 
-    def _maybe_ready(self, alarms: list[str]) -> bool:
+    def _maybe_ready(self, alarms: list[str], cancels: list[int]) -> bool:
         if self._awaiting or not self._connected or self._ready:
             return False
         alarms += self._settle_unlisted(self._unlisted_at_resync)
         self._unlisted_at_resync = set()
+        self._on_resync()  # the runner reconciles before it can see "ready" (D35)
         self._ready = True
+        # Inactive orders of ours seen while IBKR was away: cancelled now, never while
+        # it was away (D35; independent audit A-3). Sent by the caller outside the lock.
+        # One IBKR still lists Inactive whose cancel it never answered is cancelled
+        # again: the send may have gone out as the session closed, its "not connected"
+        # answer dropped by the closed binding (N3-3). Sent twice is harmless; never
+        # sent, the order could become active again.
+        for copy in self._copies.values():
+            if copy.status == _INACTIVE and copy.cancel_sent and not copy.cancel_confirmed:
+                copy.cancel_sent = False
+            cancel = self._inactive(copy, alarms)
+            if cancel is not None:
+                cancels.append(cancel)
         self._resync_since = None
         self._cv.notify_all()
         return True
 
     def _resynced(self) -> None:
-        log.info("IBKR resynced")
-        self._on_resync()
+        log.info("IBKR resynced")  # (the runner was told before it turned ready)
 
     def _alarm(self, message: str) -> None:
         log.critical(message)

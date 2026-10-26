@@ -1,0 +1,409 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ]
+ },
+ "mutants": [
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "re.compile(r\"DU[A-Z0-9]+\", re.ASCII)",
+   "re.compile(r\"[A-Z0-9]+\", re.ASCII)",
+   "any id passes as paper"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "frozenset({4001, 7496})",
+   "frozenset({7496})",
+   "IB Gateway live port allowed"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "frozenset({4001, 7496})",
+   "frozenset({4001})",
+   "TWS live port allowed"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    return PAPER_ACCOUNT.fullmatch(account) is not None",
+   "    return PAPER_ACCOUNT.match(account) is not None",
+   "prefix match instead of full"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if not is_paper_account(account):\n        raise",
+   "    if False:\n        raise",
+   "account check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if port in LIVE_PORTS:\n        raise",
+   "    if False:\n        raise",
+   "port check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/paper.py",
+   "    if live:\n        raise",
+   "    if False:\n        raise",
+   "live-login check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/binding.py",
+   "        check_paper(self.account, self.port)  # LiveAccountRefused: never built",
+   "        pass",
+   "settings check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            check_paper(self._s.account, self._s.port)  # again: settings are only data",
+   "            pass",
+   "pre-connect check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            check_paper_login(accounts)\n",
+   "",
+   "login list check off"
+  ],
+  [
+   "paper",
+   "src/footprint/brokers/ibkr/binding.py",
+   "            check_paper(s.account, s.port)\n            check_paper_login",
+   "            check_paper_login",
+   "account check at login off: EQUIVALENT (the account must be in IBKR's list, and every account in the list must be paper; the port was checked before connecting)"
+  ],
+  [
+   "paper",
+   "src/footprint/live/app.py",
+   "    check_paper(settings.account, settings.port)  # LiveAccountRefused",
+   "    pass",
+   "build check off"
+  ],
+  [
+   "paper",
+   "src/footprint/live/__main__.py",
+   "    except LiveAccountRefused as exc:\n        print(f\"REFUSED: {exc}\", file=sys.stderr)\n        return 2\n    channels",
+   "    except LiveAccountRefused:\n        raise\n    channels",
+   "main refusal raises instead of a clean exit"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "            if self._executor.broker_ready:\n                self._step(now)\n            else:\n                self._broker_away()",
+   "            self._step(now)",
+   "steps on while the broker is away"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        self.doubt()\n        if not self._broker_was_away:",
+   "        if not self._broker_was_away:",
+   "away does not require a reconcile"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        if self._reconciling:\n            return  # (checked after",
+   "        if False:\n            return  # (checked after",
+   "race re-check in _decide off"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        if not self._executor.broker_ready:\n            return  # nothing can be sent; the resting stop",
+   "        if False:\n            return  # nothing can be sent; the resting stop",
+   "failsafe acts during the outage"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "                if self._position is not None:\n                    self._managed_at = now",
+   "                pass",
+   "outage counted as unmanaged after reconnect"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "            if self._broker_was_away:\n                # Back",
+   "            if True:\n                # Back",
+   "every agreed reconcile resets the unmanaged clock"
+  ],
+  [
+   "disconnect",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            self._on_resync()  # no entry from now until it is back",
+   "            pass  # no entry from now until it is back",
+   "no doubt at the loss"
+  ],
+  [
+   "disconnect",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        self._on_resync()  # the runner reconciles before it can see \"ready\" (D35)\n",
+   "",
+   "no doubt before ready"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "        and day not in instrument.no_trade_days\n        and day <= instrument.calendar_through",
+   "        and day <= instrument.calendar_through",
+   "no-trade days trade"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "        and day not in instrument.no_trade_days\n        and day <= instrument.calendar_through",
+   "        and day not in instrument.no_trade_days",
+   "expired calendar trades (fail open)"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "        if is_tradable_day(day, instrument) and clock <= prime_close(day, instrument):",
+   "        if is_trading_day(day, instrument) and clock <= prime_close(day, instrument):",
+   "prime ignores policy"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "        if is_tradable_day(trading_day, instrument):",
+   "        if is_trading_day(trading_day, instrument):",
+   "overnight ignores policy"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "        if is_trading_day(candidate, instrument) and candidate not in instrument.no_trade_days:",
+   "        if is_trading_day(candidate, instrument):",
+   "no-trade day used as the prior day"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/calendar.py",
+   "NO NEW TRADES",
+   "new trades",
+   "expired alarm text"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    for day in profile.no_trade_days:\n        if day in profile.holidays:",
+   "    for day in profile.no_trade_days:\n        if False:",
+   "no-trade/holiday overlap accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    for day in (*profile.holidays, *profile.early_closes, *profile.no_trade_days):",
+   "    for day in (*profile.holidays, *profile.early_closes):",
+   "weekend no-trade day accepted"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    dated = (*profile.holidays, *profile.early_closes, *profile.no_trade_days)",
+   "    dated = (*profile.holidays, *profile.early_closes)",
+   "no-trade day past the calendar accepted"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    worker.join(seconds)\n",
+   "    worker.join()\n",
+   "no deadline on a send"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "            log.warning(\"call not made (%s): not retried\", _safe(exc))\n            return",
+   "            raise",
+   "failed call raises (retried, blocks)"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        try:\n            self._call(alarm)\n        except Exception as exc:  # reported",
+   "        self._last[marker] = now\n        try:\n            self._call(alarm)\n        except Exception as exc:  # reported",
+   "failed call starts the cooldown"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "            if first:\n                self._notify(",
+   "            if True:\n                self._notify(",
+   "down reported on every failure"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        if was_down:\n            self._notify",
+   "        if False:\n            self._notify",
+   "recovery never reported"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "                if name != channel:\n                    line.submit(alarm)",
+   "                if True:\n                    line.submit(alarm)",
+   "down alert sent to the dead channel too"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "            for name, line in (*self._channels.items(), *self._fed.items()):",
+   "            for name, line in self._channels.items():",
+   "down alert never by SMS"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "            alarm = Alarm(self._clock(), message)\n            self._record.submit(alarm)\n",
+   "            alarm = Alarm(self._clock(), message)\n",
+   "down alert not in alarms.log"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    if marker != _PER_SUBJECT:\n        return marker",
+   "    if True:\n        return marker",
+   "one channel down silences another's call"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    \"ALARM CHANNEL DOWN\",\n",
+   "",
+   "channel down does not ring"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    \"IBKR connection lost\",\n",
+   "",
+   "disconnect does not ring"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    \"UNATTENDED\",\n",
+   "",
+   "unattended does not ring"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        text = _clip(self.prefix + _text(alarm), _TELEGRAM_MAX)",
+   "        text = _clip(_text(alarm), _TELEGRAM_MAX)",
+   "degraded banner dropped"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        return self is not AlertingMode.FULL",
+   "        return False",
+   "degraded never degraded"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "                prefix=DEGRADED_BANNER,\n",
+   "",
+   "telegram-only unmarked"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/app.py",
+   "        if idle > window:\n            live.runner.revoke_clearance(",
+   "        if False:\n            live.runner.revoke_clearance(",
+   "unattended never stops entries"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/app.py",
+   "        if not live.alarms.mode.degraded or live.runner.cleared_by is None:",
+   "        if live.runner.cleared_by is None:",
+   "full alerting stops entries for quiet"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/app.py",
+   "        if word:\n            self._attended_at",
+   "        if False:\n            self._attended_at",
+   "input never counts as attended"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/__main__.py",
+   "    if (args.alarms_local_only or args.alarms_telegram_only) and not sys.stdin.isatty():",
+   "    if False:",
+   "degraded starts without a terminal"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/runner.py",
+   "        if self._cleared_by is None:\n            return\n        self._cleared_by = None",
+   "        if self._cleared_by is None:\n            return\n        pass",
+   "revoke does nothing"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/alarm_setup.py",
+   "    return 0 if accepted.count(\"SMS\") >= 2 and \"call\" in accepted else 1",
+   "    return 0",
+   "fallback check always passes"
+  ],
+  [
+   "alarms",
+   "src/footprint/live/alarm_setup.py",
+   "            return int(HTTPStatus.SERVICE_UNAVAILABLE)  # simulated: never sent",
+   "            return post(url, data, auth, timeout)",
+   "fallback check really sends to Telegram"
+  ],
+  [
+   "guard",
+   "tests/conftest.py",
+   "        if not _loopback(host):\n            attempts.append(f\"lookup",
+   "        if False:\n            attempts.append(f\"lookup",
+   "name lookups allowed"
+  ],
+  [
+   "guard",
+   "tests/conftest.py",
+   "        monkeypatch.delenv(name, raising=False)\n",
+   "",
+   "proxy left in the environment"
+  ]
+ ]
+}

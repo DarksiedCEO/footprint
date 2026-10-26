@@ -3,6 +3,7 @@ from what IBKR answered, and nothing when IBKR has not answered."""
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -859,7 +860,8 @@ def test_ibkr_refusing_on_the_callers_own_thread_neither_deadlocks_nor_misleads(
 def test_ibkr_callbacks_reach_the_service_through_the_real_binding(
     execution: ExecutionProfile, instrument: InstrumentProfile
 ) -> None:
-    pytest.importorskip("ibapi")
+    if not os.environ.get("FOOTPRINT_REQUIRE_IBAPI"):  # required: fail, never skip
+        pytest.importorskip("ibapi")
     from ibapi.common import BarData, TickAttrib
     from ibapi.ticktype import TickTypeEnum
 

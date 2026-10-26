@@ -1,0 +1,146 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "zeroday": [
+   "tests/agents"
+  ]
+ },
+ "mutants": [
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "            self._managed_at += now - self._away_since",
+   "            self._managed_at = now",
+   "H-1 regression: reset the whole clock"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        self._away_since = None\n",
+   "",
+   "AEGIS survivor: away never cleared"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        if self._away_since is not None:\n            return  # the broker is away",
+   "        if False:\n            return  # the broker is away",
+   "failsafe acts while away (ready check alone)"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        if agreed and self._doubts == doubts:",
+   "        if agreed:",
+   "M-1 regression: mid-reconcile doubt lost"
+  ],
+  [
+   "disconnect",
+   "src/footprint/execution/runner.py",
+   "        self._doubts += 1\n",
+   "",
+   "doubts not counted"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    \"that data is missing\",  # MARKET DATA: <bars, chain, history...> failed\n",
+   "",
+   "M-2: data failures do not ring"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "    \"cannot stream the held\",\n",
+   "",
+   "M-2: held contract unstreamable does not ring"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "            status = within(\n                self.timeout, lambda: self.post(url, data, None, self.timeout), self._busy\n            )",
+   "            status = self.post(url, data, None, self.timeout)",
+   "AEGIS survivor: Telegram send without deadline"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        if busy.is_set():\n            raise",
+   "        if False:\n            raise",
+   "L-a: unbounded abandoned sends"
+  ],
+  [
+   "alarms",
+   "src/footprint/execution/channels.py",
+   "        finally:\n            if busy is not None:\n                busy.clear()",
+   "        finally:\n            pass",
+   "L-a: a channel never usable again after one hang"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "    if missing:\n        day, name = missing[0]",
+   "    if False:\n        day, name = missing[0]",
+   "M-3: completeness not enforced"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/config.py",
+   "        if easter.weekday() != _WEEKDAYS.index(\"SUN\"):",
+   "        if False:",
+   "Easter not checked to be a Sunday"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "        return day - timedelta(days=1) if how == \"weekend\" else None",
+   "        return day if how == \"weekend\" else None",
+   "Saturday holiday not moved to Friday"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "    if nth == -1:\n        return days[-1]",
+   "    if nth == -1:\n        return days[-2]",
+   "last weekday wrong"
+  ],
+  [
+   "calendar",
+   "src/footprint/core/holiday_rules.py",
+   "        return easters[year] + timedelta(days=rule.days_from_easter)",
+   "        return easters[year]",
+   "Easter offset ignored"
+  ],
+  [
+   "zeroday",
+   "src/footprint/agents/zero_day.py",
+   "                and day not in self._instrument.no_trade_days  # a stub session: not a day\n",
+   "",
+   "L-d: no-trade day counted as history"
+  ]
+ ]
+}

@@ -1,0 +1,65 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        claimed = {m.start() + i + 2 for m in chains for i in _dollar_ends(m.group())}",
+   "        claimed: set[int] = set()",
+   "G22 M1: no $ end is left to the chain (read twice)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "m.start() + i + 2 for",
+   "m.start() + i + 1 for",
+   "G22 M2: the claimed offset is the $, not the number"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "r\"(?<![\\w.:-])(?>\\d[\\d_]*",
+   "r\"(?<![\\w.:-])(?<!\\d-\\$)(?>\\d[\\d_]*",
+   "G22 M3: PROSE_NUMBER refuses every $ after digit-hyphen again (G21 form)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "r\"(?<![\\w.:,-])(?>\\d{1,3}(?:,\\d{3})+",
+   "r\"(?<![\\w.:,-])(?<!\\d-\\$)(?>\\d{1,3}(?:,\\d{3})+",
+   "G22 M4: GROUPED_NUMBER refuses every $ after digit-hyphen again (G21 form)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        chains = [m for m in CHAIN_NUMBER.finditer(text) if not ISO_DATE.fullmatch(m.group())]",
+   "        chains = list(CHAIN_NUMBER.finditer(text))",
+   "G22 M5: ISO dates are read as chains"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "chain.startswith(\"-$\", i)",
+   "chain.startswith(\"$\", i)",
+   "G22 M6: the $ is located, not the -$"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                if match.start() in claimed:",
+   "                if any(c.start() <= match.start() < c.end() for c in chains):",
+   "G22 M7: a chain claims its whole span (2026-04-03,900 loses 900)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                if match.start() in claimed:",
+   "                if False:",
+   "G22 M8: the claim is never checked"
+  ]
+ ]
+}

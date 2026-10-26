@@ -1,0 +1,77 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g7_3.py",
+   "tests/execution/test_pending_entry_stop.py",
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_check_the_fill_restart.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        try:\n            self._guard_pending_stop(ticket, filled)\n        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:\n                log.critical(\"stop check failed past the price wait: %r\", exc)\n                raise overdue from exc\n            raise\n",
+   "        self._guard_pending_stop(ticket, filled)\n",
+   "M1: the guard runs unguarded before the wait test (the G7-3 hole: a raising check hides CHECK THE FILL)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:",
+   "        except Exception as exc:",
+   "M2: BrokerDown past the wait becomes FillUnpriced (a fault instead of waiting for the broker)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            if now - since >= wait:\n                log.critical",
+   "            if now - since > wait:\n                log.critical",
+   "M3: the failing-guard path waits one tick longer than the quiet path"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "raise overdue from exc",
+   "raise overdue from None",
+   "M4: the guard's own failure is not chained"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                raise overdue from exc\n            raise\n",
+   "                raise\n            raise\n",
+   "M5: past the wait the guard's error is re-raised, never FillUnpriced"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if now - since >= wait:\n            raise overdue\n        return ticket",
+   "        if now - since > wait:\n            raise overdue\n        return ticket",
+   "M6: the quiet path waits one tick longer"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            if stop_id != replacement:\n                raise  # the attached stop",
+   "            if False:\n                raise  # the attached stop",
+   "M7: NeverPlaced on the ATTACHED stop is taken as 'no stop' (a fault hidden as a halt)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            # there is no stop. Nothing more is sent (grind review G7-3).\n            self._halt.trip(",
+   "            # there is no stop. Nothing more is sent (grind review G7-3).\n            raise\n            self._halt.trip(",
+   "M8: NeverPlaced on the replacement is raised every step (the old behaviour)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                \"position by hand\"\n            )\n            return\n        if held.protects",
+   "                \"position by hand\"\n            ) if False else None\n            return\n        if held.protects",
+   "M9: NeverPlaced on the replacement returns quietly: no halt, no alarm"
+  ]
+ ]
+}

@@ -1,0 +1,7 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: L2-2: reconcile's cancel record kept after the stop protects again
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: L2-3: an abandoned exit keeps its stuck clock
+  3 SURVIVED [exec] src/footprint/execution/management/malik.py: L2-1: a stop that filled before its cancel is expected gone
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: L2-6: wrong-size stop's cancel unconfirmed, second stop placed
+4 mutants, 1 survived
+EXIT 1

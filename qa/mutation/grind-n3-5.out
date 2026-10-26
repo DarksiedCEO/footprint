@@ -1,0 +1,18 @@
+source: 32aef6299fe059c0346873b099defa526e680718 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: P1: no stop check during the price wait (the N3-5 bug)
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: P2: a filled attached stop is replaced (a second sell)
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: P3: a protecting stop is treated as gone
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: P4: a live, not-protecting stop gets a second stop beside it
+  5 KILLED   [exec] src/footprint/execution/executor/diego.py: P5: held-back stop during the wait is not halted/alarmed
+  6 KILLED   [exec] src/footprint/execution/executor/diego.py: P6: wording names held back when the cancel is pending
+  7 KILLED   [exec] src/footprint/execution/executor/diego.py: P7: a dead replacement is replaced every step
+  8 KILLED   [exec] src/footprint/execution/executor/diego.py: P8: no halt/alarm when the replacement is gone too
+  9 KILLED   [exec] src/footprint/execution/executor/diego.py: P9: the ticket keeps the dead stop id (fill places -stop-2 beside the replacement; retries each step)
+ 10 KILLED   [exec] src/footprint/execution/executor/diego.py: P10: the replacement is priced off another limit
+ 11 KILLED   [exec] src/footprint/execution/executor/diego.py: P11: the replacement is outside the position's OCA group
+ 12 KILLED   [exec] src/footprint/execution/executor/diego.py: P12: the replacement sells more than is held (a short)
+ 13 KILLED   [exec] src/footprint/execution/executor/diego.py: P13: guard never asks
+ 14 KILLED   [exec] src/footprint/execution/executor/diego.py: P14: the check stops once the wait is over
+ 15 KILLED   [exec] src/footprint/execution/executor/diego.py: P15: the replacement id collides with the fill's new-stop id
+15 mutants, 0 survived or errored

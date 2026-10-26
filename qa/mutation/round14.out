@@ -1,0 +1,9 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: P-38: CANCEL STUCK on the third hand-over
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: P-42: the stuck clock not cleared at hand-over
+  3 SURVIVED [exec] src/footprint/execution/management/malik.py: an abandoned exit keeps its hand-over count
+  4 KILLED   [live] src/footprint/live/app.py: P-32: no DEGRADED_ALERTING start-up banner
+  5 KILLED   [live] src/footprint/execution/channels.py: P6-3: a silent feed is not critical
+5 mutants, 1 survived
+EXIT 1
+source: mutants applied to the working tree that became fc13169 (round14-rerun after its pinning test was added)

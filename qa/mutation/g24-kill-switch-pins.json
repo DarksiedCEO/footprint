@@ -1,0 +1,25 @@
+{
+ "groups": {
+  "ks": [
+   "tests/execution/test_kill_switch_clear.py"
+  ]
+ },
+ "mutants": [
+  ["ks", "src/footprint/execution/ledger.py",
+   "            self.close()\n            raise FileNotFoundError",
+   "            raise FileNotFoundError",
+   "G24-3: a missing ledger keeps the lock"],
+  ["ks", "src/footprint/live/kill_switch.py",
+   "    if answer.strip() != CONFIRM_WORD:",
+   "    if CONFIRM_WORD not in answer:",
+   "G24-1: confirmation loosened to containing the word"],
+  ["ks", "src/footprint/live/kill_switch.py",
+   "    if answer.strip() != CONFIRM_WORD:",
+   "    if not answer.strip().startswith(CONFIRM_WORD):",
+   "G24-1: confirmation loosened to a prefix"],
+  ["ks", "src/footprint/live/kill_switch.py",
+   "    finally:\n        ledger.close()",
+   "    finally:\n        pass",
+   "G24-2: the command never releases the lock"]
+ ]
+}

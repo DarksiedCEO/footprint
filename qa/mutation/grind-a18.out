@@ -1,0 +1,13 @@
+source: 34f5d8c6336c1b83991e75b838c0067f1712b446 tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] src/footprint/core/series.py: M1: a bankroll written with an underscore
+  2 KILLED   [guard] src/footprint/data/aggregate.py: M2: a tick size as a Decimal string with a leading dot
+  3 KILLED   [guard] src/footprint/execution/management/malik.py: M3: one more small integer that is a config value (4) in code
+  4 KILLED   [guard] src/footprint/core/config.py: M4: the in-line opt-out marker comes back
+  5 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M5: YAML lists are not walked (holiday dates, symbol lists)
+  6 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M6: comments are not scanned
+  7 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M7: date(y, m, d) calls are not checked
+  8 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M8: numeric strings (Decimal("0.25")) are not read as numbers
+  9 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M9: a reviewed entry that went away is not noticed
+ 10 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: M10: one occurrence more than reviewed is let through
+10 mutants, 0 survived or errored

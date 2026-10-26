@@ -1,0 +1,52 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g9_1.py",
+   "tests/execution/test_grind_g7_3.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "        except BrokerDown:\n            raise\n        except (RuntimeError, OSError) as exc:\n            if now - since >= wait:",
+   "R1 (review G9-1): the except narrowed: NeverPlaced on the attached stop past the wait escapes every step and hides CHECK THE FILL"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "        except ConnectionError:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "R2 (review G9-1): the BrokerDown pass-through widened to every ConnectionError: ConnectionResetError past the wait hides CHECK THE FILL"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "        except BrokerDown:\n            raise\n        except (RuntimeError, ConnectionError) as exc:\n            if now - since >= wait:",
+   "M3: the except narrowed to the TimeoutError/ConnectionError family and RuntimeError (NeverPlaced escapes)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "        except BrokerDown:\n            raise\n        except (KeyError, TimeoutError) as exc:\n            if now - since >= wait:",
+   "M4: the except narrowed to KeyError and TimeoutError (ConnectionResetError and IBKR errors escape)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except BrokerDown:\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "        except (BrokerDown, KeyError):\n            raise\n        except Exception as exc:\n            if now - since >= wait:",
+   "M5: NeverPlaced (KeyError) passed through unchanged like BrokerDown"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                raise overdue from exc\n            raise\n",
+   "                raise overdue from exc\n            raise overdue from exc\n",
+   "M6: before the wait a failing check already becomes FillUnpriced (CHECK THE FILL too early)"
+  ]
+ ]
+}

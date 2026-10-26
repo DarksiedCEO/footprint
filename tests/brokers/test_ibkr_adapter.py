@@ -116,7 +116,7 @@ def test_a_lost_connection_stops_everything_until_resynced(ib: Ib) -> None:
     assert ib.fake.sends == []
     assert any("connection lost" in a for a in ib.alarms)
     ib.fake.restore(data_lost=True)
-    assert ib.resyncs == [1, 1]
+    assert ib.resyncs == [1, 1, 1]  # start-up, the loss itself, and before ready again
     assert ib.adapter.place(buy()).state is OrderState.WORKING
 
 
@@ -617,7 +617,7 @@ def test_a_resend_that_does_not_match_the_original_proves_it_exists(ib: Ib) -> N
 def test_restored_with_data_maintained_still_resyncs(ib: Ib) -> None:
     ib.fake.lose()
     ib.fake.restore(data_lost=False)  # 1102
-    assert ib.resyncs == [1, 1]
+    assert ib.resyncs == [1, 1, 1]  # start-up, the loss, and before ready again
     assert ib.adapter.place(buy()).state is OrderState.WORKING
 
 
@@ -696,7 +696,7 @@ def test_an_order_taken_as_finished_that_comes_back_live_is_followed_again(ib: I
     ib.fake._report(force=stop.ib_id)  # IBKR reports it live after all
     assert ib.adapter.status("p1-stop").state is OrderState.WORKING
     assert any("LIVE again" in a for a in ib.alarms)
-    assert ib.resyncs == [1, 1, 1]  # and the runner is sent to reconcile
+    assert ib.resyncs == [1, 1, 1, 1]  # and the runner is sent to reconcile
 
 
 def test_the_open_orders_are_listed_afresh_before_a_broker_wide_cancel(ib: Ib) -> None:
@@ -879,3 +879,313 @@ def test_each_stuck_resync_is_alarmed_after_its_own_limit(ib: Ib) -> None:
     with pytest.raises(BrokerUnavailable):
         ib.adapter.positions()
     assert sum("not completing" in a for a in ib.alarms) == 2  # the new one is said too
+
+
+def test_the_runner_is_told_at_the_loss_and_before_ready_again(ib: Ib) -> None:
+    """D35: entries stop the moment the connection is lost, and no step can see the
+    adapter ready again before the doubt is set (it is set first, under the lock)."""
+    seen_ready_at_doubt: list[bool] = []
+    ib.adapter._on_resync = lambda: seen_ready_at_doubt.append(ib.adapter.ready)
+    ib.fake.lose()
+    assert seen_ready_at_doubt == [False]  # told at the loss
+    ib.fake.restore(data_lost=True)
+    assert seen_ready_at_doubt == [False, False]  # told again, while still not ready
+    assert ib.adapter.ready
+
+
+# --- H-2: the stop attached to the entry (a bracket) -----------------------------------------
+
+
+def attached_stop(order_id: str = "p1-stop", parent: str = "p1-entry") -> Order:
+    return Order(order_id, C, Side.SELL, 1, OrderType.STOP_LIMIT, D(109), D(114), "p1", parent)
+
+
+def test_a_bracket_is_sent_parent_held_then_child_transmitting(ib: Ib) -> None:
+    first, second = ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.WORKING, OrderState.WORKING)
+    parent, child = ib.fake.sends
+    assert (parent.order_ref, parent.transmit, parent.parent_ib_id) == ("p1-entry", False, None)
+    assert (child.order_ref, child.transmit, child.parent_ib_id) == ("p1-stop", True, parent.ib_id)
+
+
+def test_the_attached_stop_activates_when_the_entry_fills(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.quote(100, 160)  # far under the stop: held, nothing happens
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    assert ib.adapter.positions() == {}
+    ib.quote(139, 140)  # the entry fills
+    assert ib.adapter.status("p1-entry").state is OrderState.FILLED
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+    ib.quote(113, 115)  # through the stop: it sells
+    assert ib.adapter.status("p1-stop").state is OrderState.FILLED
+    assert ib.adapter.positions() == {}
+
+
+def test_cancelling_the_entry_takes_the_attached_stop(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.adapter.cancel("p1-entry")
+    assert ib.adapter.status("p1-entry").state is OrderState.CANCELLED
+    assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+
+
+def test_a_held_stop_reported_inactive_is_cancelled_not_trusted(ib: Ib) -> None:
+    """Inactive is not protection (AEGIS MEDIUM-1): the held stop is cancelled at once,
+    and an executor checking it each step then cancels the entry."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.inactivate(child.perm_id)
+    assert ib.fake.cancels == [child.ib_id]
+    assert any("p1-stop is Inactive" in a for a in ib.alarms)
+    assert ib.adapter.status("p1-stop").state is not OrderState.FILLED
+
+
+def test_a_refused_bracket_is_refused_whole(ib: Ib) -> None:
+    ib.fake.reject_next = 201
+    first, second = ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.REJECTED, OrderState.REJECTED)
+    assert ib.adapter.positions() == {}
+
+
+def test_a_bracket_is_tracked_whole(ib: Ib) -> None:
+    ib.tracked.place_attached(buy(price=140), attached_stop())
+    assert set(ib.tracked.unfinished) == {"p1-entry", "p1-stop"}
+    ib.tracked.cancel("p1-entry")
+    ib.tracked.status("p1-stop")
+    assert ib.tracked.unfinished == {}
+
+
+def test_a_bracket_waits_for_the_childs_answer_too(ib: Ib) -> None:
+    """AEGIS A11: returning on the parent's answer alone would report a stop IBKR has
+    not confirmed."""
+    ib.fake.late_children = True
+    with pytest.raises(TimeoutError, match="attached"):
+        ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.fake.release()
+    assert ib.adapter.status("p1-stop").state is OrderState.WORKING
+
+
+def test_a_refused_order_stays_refused_when_asked_again(ib: Ib) -> None:
+    """Asked each step (the attached stop check): a refusal is answered, never a
+    KeyError that would halt the runner (AEGIS LOW-2)."""
+    ib.fake.reject_next = 201
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert ib.adapter.status("p1-stop").state is OrderState.REJECTED
+    assert ib.adapter.status("p1-entry").state is OrderState.REJECTED
+
+
+def test_a_refusal_never_hides_a_later_live_copy(ib: Ib) -> None:
+    """G6: refused once, then accepted on a resend under the same id: it is working."""
+    ib.fake.reject_next = 201
+    assert ib.adapter.place(buy(price=140)).state is OrderState.REJECTED
+    assert ib.adapter.place(buy(price=140)).state is OrderState.WORKING
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING
+
+
+def test_through_ibkr_a_refused_stop_means_no_entry() -> None:
+    """End to end over the fake IBKR: the bracket is refused, nothing works or fills."""
+    ib = make()
+    ib.fake.reject_next = 201
+    first, second = ib.tracked.place_attached(buy(price=140), attached_stop())
+    assert (first.state, second.state) == (OrderState.REJECTED, OrderState.REJECTED)
+    ib.quote(139, 140)
+    assert ib.adapter.positions() == {}
+    assert ib.tracked.unfinished == {}
+
+
+def test_an_inactive_stop_whose_cancel_is_never_answered_is_not_protection(ib: Ib) -> None:
+    """AEGIS N1: it stays WORKING until IBKR answers the cancel, but held back."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING  # still listed at IBKR...
+    assert status.held_back  # ...but no protection
+    assert not status.protects
+    assert ib.adapter.status("p1-entry").protects  # (an ordinary working order is not held)
+
+
+def test_a_working_stop_is_protection(ib: Ib) -> None:
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    assert ib.adapter.status("p1-stop").protects
+
+
+def test_a_stop_pending_its_inactive_cancel_is_still_held_back(ib: Ib) -> None:
+    """AEGIS N2: once cancelled for being Inactive, IBKR says PendingCancel (no longer
+    Inactive): still held back until the cancel lands."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.slow_cancels = True
+    doubts = len(ib.resyncs)
+    ib.fake.inactivate(child.perm_id)  # the adapter cancels; IBKR answers PendingCancel
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+    assert not status.cancelling  # held back wins: never agreed with by reconcile
+    ib.fake.finish_cancels()
+    assert ib.adapter.status("p1-stop").state is OrderState.CANCELLED
+    # AEGIS K-M14: Inactive -> our cancel -> PendingCancel -> Cancelled is no revival.
+    assert len(ib.resyncs) == doubts
+    assert not any("LIVE again" in a for a in ib.alarms)
+
+
+def test_a_stale_pending_submit_after_our_inactive_cancel_is_still_held_back(ib: Ib) -> None:
+    """A stale PendingSubmit delivered after IBKR said Inactive and we cancelled it:
+    the copy is not acting (only PreSubmitted/Submitted revive it), so the stop stays
+    held back and is never counted as protection."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingSubmit", 0, 1, D(0))
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+    assert not status.protects
+
+
+def test_a_stop_whose_ordinary_cancel_is_pending_is_cancelling_not_held_back(ib: Ib) -> None:
+    """AEGIS K-1/K-2: PendingCancel from our own cancel of a working stop: still live
+    (it can fill), no protection, but not held back."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    ib.fake.slow_cancels = True
+    ib.adapter.cancel("p1-stop")
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert status.cancelling
+    assert not status.held_back
+    assert not status.protects
+
+
+def test_a_cancel_refused_after_pending_cancel_is_counted(ib: Ib) -> None:
+    """AEGIS M3-1: PendingCancel, then acting again: one refusal, protecting again;
+    a plain resend of an acting status counts nothing."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    assert ib.adapter.status("p1-stop").cancel_refusals == 0
+    ib.fake.slow_cancels = True
+    ib.adapter.cancel("p1-stop")
+    assert ib.adapter.status("p1-stop").cancelling
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PreSubmitted", 0, 1, D(0))
+    status = ib.adapter.status("p1-stop")
+    assert status.cancel_refusals == 1
+    assert status.protects
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PreSubmitted", 0, 1, D(0))
+    assert ib.adapter.status("p1-stop").cancel_refusals == 1
+
+
+def test_a_refusal_reported_by_open_order_is_counted(ib: Ib) -> None:
+    """The openOrder path too: PendingCancel, then an openOrder saying Submitted."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingCancel", 0, 1, D(0))
+    ib.fake._open_order(child, ib.fake.sim.status(child.sim_id))  # says Submitted
+    assert ib.adapter.status("p1-stop").cancel_refusals == 1
+
+
+def test_refusals_are_summed_over_copies_and_shown_on_extra_ids(ib: Ib) -> None:
+    from footprint.brokers.ibkr.adapter import _EXTRA
+
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    first = next(c for c in ib.adapter._copies.values() if c.order_id == "p1-stop")
+    _second_copy(ib, "p1-stop", "Submitted")
+    second = next(
+        c for c in ib.adapter._copies.values() if c.order_id == "p1-stop" and c is not first
+    )
+    first.refusals, second.refusals = 1, 2
+    assert ib.adapter.status("p1-stop").cancel_refusals == 3
+    assert ib.adapter.status(f"p1-stop{_EXTRA}{second.perm_id}").cancel_refusals == 2
+
+
+@pytest.mark.parametrize("after", ["Cancelled", "Filled", "Inactive"])
+def test_a_pending_cancel_that_ends_is_no_refusal(ib: Ib, after: str) -> None:
+    """Only PendingCancel -> acting (PreSubmitted/Submitted) is a refusal."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, "PendingCancel", 0, 1, D(0))
+    ib.adapter.on_order_status(child.ib_id, child.perm_id, after, 0, 1, D(0))
+    assert ib.adapter.status("p1-stop").cancel_refusals == 0
+
+
+def _second_copy(ib: Ib, order_id: str, status: str) -> None:
+    """IBKR holding a second live copy of the same order (as after a resend)."""
+    from dataclasses import replace as clone
+
+    first = next(c for c in ib.adapter._copies.values() if c.order_id == order_id)
+    perm = max(ib.adapter._copies) + 1000
+    ib.adapter._copies[perm] = clone(first, perm_id=perm, status=status)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "protects", "held_back", "cancelling"),
+    [
+        ("Submitted", "PendingCancel", True, False, False),  # one copy still acts
+        ("Inactive", "Submitted", True, False, False),
+        ("Inactive", "PendingCancel", False, True, False),  # none acts; one Inactive
+        ("PendingCancel", "PendingCancel", False, False, True),
+        ("Inactive", "Inactive", False, True, False),
+    ],
+)
+def test_several_copies_protect_only_if_one_can_act(
+    ib: Ib, first: str, second: str, protects: bool, held_back: bool, cancelling: bool
+) -> None:
+    """AEGIS K-M2: with several live copies, the order protects iff one of them can
+    still act; with none, any Inactive copy makes it held back, else cancelling."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    copy = next(c for c in ib.adapter._copies.values() if c.order_id == "p1-stop")
+    copy.status = first
+    _second_copy(ib, "p1-stop", second)
+    status = ib.adapter.status("p1-stop")
+    assert status.state is OrderState.WORKING
+    assert (status.protects, status.held_back, status.cancelling) == (
+        protects,
+        held_back,
+        cancelling,
+    )
+
+
+def test_an_order_taken_as_finished_that_reappears_pending_raises_a_doubt(ib: Ib) -> None:
+    """AEGIS I-4: any live status, not only PreSubmitted/Submitted, brings back an
+    order that was taken as finished unseen."""
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    copy = ib.adapter._copies[entry.perm_id]
+    copy.settled_unseen = True  # (as after an open-orders listing that left it out)
+    copy.status = "Cancelled"
+    doubts = len(ib.resyncs)
+    ib.adapter.on_order_status(entry.ib_id, entry.perm_id, "PendingCancel", 0, 1, D(0))
+    assert len(ib.resyncs) > doubts
+    assert ib.adapter.status("p1-entry").state is OrderState.WORKING
+
+
+def test_a_revived_order_later_reported_inactive_is_held_back_not_dead(ib: Ib) -> None:
+    """AEGIS J-M5: a revival clears the old cancel answer, so a later Inactive report
+    reads as held back (still at IBKR), never as finished."""
+    ib.adapter.place(buy(price=140))
+    (entry,) = ib.fake.copies.values()
+    copy = ib.adapter._copies[entry.perm_id]
+    copy.settled_unseen = copy.cancel_confirmed = True
+    copy.status = "Cancelled"
+    ib.adapter.on_order_status(entry.ib_id, entry.perm_id, "Submitted", 0, 1, D(0))
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(entry.perm_id)
+    status = ib.adapter.status("p1-entry")
+    assert status.state is OrderState.WORKING
+    assert status.held_back
+
+
+def test_a_cancelled_inactive_stop_that_revives_raises_a_doubt(ib: Ib) -> None:
+    """F2/F4: an Inactive stop we cancelled, then IBKR reactivates it: it acts again
+    (not held back), and the runner must reconcile (a new stop or a flatten may sit
+    beside it)."""
+    ib.adapter.place_attached(buy(price=140), attached_stop())
+    child = next(c for c in ib.fake.copies.values() if c.request.order_ref == "p1-stop")
+    ib.fake.mute_cancels = True
+    ib.fake.inactivate(child.perm_id)
+    assert ib.adapter.status("p1-stop").held_back
+    doubts = len(ib.resyncs)
+    ib.fake.reactivate(child.perm_id)
+    assert not ib.adapter.status("p1-stop").held_back
+    assert len(ib.resyncs) > doubts
+    assert any("LIVE again at IBKR after it was Inactive" in a for a in ib.alarms)

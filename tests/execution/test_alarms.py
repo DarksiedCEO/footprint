@@ -89,26 +89,38 @@ def test_a_waiting_message_is_not_queued_twice() -> None:
 
 
 def test_beyond_the_cap_the_oldest_are_dropped_and_counted() -> None:
+    # Deterministic (G44-2): the first delivery of "alarm 0" is held inside the pager
+    # until all ten alarms are submitted, so the cap is always hit with alarm 0 in
+    # flight. The outcome no longer depends on when the worker thread is scheduled.
+    entered = threading.Event()  # set = alarm 0 is inside the pager
+    submitted = threading.Event()  # set = all ten alarms are submitted
     down = threading.Event()  # set = the line works
     heard: list[str] = []
 
     def pager(a: Alarm) -> None:
+        if not entered.is_set():
+            entered.set()
+            submitted.wait(WAIT.total_seconds())
+            raise ConnectionError("pager down")
         if not down.is_set():
             raise ConnectionError("pager down")
         heard.append(a.message)
 
     line = AlarmLine(pager, retry=FAST, max_pending=3)
-    for n in range(10):
+    line.submit(alarm(0))
+    assert entered.wait(WAIT.total_seconds())
+    for n in range(1, 10):
         line.submit(alarm(n))
     assert line.pending == 3
+    assert line.dropped == 7
+    submitted.set()
     down.set()
-    assert eventually(lambda: any("dropped" in m for m in heard) and len(heard) >= 4)
-    assert eventually(lambda: line.pending == 0)
-    survivors = [m for m in heard if "dropped" not in m]
-    assert survivors == ["alarm 7", "alarm 8", "alarm 9"]  # the newest survive, in order
-    assert heard[1].startswith("7 alarm(s)")  # told right after the line comes back
-    note = next(m for m in heard if "dropped" in m)
-    assert note.startswith("7 alarm(s) were dropped")
+    assert eventually(lambda: line.pending == 0 and len(heard) == 4)
+    # The alarm in flight when the cap is hit is never dropped; of the rest the oldest
+    # go (alarms 1 to 7) and the newest survive, in order.
+    assert heard[0] == "alarm 0"
+    assert heard[1].startswith("7 alarm(s) were dropped")  # told right after it is back
+    assert heard[2:] == ["alarm 8", "alarm 9"]
     assert line.close(WAIT)
 
 
@@ -341,4 +353,48 @@ def test_a_slow_but_working_pager_hands_the_backlog_over_at_most_once() -> None:
     assert eventually(lambda: len(heard) == 5)
     assert len(backup) == len(set(backup))  # never the same alarm handed over twice
     assert line.close(WAIT)
+    assert fallback.close(WAIT)
+
+
+def test_an_alarm_queued_while_a_flapping_pager_looks_healthy_still_reaches_the_fallback() -> None:
+    """Audit 2026-10-07 A-5: down, up for one delivery, down again. An alarm queued in
+    the moment it looked healthy must still be handed to the fallback."""
+    calls = [0]
+    queued = threading.Event()
+
+    def flapping(a: Alarm) -> None:
+        calls[0] += 1
+        if calls[0] == 2:  # only the second delivery attempt gets through
+            return
+        if calls[0] == 3:  # the next one fails only once alarm 3 is queued
+            queued.wait(WAIT.total_seconds())
+        raise ConnectionError("pager down")
+
+    backup: list[str] = []
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(flapping, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(1))
+    line.submit(alarm(2))
+    assert eventually(lambda: line.delivered == 1)  # alarm 1, on its retry
+    line.submit(alarm(3))  # the pager looks healthy right now
+    queued.set()
+    assert eventually(lambda: "alarm 3" in backup)
+    line.close(timedelta(milliseconds=100))
+    assert fallback.close(WAIT)
+
+
+def test_an_alarm_raised_while_closing_with_a_failing_pager_still_reaches_the_fallback() -> None:
+    """Delta review F-8: the closing line will not deliver it; the fallback must."""
+
+    def down(a: Alarm) -> None:
+        raise ConnectionError("pager down")
+
+    backup: list[str] = []
+    fallback = AlarmLine(lambda a: backup.append(a.message), retry=FAST, max_pending=10)
+    line = AlarmLine(down, retry=timedelta(milliseconds=50), max_pending=10, fallback=fallback)
+    line.submit(alarm(1))
+    assert eventually(lambda: "alarm 1" in backup)  # the pager failed: handed over
+    line.close(timedelta(milliseconds=100))
+    line.submit(alarm(2))  # raised during shutdown
+    assert eventually(lambda: "alarm 2" in backup)
     assert fallback.close(WAIT)

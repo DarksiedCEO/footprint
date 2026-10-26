@@ -1,0 +1,42 @@
+{
+ "groups": {
+  "with": [
+   "tests/execution/test_grind_g7_1.py",
+   "tests/execution/test_unowned_unpriced_sell.py",
+   "tests/execution/test_unpriced_sell_guards.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_grind_g11_1.py",
+   "tests/execution/test_grind_g4_2.py"
+  ]
+ },
+ "mutants": [
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "                status = self._broker.status(order_id)\n            except KeyError:\n                continue\n            if (\n                status.filled > 0\n                and status.order.side",
+   "                status = self._broker.status(order_id)\n            except KeyError:\n                return sold\n            if (\n                status.filled > 0\n                and status.order.side",
+   "R2: an unknown candidate stops the search in _sells_that_sold (the reviewer's mutant)"
+  ],
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "                status = self._broker.status(order_id)\n            except KeyError:\n                continue\n            if (\n                status.filled > 0\n                and status.order.side",
+   "                status = self._broker.status(order_id)\n            except KeyError:\n                break\n            if (\n                status.filled > 0\n                and status.order.side",
+   "R2-break: the same, via break"
+  ],
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "                    status = self._broker.status(order_id)\n                except KeyError:\n                    continue\n                if (\n                    status.filled > 0  # FILLED or filled in part (G7-1)",
+   "                    status = self._broker.status(order_id)\n                except KeyError:\n                    break\n                if (\n                    status.filled > 0  # FILLED or filled in part (G7-1)",
+   "R2b: an unknown newer reconcile order hides an older one that sold"
+  ],
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "                    status = self._broker.status(order_id)\n                except KeyError:\n                    continue\n                if (\n                    status.filled > 0  # FILLED or filled in part (G7-1)",
+   "                    status = self._broker.status(order_id)\n                except KeyError:\n                    return None\n                if (\n                    status.filled > 0  # FILLED or filled in part (G7-1)",
+   "R2b-return: the same, via return None"
+  ]
+ ]
+}

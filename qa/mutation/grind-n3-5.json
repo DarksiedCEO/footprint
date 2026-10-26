@@ -1,0 +1,118 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_pending_entry_stop.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        self._guard_pending_stop(ticket, filled)\n",
+   "",
+   "P1: no stop check during the price wait (the N3-5 bug)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.protects or held.state is OrderState.FILLED:\n            return\n        pid",
+   "        if held.protects:\n            return\n        pid",
+   "P2: a filled attached stop is replaced (a second sell)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.protects or held.state is OrderState.FILLED:\n            return\n        pid",
+   "        if held.state is OrderState.FILLED:\n            return\n        pid",
+   "P3: a protecting stop is treated as gone"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.state is OrderState.WORKING:\n            self._halt.trip(",
+   "        if False:\n            self._halt.trip(",
+   "P4: a live, not-protecting stop gets a second stop beside it"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self._halt.trip(\n                f\"{pid}: stop {stop_id} is live but \"",
+   "            log.critical(\n                f\"{pid}: stop {stop_id} is live but \"",
+   "P5: held-back stop during the wait is not halted/alarmed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "{'held back' if held.held_back else 'being cancelled'}",
+   "{'held back'}",
+   "P6: wording names held back when the cancel is pending"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if stop_id == replacement:\n",
+   "        if False:\n",
+   "P7: a dead replacement is replaced every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self._halt.trip(\n                f\"{pid}: no resting stop at the broker",
+   "            log.critical(\n                f\"{pid}: no resting stop at the broker",
+   "P8: no halt/alarm when the replacement is gone too"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        ticket.stop_order_id = replacement  # before the send: never a second beside it\n",
+   "",
+   "P9: the ticket keeps the dead stop id (fill places -stop-2 beside the replacement; retries each step)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        spec = self._stops.preview(ticket.limit, filled)\n",
+   "        spec = self._stops.preview(ticket.limit + self._p.instrument.option_tick_size, filled)\n",
+   "P10: the replacement is priced off another limit"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                quantity=filled,\n                order_type=OrderType.STOP_LIMIT,\n                limit_price=spec.limit,\n                stop_price=spec.trigger,\n                oca_group=pid,",
+   "                quantity=filled,\n                order_type=OrderType.STOP_LIMIT,\n                limit_price=spec.limit,\n                stop_price=spec.trigger,\n                oca_group=None,",
+   "P11: the replacement is outside the position's OCA group"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                quantity=filled,\n                order_type=OrderType.STOP_LIMIT,\n                limit_price=spec.limit,\n                stop_price=spec.trigger,\n                oca_group=pid,",
+   "                quantity=filled + 1,\n                order_type=OrderType.STOP_LIMIT,\n                limit_price=spec.limit,\n                stop_price=spec.trigger,\n                oca_group=pid,",
+   "P12: the replacement sells more than is held (a short)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if stop_id is None:\n            return\n        held = self._broker.status(stop_id)",
+   "        if stop_id is None or True:\n            return\n        held = self._broker.status(stop_id)",
+   "P13: guard never asks"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        self._guard_pending_stop(ticket, filled)\n        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)\n        if now - ticket.price_pending_since >= wait:\n            raise FillUnpriced(\n                f\"entry {ticket.order_id} filled {filled} at the broker but its price has \"\n                f\"not been reported since {ticket.price_pending_since.isoformat()}\"\n            )",
+   "        wait = timedelta(seconds=self._p.execution.reconcile.fill_price_wait_seconds)\n        if now - ticket.price_pending_since >= wait:\n            raise FillUnpriced(\n                f\"entry {ticket.order_id} filled {filled} at the broker but its price has \"\n                f\"not been reported since {ticket.price_pending_since.isoformat()}\"\n            )\n        self._guard_pending_stop(ticket, filled)",
+   "P14: the check stops once the wait is over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "_PENDING_STOP_SUFFIX = \"-stop-wait\"",
+   "_PENDING_STOP_SUFFIX = \"-stop-2\"",
+   "P15: the replacement id collides with the fill's new-stop id"
+  ]
+ ]
+}

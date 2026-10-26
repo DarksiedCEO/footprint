@@ -1,0 +1,79 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        for match in RANGE_NUMBER.finditer(text):",
+   "        for match in RANGE_NUMBER.finditer(\"\"):",
+   "G20-1 M1: ranges are not read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "RANGE_NUMBER = re.compile(rf\"(?<![\\w.:,-])(",
+   "RANGE_NUMBER = re.compile(rf\"(?<![.:,-])(",
+   "G20-1 M2: a range glued to a word (G6-5, x900-1000) is read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "({_RANGE_END})(?![\\w:-]|,\\d)\")",
+   "({_RANGE_END})(?![\\w:]|,\\d)\")",
+   "G20-1 M3: the right end may be glued to another minus (an ISO date is read)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            ends = [match.group(1)] + ([] if match.group(2) else [match.group(3)])",
+   "            ends = [match.group(1), match.group(3)]",
+   "G20-1 M4: a $ right end is read twice"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            ends = [match.group(1)] + ([] if match.group(2) else [match.group(3)])",
+   "            ends = [match.group(1)]",
+   "G20-1 M5: the right end is never read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            ends = [match.group(1)] + ([] if match.group(2) else [match.group(3)])",
+   "            ends = [] if match.group(2) else [match.group(3)]",
+   "G20-1 M6: the left end is never read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                number = _number(end.replace(\",\", \"\"))",
+   "                number = _number(end)",
+   "G20-1 M7: separators are not stripped in a range end"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "_RANGE_END = r\"(?:\\d{1,3}(?:,\\d{3})+|\\d[\\d_]*)(?:\\.\\d+)?\"",
+   "_RANGE_END = r\"(?:\\d{1,3}(?:,\\d{3})+|\\d[\\d_]*)\"",
+   "G20-1 M8: a decimal range end is not read whole"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "-(\\$?)({_RANGE_END})",
+   "-()({_RANGE_END})",
+   "G20-1 M9: a $ before the right end is not allowed"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        \"text 9\": 1,\n    },\n    \"footprint/execution/executor/diego.py\"",
+   "    },\n    \"footprint/execution/executor/diego.py\"",
+   "G20-1 M10: the reviewed range end in channels.py is dropped"
+  ]
+ ]
+}

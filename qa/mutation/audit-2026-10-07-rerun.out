@@ -1,0 +1,9 @@
+source: e3a21cfb9c7becd1b857b1d61721960d2e631719 tree-dirty: 12 files
+baseline [adapter]: passed
+baseline [calendar]: passed
+baseline [markers]: passed
+  1 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: A-2: partly priced average
+  2 KILLED   [adapter] src/footprint/brokers/ibkr/adapter.py: A-3: no doubt while a cancel waits (open order)
+  3 SURVIVED [markers] src/footprint/execution/channels.py: A-11: settle escalation not critical
+  4 KILLED   [calendar] src/footprint/core/config.py: A-8: start after end accepted
+4 mutants, 1 survived or errored

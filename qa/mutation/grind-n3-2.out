@@ -1,0 +1,10 @@
+source: a9c461b44eecb8e42f28067b3fbd3700e392ec9f tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: the old fallback (past the wait, reconcile sells on the lagging report)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: no latch and no halt reason of its own past the wait
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: CHECK THE FILL alarmed every round, not once
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: the alarm loses its CHECK THE FILL headline
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: the alarm no longer says flatten by hand
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: inside the wait reconcile sells too
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: N3-2: reconcile never finds an unpriced filled sell itself
+7 mutants, 0 survived or errored

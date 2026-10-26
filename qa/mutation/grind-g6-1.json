@@ -1,0 +1,126 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_pending_entry_stop.py",
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_exit_guards.py",
+   "tests/execution/test_reconcile_unpriced_entry.py",
+   "tests/execution/test_runner.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:\n            # It sold part",
+   "        if False:\n            # It sold part",
+   "G1: adoption replaces a partly filled stop (the G6-1 short, fill path)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self._halt.trip(_partly_sold(stop_id, held))\n            return held.order, False",
+   "            return held.order, False",
+   "G2: adoption keeps it but does not halt"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self._halt.trip(_partly_sold(stop_id, held))\n            return held.order, False",
+   "            self._halt.trip(_partly_sold(stop_id, held))\n            return None, False",
+   "G3: adoption drops the partly filled stop (a new one is placed)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:  # it sold part",
+   "        if False:  # it sold part",
+   "G4: the price-wait guard replaces a partly filled stop (the G6-1 short)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:  # it sold part",
+   "        if held.filled > 1:  # it sold part",
+   "G5: boundary: one sold is not counted"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.filled > 0:\n            # It sold part",
+   "        if held.filled > 1:\n            # It sold part",
+   "G6: boundary on the fill path"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            self._halt.trip(\n                f\"{pid}: {_partly_sold(stop_id, held)} (the entry's fill price is pending)\"\n            )\n            return\n",
+   "            return\n",
+   "G7: the guard places nothing but says nothing"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        f\"stop {stop_id} sold {held.filled} of {held.order.quantity} and is \"",
+   "        f\"stop {stop_id} sold and is \"",
+   "G8: the halt does not say how much sold"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except NotSent:\n",
+   "        except ZeroDivisionError:\n",
+   "G9: a NotSent replacement leaves a phantom id (G6-2)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "            ticket.stop_order_id = stop_id\n            raise\n",
+   "            raise\n",
+   "G10: the old stop id is not restored on NotSent (G6-2)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        except NotSent:\n",
+   "        except Exception:\n",
+   "G11: an unknown send outcome forgets the replacement id (R1-like)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "                    quantity=filled,\n                    order_type=OrderType.STOP_LIMIT,\n                    limit_price=spec.limit,\n                    stop_price=spec.trigger,\n                    oca_group=pid,",
+   "                    quantity=held.order.quantity,\n                    order_type=OrderType.STOP_LIMIT,\n                    limit_price=spec.limit,\n                    stop_price=spec.trigger,\n                    oca_group=pid,",
+   "R3: replacement sized from the attached stop"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/executor/diego.py",
+   "        spec = self._stops.preview(ticket.limit, filled)\n        ticket.stop_order_id = replacement",
+   "        spec = self._stops.preview(ticket.limit, ticket.approved.plan.contracts)\n        ticket.stop_order_id = replacement",
+   "R4: replacement priced for the plan"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_status.filled > 0:\n                    # It sold part of the position before it ended",
+   "                if False:\n                    # It sold part of the position before it ended",
+   "G12: management flattens beside a partly filled stop gone at the broker"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._stand_down(now, f\"{pid}: stop partly filled\")\n                    raise NeedsReconcile(message)\n                # Gone",
+   "                    raise NeedsReconcile(message)\n                # Gone",
+   "G13: no kill-switch latch on that hand-over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._alarm(now, message)\n                    self._stand_down(now, f\"{pid}: stop partly filled\")\n                    raise NeedsReconcile(message)\n                # Gone",
+   "                    self._stand_down(now, f\"{pid}: stop partly filled\")\n                    raise NeedsReconcile(message)\n                # Gone",
+   "G14: no alarm to Andre on that hand-over"
+  ]
+ ]
+}

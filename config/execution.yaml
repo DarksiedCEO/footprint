@@ -34,8 +34,14 @@ reconcile:
                               #   long escalates to Andre and halts (it is never acted on
                               #   unsettled: any sell on an untrusted report could go short)
   cancel_escalate_seconds: 10 # DEFAULT: a cancel unconfirmed this long escalates to Andre
+                              #   (also bounds an exit waiting on a cancel; a slower
+                              #   cancel latches the kill switch: decision I-5, Andre)
                               #   ("flatten by hand"); reconcile still sells what the stuck
                               #   orders cannot cover
+  fill_price_wait_seconds: 15 # DEFAULT: an order the broker reports filled before its
+                              #   price is known (IBKR's status can run ahead of its
+                              #   execution report) is waited on this long, sending
+                              #   nothing; then the runner halts and reconciles
 alarms:
   retry_seconds: 5            # DEFAULT: wait between tries while the alarm line is down
   max_pending: 500            # DEFAULT: alarms kept while the line is down; beyond this
@@ -45,6 +51,9 @@ alarms:
   call_cooldown_seconds: 1800  # DEFAULT: ring at most once in this long per kind of
                                #   critical alarm (a kind ringing never silences another);
                                #   the alarm still goes by push and SMS every time (D20)
+  degraded_attendance_minutes: 15  # DEFAULT: with DEGRADED_ALERTING (Telegram only or
+                               #   local only), entries stop when nobody has typed at the
+                               #   terminal for this long (unattended is blocked)
 ibkr:
   ack_timeout_seconds: 5      # DEFAULT: wait this long for IBKR's answer to a send, modify
                               #   or cancel before treating the answer as lost
@@ -59,9 +68,8 @@ ibkr:
                               #   resync before anything is sent)
   option_security_type: FOP   # IBKR's security type for the instrument's options; the
                               #   system sees nothing else in the account
-  require_paper: true         # SAFETY: refuse to connect unless the account is a paper
-                              #   account. Changing this to false is going live: Andre only
-  paper_account_prefix: DU    # IBKR paper account ids begin with this
+  # (Paper only is hard-coded, not set here: brokers/ibkr/paper.py. A key here that
+  #  tries to set it is refused as unknown.)
   escalate_after_failures: 5  # DEFAULT: this many failed sessions in a row (Gateway not
                               #   reachable, never logged in, or a crash) raise one alarm
                               #   that a person is needed; retries then slow down

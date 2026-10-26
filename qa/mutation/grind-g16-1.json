@@ -1,0 +1,38 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g16_1.py",
+   "tests/execution/test_grind_g6_5.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        \"filled: sold twice. Nothing more is sold. Reconcile buys back \"\n                        \"the short it sees by itself (a limit buy): do not trade this \"\n                        \"contract by hand until it reports flat, or until a CHECK THE \"\n                        \"FILL alarm for it says to; then book the position with \"\n",
+   "                        \"filled: sold twice. Nothing more is sold; check the account and \"\n                        \"flatten by hand, then book it with \"\n",
+   "M1: the old alarm (flatten by hand beside reconcile's own buy-back)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        \"contract by hand until it reports flat, or until a CHECK THE \"\n",
+   "                        \"contract by hand, or until a CHECK THE \"\n",
+   "M2: the alarm does not say to wait until reconcile reports flat"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            side = Side.SELL if qty > 0 else Side.BUY\n",
+   "            side = Side.SELL\n",
+   "M3: reconcile sells a short instead of buying it back (after sold twice)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._stand_down(now, f\"{pid}: sold twice\")\n",
+   "                    pass\n",
+   "M4: sold twice does not stand down"
+  ]
+ ]
+}

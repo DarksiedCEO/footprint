@@ -165,6 +165,27 @@ class StopKeeper:
         self._last_bid[position_id] = fill
         return replace(level)
 
+    def preview(self, fill: Decimal, contracts: int) -> StopOrderSpec:
+        """The resting stop a fill at `fill` would get, without opening it. Used for a
+        stop attached to an entry before it fills (H-2): computed from the entry's
+        limit, the highest price it can fill at, so the stop is never further below
+        the real fill than the hard-stop distance."""
+        if isinstance(contracts, bool) or not isinstance(contracts, int) or contracts < 1:
+            raise ValueError("contracts must be an int >= 1")
+        if contracts > self._risk.max_contracts:
+            raise ValueError(f"contracts {contracts} > max_contracts {self._risk.max_contracts}")
+        tick = self._instrument.option_tick_size
+        if not isinstance(fill, Decimal) or not fill.is_finite() or fill <= 0 or fill % tick:
+            raise ValueError(f"fill must be a positive Decimal on the tick {tick}, got {fill!r}")
+        if not stop_fits(fill, contracts, self._risk, self._instrument, self._execution):
+            raise ValueError(f"fill {fill} is too small to carry the hard stop and its limit")
+        return self._spec(hard_stop_price(fill, contracts, self._risk, self._instrument))
+
+    def _spec(self, price: Decimal) -> StopOrderSpec:
+        tick = self._instrument.option_tick_size
+        limit = price - tick * self._execution.stop_order.limit_offset_ticks
+        return StopOrderSpec(trigger=price, limit=max(limit, tick))
+
     def current(self, position_id: str) -> StopLevel:
         if position_id in self._closed:
             raise StopClosedError(position_id)
@@ -268,10 +289,7 @@ class StopKeeper:
     def resting_order(self, position_id: str) -> StopOrderSpec:
         if position_id in self._closed:
             raise StopClosedError(position_id)
-        stop = self._stops[position_id]
-        tick = self._instrument.option_tick_size
-        limit = stop.price - tick * self._execution.stop_order.limit_offset_ticks
-        return StopOrderSpec(trigger=stop.price, limit=max(limit, tick))
+        return self._spec(self._stops[position_id].price)
 
     def _usable(self, tick: BidTick, as_of: datetime) -> TickStatus:
         require_utc(as_of, "as_of")

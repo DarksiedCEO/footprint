@@ -1,0 +1,21 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ],
+  "live": [
+   "tests/live",
+   "tests/execution/test_held_back_stop.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._escalations.pop(pid, None)  # a later exit starts its own count\n",
+   "",
+   "an abandoned exit keeps its hand-over count"
+  ]
+ ]
+}

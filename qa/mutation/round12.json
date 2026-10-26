@@ -1,0 +1,129 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                copy.order = order\n                copy.set_status(status)",
+   "                copy.order = order\n                copy.status = status",
+   "N-1 openOrder path never counts a refusal"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "                copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)\n            copy.set_status(status)",
+   "                copy = self._copies[perm_id] = _Copy(perm_id, ib_id, order_id, order, status)\n            copy.status = status",
+   "N-2 orderStatus path never counts a refusal"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "order, copy.state, copy.filled, copy.avg_price, cancel_refusals=copy.refusals",
+   "order, copy.state, copy.filled, copy.avg_price",
+   "N-3 _EXTRA id path reports no refusals"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "cancel_refusals=sum(c.refusals for c in copies),",
+   "cancel_refusals=copies[0].refusals,",
+   "N-4 only the first copy's refusals reported"
+  ],
+  [
+   "exec",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if self.status == _PENDING_CANCEL and status in _ACTING:",
+   "        if self.status == _PENDING_CANCEL and status != _PENDING_CANCEL:",
+   "N-5 any exit from PendingCancel (Cancelled, Filled, Inactive) counts as a refusal"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if stop_status.cancel_refusals > self._refusals_seen.get(stop_id, 0):",
+   "            if stop_status.cancel_refusals > self._refusals_seen.get(stop_id, 0) + 1:",
+   "N-6 the first refusal ignored"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._exit_started.pop(pid, None)\n        self._stop_stuck_since.pop(pid, None)",
+   "        self._exit_started.pop(pid, None)",
+   "N-9 abandon keeps the stuck clock"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        pid = position.position_id\n        self._exit_started.pop(pid, None)",
+   "        pid = position.position_id",
+   "N-10 abandon keeps the exit reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._exit_started.setdefault(pid, reason)",
+   "                    self._exit_started[pid] = reason",
+   "N-11 a re-sent cancel overwrites the exit's first reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._exit_cancels.discard(position.stop_order_id)\n            self._reconcile_cancels.discard(position.stop_order_id)",
+   "            self._reconcile_cancels.discard(position.stop_order_id)",
+   "N-12 abandon keeps our exit-cancel record"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            self._exit_cancels.discard(position.stop_order_id)\n            self._reconcile_cancels.discard(position.stop_order_id)",
+   "            self._exit_cancels.discard(position.stop_order_id)",
+   "N-13 abandon keeps reconcile's cancel record"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._exit_reason[pid] = reason\n",
+   "        self._exit_reason[pid] = self._exit_started.get(pid, reason)\n",
+   "N-14 the booked reason is the recorded one, not the one passed"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_status.protects:\n                    # Acting again, quote or no quote",
+   "                if True:\n                    # Acting again, quote or no quote",
+   "N4-2: a refusal while cancelling again drops our cancel"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._exit_cancels.discard(stop_id)\n                    self._reconcile_cancels.discard(stop_id)\n                    if pid not in self._refusal_alarmed:",
+   "                    self._reconcile_cancels.discard(stop_id)\n                    if pid not in self._refusal_alarmed:",
+   "M3-1: a refused exit cancel stays ours"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    if pid not in self._refusal_alarmed:\n                        self._refusal_alarmed.add(pid)",
+   "                    if True:\n                        self._refusal_alarmed.add(pid)",
+   "N4-1: the refusal alarm floods"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if pid in self._exit_started:\n            self._exit_started[pid] = ExitReason.UNPROTECTED",
+   "        if False:\n            self._exit_started[pid] = ExitReason.UNPROTECTED",
+   "a stop failing under an exit keeps the old reason"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    )\n                self._now_unprotected(pid)\n                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)\n            if stop_status.state is OrderState.CANCELLED and stop_id in self._exit_cancels:",
+   "                    )\n                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)\n            if stop_status.state is OrderState.CANCELLED and stop_id in self._exit_cancels:",
+   "hand-cancelling stop under an exit keeps the old reason"
+  ]
+ ]
+}

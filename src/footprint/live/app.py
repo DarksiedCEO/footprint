@@ -6,8 +6,9 @@
                    IBKR connection runs on its own thread
 
 Safety, in order of what can go wrong:
-- Paper only. `ibkr.require_paper` false is refused here as well as by the binding:
-  going live is not built or verified, and must never happen by a config edit alone.
+- Paper only, hard-coded (brokers/ibkr/paper.py): a live account or a live port is
+  refused here as well as when the settings are made and by the binding. Going live
+  is not built or verified, and no setting can switch it on.
 - The runner starts reconciling and sends no entry until a person clears it to trade
   by name (`clear <name>` at the prompt). This program never clears it.
 - The ledger file must already exist unless `new_ledger` is asked for, so a restart can
@@ -37,12 +38,20 @@ from zoneinfo import ZoneInfo
 from footprint.brokers.ibkr.adapter import ContractBook, IbkrBroker, IbkrSettings
 from footprint.brokers.ibkr.binding import IbBinding, IbConnectionSettings
 from footprint.brokers.ibkr.market import MarketData
+from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
 from footprint.decision.pipeline import Pipeline
 from footprint.decision.session import NewsBlackout
 from footprint.decision.stop import StopKeeper
-from footprint.execution.channels import AlarmHub, ChannelSettings, Post, alarm_hub, http_post
+from footprint.execution.channels import (
+    AlarmHub,
+    ChannelSettings,
+    Post,
+    TelegramOnlySettings,
+    alarm_hub,
+    http_post,
+)
 from footprint.execution.executor.diego import Executor
 from footprint.execution.halt import Halt
 from footprint.execution.journal.josephine import Journal
@@ -128,7 +137,7 @@ def build(
     sink: Callable[[Alarm], None],
     blackouts: Callable[[datetime], Iterable[NewsBlackout]],
     *,
-    channels: ChannelSettings | None = None,
+    channels: ChannelSettings | TelegramOnlySettings | None = None,
     post: Post = http_post,
     new_ledger: bool = False,
     client_factory: Callable[[Any], Any] | None = None,
@@ -137,13 +146,9 @@ def build(
     """Everything, wired; nothing connected yet (the Driver starts the connection)."""
     p = profiles
     ibkr = p.execution.ibkr
-    if not ibkr.require_paper or not settings.require_paper:
-        raise ValueError(
-            "ibkr.require_paper is false: this program runs IBKR's paper account only. "
-            "Going live is not built or verified"
-        )
+    check_paper(settings.account, settings.port)  # LiveAccountRefused
     state_dir.mkdir(parents=True, exist_ok=True)
-    alarms = alarm_hub(sink, p.execution.alarms, channels, post)  # D20
+    alarms = alarm_hub(sink, p.execution.alarms, channels, post, clock)  # D20
 
     def alarm(message: str) -> None:
         alarms.submit(Alarm(clock(), message))
@@ -164,7 +169,13 @@ def build(
     binding.attach(adapter)
     tracked = TrackedBroker(adapter)
     halt = Halt()
-    ledger = Ledger(p.risk, p.instrument, StateStore(state_dir / "ledger.json"), create=new_ledger)
+    ledger = Ledger(
+        p.risk,
+        p.instrument,
+        StateStore(state_dir / "ledger.json"),
+        create=new_ledger,
+        exclusive=True,
+    )
     pipeline = Pipeline(p)
     stops = StopKeeper(p.risk, p.instrument, p.execution)
     executor = Executor(p, pipeline, tracked, stops, ledger, halt, book)
@@ -228,6 +239,8 @@ class Driver:
         self._out = out if out is not None else sys.stdout
         self._sleep = sleep
         self._market_failing = False
+        self._attended_at = live.clock()  # started at the terminal by a person
+        self._attendance_warned = False
 
     def tick(self, now: datetime) -> None:
         """One second: fresh quotes and bars first, then the decisions on them."""
@@ -243,11 +256,40 @@ class Driver:
                 self._live.alarm(f"market data step failed ({exc!r}): no new data until fixed")
         self._live.runner.step(now)
         self._live.check_calendar()
+        self._check_attendance(now)
+
+    def _check_attendance(self, now: datetime) -> None:
+        """DEGRADED_ALERTING blocks unattended trading: with no input at the terminal
+        for `degraded_attendance_minutes`, entries stop (open positions are still
+        managed) until someone clears it again."""
+        live = self._live
+        if not live.alarms.mode.degraded or live.runner.cleared_by is None:
+            return
+        window = timedelta(minutes=live.profiles.execution.alarms.degraded_attendance_minutes)
+        idle = now - self._attended_at
+        if idle > window:
+            live.runner.revoke_clearance(
+                f"UNATTENDED while {live.alarms.mode.value}: nothing typed at the terminal "
+                f"for {idle / timedelta(minutes=1):.0f} min. Entries stopped (anything open is "
+                "still managed). Type 'clear <name>' to resume"
+            )
+        elif idle > window * 0.8 and not self._attendance_warned:
+            self._attendance_warned = True
+            left = (window - idle) / timedelta(minutes=1)
+            self._say(
+                f"DEGRADED_ALERTING: type 'here' within {left:.0f} min or entries stop "
+                "(unattended trading is blocked without full alarms)"
+            )
 
     def command(self, line: str, stop: threading.Event) -> None:
-        """`clear <name>` (clear to trade), `status`, `quit`."""
+        """`clear <name>` (clear to trade), `here` (still attended), `status`, `quit`.
+        Any command counts as attended."""
         word, _, rest = line.strip().partition(" ")
-        if word == "clear":
+        if word:
+            self._attended_at, self._attendance_warned = self._live.clock(), False
+        if word == "here":
+            self._say(f"noted: attended. alerting: {self._live.alarms.mode.value}")
+        elif word == "clear":
             name = rest.strip()
             if not name:
                 self._say("clear needs the name of who clears it: clear <name>")
@@ -268,7 +310,7 @@ class Driver:
             self._say("stopping")
             stop.set()
         elif word:
-            self._say(f"unknown command {word!r}: clear <name> | status | quit")
+            self._say(f"unknown command {word!r}: clear <name> | here | status | quit")
 
     def status(self) -> str:
         live = self._live
@@ -277,6 +319,9 @@ class Driver:
         chain = live.market.chain(now)
         position = live.runner.position
         lines = [
+            f"alerting: {live.alarms.mode.value}",
+            *(f"  {h}" for h in live.alarms.health),
+            f"cleared to trade: {live.runner.cleared_by or 'no'}",
             f"time {now.isoformat()}",
             f"IBKR ready: {live.adapter.ready}; refused: {live.binding.refused or 'no'}",
             f"front future: {live.market.front.expiry if live.market.front else 'not yet'}",
@@ -297,6 +342,13 @@ class Driver:
             f"PAPER account {live.settings.account} at {live.settings.host}:{live.settings.port}; "
             "reconciling first; no entries until 'clear <name>'"
         )
+        if live.alarms.mode.degraded:
+            self._say(
+                f"*** {live.alarms.mode.value} ***\n"
+                "This is NOT full alarm coverage. Unattended trading is blocked: entries stop "
+                f"after {live.profiles.execution.alarms.degraded_attendance_minutes} min without "
+                "input here ('here' keeps it attended)"
+            )
         try:
             while not stop.is_set():
                 started = live.clock()

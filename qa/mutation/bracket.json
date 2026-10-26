@@ -1,0 +1,164 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "                and order_id not in self._held\n",
+   "",
+   "sim: a held child fills before its parent"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "            if parent.state is OrderState.FILLED and parent.filled > 0:",
+   "            if True:",
+   "sim: unfilled parent activates its child"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "        self._held.add(child.order_id)  # held before the parent can fill\n",
+   "",
+   "sim: child not held"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "            self._store(order_id, status)  # (an unfilled parent takes its children)",
+   "            self._orders[order_id] = status",
+   "sim: cancelling the parent leaves the child"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "        self._sent[child.order_id] = child\n",
+   "",
+   "tracker: child not recorded"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        status, _ = self._broker.place_attached(order, stop)",
+   "        status = self._broker.place(order)",
+   "H-2 regression: entry sent without its stop"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "                spec = self._stops.preview(target, plan.contracts)\n                self._broker.modify(ticket.stop_order_id, spec.limit, spec.trigger)\n",
+   "",
+   "stop not raised with the entry's price"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "            spec = self._stops.preview(plan.limit_floor, plan.contracts)",
+   "            spec = self._stops.preview(plan.limit_ceiling, plan.contracts)",
+   "stop priced from the ceiling at send"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        if (held.order.stop_price, held.order.limit_price) != (spec.trigger, spec.limit):\n            held = self._broker.modify(stop_id, spec.limit, spec.trigger)",
+   "        pass",
+   "stop never moved to the real fill"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        if held.state is not OrderState.WORKING:\n            log.critical(\"attached stop %s is %s",
+   "        if False:\n            log.critical(\"attached stop %s is %s",
+   "a dead attached stop is adopted: EQUIVALENT (modify on a finished order is a no-op that returns it finished, so it is still judged unprotected and replaced)"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "            self._end_attached(ticket)\n",
+   "",
+   "unfilled entry: stop not confirmed ended"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "                if not opened:  # no stop level for this fill: it cannot be managed\n                    raise",
+   "                if False:\n                    raise",
+   "stop adopted without a stop level"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            replace(self._request(parent_id, parent, contracts[0]), transmit=False)",
+   "            self._request(parent_id, parent, contracts[0])",
+   "parent transmitted alone"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "            replace(self._request(child_id, child, contracts[1]), parent_ib_id=parent_id)",
+   "            self._request(child_id, child, contracts[1])",
+   "child not attached at IBKR"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if parent is not None and self._is_live(parent):\n            return None",
+   "        if False:\n            return None",
+   "held child cancelled as Inactive"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/binding.py",
+   "        order.parentId = request.parent_ib_id\n",
+   "        pass\n",
+   "binding drops parentId"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/binding.py",
+   "    order.transmit = request.transmit",
+   "    order.transmit = True",
+   "binding always transmits"
+  ],
+  [
+   "bracket",
+   "src/footprint/decision/stop.py",
+   "        if not stop_fits(fill, contracts, self._risk, self._instrument, self._execution):\n            raise ValueError(f\"fill {fill} is too small to carry the hard stop and its limit\")\n        return self._spec",
+   "        return self._spec",
+   "preview skips the fit check"
+  ]
+ ]
+}

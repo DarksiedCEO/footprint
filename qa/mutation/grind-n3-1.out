@@ -1,0 +1,14 @@
+source: 7bc1dc564536edff53b3c14294b9c4eee50e1426 tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: reconcile runs over a held entry
+  2 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: a price-pending entry is dropped
+  3 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: past the wait the entry is dropped
+  4 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: CHECK THE FILL every step
+  5 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: no halt past the wait
+  6 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: a settled fill is not adopted
+  7 KILLED   [exec] src/footprint/execution/executor/diego.py: N3-1 diego: settle leaves a working entry working
+  8 KILLED   [exec] src/footprint/execution/executor/diego.py: N3-1 diego: a failed question about a filled entry is swallowed
+  9 KILLED   [exec] src/footprint/execution/executor/diego.py: N3-1 diego: an unanswered entry is not cancelled
+ 10 SURVIVED [exec] src/footprint/execution/executor/diego.py: N3-1 diego: settle of a finished ticket (equivalent? the runner only holds WORKING tickets)
+ 11 KILLED   [exec] src/footprint/execution/runner.py: N3-1 runner: CHECK THE FILL does not ring (no critical marker)
+11 mutants, 1 survived or errored

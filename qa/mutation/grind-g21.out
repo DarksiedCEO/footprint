@@ -1,0 +1,15 @@
+source: 1346297c7afcae50177fa70a9639fabc82932b82 tree-dirty: 0 files
+baseline [guard]: passed
+  1 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M1: the ISO date shape is read as numbers
+  2 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M2: every three-part chain is skipped as a date
+  3 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M3: only two-part ranges are read (G21-1)
+  4 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M4: a leading-dot end is not read (G21-2)
+  5 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M5: PROSE_NUMBER backtracks into a decimal (G21-3)
+  6 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M6: GROUPED_NUMBER backtracks into a decimal (G21-3)
+  7 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M7: PROSE_NUMBER also reads a $ chain end
+  8 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M8: GROUPED_NUMBER also reads a $ chain end
+  9 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M9: a $ chain end is not stripped
+ 10 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M10: a chain followed by .digit (a version) is read
+ 11 KILLED   [guard] tests/test_no_hardcoded_literals_ast.py: G21 M11: a chain glued to a word is read
+ 12 SURVIVED [guard] tests/test_no_hardcoded_literals_ast.py: G21 M12: the chain is not atomic (argued equivalent if it survives)
+12 mutants, 1 survived or errored

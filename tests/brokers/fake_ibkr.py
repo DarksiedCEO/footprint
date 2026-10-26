@@ -101,6 +101,8 @@ class FakeIbkr:
     )
     told_positions: dict[int, int] = field(default_factory=dict)
     sends: list[IbOrderRequest] = field(default_factory=list)
+    untransmitted: dict[int, IbOrderRequest] = field(default_factory=dict)  # transmit off
+    late_children: bool = False  # a bracket's child is answered only on release()
     cancels: list[int] = field(default_factory=list)
     global_cancels: int = 0
     _perm: int = 1000
@@ -190,6 +192,13 @@ class FakeIbkr:
             self._hold_now = False
 
     def _place(self, request: IbOrderRequest) -> None:
+        if not request.transmit:  # IBKR keeps it, unsent and silent, until transmitted
+            self.untransmitted[request.ib_id] = request
+            return
+        if request.parent_ib_id is not None:
+            parent = self.untransmitted.pop(request.parent_ib_id)
+            self._new_bracket(parent, request)
+            return
         if self.reject_next is not None:
             code, self.reject_next = self.reject_next, None
             self._emit("on_error", (request.ib_id, code, "rejected"), request.ib_id)
@@ -284,25 +293,55 @@ class FakeIbkr:
 
     # --- the exchange -----------------------------------------------------------------
 
-    def _new_copy(self, request: IbOrderRequest) -> None:
+    def _sim_order(self, request: IbOrderRequest) -> _Copy:
         self._perm += 1
         sim_id = f"{request.order_ref}@{self._perm}"
         copy = _Copy(self._perm, request.ib_id, request, sim_id)
         self.copies[copy.perm_id] = copy
-        contract_id = self.contracts.contract_id(request.contract.con_id)
+        return copy
+
+    def _order(self, copy: _Copy, parent_sim: str | None = None) -> Order:
+        request = copy.request
         stop = request.order_type == "STP LMT"
-        self.sim.place(
-            Order(
-                sim_id,
-                contract_id,
-                Side.BUY if request.action == "BUY" else Side.SELL,
-                request.quantity,
-                OrderType.STOP_LIMIT if stop else OrderType.LIMIT,
-                request.limit_price,
-                request.stop_price if stop else None,
-                request.oca_group,
-            )
+        return Order(
+            copy.sim_id,
+            self.contracts.contract_id(request.contract.con_id),
+            Side.BUY if request.action == "BUY" else Side.SELL,
+            request.quantity,
+            OrderType.STOP_LIMIT if stop else OrderType.LIMIT,
+            request.limit_price,
+            request.stop_price if stop else None,
+            request.oca_group,
+            parent_sim,
         )
+
+    def _new_bracket(self, parent: IbOrderRequest, child: IbOrderRequest) -> None:
+        """Both transmitted together; the child held until the parent fills."""
+        if self.reject_next is not None:  # the child is refused (and the parent with it)
+            code, self.reject_next = self.reject_next, None
+            for request in (parent, child):
+                self._emit("on_error", (request.ib_id, code, "rejected"), request.ib_id)
+            return
+        first = self._sim_order(parent)
+        second = self._sim_order(child)
+        self.sim.place_attached(self._order(first), self._order(second, first.sim_id))
+        if self.late_children:  # not told with the parent's report either
+            held = self.sim.status(second.sim_id)
+            second.sent = (held.state, held.filled)
+        self._open_order(first, self.sim.status(first.sim_id))
+        self._report(force=parent.ib_id)
+        if self.late_children:
+            self._hold_now = True
+        try:
+            self._open_order(second, self.sim.status(second.sim_id))
+            self._report(force=child.ib_id)
+        finally:
+            self._hold_now = False
+
+    def _new_copy(self, request: IbOrderRequest) -> None:
+        copy = self._sim_order(request)
+        sim_id = copy.sim_id
+        self.sim.place(self._order(copy))
         if self.status_first:
             self._report(force=request.ib_id)
             self._open_order(copy, self.sim.status(sim_id))

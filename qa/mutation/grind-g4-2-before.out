@@ -1,0 +1,7 @@
+source: 9467f224102e3dae5403d7061b531e1e2c3448d2 tree-dirty: 1 files
+baseline [without]: passed
+  1 SURVIVED [without] src/footprint/execution/management/malik.py: R2: an unknown candidate stops the search in _sells_that_sold (the reviewer's mutant)
+  2 SURVIVED [without] src/footprint/execution/management/malik.py: R2-break: the same, via break
+  3 KILLED   [without] src/footprint/execution/management/malik.py: R2b: an unknown newer reconcile order hides an older one that sold
+  4 KILLED   [without] src/footprint/execution/management/malik.py: R2b-return: the same, via return None
+4 mutants, 2 survived or errored

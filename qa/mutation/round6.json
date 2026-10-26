@@ -1,0 +1,97 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bracket",
+   "src/footprint/execution/management/malik.py",
+   "                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)\n            if stop_status.state in",
+   "                position.stop_order_id = None\n                return self._start_exit(position, quote, now, ExitReason.UNPROTECTED)\n            if stop_status.state in",
+   "F1/H9: held-back stop id dropped (waits forever)"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/management/malik.py",
+   "                    if now - since >= escalate:\n                        del self._exit_wait_since[order_id]",
+   "                    if False:\n                        del self._exit_wait_since[order_id]",
+   "F1: exit waits unbounded"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/management/malik.py",
+   "                if pid not in self._held_back_alarmed:\n",
+   "                if True:\n",
+   "F1: held-back alarm every step"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if copy.cancel_sent:\n            copy.cancel_sent = copy.cancel_confirmed = False",
+   "        if False:\n            copy.cancel_sent = copy.cancel_confirmed = False",
+   "F2/F4: revival after Inactive unnoticed"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if wrong:\n        raise ConfigError(f\"{where}: holiday_rules: {'; '.join(wrong)}\")",
+   "    pass",
+   "F3: rule kinds not pinned"
+  ],
+  [
+   "config",
+   "src/footprint/core/holiday_rules.py",
+   "    return None if day is None else day + timedelta(days=rule.days_after)  # (AEGIS F6)",
+   "    return day",
+   "F6: days_after ignored on fixed dates"
+  ],
+  [
+   "config",
+   "src/footprint/core/holiday_rules.py",
+   "            allowed = closed if rule.kind == \"closed\" else closed | early",
+   "            allowed = closed if rule.kind == \"closed\" else early",
+   "H13: early rule not satisfied by a closure"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        if status.state is OrderState.WORKING and not stop_status.protects:",
+   "        if status.state is OrderState.WORKING and stop_status.state is not OrderState.WORKING:",
+   "H6: held back at arrival accepted"
+  ]
+ ]
+}

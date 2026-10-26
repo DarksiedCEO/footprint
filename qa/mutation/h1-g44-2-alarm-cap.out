@@ -1,0 +1,8 @@
+source: da74ff971b8e667167a1a02308553d0f8d788e5c tree-dirty: 0 files
+baseline [t]: passed
+  1 KILLED   [t] src/footprint/execution/alarms.py: G44-2: the cap lets one extra alarm wait
+  2 KILLED   [t] src/footprint/execution/alarms.py: G44-2: the newest is dropped, not the oldest
+  3 KILLED   [t] src/footprint/execution/alarms.py: G44-2: the alarm in flight can be dropped
+  4 KILLED   [t] src/footprint/execution/alarms.py: G44-2: drops miscounted
+  5 KILLED   [t] src/footprint/execution/alarms.py: G44-2: the drop note is told after the survivors, not first
+5 mutants, 0 survived or errored

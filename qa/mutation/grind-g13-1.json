@@ -1,0 +1,61 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g13_1.py",
+   "tests/execution/test_grind_g12_1.py",
+   "tests/execution/test_restart_memory.py",
+   "tests/execution/test_reconcile_hardening.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if reducing and ledger_open is None and contract_id not in self._unrecorded_named:\n",
+   "                if False:\n",
+   "M1: the covering order is never named (G13-1)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if reducing and ledger_open is None and contract_id not in self._unrecorded_named:\n",
+   "                if reducing and contract_id not in self._unrecorded_named:\n",
+   "M2: a holding the ledger did record is named for booking by hand"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if reducing and ledger_open is None and contract_id not in self._unrecorded_named:\n",
+   "                if reducing and ledger_open is None:\n",
+   "M3: named again every round"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._unrecorded_named.add(contract_id)\n                    cover = reducing[0].order.order_id\n",
+   "                    cover = reducing[0].order.order_id\n",
+   "M4: the once-per-contract memory never set"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "\"for {contract_id} (then as that one): never book it twice\",\n                    )\n                continue\n",
+   "\"for {contract_id} (then as that one)\",\n                    )\n                continue\n",
+   "M5: the never-twice rule dropped"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "f\"(reconcile-...-{contract_id}; if an order already working covers it, \"\n                    \"that order's id, named then), or",
+   "f\"(reconcile-...-{contract_id}), or",
+   "M6: the never-recorded alarm no longer points at the covering order"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "\"in the ledger: no reconcile order is sent for it. Book this round \"",
+   "\"in the ledger. Book this round \"",
+   "M7: does not say that no reconcile order is sent"
+  ]
+ ]
+}

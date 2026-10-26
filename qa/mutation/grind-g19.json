@@ -1,0 +1,65 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        for match in SIGNED_NUMBER.finditer(text):",
+   "        for match in SIGNED_NUMBER.finditer(\"\"):",
+   "G19-1 M1: signed prose numbers are not read"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "r\"(?<![\\w.:,-])-((?:",
+   "r\"(?<![.:,-])-((?:",
+   "G19-1 M2: a minus glued to a word or digit (a date, a range) reads as a sign"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            number = _number(match.group(1).replace(\",\", \"\"))\n            if number is not None:\n                hits += [f\"text {_show(n)}\" for n in self.signed(-number)]",
+   "            number = _number(match.group(1))\n            if number is not None:\n                hits += [f\"text {_show(n)}\" for n in self.signed(-number)]",
+   "G19-1 M3: separators are not stripped in a signed number"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        for number in (negative, -negative):",
+   "        for number in (negative,):",
+   "G19-1 M4: only the negative counts; the value itself is never checked"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        for number in (negative, -negative):",
+   "        for number in (-negative,):",
+   "G19-1 M5: only the value counts; a negative-only config value is missed"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "                return [number]\n        return []",
+   "                return [number]\n        return [negative]",
+   "G19-1 M6: a signed number that is not forbidden is reported"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            elif spelled is not None and spelled < 0 and -spelled in forbidden.numbers:",
+   "            elif False:",
+   "G19-2 M7: a string spelling of a negative is not checked as its value"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "spelled < 0 and -spelled in forbidden.numbers",
+   "spelled < 0 and spelled in forbidden.numbers",
+   "G19-2 M8: the sign is kept on the string spelling"
+  ]
+ ]
+}

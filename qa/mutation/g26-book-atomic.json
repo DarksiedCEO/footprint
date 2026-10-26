@@ -1,0 +1,76 @@
+{
+ "groups": {
+  "g26": [
+   "tests/execution/test_kill_switch_book.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_unowned_unpriced_sell.py"
+  ]
+ },
+ "mutants": [
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "            by_hand=position_id,\n",
+   "            by_hand=None,\n",
+   "M1: book_by_hand no longer marks the id (a second booking goes through)"
+  ],
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "            booked_by_hand=(s.booked_by_hand if by_hand is None else (*s.booked_by_hand, by_hand)),",
+   "            booked_by_hand=s.booked_by_hand,",
+   "M2: the booked-by-hand mark is dropped from the booking's write"
+  ],
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "        if by_hand is not None:\n            released.add(by_hand)\n",
+   "",
+   "M3: a booking by hand no longer releases the position's CHECK THE FILL hold"
+  ],
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "            close_position=self._state.open_position_id == position_id,",
+   "            close_position=False,",
+   "M4: booking the open position by hand leaves it open"
+  ],
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "            close_position=self._state.open_position_id == position_id,",
+   "            close_position=True,",
+   "M5: booking an unrecorded trade closes the open position"
+  ],
+  [
+   "g26",
+   "src/footprint/execution/ledger.py",
+   "        released: set[str | None] = {s.open_position_id} if close_position else set()",
+   "        released: set[str | None] = set()",
+   "M6: a normal close no longer releases the open position's holds"
+  ],
+  [
+   "g26",
+   "src/footprint/live/kill_switch.py",
+   "    if not position:\n        say(",
+   "    if False:\n        say(",
+   "M7: a blank --position is booked"
+  ],
+  [
+   "g26",
+   "src/footprint/live/kill_switch.py",
+   "    position = args.position.strip()",
+   "    position = args.position",
+   "M8 (probe P3): the position id is not stripped"
+  ],
+  [
+   "g26",
+   "src/footprint/live/kill_switch.py",
+   "    say(f\"position: {position}   net P&L from the statement: {pnl}\")\n",
+   "",
+   "M9 (probe P4): the position and P&L line is not shown before the ask"
+  ]
+ ]
+}

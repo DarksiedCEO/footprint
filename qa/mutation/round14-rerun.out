@@ -1,0 +1,5 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: an abandoned exit keeps its hand-over count
+1 mutants, 0 survived
+EXIT 0
+source: mutants applied to the working tree that became fc13169 (round14-rerun after its pinning test was added)

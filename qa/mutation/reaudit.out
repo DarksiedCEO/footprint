@@ -1,0 +1,17 @@
+  1 KILLED   [disconnect] src/footprint/execution/runner.py: H-1 regression: reset the whole clock
+  2 KILLED   [disconnect] src/footprint/execution/runner.py: AEGIS survivor: away never cleared
+  3 SURVIVED [disconnect] src/footprint/execution/runner.py: failsafe acts while away (ready check alone)
+  4 KILLED   [disconnect] src/footprint/execution/runner.py: M-1 regression: mid-reconcile doubt lost
+  5 KILLED   [disconnect] src/footprint/execution/runner.py: doubts not counted
+  6 KILLED   [alarms] src/footprint/execution/channels.py: M-2: data failures do not ring
+  7 KILLED   [alarms] src/footprint/execution/channels.py: M-2: held contract unstreamable does not ring
+  8 KILLED   [alarms] src/footprint/execution/channels.py: AEGIS survivor: Telegram send without deadline
+  9 KILLED   [alarms] src/footprint/execution/channels.py: L-a: unbounded abandoned sends
+ 10 KILLED   [alarms] src/footprint/execution/channels.py: L-a: a channel never usable again after one hang
+ 11 KILLED   [calendar] src/footprint/core/config.py: M-3: completeness not enforced
+ 12 KILLED   [calendar] src/footprint/core/config.py: Easter not checked to be a Sunday
+ 13 KILLED   [calendar] src/footprint/core/holiday_rules.py: Saturday holiday not moved to Friday
+ 14 KILLED   [calendar] src/footprint/core/holiday_rules.py: last weekday wrong
+ 15 KILLED   [calendar] src/footprint/core/holiday_rules.py: Easter offset ignored
+ 16 KILLED   [zeroday] src/footprint/agents/zero_day.py: L-d: no-trade day counted as history
+16 mutants, 1 survived

@@ -57,5 +57,43 @@ early_closes:
   2026-12-24: "10:00"   # Christmas Eve: 12:15 CT per most sources; 12:00 per one
   2027-01-18: "10:00"   # Martin Luther King Jr. Day: 12:00 CT halt (CME pattern)
   2027-02-15: "10:00"   # Presidents Day: 12:00 CT halt (CME pattern)
-calendar_through: 2027-03-31  # the lists above are complete up to here: extend before then
+# No-trade days (Andre, remediation item 8): US-holiday sessions. The exchange is open
+# (a short futures-only session, early close above) but the stock market is closed:
+# Footprint treats them as CLOSED (no session, no entry, never the "prior day") until
+# they are separately reviewed and explicitly approved.
+no_trade_days:
+  - 2026-01-19   # Martin Luther King Jr. Day
+  - 2026-02-16   # Presidents Day
+  - 2026-05-25   # Memorial Day
+  - 2026-06-19   # Juneteenth
+  - 2026-07-03   # Independence Day (observed)
+  - 2026-09-07   # Labor Day
+  - 2026-11-26   # Thanksgiving
+  - 2027-01-18   # Martin Luther King Jr. Day
+  - 2027-02-15   # Presidents Day
+# The exchange's standard closures by rule (D34): loading refuses a calendar that
+# claims to be complete through calendar_through while one of these days is missing:
+# a closed rule from holidays or no_trade_days (an early close does not count), an
+# early_close rule from early_closes (or a closure). observed: weekend = Saturday -> Friday,
+# Sunday -> Monday; not_saturday = Sunday -> Monday, a Saturday is not observed.
+holiday_rules:
+  - {name: "New Year's Day", month: 1, day: 1, observed: not_saturday}
+  - {name: "Martin Luther King Jr. Day", month: 1, weekday: MON, nth: 3}
+  - {name: "Presidents Day", month: 2, weekday: MON, nth: 3}
+  - {name: "Good Friday", days_from_easter: -2}
+  - {name: "Memorial Day", month: 5, weekday: MON, nth: -1}
+  - {name: "Juneteenth", month: 6, day: 19, observed: weekend}
+  - {name: "Independence Day", month: 7, day: 4, observed: weekend}
+  - {name: "Labor Day", month: 9, weekday: MON, nth: 1}
+  - {name: "Thanksgiving", month: 11, weekday: THU, nth: 4}
+  - {name: "Day after Thanksgiving", kind: early_close, month: 11, weekday: THU, nth: 4, days_after: 1}
+  - {name: "Christmas Eve", kind: early_close, month: 12, day: 24, observed: weekday_only}
+  - {name: "Christmas Day", month: 12, day: 25, observed: weekend}
+# Easter Sunday of every year the calendar covers (for Good Friday); listed, not
+# computed. Add the next year's when extending calendar_through.
+easter_sundays: [2026-04-05, 2027-03-28]
+calendar_from: 2026-01-01     # the lists above are complete from here (fixed: the check
+                              #   never starts later because a year's dates were deleted)
+calendar_through: 2027-03-31  # the lists above are complete up to here. FAIL CLOSED:
+                              #   every later day is treated as closed until extended
 calendar_warn_days: 30        # alarm this many days before calendar_through

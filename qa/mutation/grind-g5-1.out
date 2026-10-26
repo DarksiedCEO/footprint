@@ -1,0 +1,6 @@
+source: 981bd9faa9291c0f7e92b84844622e9ecd37cecf tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: the hold under the order's own id is saved silently again (G5-1)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: also told to book an open position's hold by hand under the order id
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: the alarm names a wrong id to book under
+3 mutants, 0 survived or errored

@@ -16,15 +16,29 @@ _MAX_SEARCH_DAYS = 31  # give up after a month without a trading day
 
 
 def is_trading_day(day: date, instrument: InstrumentProfile) -> bool:
+    """The exchange trades `day` (a weekday it trades, not one of its holidays)."""
     return day.weekday() in instrument.trading_days and day not in instrument.holidays
 
 
+def is_tradable_day(day: date, instrument: InstrumentProfile) -> bool:
+    """Footprint may trade `day`: the exchange trades it, it is not a no-trade day,
+    and it is inside the maintained calendar. Fail closed at both ends: before
+    `calendar_from` and past `calendar_through` no holiday or early close is known, so
+    no day there trades (remediation item 7; delta review F-6)."""
+    return (
+        is_trading_day(day, instrument)
+        and day not in instrument.no_trade_days
+        and instrument.calendar_from <= day <= instrument.calendar_through
+    )
+
+
 def previous_trading_day(day: date, instrument: InstrumentProfile) -> date:
-    """The last trading day strictly before `day`."""
+    """The last day strictly before `day` that the exchange traded and Footprint did
+    not treat as closed (a no-trade day's stub session never supplies the prior day)."""
     candidate = day
     for _ in range(_MAX_SEARCH_DAYS):
         candidate -= timedelta(days=1)
-        if is_trading_day(candidate, instrument):
+        if is_trading_day(candidate, instrument) and candidate not in instrument.no_trade_days:
             return candidate
     raise ValueError(f"no trading day in the {_MAX_SEARCH_DAYS} days before {day}")
 
@@ -52,13 +66,14 @@ def entry_cutoff(moment: datetime, instrument: InstrumentProfile, lead_minutes: 
 
 def calendar_warning(today: date, instrument: InstrumentProfile) -> str | None:
     """What to tell Andre when the exchange calendar (holidays, early closes) is about
-    to run out, or has: past `calendar_through` a holiday or early close would be
-    traded as a normal day."""
+    to run out, or has: past `calendar_through` every day is treated as closed (no
+    trading at all) until the calendar is extended."""
     through = instrument.calendar_through
     if today > through:
         return (
-            f"EXCHANGE CALENDAR EXPIRED on {through}: holidays and early closes after it "
-            "are unknown and would be traded as normal days. Extend instruments/nq.yaml now"
+            f"EXCHANGE CALENDAR EXPIRED on {through}: NO NEW TRADES (every later day is "
+            "treated as closed) until instruments/nq.yaml is extended with the exchange's "
+            "holidays and early closes and the program is restarted"
         )
     left = (through - today).days
     if left <= instrument.calendar_warn_days:
@@ -91,16 +106,16 @@ def _classify(moment: datetime, instrument: InstrumentProfile) -> tuple[SessionK
     prime, overnight = instrument.prime_session, instrument.overnight_session
     day, clock = local_minute(moment, prime)
     if _covers(prime, clock):
-        if is_trading_day(day, instrument) and clock <= prime_close(day, instrument):
+        if is_tradable_day(day, instrument) and clock <= prime_close(day, instrument):
             return SessionKind.PRIME, day
-        return SessionKind.CLOSED, None  # a holiday, or after an early close
+        return SessionKind.CLOSED, None  # a holiday, a no-trade day, or after an early close
     day, clock = local_minute(moment, overnight)
     if _covers(overnight, clock):
         crosses_midnight = overnight.start > overnight.end
         trading_day = (
             day + timedelta(days=1) if crosses_midnight and clock >= overnight.start else day
         )
-        if is_trading_day(trading_day, instrument):
+        if is_tradable_day(trading_day, instrument):
             return SessionKind.OVERNIGHT, trading_day
     return SessionKind.CLOSED, None
 

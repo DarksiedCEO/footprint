@@ -1,0 +1,80 @@
+{
+ "groups": {
+  "guard": [
+   "tests/test_no_hardcoded_literals_ast.py",
+   "tests/test_no_hardcoded_instrument_values.py"
+  ]
+ },
+ "mutants": [
+  [
+   "guard",
+   "src/footprint/core/series.py",
+   "_KEEP = 4\n",
+   "_KEEP = 25_000\n",
+   "M1: a bankroll written with an underscore"
+  ],
+  [
+   "guard",
+   "src/footprint/data/aggregate.py",
+   "_KEEP = 4\n",
+   "_KEEP = int(Decimal(\".25\") * 16)\n",
+   "M2: a tick size as a Decimal string with a leading dot"
+  ],
+  [
+   "guard",
+   "src/footprint/execution/management/malik.py",
+   "uuid4().hex[:8]",
+   "uuid4().hex[:4]",
+   "M3: one more small integer that is a config value (4) in code"
+  ],
+  [
+   "guard",
+   "src/footprint/core/config.py",
+   "# upper bound of a percentage (reviewed in the A-18 guard)",
+   "# allow-literal: upper bound of a percentage",
+   "M4: the in-line opt-out marker comes back"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "    elif isinstance(node, list):\n        for value in node:\n            yield from _leaves(value)\n",
+   "",
+   "M5: YAML lists are not walked (holiday dates, symbol lists)"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        if token.type == tokenize.COMMENT:",
+   "        if token.type == tokenize.COMMENT and False:",
+   "M6: comments are not scanned"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            if day is not None and day in forbidden.dates:",
+   "            if False:",
+   "M7: date(y, m, d) calls are not checked"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "            spelled = _number(value)\n",
+   "            spelled = None\n",
+   "M8: numeric strings (Decimal(\"0.25\")) are not read as numbers"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "        for path, hits in reviewed.items()\n    }",
+   "        for path, hits in reviewed.items()\n        if False\n    }",
+   "M9: a reviewed entry that went away is not noticed"
+  ],
+  [
+   "guard",
+   "tests/test_no_hardcoded_literals_ast.py",
+   "if n > reviewed.get(path, {}).get(k, 0)}",
+   "if n > reviewed.get(path, {}).get(k, 0) + 1}",
+   "M10: one occurrence more than reviewed is let through"
+  ]
+ ]
+}

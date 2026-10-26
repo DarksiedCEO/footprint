@@ -1,0 +1,11 @@
+source: a5bfdccf9e6415e24cbda64df91470c9cf08872c tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: the order to book under is never named when sent (G12-1)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: told to book by hand a round trip the ledger did record
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: the alarm names a wrong id to book under
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: the never-twice rule dropped
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: M5: the old pointer to an alarm that may never come
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: M6: the id is named again every round the flatten is sent
+  7 KILLED   [exec] src/footprint/execution/management/malik.py: M7: the once-per-contract guard dropped
+  8 KILLED   [exec] src/footprint/execution/management/malik.py: M8: the once-per-contract memory never reset when reconcile agrees
+8 mutants, 0 survived or errored

@@ -1,0 +1,27 @@
+{
+ "groups": {
+  "with": [
+   "tests/execution/test_check_the_fill_restart.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_restart_memory.py",
+   "tests/execution/test_grind_g12_1.py",
+   "tests/execution/test_grind_g3_1.py"
+  ]
+ },
+ "mutants": [
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "        holds = [h for h in self._ledger.sold_unpriced if h.contract_id == contract_id]\n",
+   "        holds = [\n            h\n            for h in self._ledger.sold_unpriced\n            if h.contract_id == contract_id and h.position_id == self._ledger.open_position_id\n        ]\n",
+   "R5: holds count only for the ledger's open position (the 0b79482 reviewer's mutant, G3-1)"
+  ],
+  [
+   "with",
+   "src/footprint/execution/management/malik.py",
+   "                self._ledger.release_sold(position.position_id)\n            except Exception as exc:  # a hold left",
+   "                pass\n            except Exception as exc:  # a hold left",
+   "R1: closing a position the ledger never recorded keeps its hold (the 0b79482 reviewer's mutant, G3-2)"
+  ]
+ ]
+}

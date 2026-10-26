@@ -1,0 +1,7 @@
+source: e3d7b32fbcce8eaf6ed65c142d1665e6dc44fefb tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/management/malik.py: M1: the old alarm (flatten by hand beside reconcile's own buy-back)
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: M2: the alarm does not say to wait until reconcile reports flat
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: M3: reconcile sells a short instead of buying it back (after sold twice)
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: M4: sold twice does not stand down
+4 mutants, 0 survived or errored

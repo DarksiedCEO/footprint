@@ -564,6 +564,18 @@ def test_nia_range_needs_full_trading_day_history(
     assert "range: cannot establish a typical value" in check.findings
 
 
+def test_nia_range_history_skips_a_no_trade_day(
+    strategy: StrategyProfile, instrument: InstrumentProfile
+) -> None:
+    """A no-trade day's stub session is not a day of history (AEGIS re-audit L-d):
+    like a holiday, it leaves range one trading day short."""
+    bars = calm_sessions()
+    closed = replace(instrument, no_trade_days=frozenset({FIRST}))
+    check = ZeroDayAgent(strategy.zeroday, strategy.data, closed).check(bars, at(bars, 50))
+    assert check.tripped
+    assert "range: cannot establish a typical value" in check.findings
+
+
 def test_a_trend_bar_built_from_too_few_minutes_is_rejected(grant: LevelsReader) -> None:
     # 13:00-14:00 is outside the cash session, so only the trend check sees this hole.
     bars = [b for b in session_data(MON, TUE) if not pt(MON, 13, 16) <= b.ts < pt(MON, 13, 30)]

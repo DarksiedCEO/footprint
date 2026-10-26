@@ -55,6 +55,11 @@ class IbOrderRequest:
     oca_group: str | None
     oca_type: int | None  # 1 = cancel the rest of the group, with block
     tif: str  # "DAY"
+    # A bracket (H-2): the child names its parent's IBKR id; the parent is sent with
+    # transmit off and the child with transmit on, so IBKR takes both together and
+    # holds the child until the parent fills.
+    parent_ib_id: int | None = None
+    transmit: bool = True
 
 
 class Connection(Enum):

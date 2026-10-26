@@ -1,0 +1,105 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution/test_grind_g7_1.py",
+   "tests/execution/test_partly_filled_stop.py",
+   "tests/execution/test_unpriced_sell_guards.py",
+   "tests/execution/test_unowned_unpriced_sell.py",
+   "tests/execution/test_fill_price_pending.py",
+   "tests/execution/test_execution.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if (\n                status.filled > 0\n                and status.order.side is Side.SELL",
+   "            if (\n                status.state is OrderState.FILLED\n                and status.order.side is Side.SELL",
+   "M1: a sell counts only when FILLED (the G7-1 defect, in both the hold and the booking)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if status.avg_price is None:\n                return status.order.order_id",
+   "            if status.avg_price is None and status.state is OrderState.FILLED:\n                return status.order.order_id",
+   "M2: _unpriced_sell back to FILLED only: a cancelled stop that sold part, price pending, is sold beside (P1)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    status.filled > 0  # FILLED or filled in part (G7-1)",
+   "                    status.state is OrderState.FILLED",
+   "M3: _unpriced_reconcile_order back to FILLED only: a reconcile sell filled in part is sent again"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if len(sold) == 1:\n            (status,) = sold",
+   "        if sold:\n            status = sold[0]",
+   "M4: _actual_exit books the first sell found even when another sold too (sold twice / in parts)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                and status.filled == position.contracts\n            ):\n                return status.avg_price, True",
+   "            ):\n                return status.avg_price, True",
+   "M5: _actual_exit books one FILLED sell of part of the position as the whole"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                status.state is OrderState.FILLED\n                and status.avg_price is not None\n                and status.filled == position.contracts",
+   "                status.state is OrderState.FILLED\n                and status.filled == position.contracts",
+   "M6: _actual_exit books a FILLED sell with no price (a guessed price)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if (\n                status.state is OrderState.FILLED\n                and status.avg_price is not None",
+   "            if (\n                status.state is not OrderState.CANCELLED\n                and status.avg_price is not None",
+   "M7: _actual_exit books a sell that is not FILLED (WORKING or REJECTED with fills)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if len(sold) == 1 and sold[0].filled == position.contracts:\n            return None",
+   "        if len(sold) == 1:\n            return None",
+   "M8: _sold_in_parts says nothing for one sell of part of the position"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if not sold:\n            return None\n        return \", \".join(",
+   "        return \", \".join(",
+   "M9: _sold_in_parts names an empty sale list (flat with no sell at all is called 'sold in parts')"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        return list(dict.fromkeys(o for o in candidates if o is not None))",
+   "        return [o for o in candidates if o is not None]",
+   "M10: candidates not de-duplicated: the stop asked twice reads as two sells, nothing is ever booked"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                status.filled > 0\n                and status.order.side is Side.SELL\n                and status.order.contract_id == position.contract_id",
+   "                status.filled > 0\n                and status.order.contract_id == position.contract_id",
+   "M11: a BUY of the position counts as one of its sells"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                status.filled > 0\n                and status.order.side is Side.SELL\n                and status.order.contract_id == position.contract_id",
+   "                status.filled > 0\n                and status.order.side is Side.SELL",
+   "M12: a sell of another contract counts as one of this position's sells"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    if parts is not None\n                    else \"no fill confirms the exit price\"",
+   "                    if parts is None\n                    else \"no fill confirms the exit price\"",
+   "M13: the alarm's two wordings swapped (Andre is not told the position was sold in parts)"
+  ]
+ ]
+}

@@ -1,0 +1,125 @@
+{
+ "groups": {
+  "paper": [
+   "tests/brokers/test_paper_boundary.py",
+   "tests/brokers/test_ibkr_binding.py",
+   "tests/brokers/test_ibkr_check.py",
+   "tests/live/test_live_app.py",
+   "tests/test_config.py"
+  ],
+  "disconnect": [
+   "tests/execution/test_disconnect_policy.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/execution/test_runner.py"
+  ],
+  "calendar": [
+   "tests/execution/test_calendar_fail_closed.py",
+   "tests/test_calendar_early_close.py",
+   "tests/test_config.py",
+   "tests/agents",
+   "tests/live/test_live_app.py"
+  ],
+  "alarms": [
+   "tests/live"
+  ],
+  "guard": [
+   "tests/live/test_channels.py"
+  ],
+  "bracket": [
+   "tests/execution/test_attached_stop.py",
+   "tests/execution/test_execution.py",
+   "tests/execution/test_runner.py",
+   "tests/brokers/test_ibkr_adapter.py",
+   "tests/brokers/test_ibkr_binding.py"
+  ],
+  "config": [
+   "tests/test_config.py"
+  ]
+ },
+ "mutants": [
+  [
+   "bracket",
+   "src/footprint/execution/executor/diego.py",
+   "        self._broker.cancel(ticket.order_id)\n        return self._broker.status(ticket.order_id)\n",
+   "        self._broker.cancel(ticket.order_id)\n        s = self._broker.status(ticket.order_id)\n        return OrderStatus(s.order, OrderState.CANCELLED, 0, None)\n",
+   "AEGIS G3 a fill racing the cancel is booked as unfilled (no stop placed)"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        if not copies and order_id in self._refused:",
+   "        if order_id in self._refused:",
+   "AEGIS G6 _refused overrides a live copy (retry accepted)"
+  ],
+  [
+   "config",
+   "src/footprint/core/holiday_rules.py",
+   "    \"Good Friday\",\n",
+   "",
+   "AEGIS G9 Good Friday may be deleted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if absent:\n",
+   "    if len(absent) > 1:\n",
+   "AEGIS G10 one deleted rule allowed"
+  ],
+  [
+   "guard",
+   "tests/conftest.py",
+   "        _check(args[-1])",
+   "        _check(args[-1]) if len(args) == 1 else None",
+   "AEGIS G11 sendto(data, flags, addr) unguarded"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/orders.py",
+   "        return self.state is OrderState.WORKING and not self.held_back",
+   "        return self.state is OrderState.WORKING",
+   "N1: held-back counts as protection"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        held_back = bool(live) and all(c.status == _INACTIVE or c.cancel_sent for c in live)",
+   "        held_back = bool(live) and all(c.status == _INACTIVE for c in live)",
+   "N2: being-cancelled stop not held back"
+  ],
+  [
+   "bracket",
+   "src/footprint/brokers/ibkr/adapter.py",
+   "        held_back = bool(live) and all(c.status == _INACTIVE or c.cancel_sent for c in live)",
+   "        held_back = False",
+   "N1: adapter never reports held back"
+  ],
+  [
+   "bracket",
+   "src/footprint/execution/management/malik.py",
+   "            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED) or (\n                stop_status.held_back\n            ):",
+   "            if stop_status.state in (OrderState.CANCELLED, OrderState.REJECTED):",
+   "N1: Malik keeps a held-back stop"
+  ],
+  [
+   "config",
+   "src/footprint/core/holiday_rules.py",
+   "            allowed = closed if rule.kind == \"closed\" else closed | early",
+   "            allowed = closed | early",
+   "N3: closure listed as early close accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/holiday_rules.py",
+   "        return None if base is None else base + timedelta(days=rule.days_after)",
+   "        return base",
+   "N3: days_after ignored"
+  ],
+  [
+   "guard",
+   "tests/conftest.py",
+   "            _check(args[2])\n",
+   "",
+   "N4: sendmsg unguarded"
+  ]
+ ]
+}

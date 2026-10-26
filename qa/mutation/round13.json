@@ -1,0 +1,80 @@
+{
+ "groups": {
+  "exec": [
+   "tests/execution",
+   "tests/brokers/test_ibkr_adapter.py"
+  ]
+ },
+ "mutants": [
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                if stop_status.protects:\n                    # Acting again",
+   "                if not stop_status.cancelling:\n                    # Acting again",
+   "O-1 refusal drops attribution whenever not cancelling (also CANCELLED / held back)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    self._exit_cancels.discard(stop_id)\n                    self._reconcile_cancels.discard(stop_id)\n                    if pid",
+   "                    self._exit_cancels.discard(stop_id)\n                    if pid",
+   "O-2 refusal keeps reconcile's cancel attribution"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        if pid in self._exit_started:\n            self._exit_started[pid] = ExitReason.UNPROTECTED",
+   "        self._exit_started[pid] = ExitReason.UNPROTECTED",
+   "O-7 _now_unprotected records UNPROTECTED even with no exit under way (equivalence probe)"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                    if now - since >= escalate:\n                        # The exit cannot go out beside it",
+   "                    if now - since > escalate:\n                        # The exit cannot go out beside it",
+   "O-9 stop-cancel escalation boundary >= to >"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if stop_status.cancel_refusals > self._refusals_seen.get(stop_id, 0):",
+   "            if stop_status.cancel_refusals >= self._refusals_seen.get(stop_id, 0) and stop_status.cancel_refusals:",
+   "O-10 a seen refusal is re-applied every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:",
+   "                        if False:",
+   "O5-1: no CANCEL STUCK on a repeat hand-over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:",
+   "                        if self._escalations[pid] > 1:",
+   "O5-1: CANCEL STUCK repeated"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "                        if self._escalations[pid] > 1 and pid not in self._stop_stuck_alarmed:",
+   "                        if pid not in self._stop_stuck_alarmed:",
+   "O5-1: CANCEL STUCK on the first hand-over"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "            if self._quote_alarmed.get(pid) is not check:",
+   "            if True:",
+   "O5-9: stale quote alarmed every step"
+  ],
+  [
+   "exec",
+   "src/footprint/execution/management/malik.py",
+   "        self._quote_alarmed.pop(pid, None)\n",
+   "",
+   "O5-9: a fresh quote does not end the episode"
+  ]
+ ]
+}

@@ -1,0 +1,10 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+  1 KILLED   [exec] src/footprint/brokers/ibkr/adapter.py: N-5 any exit from PendingCancel (Cancelled, Filled, Inactive) counts as a refusal
+  2 KILLED   [exec] src/footprint/execution/management/malik.py: N-10 abandon keeps the exit reason
+  3 KILLED   [exec] src/footprint/execution/management/malik.py: N-12 abandon keeps our exit-cancel record
+  4 KILLED   [exec] src/footprint/execution/management/malik.py: N-13 abandon keeps reconcile's cancel record
+  5 KILLED   [exec] src/footprint/execution/management/malik.py: N-14 the booked reason is the recorded one, not the one passed
+  6 KILLED   [exec] src/footprint/execution/management/malik.py: N-8 refusal keeps the cancelling clock
+6 mutants, 0 survived
+EXIT 0
+source: mutants applied to the working tree that became c9d8319 (src unchanged since)

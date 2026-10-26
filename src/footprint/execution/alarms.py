@@ -59,7 +59,10 @@ class AlarmLine:
         self._failing = False
         self._fallback = fallback
         self._announce = announce  # log each alarm as it is submitted
-        self._forwarding = False
+        # The waiting alarms already handed to the fallback (by identity), so each one
+        # is handed over once, whenever the primary is unhealthy while it waits
+        # (independent audit A-5: a flapping primary must not strand any of them).
+        self._handed: set[int] = set()
         self._cv = threading.Condition()
         self._worker = threading.Thread(target=self._run, name="alarm-line", daemon=True)
         self._worker.start()
@@ -99,9 +102,7 @@ class AlarmLine:
                 log.critical(alarm.message)
             forward: list[Alarm] = []
             with self._cv:
-                if self._fallback is not None and self._unhealthy():
-                    forward = self._take_backlog()
-                    forward.append(alarm)
+                queued = False
                 if self._closing:
                     log.critical("alarm line closed; not delivered: %s", alarm.message)
                 elif not any(waiting.message == alarm.message for waiting in self._pending):
@@ -112,21 +113,26 @@ class AlarmLine:
                             self._pending[0],
                         )
                         self._pending.remove(victim)
+                        self._handed.discard(id(victim))
                         self._last_dropped = victim
                         self._dropped += 1
                     self._pending.append(alarm)
+                    queued = True
                     self._cv.notify_all()
+                if self._fallback is not None and self._unhealthy():
+                    forward = self._take_backlog()
+                    if not queued:
+                        forward.append(alarm)
             self._hand_over(forward)
         except Exception:  # the trading loop must never be hurt by its alarm line
             log.exception("could not queue an alarm")
 
     def _take_backlog(self) -> list[Alarm]:
-        """Under the lock: the waiting alarms, the first time the primary is found
-        unhealthy in this spell (later alarms are forwarded one by one)."""
-        if self._forwarding:
-            return []
-        self._forwarding = True
-        return list(self._pending)
+        """Under the lock: the waiting alarms not yet handed to the fallback. Each is
+        handed over once, however often the primary flaps while it waits."""
+        backlog = [waiting for waiting in self._pending if id(waiting) not in self._handed]
+        self._handed |= {id(waiting) for waiting in backlog}
+        return backlog
 
     def _hand_over(self, alarms: list[Alarm]) -> None:
         """Outside the lock: the fallback line has its own."""
@@ -211,11 +217,7 @@ class AlarmLine:
                 self._failing = False
                 if self._pending and self._pending[0] is alarm:
                     self._pending.popleft()
-                if not self._pending:
-                    # Caught up: a later outage hands its backlog over again. (Not on
-                    # every success, or a slow-but-working pager would hand the same
-                    # backlog to the fallback once per delivery.)
-                    self._forwarding = False
+                    self._handed.discard(id(alarm))
                 self._delivered += 1
                 if self._dropped and self._last_dropped is not None:
                     note = Alarm(

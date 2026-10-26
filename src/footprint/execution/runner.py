@@ -53,7 +53,7 @@ from footprint.execution.journal.josephine import Journal
 from footprint.execution.ledger import Ledger
 from footprint.execution.management.malik import Alarm, Closed, ExitReason, Manager
 from footprint.execution.market import QuoteBook
-from footprint.execution.orders import BrokerDown
+from footprint.execution.orders import BrokerDown, FillUnpriced
 
 log = logging.getLogger("footprint.runner")
 
@@ -102,6 +102,9 @@ class Runner:
         self._managed_at: datetime | None = None
         self._failsafe_alarmed = False
         self._reconcile_flattening = False  # the last reconcile disagreed: it is acting
+        self._away_since: datetime | None = None  # the broker is away since then
+        self._doubts = 0  # counts every doubt: one raised mid-reconcile is never lost
+        self._check_fill_alarmed: set[str] = set()  # entries alarmed CHECK THE FILL
         # One line to Andre: management alarms, halts and latches all come through here.
         manager.route_alarms(self._deliver)
         halt.route(lambda message: self._alarm(self._now, message))
@@ -127,6 +130,18 @@ class Runner:
             raise ValueError("clearing to trade needs the name of who cleared it")
         self._cleared_by = by
         self._alarm(self._now, f"cleared to trade by {by}")
+
+    @property
+    def cleared_by(self) -> str | None:
+        """Who cleared it to trade since the start, or None (no entries)."""
+        return self._cleared_by
+
+    def revoke_clearance(self, reason: str) -> None:
+        """No new entries until cleared again (anything open is still managed)."""
+        if self._cleared_by is None:
+            return
+        self._cleared_by = None
+        self._alarm(self._now, reason)
 
     @property
     def position(self) -> Position | None:
@@ -167,7 +182,10 @@ class Runner:
         return None
 
     def doubt(self) -> None:
-        """Something does not add up: reconcile before doing anything else."""
+        """Something does not add up: reconcile before doing anything else. Safe from
+        any thread (it only counts and sets a flag): a doubt raised while a reconcile
+        is running makes that reconcile's agreement not count."""
+        self._doubts += 1
         self._reconciling = True
 
     def step(self, now: datetime) -> None:
@@ -179,7 +197,11 @@ class Runner:
         self._tried_channel = False
         try:
             self._book.mark_time(now)
-            self._step(now)
+            if self._executor.broker_ready:
+                self._broker_back(now)
+                self._step(now)
+            else:
+                self._broker_away(now)
             self._watch_latch(now)
         except BrokerDown as exc:
             # The broker is unreachable (a disconnect, or IB Gateway's nightly restart):
@@ -198,6 +220,26 @@ class Runner:
                 log.exception("step failed again")
         self._failsafe(now)
         self._retry_alarms()
+
+    def _broker_away(self, now: datetime) -> None:
+        """The broker is disconnected or resyncing (D35): nothing is decided, sent,
+        cancelled or flattened; resting orders at the broker (the stop) stay as they
+        are. Trading resumes only after it is back AND a reconcile agrees."""
+        self.doubt()
+        if self._away_since is None:
+            self._away_since = now
+            log.warning("broker away: no entries, no orders until it is back and reconciled")
+
+    def _broker_back(self, now: datetime) -> None:
+        """The outage itself is not "unmanaged" time (nothing could be sent during it):
+        the failsafe's clock is moved on by exactly its length, so time unmanaged
+        before or after it still counts (a flapping connection cannot hold the
+        failsafe off)."""
+        if self._away_since is None:
+            return
+        if self._managed_at is not None:
+            self._managed_at += now - self._away_since
+        self._away_since = None
 
     def _step(self, now: datetime) -> None:
         if self._reconciling:
@@ -219,23 +261,56 @@ class Runner:
             self._decide(now, blackouts)
 
     def _reconcile(self, now: datetime) -> None:
-        if self._ticket is not None:
-            # A working entry must not outlive the doubt: cancel it; reconcile handles
-            # whatever it may have filled.
-            self._executor.abandon(self._ticket)
-            self._ticket = None
+        if self._ticket is not None and not self._settle_entry(now):
+            return  # a filled entry waits for its price: nothing is reconciled over it
         # Pessimistic: until reconcile says it agrees, assume it may have a sell out
         # (it can raise after its order reached the broker).
         self._reconcile_flattening = True
+        doubts = self._doubts
         agreed = self._manager.reconcile(self._position, now)
         self._reconcile_flattening = not agreed
         for closed in self._manager.take_reconcile_closes():
             if self._position is not None and closed.position_id == self._position.position_id:
                 self._trade_done(self._position, closed, now)
-        if agreed:
-            self._reconciling = False
+        if agreed and self._doubts == doubts:
+            self._reconciling = False  # (a doubt raised meanwhile: reconcile again)
         elif self._position is not None and self._ledger.open_position_id is None:
             self._position, self._managed_at = None, None
+
+    def _settle_entry(self, now: datetime) -> bool:
+        """A working entry must not outlive the doubt: it is cancelled if still working,
+        and the broker's word on it decides (delta-3 review, N3-1). True when reconcile
+        may run: the entry ended unfilled, became the position, or is still working
+        with nothing filled (its cancel not confirmed) and left to reconcile. A failed
+        status question raises out of here with the ticket kept (grind review G-1): it
+        is settled again on the next step that gets an answer. False while the broker
+        reports it FILLED with its price pending: the entry is kept, its attached stop
+        is never cancelled, and reconcile never agrees "flat" over it; nothing is sent.
+        Past `fill_price_wait_seconds`: halt and CHECK THE FILL to Andre (once), and
+        keep holding until the price comes."""
+        ticket = self._ticket
+        assert ticket is not None
+        try:
+            ticket = self._executor.settle(ticket, now)
+        except FillUnpriced as exc:
+            self._halt.trip(f"{ticket.position_id}: entry fill price not reported")
+            if ticket.position_id not in self._check_fill_alarmed:
+                self._check_fill_alarmed.add(ticket.position_id)
+                self._alarm(
+                    now,
+                    f"CHECK THE FILL: {exc}. Its stop stays at the broker (unless a halt said "
+                    "it is gone); nothing "
+                    "is sent and reconcile waits for the price. If it never comes: cancel "
+                    "the entry's stop at IBKR first, then flatten by hand",
+                )
+            return False
+        if ticket.outcome is EntryOutcome.WORKING and ticket.price_pending_since is not None:
+            log.warning("reconcile waits: entry %s filled, price pending", ticket.order_id)
+            return False
+        self._ticket = None
+        if ticket.outcome is not EntryOutcome.WORKING:
+            self._entry_done(ticket, now)
+        return True
 
     def _entry_done(self, ticket: EntryTicket, now: datetime) -> None:
         """The one path for every finished entry, however it finished."""
@@ -262,6 +337,8 @@ class Runner:
     def _decide(self, now: datetime, blackouts: tuple[NewsBlackout, ...]) -> None:
         if not self._executor.broker_ready:
             return  # nothing could be sent (e.g. IBKR resyncing): the minute is not used up
+        if self._reconciling:
+            return  # (checked after "ready": a resync sets the doubt before it turns ready)
         bars = self._bars(now)
         closed_bars = [b for b in bars if b.ts + _MINUTE <= now]
         if not closed_bars:
@@ -331,6 +408,10 @@ class Runner:
         to reconcile, where it agrees, never disarms the failsafe."""
         if self._position is None or self._managed_at is None or self._reconcile_flattening:
             return
+        if self._away_since is not None:
+            return  # the broker is away: nothing can be sent; the resting stop protects it
+        if not self._executor.broker_ready:
+            return  # (ready read again: it can change between steps)
         if now - self._managed_at <= self._max_unmanaged:
             return
         position = self._position

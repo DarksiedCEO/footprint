@@ -1,0 +1,12 @@
+warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
+   Building footprint @ file:///tmp/fp-mut
+      Built footprint @ file:///tmp/fp-mut
+Uninstalled 1 package in 0.44ms
+Installed 1 package in 1ms
+source: 40d9a18d7756bc4f94491295630a66fa998da01b tree-dirty: 0 files
+baseline [ks]: passed
+  1 KILLED   [ks] src/footprint/execution/ledger.py: G24-3: a missing ledger keeps the lock
+  2 KILLED   [ks] src/footprint/live/kill_switch.py: G24-1: confirmation loosened to containing the word
+  3 KILLED   [ks] src/footprint/live/kill_switch.py: G24-1: confirmation loosened to a prefix
+  4 KILLED   [ks] src/footprint/live/kill_switch.py: G24-2: the command never releases the lock
+4 mutants, 0 survived or errored

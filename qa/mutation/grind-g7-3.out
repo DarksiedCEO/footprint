@@ -1,0 +1,12 @@
+source: 4ac668d69babae623a43977b193c918e9fb7a25c tree-dirty: 0 files
+baseline [exec]: passed
+  1 KILLED   [exec] src/footprint/execution/executor/diego.py: M1: the guard runs unguarded before the wait test (the G7-3 hole: a raising check hides CHECK THE FILL)
+  2 KILLED   [exec] src/footprint/execution/executor/diego.py: M2: BrokerDown past the wait becomes FillUnpriced (a fault instead of waiting for the broker)
+  3 KILLED   [exec] src/footprint/execution/executor/diego.py: M3: the failing-guard path waits one tick longer than the quiet path
+  4 KILLED   [exec] src/footprint/execution/executor/diego.py: M4: the guard's own failure is not chained
+  5 KILLED   [exec] src/footprint/execution/executor/diego.py: M5: past the wait the guard's error is re-raised, never FillUnpriced
+  6 KILLED   [exec] src/footprint/execution/executor/diego.py: M6: the quiet path waits one tick longer
+  7 KILLED   [exec] src/footprint/execution/executor/diego.py: M7: NeverPlaced on the ATTACHED stop is taken as 'no stop' (a fault hidden as a halt)
+  8 KILLED   [exec] src/footprint/execution/executor/diego.py: M8: NeverPlaced on the replacement is raised every step (the old behaviour)
+  9 KILLED   [exec] src/footprint/execution/executor/diego.py: M9: NeverPlaced on the replacement returns quietly: no halt, no alarm
+9 mutants, 0 survived or errored

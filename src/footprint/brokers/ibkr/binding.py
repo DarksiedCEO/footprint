@@ -12,15 +12,17 @@ This layer only translates. Every decision about what to trust lives in the adap
   dropped before any number in them is read, and an order outside it is passed on
   only so the adapter knows it is open: a fractional stock holding of Andre's can
   never upset the system.
-- Paper only (while `require_paper` is set): the connection is refused, and never
-  retried, unless the login manages `account` and that account is a paper account.
+- Paper only, hard-coded (paper.py; no setting can change it): settings with a
+  live account or a live port cannot be made, every connection attempt checks again,
+  and the connection is refused, and never retried, unless the login manages
+  `account` and manages only paper accounts.
   The adapter hears CONNECTED only after that check, with IBKR's next valid order id.
 - Exact numbers: prices arrive as floats and become Decimals through their shortest
   text form (151.25 -> Decimal("151.25")); quantities must be whole numbers. A value
   that cannot be read exactly is never guessed: the connection is dropped and alarmed,
   and the reconnect's resync reads the account afresh.
-- Stops trigger outside regular trading hours too (outsideRth), since the system
-  holds positions in the overnight session.
+- Stops trigger outside regular trading hours too (outsideRth): the prime session
+  opens before the cash market (D26). Nothing is held overnight.
 - A supervisor (`run`) reconnects after any drop, after `reconnect_seconds`.
 
 Callbacks arrive on ibapi's message thread. The adapter's waits happen on the
@@ -34,7 +36,6 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -63,7 +64,14 @@ from footprint.brokers.ibkr.gateway import (
     IbOrderRequest,
     QuoteField,
 )
-from footprint.core.config import IbkrConfig
+from footprint.brokers.ibkr.paper import (
+    LiveAccountRefused,
+    check_orders_allowed,
+    check_paper,
+    check_paper_login,
+)
+from footprint.brokers.ibkr.settings import IbConnectionSettings as IbConnectionSettings
+from footprint.brokers.ibkr.settings import read_env_file as read_env_file
 
 log = logging.getLogger("footprint.ibkr.binding")
 
@@ -89,62 +97,6 @@ class ForeignOrdersOpen(PermissionError):
 
 class UnreadableValue(ValueError):
     """IBKR sent a number that cannot be read exactly."""
-
-
-@dataclass(frozen=True, slots=True)
-class IbConnectionSettings:
-    host: str
-    port: int
-    client_id: int
-    account: str
-    reconnect_seconds: float
-    require_paper: bool
-    paper_account_prefix: str
-    escalate_after_failures: int
-    max_reconnect_seconds: float
-    min_healthy_session_seconds: float
-
-    @classmethod
-    def from_env(cls, env: dict[str, str], ibkr: IbkrConfig) -> IbConnectionSettings:
-        """From BROKER_HOST, BROKER_PORT, BROKER_ACCOUNT_ID, BROKER_CLIENT_ID."""
-        missing = [
-            k
-            for k in ("BROKER_HOST", "BROKER_PORT", "BROKER_ACCOUNT_ID", "BROKER_CLIENT_ID")
-            if not env.get(k, "").strip()
-        ]
-        if missing:
-            raise ValueError(f"missing in .env: {', '.join(missing)}")
-        try:
-            port, client_id = int(env["BROKER_PORT"]), int(env["BROKER_CLIENT_ID"])
-        except ValueError as exc:
-            raise ValueError("BROKER_PORT and BROKER_CLIENT_ID must be whole numbers") from exc
-        return cls(
-            host=env["BROKER_HOST"].strip(),
-            port=port,
-            client_id=client_id,
-            account=env["BROKER_ACCOUNT_ID"].strip(),
-            reconnect_seconds=float(ibkr.reconnect_seconds),
-            require_paper=ibkr.require_paper,
-            paper_account_prefix=ibkr.paper_account_prefix,
-            escalate_after_failures=ibkr.escalate_after_failures,
-            max_reconnect_seconds=float(ibkr.max_reconnect_seconds),
-            min_healthy_session_seconds=float(ibkr.min_healthy_session_seconds),
-        )
-
-
-def read_env_file(path: str) -> dict[str, str]:
-    """KEY=VALUE lines; blank lines and # comments ignored. No shell expansion."""
-    env: dict[str, str] = {}
-    with open(path, encoding="utf-8") as f:
-        for number, line in enumerate(f, start=1):
-            text = line.strip()
-            if not text or text.startswith("#"):
-                continue
-            key, sep, value = text.partition("=")
-            if not sep or not key.strip():
-                raise ValueError(f"{path}:{number}: expected KEY=VALUE")
-            env[key.strip()] = value.strip()
-    return env
 
 
 def to_price(value: float) -> Decimal | None:
@@ -263,7 +215,9 @@ def build_order(request: IbOrderRequest, account: str) -> Order:
         if request.oca_type is not None:
             order.ocaType = request.oca_type
     order.account = account
-    order.transmit = True
+    if request.parent_ib_id is not None:
+        order.parentId = request.parent_ib_id
+    order.transmit = request.transmit
     order.outsideRth = True
     return order
 
@@ -359,16 +313,18 @@ class IbBinding:
     # --- IbGateway --------------------------------------------------------------------
 
     def place_order(self, request: IbOrderRequest) -> None:
+        client = self._order_client()
         with self._lock:
             self._sent_ids.add(request.ib_id)
-        self._call().placeOrder(
+        client.placeOrder(
             request.ib_id, build_contract(request), build_order(request, self._s.account)
         )
 
     def cancel_order(self, ib_id: int) -> None:
-        self._call().cancelOrder(ib_id, OrderCancel())
+        self._order_client().cancelOrder(ib_id, OrderCancel())
 
     def global_cancel(self) -> None:
+        self._order_client()  # refuses before anything else is asked
         others = self._wrapper.other_accounts()
         if others:
             # Orders placed in those accounts since the last listing may be unseen.
@@ -382,7 +338,7 @@ class IbBinding:
                 f"a broker-wide cancel would also cancel {foreign} order(s) of other "
                 "accounts on this login: cancel by hand"
             )
-        self._call().reqGlobalCancel(OrderCancel())
+        self._order_client().reqGlobalCancel(OrderCancel())
 
     def request_open_orders(self) -> None:
         self._call().reqAllOpenOrders()
@@ -414,6 +370,11 @@ class IbBinding:
         drops normally resets the count (and says so, if it had escalated)."""
         if self._refused is not None:
             return  # refused for good: never connect again
+        try:
+            check_paper(self._s.account, self._s.port)  # again: settings are only data
+        except LiveAccountRefused as exc:
+            self._refuse(str(exc))
+            return
         failures = 0
         escalated = False
         while not stop.is_set():
@@ -500,6 +461,13 @@ class IbBinding:
             raise ConnectionError("IB Gateway is not connected")
         return client
 
+    def _order_client(self) -> Any:
+        """The client, for an order call: only once this session's account check has
+        passed and the session is open, never after a refusal (independent audit L-c).
+        AccountNotChecked is a ConnectionError, like a call with no connection."""
+        check_orders_allowed(self._refused, self._wrapper.orders_allowed())
+        return self._call()
+
     # --- used by the wrapper ---------------------------------------------------------
 
     def _market_events(self) -> IbMarketEvents | None:
@@ -551,6 +519,12 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
             self._void: set[int] = set()  # market requests voided by a fault
             self._claimed: set[int] = set()  # market request ids used in this session
             self._dropped_market = False
+
+    def orders_allowed(self) -> bool:
+        """This session's account check passed and the session is open (announced to the
+        adapter, not yet closed)."""
+        with self._session_lock:
+            return self._accounts_ok and self._open
 
     def claim(self, req_id: int) -> None:
         """A market request id, used once per session: IBKR can still deliver a cancelled
@@ -653,8 +627,11 @@ class _Wrapper(EWrapper):  # type: ignore[misc]
         if s.account not in accounts:
             self._b._refuse(f"the login manages {accounts}, not {s.account}")
             return
-        if s.require_paper and not s.account.startswith(s.paper_account_prefix):
-            self._b._refuse(f"{s.account} is not a paper account and require_paper is set")
+        try:
+            check_paper(s.account, s.port)
+            check_paper_login(accounts)
+        except LiveAccountRefused as exc:
+            self._b._refuse(str(exc))
             return
         with self._session_lock:
             self._accounts_ok = True

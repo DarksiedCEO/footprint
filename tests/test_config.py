@@ -244,8 +244,163 @@ def test_bad_trading_calendar_is_rejected(
 
 
 def test_holiday_dates_are_parsed(instrument_path: Path, tmp_path: Path) -> None:
-    target = rewrite(instrument_path, tmp_path, holidays=[date(2026, 12, 25)])
-    assert load_instrument(target).holidays == frozenset({date(2026, 12, 25)})
+    listed = yaml.safe_load(instrument_path.read_text())["holidays"]
+    target = rewrite(instrument_path, tmp_path, holidays=list(reversed(listed)))
+    assert load_instrument(target).holidays == frozenset(listed)
+    assert date(2026, 12, 25) in load_instrument(target).holidays
+
+
+@pytest.mark.parametrize(
+    ("changes", "missing"),
+    [
+        ({"calendar_through": date(2099, 12, 31)}, "easter_sundays has no date in 2028"),
+        ({"calendar_through": date(2027, 5, 31)}, "2027-05-31 (Memorial Day)"),
+        ({"holidays": ["2026-04-03", "2026-12-25", "2027-01-01", "2027-03-26"]}, "New Year"),
+        # AEGIS N3: a closure listed as an early close is not a closure
+        (
+            {
+                "holidays": ["2026-01-01", "2026-04-03", "2027-01-01", "2027-03-26"],
+                "early_closes": "christmas_as_early",
+            },
+            "2026-12-25 (Christmas Day)",
+        ),
+        ({"early_closes": "drop 2026-11-27"}, "Day after Thanksgiving, early close"),
+        ({"early_closes": "drop 2026-12-24"}, "Christmas Eve, early close"),
+    ],
+)
+def test_an_incomplete_calendar_is_refused(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], missing: str
+) -> None:
+    data = dict(changes)
+    if "holidays" in data:
+        data["holidays"] = [date.fromisoformat(d) for d in data["holidays"]]
+    early = data.get("early_closes")
+    if isinstance(early, str):
+        listed = dict(yaml.safe_load(instrument_path.read_text())["early_closes"])
+        if early == "christmas_as_early":
+            listed[date(2026, 12, 25)] = "10:00"
+        else:
+            listed.pop(date.fromisoformat(early.split()[1]))
+        data["early_closes"] = listed
+    target = rewrite(instrument_path, tmp_path, **data)
+    with pytest.raises(ConfigError) as refused:  # AEGIS re-audit M-3
+        load_instrument(target)
+    assert missing in str(refused.value)
+
+
+def test_an_early_close_rule_is_satisfied_by_a_full_closure(
+    instrument_path: Path, tmp_path: Path
+) -> None:
+    """H13: when an early-close day is closed outright (Christmas Eve as a holiday),
+    the calendar is still complete."""
+    data = yaml.safe_load(instrument_path.read_text())
+    early = dict(data["early_closes"])
+    early.pop(date(2026, 12, 24))
+    target = rewrite(
+        instrument_path,
+        tmp_path,
+        early_closes=early,
+        holidays=[*data["holidays"], date(2026, 12, 24)],
+    )
+    assert date(2026, 12, 24) in load_instrument(target).holidays
+
+
+def test_days_after_applies_to_a_fixed_date_rule() -> None:
+    """F6: days_after is not silently ignored on a month-and-day rule."""
+    from footprint.core.holiday_rules import HolidayRule, rule_date
+
+    rule = HolidayRule("Day after Christmas", month=12, day=25, days_after=1)
+    assert rule_date(rule, 2026, {}) == date(2026, 12, 26)
+
+
+def test_the_holiday_rules_in_nq_yaml(instrument_path: Path) -> None:
+    from footprint.core.holiday_rules import missing_days, rule_date
+
+    nq = load_instrument(instrument_path)
+    easters = {d.year: d for d in nq.easter_sundays}
+    days = {r.name: rule_date(r, 2026, easters) for r in nq.holiday_rules}
+    assert days == {
+        "New Year's Day": date(2026, 1, 1),
+        "Martin Luther King Jr. Day": date(2026, 1, 19),
+        "Presidents Day": date(2026, 2, 16),
+        "Good Friday": date(2026, 4, 3),
+        "Memorial Day": date(2026, 5, 25),
+        "Juneteenth": date(2026, 6, 19),
+        "Independence Day": date(2026, 7, 3),  # Saturday -> Friday
+        "Labor Day": date(2026, 9, 7),
+        "Thanksgiving": date(2026, 11, 26),
+        "Day after Thanksgiving": date(2026, 11, 27),
+        "Christmas Eve": date(2026, 12, 24),
+        "Christmas Day": date(2026, 12, 25),
+    }
+    rules = {r.name: r for r in nq.holiday_rules}
+    assert rule_date(rules["New Year's Day"], 2022, {}) is None  # a Saturday: not observed
+    assert rule_date(rules["New Year's Day"], 2023, {}) == date(2023, 1, 2)  # Sunday -> Mon
+    assert rule_date(rules["Christmas Day"], 2027, {}) == date(2027, 12, 24)
+    assert rule_date(rules["Memorial Day"], 2027, {}) == date(2027, 5, 31)
+    assert rule_date(rules["Day after Thanksgiving"], 2026, {}) == date(2026, 11, 27)
+    assert rule_date(rules["Christmas Eve"], 2026, {}) == date(2026, 12, 24)
+    assert rule_date(rules["Christmas Eve"], 2027, {}) == date(2027, 12, 24)
+    assert rule_date(rules["Christmas Eve"], 2028, {}) is None  # a Sunday
+    closed = {*nq.holidays, *nq.no_trade_days}
+    early = set(nq.early_closes)
+    assert (
+        missing_days(
+            nq.holiday_rules,
+            nq.easter_sundays,
+            closed,
+            early,
+            date(2026, 1, 1),
+            nq.calendar_through,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"easter_sundays": [date(2026, 4, 5)]}, "no date in 2027"),
+        ({"easter_sundays": [date(2026, 4, 5), date(2027, 3, 27)]}, "not a Sunday"),
+        ({"holiday_rules": [{"name": "X", "month": 13, "day": 1}]}, "holiday_rules"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "weekday": "MON", "nth": 6}]}, "nth"),
+        ({"holiday_rules": [{"name": "X", "month": 2}]}, "exactly one"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "observed": "x"}]}, "observed"),
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "extra": 1}]}, "only"),
+        ({"holiday_rules": []}, "non-empty"),
+        (  # AEGIS LOW-4: deleting a rule (and its day) does not switch its check off
+            {"holiday_rules": [{"name": "Christmas Day", "month": 12, "day": 25}]},
+            "no rule for New Year",
+        ),
+        ({"holiday_rules": "drop Good Friday"}, "no rule for Good Friday"),  # G9/G10: one
+        ({"holiday_rules": "drop Christmas Eve"}, "no rule for Christmas Eve"),
+        ({"holiday_rules": "early Christmas Day"}, "Christmas Day must be closed"),  # F3
+        ({"holiday_rules": "twice Christmas Day"}, "more than one rule named"),  # I-3
+        ({"holiday_rules": [{"name": "X", "month": 2, "day": 1, "kind": "half"}]}, "kind"),
+    ],
+)
+def test_bad_holiday_rules_are_refused(
+    instrument_path: Path, tmp_path: Path, changes: dict[str, Any], message: str
+) -> None:
+    rules = changes.get("holiday_rules")
+    if isinstance(rules, str):  # "drop <name>" / "early <name>": the real rules, edited
+        verb, _, name = rules.partition(" ")
+        current = yaml.safe_load(instrument_path.read_text())["holiday_rules"]
+        if verb == "drop":
+            changes = {"holiday_rules": [r for r in current if r["name"] != name]}
+            assert len(changes["holiday_rules"]) == len(current) - 1
+        elif verb == "twice":
+            twin = {"name": name, "month": 1, "day": 1}
+            changes = {"holiday_rules": [*current, twin]}
+        else:
+            changes = {
+                "holiday_rules": [
+                    {**r, "kind": "early_close"} if r["name"] == name else r for r in current
+                ]
+            }
+    target = rewrite(instrument_path, tmp_path, **changes)
+    with pytest.raises(ConfigError, match=message):
+        load_instrument(target)
 
 
 @pytest.mark.parametrize(
@@ -390,7 +545,6 @@ def test_execution_profile_loads(execution_path: Path) -> None:
     assert e.entry.timeout_seconds == 30
     assert e.entry.max_over_mid_pct_of_spread == Decimal(25)
     assert e.stop_order.limit_offset_ticks == 20
-    assert (e.ibkr.require_paper, e.ibkr.paper_account_prefix) == (True, "DU")
     assert (e.ibkr.option_security_type, e.ibkr.reconnect_seconds) == ("FOP", 15)
 
 
@@ -407,10 +561,14 @@ def test_execution_profile_loads(execution_path: Path) -> None:
         ("stop_order", {"limit_offset_ticks": 0}),
         ("stop_order", {"extra": 1}),
         ("ibkr", {"reconnect_seconds": 0}),
-        ("ibkr", {"require_paper": "yes"}),  # only a real true/false switches the guard
-        ("ibkr", {"require_paper": 0}),
+        # Delta review 3, V16: no wait at all would act at once on a lagging report.
+        ("reconcile", {"fill_price_wait_seconds": 0}),
         ("ibkr", {"option_security_type": ""}),
-        ("ibkr", {"paper_account_prefix": " "}),
+        # Paper only is hard-coded: no key can set it (unknown keys are refused).
+        ("ibkr", {"require_paper": False}),
+        ("ibkr", {"require_paper": True}),
+        ("ibkr", {"paper_account_prefix": "U"}),
+        ("ibkr", {"allow_live": True}),
     ],
 )
 def test_bad_execution_values_are_rejected(
