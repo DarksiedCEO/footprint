@@ -50,6 +50,10 @@ from footprint.core.config import Profiles, load_profiles
 from footprint.execution.orders import Quote
 
 _POLL_SECONDS = 0.1
+NOT_PAPER_EXIT = 2  # the exit code when .env names an account that is not paper
+
+MarketAction = Callable[[MarketData, Callable[[str], None], float], int]
+"""Runs on the resynced, read-only MarketData: (market, say, poll seconds) -> exit code."""
 
 
 IBKR_LOGGERS = ("footprint.ibkr", "footprint.ibkr.binding", "footprint.ibkr.market")
@@ -88,10 +92,12 @@ def check(
     market_data: bool = False,
     clock: Callable[[], datetime] = _utc_now,
     sleep: Callable[[float], None] = time.sleep,
+    market_action: MarketAction | None = None,
 ) -> int:
     """With `market_data`, after the resync report it also runs the market-data probe
     (readonly.probe_market) through the same read-only gateway, and its result is the
-    exit code."""
+    exit code. With `market_action` (the `history` export), that runs instead of the
+    probe, on the same read-only MarketData, and its result is the exit code."""
 
     def say(message: str) -> None:
         print(message, file=out, flush=True)
@@ -117,7 +123,8 @@ def check(
     )
     binding.attach(adapter)
     market: MarketData | None = None
-    if market_data:  # attached before run(): market callbacks with nothing attached drop
+    if market_data or market_action is not None:  # attached before run(): callbacks
+        # with nothing attached drop
         market = MarketData(
             gateway, contracts, _no_book, profiles.instrument, profiles.execution, alarm, clock
         )
@@ -156,6 +163,8 @@ def check(
         say(f"open orders on anything else (never touched): {adapter.outside_open_orders}")
         if market is None:
             return 0
+        if market_action is not None:
+            return market_action(market, say, _POLL_SECONDS)
         m = profiles.execution.market_data
         say(f"market data: waiting up to {m.probe_wait_seconds} s for quotes")
         return probe_market(
@@ -197,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         settings = IbConnectionSettings.from_env(read_env_file(str(args.env)), ibkr)
     except LiveAccountRefused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
-        return 2
+        return NOT_PAPER_EXIT
     wait = args.wait
     if wait is None:
         wait = float(ibkr.reconnect_seconds + ibkr.positions_disagree_alarm_seconds)
