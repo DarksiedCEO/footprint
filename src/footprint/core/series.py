@@ -122,6 +122,13 @@ class BarWindow(tuple[Bar, ...]):
     def __delattr__(self, name: str) -> None:
         raise AttributeError(f"a BarWindow is read-only: cannot delete {name!r}")
 
+    def __reduce__(self) -> tuple[type[BarWindow], tuple[BarSeries, int, int]]:
+        """Copy, deep-copy and pickle remake the window from its series and bounds
+        (a tuple subclass is otherwise remade from its items alone, which `__new__`
+        refuses). `dataclasses.asdict` is not covered: it remakes a tuple subclass
+        from its converted items (dicts), which no window can hold."""
+        return (BarWindow, (self.series, self.start, self.end))
+
     @property
     def end(self) -> int:
         """One past the window's last bar, as an index into the series."""
