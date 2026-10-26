@@ -1089,6 +1089,7 @@ class QuoteSettings:
 @dataclass(frozen=True, slots=True)
 class ContractSettings:
     max_spread_pct_of_mid: Decimal
+    max_spread_points: Decimal
     min_open_interest: int
     max_strike_distance: Decimal
 
@@ -1197,6 +1198,7 @@ def load_execution(path: Path) -> ExecutionProfile:
     c = _check_keys(raw["contract"], {f.name for f in fields(ContractSettings)}, c_where)
     contract = ContractSettings(
         max_spread_pct_of_mid=_positive_decimal(c, "max_spread_pct_of_mid", c_where),
+        max_spread_points=_positive_decimal(c, "max_spread_points", c_where),
         min_open_interest=_integer(c, "min_open_interest", c_where, minimum=1),
         max_strike_distance=_positive_decimal(c, "max_strike_distance", c_where),
     )

@@ -1,0 +1,252 @@
+{
+ "groups": {
+  "picker": [
+   "tests/agents/test_spread_cap_points.py",
+   "tests/agents/test_contract_sizing_stop.py"
+  ],
+  "config": [
+   "tests/agents/test_spread_cap_points.py",
+   "tests/test_config.py"
+  ],
+  "shipped": [
+   "tests/agents/test_spread_cap_points.py",
+   "tests/backtest/test_spread_cap_model.py"
+  ],
+  "model": [
+   "tests/backtest/test_spread_cap_model.py"
+  ]
+ },
+ "mutants": [
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if False:",
+   "points cap removed"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread >= rules.max_spread_points:",
+   "equality refused"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread < rules.max_spread_points:",
+   "comparison inverted"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread > rules.max_spread_pct_of_mid:",
+   "wrong field: percent read as points"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread > rules.max_strike_distance:",
+   "wrong field: strike distance"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.mid > rules.max_spread_points:",
+   "mid compared, not spread"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.ask > rules.max_spread_points:",
+   "ask compared, not spread"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread / 2 > rules.max_spread_points:",
+   "half spread compared"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.ask - quote.mid > rules.max_spread_points:",
+   "half spread (ask - mid) compared"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread > rules.max_spread_points * 2:",
+   "cap doubled"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread > rules.max_spread_points + rules.max_spread_points / 4:",
+   "cap loosened by a quarter"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if quote.spread > rules.max_spread_points:",
+   "if quote.spread > rules.max_spread_points and spread_pct > rules.max_spread_pct_of_mid:",
+   "points refuses only when percent also fails"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if spread_pct > rules.max_spread_pct_of_mid:",
+   "if spread_pct > rules.max_spread_pct_of_mid and quote.spread > rules.max_spread_points:",
+   "percent refuses only when points also fails"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if spread_pct > rules.max_spread_pct_of_mid:",
+   "if False:",
+   "percent filter removed"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "if spread_pct > rules.max_spread_pct_of_mid:",
+   "if spread_pct >= rules.max_spread_pct_of_mid:",
+   "percent equality refused"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "        if spread_pct > rules.max_spread_pct_of_mid:\n            return NoContract(\n                f\"{quote.contract_id}: spread {spread_pct:.1f}% of mid \"\n                f\"> {rules.max_spread_pct_of_mid}%\"\n            )\n        if quote.spread > rules.max_spread_points:\n            return NoContract(\n                f\"{quote.contract_id}: spread {quote.spread} points \"\n                f\"> {rules.max_spread_points} points\"\n            )\n",
+   "        if quote.spread > rules.max_spread_points:\n            return NoContract(\n                f\"{quote.contract_id}: spread {quote.spread} points \"\n                f\"> {rules.max_spread_points} points\"\n            )\n        if spread_pct > rules.max_spread_pct_of_mid:\n            return NoContract(\n                f\"{quote.contract_id}: spread {spread_pct:.1f}% of mid \"\n                f\"> {rules.max_spread_pct_of_mid}%\"\n            )\n",
+   "check order swapped (points reason first)"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "f\"{quote.contract_id}: spread {quote.spread} points \"",
+   "f\"spread {quote.spread} points \"",
+   "contract id dropped from the reason"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "f\"{quote.contract_id}: spread {quote.spread} points \"",
+   "f\"{quote.contract_id}: spread {quote.mid} points \"",
+   "mid printed as the spread"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "f\"> {rules.max_spread_points} points\"",
+   "f\"> {rules.max_spread_pct_of_mid} points\"",
+   "wrong cap printed"
+  ],
+  [
+   "picker",
+   "src/footprint/agents/contract_picker.py",
+   "f\"> {rules.max_spread_points} points\"",
+   "f\"> {rules.max_spread_points}\"",
+   "unit dropped from the reason"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "max_spread_points=_positive_decimal(c, \"max_spread_points\", c_where),",
+   "max_spread_points=_non_negative_decimal(c, \"max_spread_points\", c_where),",
+   "zero accepted"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "max_spread_points=_positive_decimal(c, \"max_spread_points\", c_where),",
+   "max_spread_points=Decimal(str(c[\"max_spread_points\"])),",
+   "no validation"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "max_spread_points=_positive_decimal(c, \"max_spread_points\", c_where),",
+   "max_spread_points=_positive_decimal(c, \"max_spread_pct_of_mid\", c_where),",
+   "wrong key read (percent)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "max_spread_points=_positive_decimal(c, \"max_spread_points\", c_where),",
+   "max_spread_points=_positive_decimal(c, \"max_strike_distance\", c_where),",
+   "wrong key read (strike distance)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "max_spread_points=_positive_decimal(c, \"max_spread_points\", c_where),",
+   "max_spread_points=Decimal(str(c.get(\"max_spread_points\", 1000))),",
+   "missing key defaults open (fail open)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if not number.is_finite() or number <= 0:\n        raise ConfigError(f\"{where}: {key} must be a finite number > 0",
+   "    if number <= 0:\n        raise ConfigError(f\"{where}: {key} must be a finite number > 0",
+   "infinity accepted (shared helper)"
+  ],
+  [
+   "config",
+   "src/footprint/core/config.py",
+   "    if isinstance(value, bool) or not isinstance(value, int | float):\n        raise ConfigError(f\"{where}: {key} must be a number, got {value!r}\")\n    number = Decimal(str(value))\n    if not number.is_finite() or number <= 0:",
+   "    if not isinstance(value, int | float):\n        raise ConfigError(f\"{where}: {key} must be a number, got {value!r}\")\n    number = Decimal(str(value))\n    if not number.is_finite() or number <= 0:",
+   "booleans accepted (shared helper)"
+  ],
+  [
+   "shipped",
+   "config/execution.yaml",
+   "max_spread_points: 10 ",
+   "max_spread_points: 15 ",
+   "draft loosened to 15"
+  ],
+  [
+   "shipped",
+   "config/execution.yaml",
+   "max_spread_points: 10 ",
+   "max_spread_points: 7 ",
+   "draft tightened under the live 7.5 quote"
+  ],
+  [
+   "shipped",
+   "config/execution.yaml",
+   "max_spread_points: 10 ",
+   "max_spread_points: 9 ",
+   "draft tightened to 9"
+  ],
+  [
+   "shipped",
+   "config/execution.yaml",
+   "max_spread_points: 10 ",
+   "max_spread_points: 2 ",
+   "draft at the model's spread"
+  ],
+  [
+   "shipped",
+   "config/execution.yaml",
+   "max_spread_points: 10 ",
+   "max_spread_points: 10.25 ",
+   "draft off by one tick"
+  ],
+  [
+   "model",
+   "config/backtest.yaml",
+   "spread_points: 2 ",
+   "spread_points: 10 ",
+   "model spread at the cap"
+  ]
+ ]
+}
