@@ -1280,7 +1280,7 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     - (a) Accept the $10,000 worst case.
     - (b) Lower the cap (for example to the kill-switch amount, $5,000-$6,000, accepting
       fewer or no Friday entries). **Chosen: 6000.**
-  - **M3: the spread filter scales with the premium. STILL AWAITING ANDRE'S SIGN-OFF.**
+  - **M3: the spread filter scales with the premium. DECIDED (b) (Andre, 2026-10-25 18:18 PT); BUILT (branch spread-cap-v1), cap value DRAFT: see "M3 (b) absolute spread cap" below.**
     `max_spread_pct_of_mid: 5` lets a pricier option carry a wider spread. Restated for the
     6000 cap (code-checked 2026-10-24): at the largest fill under the cap, a 288.75/303.50
     quote (spread 14.75 points, $295, 4.98% of mid) is accepted; Ezra's worst allowed fill
@@ -1294,7 +1294,8 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     (refused).
     - (a) Accept the percent-of-mid filter as is.
     - (b) Add an absolute spread cap in points to `config/execution.yaml` (a draft number
-      for Andre to set; NOT built in this PR).
+      for Andre to set; NOT built in this PR). **Chosen (2026-10-25); built in
+      spread-cap-v1 as `contract.max_spread_points`, draft 10.**
   - **Tests:** `tests/test_config.py` pins 6000 and accepts a cap equal to the bankroll;
     the cap boundary in `tests/agents/test_contract_sizing_stop.py` is 5,997.50 (fits) /
     6,002.50 (refused), 5,002.50 now fits, and the stop, resting limit and trail are pinned
@@ -1303,6 +1304,62 @@ Changed after hostile review round 1 (baf1dd9, CERTIFIED WITH CONDITIONS):
     take a 1-day option that fits both);
     `tests/backtest/test_readout_exit_numbers.py` checks the readout prints
     `risk.position_cap`.
+
+## M3 (b) absolute spread cap (branch spread-cap-v1; decided by Andre 2026-10-25 18:18 PT)
+
+- **SC-1 (DEFAULT (draft, Andre M3): `contract.max_spread_points: 10`, in
+  `config/execution.yaml`). FOR ANDRE: confirm or set the number.** Felix now refuses a
+  contract whose spread (ask - bid) is wider than this many option points, IN ADDITION to
+  `max_spread_pct_of_mid: 5` (unchanged): a quote must pass both. A spread exactly equal
+  to either cap passes (the same "only wider refuses" rule the percentage filter has
+  always had). When both fail, the percentage reason is the one given (checked first).
+  - **Why 10 (from the quotes the repo and project have; a handful, not a calibration):**
+    - Live RTH 29080C (2026-10-23, project note): 236.50/244.00 = **7.5 points** (3.1% of
+      mid), an at-the-money 1-day option at the open. Passes, with 2.5 points of room.
+    - Oct 30 NQ quote (M3 above): **9 points** on ~500 (1.8%). Passes.
+    - The 288.75/303.50 quote at the top of the $6,000 cap (M3 above): **14.75 points**
+      (4.98%). Passed the percentage filter alone; **now refused**. Every spread the
+      percentage filter allows above 10 points (a mid over 200 points, i.e. most entries
+      near the cap) is now refused.
+    - Oct 23 weekly, 28 points on 178: already refused by the percentage filter.
+    - In dollars (NQ options, $20 a point): at most **$200** of spread per contract, about
+      27% of the $750 hard stop, against up to $295 (39%) before (stop room not
+      recomputed here).
+  - **Risk of the number (inference, not verified):** if real RTH spreads near the money
+    are often over 10 points (e.g. in a fast open, or on Friday 3-day options, which cost
+    more), entries will be refused that the percentage filter alone would take. Only
+    paper trading on real quotes measures this (two observed quotes is not a
+    distribution). A refusal is fail-closed (no entry), never a worse fill.
+  - **F4 (review round 1): the draft 10 rests on ONE usable quote.** The 9-point Oct 30
+    quote (~500 points, ~$10,000) can never be traded: sizing refuses it over the $6,000
+    cap whatever its spread. Only the 7.5-point RTH 29080C quote is a tradeable data point;
+    paper trading on real quotes must measure the refusal rate before this is trusted.
+  - **F5 (review round 1): any later backtest on real or recorded option quotes will be
+    filtered by this cap** (Felix applies it to every chain), so its trades and goldens can
+    differ from a run without it. The guard test only checks the modelled spread.
+  - **F3 (review round 1): `max_spread_points` must be at least one option tick**
+    (`instrument.option_tick_size`, checked at start-up with the other cross-profile
+    rules); a smaller cap would refuse every quote that is not locked. Exactly one tick is
+    accepted.
+  - **Backtest:** the backtest runs the same pipeline (Felix) on modelled quotes, so the
+    cap applies there too, consistently. The modelled spread is `option_model.spread_points:
+    2` (UNVERIFIED, D22), at most one option tick wider after on-tick rounding, so no
+    modelled quote comes near 10 and **no golden changed** (seam_default and
+    seam_real_play reproduce byte for byte). A test pins that every modelled spread is
+    under the cap: if either number is moved so the model's spread reaches the cap, it
+    fails rather than letting the backtest silently refuse every entry. The research
+    harness (`footprint.research`, Black-76) does not use Felix and is unaffected.
+  - **Loader:** `max_spread_points` is required; a number > 0 and finite (0, negatives,
+    a string, a boolean, null, NaN, infinity, a list or a missing key are refused at
+    load: fail closed). It is read as an exact Decimal.
+  - **Tests:** `tests/agents/test_spread_cap_points.py` (refused over the points cap even
+    under 5%; refused over 5% even under the points cap; accepted under both; boundary
+    equal / one tick wider / one tick narrower; reason order; loader refusals; the shipped
+    10 and the live quotes above), `tests/backtest/test_spread_cap_model.py`,
+    `tests/test_config.py` (0 refused); round 1 added: a multi-strike chain where only the
+    chosen strike is over the cap (refused, naming it) and the reverse (accepted), the
+    points reason before open interest, and the one-tick floor. Mutation evidence
+    `qa/mutation/spread-cap-v1.out`.
 
 ## BH-* backtest on history (branch backtest-history-v1, stacked on greeks-veto-v1; 2026-10-24)
 

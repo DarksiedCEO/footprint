@@ -9,8 +9,10 @@ Rule, all numbers from config:
   in-the-money side: the lower strike for a call, the higher for a put), and no
   further than max_strike_distance from it;
 - skip the trade (never fall back to another contract) when that contract has no
-  bid, its spread is wider than max_spread_pct_of_mid of its mid, or its open
-  interest is below min_open_interest. A chain older than quotes.max_age_seconds
+  bid, its spread is wider than max_spread_pct_of_mid of its mid, its spread is
+  wider than max_spread_points option points (M3: both spread checks must pass; a
+  spread equal to either cap passes), or its open interest is below
+  min_open_interest. A chain older than quotes.max_age_seconds
   is not traded on.
 """
 
@@ -92,6 +94,11 @@ class ContractPicker:
             return NoContract(
                 f"{quote.contract_id}: spread {spread_pct:.1f}% of mid "
                 f"> {rules.max_spread_pct_of_mid}%"
+            )
+        if quote.spread > rules.max_spread_points:
+            return NoContract(
+                f"{quote.contract_id}: spread {quote.spread} points "
+                f"> {rules.max_spread_points} points"
             )
         if quote.open_interest < rules.min_open_interest:
             return NoContract(
