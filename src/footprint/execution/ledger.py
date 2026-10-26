@@ -43,6 +43,8 @@ class LedgerState:
     day: date | None
     week: tuple[int, int] | None
     booked_by_hand: tuple[str, ...] = ()
+    # The newest completed bar a decision was made on: a restart never decides it again.
+    last_decided: datetime | None = None
 
 
 class StateStore:
@@ -72,11 +74,15 @@ class StateStore:
             day=date.fromisoformat(raw["day"]) if raw["day"] else None,
             week=(int(raw["week"][0]), int(raw["week"][1])) if raw["week"] else None,
             booked_by_hand=tuple(raw.get("booked_by_hand", ())),
+            last_decided=(
+                datetime.fromisoformat(raw["last_decided"]) if raw.get("last_decided") else None
+            ),
         )
 
     def save(self, state: LedgerState) -> None:
         data = asdict(state)
         data["day"] = state.day.isoformat() if state.day else None
+        data["last_decided"] = state.last_decided.isoformat() if state.last_decided else None
         text = json.dumps(data, default=str, sort_keys=True)
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         with tmp.open("w", encoding="utf-8") as handle:
@@ -129,6 +135,20 @@ class Ledger:
     @property
     def open_position_id(self) -> str | None:
         return self._state.open_position_id
+
+    @property
+    def last_decided(self) -> datetime | None:
+        """The newest completed bar a decision has been made on (survives restarts)."""
+        return self._state.last_decided
+
+    def mark_decided(self, bar_ts: datetime) -> None:
+        """Record, durably, that the bar at `bar_ts` is being decided on. Never moves
+        backwards. Raises if it cannot be saved: the caller must not decide then."""
+        require_utc(bar_ts, "bar_ts")
+        current = self._state.last_decided
+        if current is not None and bar_ts <= current:
+            return
+        self._save(replace(self._state, last_decided=bar_ts))
 
     def account(self, now: datetime) -> AccountState:
         self._roll(now)

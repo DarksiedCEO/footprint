@@ -82,5 +82,5 @@ L2 goes away in the IBKR PR with OCA groups (the broker itself guarantees only o
 13. Which warning codes arrive on our orders (165, 399, 10167, 10349, 2100-2199 are treated as warnings, never as answers).
 14. A stop-limit with outsideRth on triggers in the overnight session (D26).
 15. Gateway's "Maintain and resubmit orders when connection is restored" is OFF: an order sent during a gap fails at once instead of being sent later by Gateway on its own.
-16. First connection: `uv run python -m footprint.brokers.ibkr.check` on the Mac beside Gateway, read-only; it must print "resynced" and the account.
+16. DONE 2026-10-05: first connection, `uv run python -m footprint.brokers.ibkr.check` on the Mac beside Gateway, read-only. It printed "resynced. account DUR239136; system scope NQ FOP", no positions, no open orders, none elsewhere. ibapi installed from Andre's zip with the pinned hash.
 17. Keep BROKER_CLIENT_ID fixed (0, the master API client id): our own orders are recognised by it, so orders left open by a run under another id come back as foreign (safe, but Andre cancels them by hand). No other API application on this account.
