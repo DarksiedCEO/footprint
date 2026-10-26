@@ -66,7 +66,7 @@ def make(*, connect: bool = True, fake: FakeIbkr | None = None) -> Ib:
     adapter = IbkrBroker(
         fake,
         contracts,
-        IbkrSettings(FAST, FAST),
+        IbkrSettings(FAST, FAST, FAST * 3),
         ("NQ", "FOP"),
         alarms.append,
         lambda: resyncs.append(1),
@@ -646,6 +646,12 @@ def test_a_resync_that_will_not_complete_is_alarmed(ib: Ib) -> None:
     with pytest.raises(BrokerUnavailable):
         ib.adapter.positions()
     assert sum("not completing" in a for a in ib.alarms) == 1
+    time.sleep(FAST.total_seconds() * 3.2)  # the re-alarm interval passes
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    assert sum("not completing" in a for a in ib.alarms) == 2  # said again, once
 
 
 def test_an_inactive_order_whose_cancel_is_unanswered_stays_working(ib: Ib) -> None:
@@ -846,3 +852,30 @@ def test_a_ghost_record_is_dropped_by_status_and_never_counted_working(ib: Ib) -
     ib.tracked._sent["ghost2"] = buy("ghost2")
     assert ib.tracked.working() == {}  # so reconcile can agree
     assert ib.tracked.unfinished == {}
+
+
+def test_a_resync_is_not_alarmed_before_its_limit(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=True)
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()  # straight away: still within the limit
+    assert not any("not completing" in a for a in ib.alarms)
+
+
+def test_each_stuck_resync_is_alarmed_after_its_own_limit(ib: Ib) -> None:
+    ib.fake.lose()
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=True)
+    time.sleep(FAST.total_seconds() * 1.5)
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    ib.fake.flush_executions()  # that resync completes
+    ib.adapter.positions()
+    ib.fake.lose()  # and soon after, a new one sticks
+    ib.fake.defer_executions = True
+    ib.fake.restore(data_lost=True)
+    time.sleep(FAST.total_seconds() * 1.5)  # well inside the re-alarm interval
+    with pytest.raises(BrokerUnavailable):
+        ib.adapter.positions()
+    assert sum("not completing" in a for a in ib.alarms) == 2  # the new one is said too

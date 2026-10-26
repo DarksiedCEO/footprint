@@ -47,6 +47,8 @@ ibkr:
                               #   disagreeing this long is alarmed and resynced (meanwhile no
                               #   position is reported at all); a resync not complete after
                               #   this long is alarmed
+  resync_realarm_seconds: 300 # DEFAULT: a resync still not complete is alarmed again
+                              #   this often (first after positions_disagree_alarm_seconds)
   reconnect_seconds: 15       # DEFAULT: wait between attempts to reach IB Gateway after
                               #   the connection drops (each attempt is followed by a full
                               #   resync before anything is sent)
