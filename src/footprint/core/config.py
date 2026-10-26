@@ -1091,19 +1091,33 @@ class DailyEvent:
 
 @dataclass(frozen=True, slots=True)
 class FomcMeeting:
-    """One scheduled FOMC meeting from the Federal Reserve's own calendar (N6). The
+    """One scheduled FOMC meeting from the Federal Reserve's own pages (N6). The
     statement comes on its decision day; `verified` False is UNVERIFIED (a date the
-    Fed's page lists as not yet confirmed): that whole day is a blackout."""
+    Fed's page lists as not yet confirmed): that whole day is a blackout. `source` is
+    the federalreserve.gov page that confirms it."""
 
     first_day: date
     decision_day: date
     verified: bool
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class FomcAction:
+    """An intermeeting action on the Fed's pages (an unscheduled meeting, a notation
+    vote) or the day one was announced: a blackout all day (N6, fail closed)."""
+
+    day: date
+    verified: bool
+    source: str
 
 
 @dataclass(frozen=True, slots=True)
 class FomcCalendar:
     """config/fomc.yaml (N6): complete from valid_from to valid_through; outside that
-    span every day is a blackout (fail closed, like the exchange calendar, D34)."""
+    span every day is a blackout (fail closed, like the exchange calendar, D34).
+    `cancelled`: scheduled meetings the Fed cancelled (counted in their year; their
+    decision day is a blackout all day)."""
 
     source: str
     read_on: date
@@ -1111,65 +1125,107 @@ class FomcCalendar:
     valid_through: date
     meetings_per_year: int
     meetings: tuple[FomcMeeting, ...]
+    cancelled: tuple[FomcMeeting, ...]
+    intermeeting: tuple[FomcAction, ...]
 
 
 _FED_SITE = "https://www.federalreserve.gov/"
 
 
-def _fomc_meetings(raw: Mapping[str, object], where: str) -> tuple[FomcMeeting, ...]:
-    items = raw["meetings"]
-    if not isinstance(items, list) or not items:
-        raise ConfigError(f"{where}: meetings must be a non-empty list")
+def _fed_source(body: Mapping[str, object], key: str, where: str) -> str:
+    source = _text(body, key, where)
+    if not source.startswith(_FED_SITE):
+        raise ConfigError(
+            f"{where}: source {source!r} is not the Federal Reserve's own site "
+            f"({_FED_SITE}): FOMC dates come from its published pages only (N6)"
+        )
+    return source
+
+
+def _list(raw: Mapping[str, object], key: str, where: str, *, empty: bool) -> list[object]:
+    items = raw[key]
+    if not isinstance(items, list) or (not items and not empty):
+        raise ConfigError(f"{where}: {key} must be a {'' if empty else 'non-empty '}list")
+    return items
+
+
+def _fomc_meetings(
+    raw: Mapping[str, object], key: str, where: str, *, cancelled: bool
+) -> tuple[FomcMeeting, ...]:
+    keys = {"first_day", "decision_day", "source"} | (set() if cancelled else {"verified"})
     meetings: list[FomcMeeting] = []
-    for item in items:
-        body = _check_keys(item, {"first_day", "decision_day", "verified"}, f"{where}: meetings")
+    for item in _list(raw, key, where, empty=cancelled):
+        body = _check_keys(item, keys, f"{where}: {key}")
         meeting = FomcMeeting(
             _date(body, "first_day", where),
             _date(body, "decision_day", where),
-            _boolean(body, "verified", where),
+            True if cancelled else _boolean(body, "verified", where),
+            _fed_source(body, "source", where),
         )
         if meeting.first_day > meeting.decision_day:
             raise ConfigError(f"{where}: {meeting.decision_day}: first_day after its decision_day")
         if meetings and meeting.decision_day <= meetings[-1].decision_day:
             raise ConfigError(
-                f"{where}: meetings must be in date order, each once ({meeting.decision_day})"
+                f"{where}: {key} must be in date order, each once ({meeting.decision_day})"
             )
         meetings.append(meeting)
     return tuple(meetings)
 
 
+def _fomc_actions(raw: Mapping[str, object], where: str) -> tuple[FomcAction, ...]:
+    actions: list[FomcAction] = []
+    for item in _list(raw, "intermeeting", where, empty=True):
+        body = _check_keys(item, {"day", "verified", "source"}, f"{where}: intermeeting")
+        action = FomcAction(
+            _date(body, "day", where),
+            _boolean(body, "verified", where),
+            _fed_source(body, "source", where),
+        )
+        if actions and action.day <= actions[-1].day:
+            raise ConfigError(
+                f"{where}: intermeeting must be in date order, each once ({action.day})"
+            )
+        actions.append(action)
+    return tuple(actions)
+
+
 def load_fomc(path: Path) -> FomcCalendar:
     where = str(path)
     raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})
-    source = _text(raw, "source", where)
-    if not source.startswith(_FED_SITE):
-        raise ConfigError(
-            f"{where}: source {source!r} is not the Federal Reserve's own site "
-            f"({_FED_SITE}): FOMC dates come from its published calendar only (N6)"
-        )
     calendar = FomcCalendar(
-        source=source,
+        source=_fed_source(raw, "source", where),
         read_on=_date(raw, "read_on", where),
         valid_from=_date(raw, "valid_from", where),
         valid_through=_date(raw, "valid_through", where),
         meetings_per_year=_integer(raw, "meetings_per_year", where, minimum=1),
-        meetings=_fomc_meetings(raw, where),
+        meetings=_fomc_meetings(raw, "meetings", where, cancelled=False),
+        cancelled=_fomc_meetings(raw, "cancelled", where, cancelled=True),
+        intermeeting=_fomc_actions(raw, where),
     )
     if calendar.valid_from > calendar.valid_through:
         raise ConfigError(f"{where}: valid_from must not be after valid_through")
-    for m in calendar.meetings:
-        if not calendar.valid_from <= m.decision_day <= calendar.valid_through:
+    held = {m.decision_day for m in calendar.meetings}
+    for m in calendar.cancelled:
+        if m.decision_day in held:
             raise ConfigError(
-                f"{where}: {m.decision_day} is outside valid_from..valid_through "
+                f"{where}: meetings must be in date order, each once ({m.decision_day} is "
+                "both held and cancelled)"
+            )
+    days = [m.decision_day for m in (*calendar.meetings, *calendar.cancelled)]
+    for day in (*days, *(a.day for a in calendar.intermeeting)):
+        if not calendar.valid_from <= day <= calendar.valid_through:
+            raise ConfigError(
+                f"{where}: {day} is outside valid_from..valid_through "
                 f"({calendar.valid_from}..{calendar.valid_through})"
             )
-    # Every whole calendar year in the span must list meetings_per_year meetings.
+    # Every whole calendar year in the span must list meetings_per_year meetings
+    # (held and cancelled: both are on the Fed's published calendar).
     for year in range(calendar.valid_from.year, calendar.valid_through.year + 1):
         jan_first = date(year, 1, 1)
         whole = calendar.valid_from <= jan_first and (
             date(year + 1, 1, 1) - timedelta(days=1) <= calendar.valid_through
         )
-        listed = sum(1 for m in calendar.meetings if m.decision_day.year == year)
+        listed = sum(1 for day in days if day.year == year)
         if whole and listed != calendar.meetings_per_year:
             raise ConfigError(
                 f"{where}: {year} lists {listed} meetings, not {calendar.meetings_per_year}: "

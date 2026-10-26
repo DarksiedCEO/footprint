@@ -480,7 +480,7 @@ Approved by Andre in chat on 2026-10-14 ("Yes, everything"), after reviewing the
 | N3 | **Opening bell:** a daily blackout 06:25–06:32 PT (DEFAULT): flat into the cash open, no entries during it. A trade entered in the news window is closed at 06:25; no news trade is carried through the open. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1)**: the 09:30 ET event in config/news.yaml (DEFAULT) |
 | N4 | **Before news on a news day:** no entries from 04:00 PT until the blackout ends. See **N-OPEN-1**: with N1 every day has an 8:30 blackout, so it must be settled whether N4 applies every day. | APPROVED 2026-10-14. **BUILT (news-rules-build-v1) on the N-OPEN-1 DEFAULT below (every day, to 10:02 ET): PENDING Andre** |
 | N5 | **FOMC days (8 a year):** flat by 10:55 PT (DEFAULT), no new entries for the rest of the prime session (to 14:00 PT). This covers the 11:00 PT decision and the 11:30 PT press conference Q&A. Trading resumes with the overnight session at 15:00 PT. | APPROVED 2026-10-14. **BUILT (fomc-rules-build-v1, stacked on news-rules-build-v1)**: `fomc_flat_from` 13:55 ET (DEFAULT) |
-| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. **BUILT (fomc-rules-build-v1)**: config/fomc.yaml 2021-2027 from federalreserve.gov; **history before 2021 not covered: see FOMC-HIST below, Andre** |
+| N6 | **FOMC dates** come from the Federal Reserve's published meeting calendar only, never guessed. Anything not confirmed there is marked UNVERIFIED. The list carries a valid-through date and **fails closed** like the exchange calendar (D34): after that date, no new entries and a critical alarm. | APPROVED 2026-10-14. **BUILT (fomc-rules-build-v1)**: config/fomc.yaml 2017-2027 from federalreserve.gov, each date with its confirming page; intermeeting actions are whole-day blackouts (FOMC-INTER below) |
 | N7 | **Day of week:** no rule depends on the weekday. The daily windows and the FOMC dates decide. | APPROVED 2026-10-14 (no build needed). Tested: every day of a week has the same windows (news-rules-build-v1) |
 | N8 | **The spike-size veto on news bars:** the zero-day spike-bar tripwire (`zeroday.spike_bar_trip_multiple`, 8) may veto the news-window entry itself. First replay 2026-10-14 05:25–07:00 PT from the real 1-minute export and record what fired or was vetoed, and why. Then Andre decides whether news-window entries get a different limit. | APPROVED as a step (replay first). Nothing built: NOT DONE, the 2026-10-14 1-minute export is not in the build sandbox (its NQ history ends 2024-09-27). Needs Andre's export |
 | N9 | **Carry versus flat at the open, long term:** start with N3 (flat). Backtest "carry" against "flat" only once there is enough history (a year or more, 50+ news days). | APPROVED 2026-10-14. Backtest later |
@@ -1590,31 +1590,53 @@ Review not done.
   flattens). No entries for the rest of prime; a held position is closed at 10:55 PT
   through the LIMIT exit path. Overnight trading from 15:00 PT is untouched. Start-up
   refuses a `fomc_flat_from` not before the normal prime close (N5 could never bite).
-- **N6, source:** dates only from the Federal Reserve's calendar page
-  (https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm, read 2026-10-26,
-  covering 2021-2027) and, for 2027, the Board's press release of 2025-09-05. The loader
-  refuses a `source` not on federalreserve.gov, meetings out of order or outside the
-  span, and any whole year in the span without `meetings_per_year` (8) meetings.
-  Not listed: the 2025-08-22 notation vote, unscheduled meetings, minutes, testimony.
+- **N6, source:** dates only from federalreserve.gov, and every entry names the page
+  that confirms it (`source`): 2021-2027 the calendar page
+  (https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm, read 2026-10-26) and,
+  for 2027, the Board's release of 2025-09-05; **2017-2020 (added for BH-14, the history
+  backtest from 2017)** the Fed's historical pages
+  https://www.federalreserve.gov/monetarypolicy/fomchistoricalYYYY.htm (read 2026-10-26),
+  plus the FOMC press releases for the intermeeting announcements. The loader refuses a
+  `source` not on federalreserve.gov, entries out of order or outside the span, a
+  cancelled meeting on a held meeting's day, and any whole year without
+  `meetings_per_year` (8) meetings (held plus cancelled). Added: 31 scheduled meetings
+  held 2017-2020, 1 cancelled (2020-03-17/18), 10 intermeeting days (9 in 2019-2020 and
+  2025-08-22): 42 dates, each with its source.
+- **FOMC-INTER (builder's fail-closed decision, for Andre):** every intermeeting action
+  on the Fed's pages (an "unscheduled" meeting or a "notation vote") is a **whole-day
+  blackout** (ET calendar day: no new entries, anything held closed), and so is the day
+  it was announced when the Fed's release is dated later. Days: 2019-10-04
+  (unscheduled) and 2019-10-11 (released 11:00 ET, monetary20191011a.htm); 2020-03-02
+  (unscheduled) and 2020-03-03 (cut at 10:00 ET, monetary20200303a.htm); 2020-03-15
+  (Sunday unscheduled cut, monetary20200315a.htm; the Sunday evening session is inside
+  that ET day); 2020-03-19, 2020-03-23 (FOMC statement, monetary20200323a.htm),
+  2020-03-31 and 2020-08-27 (notation votes, fomchistorical2020.htm); 2025-08-22
+  (notation vote, fomccalendars.htm; earlier left out, now in, fail closed). Why whole
+  day: an intermeeting action has no fixed time (10:00 ET, 11:00 ET, a Sunday evening),
+  so no N5-style window fits. Where the Fed's notation-vote heading and its release
+  day could differ and no release was found, the heading day is used (2020-03-19,
+  03-31, 08-27: UNVERIFIED that the announcement fell on that same day; those days
+  are blacked out either way). Not covered: an action the Fed's meeting pages do not
+  list, and the days after an action (2020-03-16 traded normally under these rules).
+- **Cancelled meetings:** 2020-03-17/18 ("cancelled" on fomchistorical2020.htm): it
+  counts toward 2020's 8 meetings and its decision day is a whole-day blackout (fail
+  closed: it was on the published calendar).
 - **N6, UNVERIFIED:** the Fed's page says 2027 dates are "tentative until confirmed at
   the meeting immediately preceding it": all eight 2027 dates are `verified: false`,
   so each of those **whole days is a blackout** (fail closed), and live warns
-  `fomc_warn_days` (30, DEFAULT) ahead. Andre flips each to true once the Fed confirms
-  it. Note: a tentative date that MOVES is not protected on its new day until the file
-  is updated (re-read the Fed's page after each meeting). The 2026-12-09 date is listed
-  without the tentative note on the page; it is marked verified.
-- **N6, fail closed:** every day (on the ET clock) before `valid_from` (2021-01-01) or
-  after `valid_through` (2027-12-31) is a whole-day blackout ("FOMC CALENDAR EXPIRED on
-  ..."); live alarms it daily as critical, and 30 days before. A backtest trading outside
-  the span is refused (like D34).
-- **FOMC-HIST (for Andre, important): history before 2021 is not covered.** The Fed's
-  current calendar page starts at 2021; its historical pages (fomchistoricalYYYY.htm)
-  could not be read from the build sandbox. So **a backtest that trades before
-  2021-01-01 is now refused** (was allowed: BH-* runs from 2010; with BH-14's "2017
-  start" option, 2017-2020 would be needed). Options: (a) add 2010-2020 (or 2017-2020)
-  from the Fed's historical pages (a person reads them, or the reader is allowed to
-  fetch them); (b) a history-only switch (not built, and it would make history differ
-  from live). Nothing else is changed for history.
+  `fomc_warn_days` (30, DEFAULT) ahead (of an UNVERIFIED intermeeting day too). Andre
+  flips each to true once the Fed confirms it. Note: a tentative date that MOVES is not
+  protected on its new day until the file is updated (re-read the Fed's page after
+  each meeting). The 2026-12-09 date is listed without the tentative note on the page;
+  it is marked verified.
+- **N6, fail closed:** every day (on the ET clock) before `valid_from` (**2017-01-01**,
+  BH-14) or after `valid_through` (2027-12-31) is a whole-day blackout ("FOMC CALENDAR
+  EXPIRED on ..."); live alarms it daily as critical, and 30 days before. A backtest
+  trading outside the span is refused (like D34): **a backtest trading before 2017 is
+  refused** (consistent with BH-14; the 2010-2016 history needs those years added from
+  the Fed's historical pages first).
+- **History note:** in 2017 to 2021-06-25 the prime session ended at CME's 13:15 PT halt
+  (BH-3), so N5 runs 10:55-13:15 PT on those FOMC days.
 - **Backtest goldens: unchanged** (the pre-existing tests run with the stand-in, which
   now also skips the span check: tests/backtest/conftest.py `no_scheduled_news`).
 - **Not verified:** the live alarm wiring is checked by AST only (ibapi). The research

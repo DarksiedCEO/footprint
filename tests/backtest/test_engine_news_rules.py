@@ -138,3 +138,13 @@ def _replace_fomc(
     meetings = tuple(m for m in fomc.meetings if lo <= m.decision_day <= hi)
     new = replace(fomc, meetings=meetings, valid_from=lo, valid_through=hi)
     return replace(profiles, news_rules=replace(profiles.news_rules, fomc=new))
+
+
+def test_the_shipped_fomc_calendar_starts_with_bh14s_history(profiles: Profiles) -> None:
+    """BH-14: history from 2017 runs; a day before it is refused."""
+    from footprint.decision.news_rules import check_fomc_span
+
+    first = datetime(2017, 1, 3, 15, tzinfo=UTC)
+    check_fomc_span(profiles, first, datetime(2027, 12, 31, 15, tzinfo=UTC))
+    with pytest.raises(ValueError, match="FOMC calendar starts 2017-01-01"):
+        check_fomc_span(profiles, datetime(2016, 12, 31, 15, tzinfo=UTC), first)

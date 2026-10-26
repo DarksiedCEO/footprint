@@ -17,9 +17,11 @@ backtest and the live program both add these windows to the CSV ones through
   session's end (its whole end minute).
 - N5: on an FOMC decision day, from `fomc_flat_from` to the prime session's close of
   that day (an early close included; nothing when the close comes first).
-- N6: the FOMC dates come from the Federal Reserve's calendar only. An UNVERIFIED date
-  is a blackout all day; so is every day outside the calendar's valid_from ..
-  valid_through (fail closed, like the exchange calendar), and live alarms it
+- N6: the FOMC dates come from the Federal Reserve's pages only. An UNVERIFIED date,
+  a cancelled meeting's decision day and every intermeeting action day (an unscheduled
+  meeting, a notation vote, or the day one was announced) are blackouts all day; so
+  is every day outside the calendar's valid_from .. valid_through (fail closed, like
+  the exchange calendar), and live alarms it
   (`fomc_warning`, "FOMC CALENDAR EXPIRED" is critical).
 - N-OPEN-2 (DEFAULT, pending Andre): the daily windows (N1, N3, N4) start the news time
   stop only when `time_stop_after_daily` is on; every other window always does.
@@ -37,6 +39,7 @@ from footprint.core.calendar import prime_close
 from footprint.core.config import (
     ConfigError,
     DailyEvent,
+    FomcAction,
     FomcMeeting,
     InstrumentProfile,
     NewsRulesSettings,
@@ -96,6 +99,10 @@ class NewsRules:
             day += _DAY
         fomc = settings.fomc
         self._decisions = {m.decision_day: m for m in fomc.meetings}
+        self._cancelled = frozenset(m.decision_day for m in fomc.cancelled)
+        self._actions: dict[date, list[FomcAction]] = {}
+        for action in fomc.intermeeting:
+            self._actions.setdefault(action.day, []).append(action)
         for m in fomc.meetings:
             if instrument.early_closes.get(m.decision_day) is None and self._fomc(m) is None:
                 raise ConfigError(
@@ -169,15 +176,28 @@ class NewsRules:
                     day, f"FOMC calendar starts {fomc.valid_from} (N6): no new entries"
                 ),
             )
-        meeting = self._decisions.get(day)
-        if meeting is None:
-            return ()
-        if not meeting.verified:
-            return (
-                self._whole_day(day, f"FOMC date {day} UNVERIFIED (N6): no new entries all day"),
+        found: list[NewsBlackout] = []
+        for action in self._actions.get(day, ()):
+            flag = "" if action.verified else " UNVERIFIED"
+            found.append(
+                self._whole_day(
+                    day, f"FOMC intermeeting action {day}{flag} (N6): no new entries all day"
+                )
             )
-        found = self._fomc(meeting)
-        return () if found is None else (found,)
+        if day in self._cancelled:
+            found.append(
+                self._whole_day(day, f"FOMC meeting {day} cancelled (N6): no new entries all day")
+            )
+        meeting = self._decisions.get(day)
+        if meeting is not None and not meeting.verified:
+            found.append(
+                self._whole_day(day, f"FOMC date {day} UNVERIFIED (N6): no new entries all day")
+            )
+        elif meeting is not None:
+            window = self._fomc(meeting)
+            if window is not None:
+                found.append(window)
+        return tuple(found)
 
     def day(self, day: date) -> tuple[NewsBlackout, ...]:
         """The windows that begin on `day` (on each rule's own clock), built once."""
@@ -232,10 +252,14 @@ def fomc_warning(today: date, settings: NewsRulesSettings) -> str | None:
             f"FOMC calendar ends {fomc.valid_through} ({left} days): add the next meetings "
             "from the Federal Reserve's published calendar to config/fomc.yaml"
         )
-    ahead = [m for m in fomc.meetings if not m.verified and today <= m.decision_day <= horizon]
+    ahead = sorted(
+        [m.decision_day for m in fomc.meetings if not m.verified]
+        + [a.day for a in fomc.intermeeting if not a.verified]
+    )
+    ahead = [day for day in ahead if today <= day <= horizon]
     if ahead:
         return (
-            f"FOMC date {ahead[0].decision_day} is UNVERIFIED on the Federal Reserve's calendar: "
+            f"FOMC date {ahead[0]} is UNVERIFIED on the Federal Reserve's calendar: "
             "that whole day is a blackout until config/fomc.yaml marks it verified (N6)"
         )
     return None

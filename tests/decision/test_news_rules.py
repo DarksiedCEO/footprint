@@ -147,7 +147,7 @@ def test_n5_on_a_day_closing_before_the_flat_time_adds_nothing(profiles: Profile
     day = date(2026, 11, 27)  # early close 10:00 PT
     assert profiles.instrument.early_closes[day] < time(10, 55)
     meetings = tuple(
-        FomcMeeting(day - timedelta(days=1), day, True)
+        FomcMeeting(day - timedelta(days=1), day, True, m.source)
         if m.decision_day == date(2026, 12, 9)
         else m
         for m in profiles.news_rules.fomc.meetings
@@ -182,10 +182,10 @@ def test_n6_after_valid_through_every_day_is_a_blackout(rules: NewsRules) -> Non
 
 
 def test_n6_before_valid_from_every_day_is_a_blackout(rules: NewsRules) -> None:
-    day = date(2020, 12, 31)
-    w = named(rules, day, "FOMC calendar starts 2021-01-01 (N6): no new entries")
+    day = date(2016, 12, 31)
+    w = named(rules, day, "FOMC calendar starts 2017-01-01 (N6): no new entries")
     assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
-    assert not [w for w in rules.day(date(2021, 1, 1)) if "FOMC" in w.name]
+    assert not [w for w in rules.day(date(2017, 1, 1)) if "FOMC" in w.name]
 
 
 def test_n6_warning_and_critical_alarm(profiles: Profiles) -> None:
@@ -213,6 +213,57 @@ def test_n6_warns_of_an_unverified_date_ahead(profiles: Profiles) -> None:
     assert fomc_warning(first, s) is not None  # the day itself
     assert fomc_warning(first + timedelta(days=1), s) is None  # 2027-03-17 is 48 days on
     assert fomc_warning(date(2026, 9, 1), s) is None
+
+
+def test_n5_a_2017_fomc_day_is_a_blackout_from_1355_et(rules: NewsRules) -> None:
+    """BH-14: the history from 2017 has its FOMC days (fomchistorical2017.htm). In
+    2017 the prime session ended at CME's 13:15 PT halt (BH-3), so the window does."""
+    day = date(2017, 3, 15)
+    w = named(rules, day, f"FOMC decision day {day} (N5)")
+    assert (w.start, w.end) == (at(day, 13, 55), end_of_minute(day, 13, 15, PT))
+    assert in_news_blackout(at(day, 13, 55), rules.windows(at(day, 13, 55))) is not None
+    before = at(day, 13, 54, ss=59)
+    assert in_news_blackout(before, rules.windows(before)) is None
+
+
+@pytest.mark.parametrize(
+    "day",
+    [
+        date(2020, 3, 3),  # the 10:00 ET emergency cut
+        date(2020, 3, 15),  # the Sunday cut: the Sunday evening session too
+        date(2020, 3, 2),  # the unscheduled meeting itself
+        date(2019, 10, 11),  # notation vote announced at 11:00 ET
+        date(2020, 8, 27),  # notation vote
+    ],
+)
+def test_n6_an_intermeeting_action_day_is_a_blackout_all_day(rules: NewsRules, day: date) -> None:
+    w = named(rules, day, f"FOMC intermeeting action {day} (N6): no new entries all day")
+    assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+    assert w.time_stop
+
+
+def test_n6_the_day_after_an_intermeeting_action_is_not_a_blackout(rules: NewsRules) -> None:
+    assert not [w for w in rules.day(date(2020, 3, 4)) if "FOMC" in w.name]
+
+
+def test_n6_a_cancelled_meetings_decision_day_is_a_blackout_all_day(rules: NewsRules) -> None:
+    day = date(2020, 3, 18)
+    w = named(rules, day, f"FOMC meeting {day} cancelled (N6): no new entries all day")
+    assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+    assert not [x for x in rules.day(day) if "(N5)" in x.name]
+
+
+def test_n6_an_unverified_intermeeting_action_is_named_so(profiles: Profiles) -> None:
+    fomc = profiles.news_rules.fomc
+    actions = tuple(replace(a, verified=False) for a in fomc.intermeeting)
+    settings = replace(profiles.news_rules, fomc=replace(fomc, intermeeting=actions))
+    day = date(2020, 3, 3)
+    rules = NewsRules(settings, profiles.instrument)
+    w = named(rules, day, f"FOMC intermeeting action {day} UNVERIFIED (N6): no new entries all day")
+    assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+    ahead = fomc_warning(date(2020, 3, 1), settings)
+    assert ahead is not None
+    assert "FOMC date 2020-03-02 is UNVERIFIED" in ahead
 
 
 # --- N7: no rule depends on the weekday -----------------------------------------------
@@ -270,7 +321,7 @@ def test_n_open_2_daily_windows_carry_the_time_stop_switch(profiles: Profiles) -
 def test_other_windows_always_carry_the_time_stop(profiles: Profiles) -> None:
     settings = replace(profiles.news_rules, time_stop_after_daily=False)
     rules = NewsRules(settings, profiles.instrument)
-    for day in (date(2027, 1, 27), date(2028, 1, 1), date(2020, 12, 31)):
+    for day in (date(2027, 1, 27), date(2028, 1, 1), date(2016, 12, 31), date(2020, 3, 3)):
         assert all(w.time_stop for w in rules.day(day) if "FOMC" in w.name)
 
 

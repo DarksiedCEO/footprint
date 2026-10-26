@@ -15,9 +15,15 @@ NEWS = REPO_ROOT / "config" / "news.yaml"
 FOMC = REPO_ROOT / "config" / "fomc.yaml"
 FED_PAGE = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 
-# Read from the Federal Reserve's calendar page on 2026-10-26 (FED_PAGE): the second
-# day of every meeting, 2021-2027. 2027 is "tentative until confirmed".
+# Read on 2026-10-26 from the Federal Reserve's pages: the second day of every scheduled
+# meeting held, 2017-2020 from fomchistoricalYYYY.htm, 2021-2027 from FED_PAGE. 2027 is
+# "tentative until confirmed". 2020's March 17-18 meeting was cancelled (CANCELLED).
+HISTORY = "https://www.federalreserve.gov/monetarypolicy/fomchistorical{}.htm"
 FED_DECISION_DAYS = {
+    2017: ["02-01", "03-15", "05-03", "06-14", "07-26", "09-20", "11-01", "12-13"],
+    2018: ["01-31", "03-21", "05-02", "06-13", "08-01", "09-26", "11-08", "12-19"],
+    2019: ["01-30", "03-20", "05-01", "06-19", "07-31", "09-18", "10-30", "12-11"],
+    2020: ["01-29", "04-29", "06-10", "07-29", "09-16", "11-05", "12-16"],
     2021: ["01-27", "03-17", "04-28", "06-16", "07-28", "09-22", "11-03", "12-15"],
     2022: ["01-26", "03-16", "05-04", "06-15", "07-27", "09-21", "11-02", "12-14"],
     2023: ["02-01", "03-22", "05-03", "06-14", "07-26", "09-20", "11-01", "12-13"],
@@ -40,8 +46,29 @@ def _write(tmp_path: Path, profile: Path, **changes: Any) -> Path:
     return target
 
 
+RELEASE = "https://www.federalreserve.gov/newsevents/pressreleases/monetary{}a.htm"
+# Intermeeting actions on the Fed's pages (unscheduled meetings, notation votes) and
+# the announcement days that differ, each confirmed on federalreserve.gov.
+INTERMEETING = {
+    date(2019, 10, 4): HISTORY.format(2019),
+    date(2019, 10, 11): RELEASE.format("20191011"),
+    date(2020, 3, 2): HISTORY.format(2020),
+    date(2020, 3, 3): RELEASE.format("20200303"),
+    date(2020, 3, 15): RELEASE.format("20200315"),
+    date(2020, 3, 19): HISTORY.format(2020),
+    date(2020, 3, 23): RELEASE.format("20200323"),
+    date(2020, 3, 31): HISTORY.format(2020),
+    date(2020, 8, 27): HISTORY.format(2020),
+    date(2025, 8, 22): FED_PAGE,
+}
+
+
 def _meetings() -> list[dict[str, Any]]:
     return list(yaml.safe_load(FOMC.read_text())["meetings"])
+
+
+def _meeting(first: date, decision: date, verified: object = True) -> dict[str, Any]:
+    return {"first_day": first, "decision_day": decision, "verified": verified, "source": FED_PAGE}
 
 
 # --- the shipped files ------------------------------------------------------------
@@ -66,7 +93,7 @@ def test_the_shipped_news_rules_load() -> None:
 def test_the_shipped_fomc_dates_are_the_feds_own() -> None:
     fomc = load_fomc(FOMC)
     assert fomc.source == FED_PAGE
-    assert (fomc.valid_from, fomc.valid_through) == (date(2021, 1, 1), date(2027, 12, 31))
+    assert (fomc.valid_from, fomc.valid_through) == (date(2017, 1, 1), date(2027, 12, 31))
     expected = [
         date.fromisoformat(f"{year}-{md}")
         for year, days in FED_DECISION_DAYS.items()
@@ -77,6 +104,18 @@ def test_the_shipped_fomc_dates_are_the_feds_own() -> None:
         assert (m.decision_day - m.first_day).days == 1  # two-day meetings
         # 2027 is tentative on the Fed's page: UNVERIFIED (a whole-day blackout)
         assert m.verified is (m.decision_day.year < 2027)
+        year = m.decision_day.year
+        if year < 2021:
+            assert m.source == HISTORY.format(year)
+        elif year < 2027:
+            assert m.source == FED_PAGE
+        else:
+            assert m.source == RELEASE.format("20250905")
+    assert [(c.first_day, c.decision_day, c.source) for c in fomc.cancelled] == [
+        (date(2020, 3, 17), date(2020, 3, 18), HISTORY.format(2020))
+    ]
+    assert {a.day: a.source for a in fomc.intermeeting} == INTERMEETING
+    assert all(a.verified for a in fomc.intermeeting)
 
 
 def test_profiles_carry_the_news_rules() -> None:
@@ -151,7 +190,7 @@ def test_a_missing_meeting_in_a_full_year_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_extra_meeting_in_a_full_year_is_refused(tmp_path: Path) -> None:
-    extra = {"first_day": date(2025, 8, 21), "decision_day": date(2025, 8, 22), "verified": True}
+    extra = _meeting(date(2025, 8, 21), date(2025, 8, 22))
     meetings = sorted([*_meetings(), extra], key=lambda m: m["decision_day"])
     with pytest.raises(ConfigError, match="2025 lists 9 meetings, not 8"):
         load_fomc(_write(tmp_path, FOMC, meetings=meetings))
@@ -166,41 +205,26 @@ def test_a_partial_year_is_not_counted(tmp_path: Path) -> None:
 
 def test_partial_first_year_is_not_counted(tmp_path: Path) -> None:
     """valid_from after 1 January: that year cannot be checked (seven meetings left)."""
-    meetings = [m for m in _meetings() if m["decision_day"] >= date(2021, 2, 1)]
-    fomc = load_fomc(_write(tmp_path, FOMC, valid_from=date(2021, 2, 1), meetings=meetings))
-    assert fomc.meetings[0].decision_day == date(2021, 3, 17)
+    meetings = [m for m in _meetings() if m["decision_day"] >= date(2017, 2, 2)]
+    fomc = load_fomc(_write(tmp_path, FOMC, valid_from=date(2017, 2, 2), meetings=meetings))
+    assert fomc.meetings[0].decision_day == date(2017, 3, 15)
 
 
 @pytest.mark.parametrize(
     ("index", "meeting", "match"),
     [
+        (0, _meeting(date(2017, 2, 2), date(2017, 2, 1)), "first_day after its decision_day"),
+        (0, _meeting(date(2016, 12, 13), date(2016, 12, 14)), "outside valid_from"),
+        (-1, _meeting(date(2028, 1, 25), date(2028, 1, 26), False), "outside valid_from"),
+        (1, _meeting(date(2017, 1, 31), date(2017, 2, 1)), "in date order"),
+        (0, _meeting(date(2017, 1, 31), date(2017, 2, 1), "yes"), "true or false"),
+        (0, {"first_day": date(2017, 1, 31), "decision_day": date(2017, 2, 1)}, "missing keys"),
         (
             0,
-            {"first_day": date(2021, 1, 28), "decision_day": date(2021, 1, 27), "verified": True},
-            "first_day after its decision_day",
+            {**_meeting(date(2017, 1, 31), date(2017, 2, 1)), "source": "https://x.org/"},
+            "Federal Reserve",
         ),
-        (
-            0,
-            {"first_day": date(2020, 12, 15), "decision_day": date(2020, 12, 16), "verified": True},
-            "outside valid_from",
-        ),
-        (
-            -1,
-            {"first_day": date(2028, 1, 25), "decision_day": date(2028, 1, 26), "verified": False},
-            "outside valid_from",
-        ),
-        (
-            1,
-            {"first_day": date(2021, 1, 26), "decision_day": date(2021, 1, 27), "verified": True},
-            "in date order",
-        ),
-        (
-            0,
-            {"first_day": date(2021, 1, 26), "decision_day": date(2021, 1, 27), "verified": "yes"},
-            "true or false",
-        ),
-        (0, {"first_day": date(2021, 1, 26), "decision_day": date(2021, 1, 27)}, "missing keys"),
-        (0, "2021-01-27", "expected a mapping"),
+        (0, "2017-02-01", "expected a mapping"),
     ],
 )
 def test_bad_meetings_are_refused(tmp_path: Path, index: int, meeting: object, match: str) -> None:
@@ -208,3 +232,70 @@ def test_bad_meetings_are_refused(tmp_path: Path, index: int, meeting: object, m
     meetings[index] = meeting
     with pytest.raises(ConfigError, match=match):
         load_fomc(_write(tmp_path, FOMC, meetings=meetings))
+
+
+# --- cancelled meetings and intermeeting actions ------------------------------------
+
+
+def _calendar() -> dict[str, Any]:
+    return dict(yaml.safe_load(FOMC.read_text()))
+
+
+def _write_calendar(tmp_path: Path, data: dict[str, Any]) -> Path:
+    target = tmp_path / "fomc.yaml"
+    target.write_text(yaml.safe_dump(data))
+    return target
+
+
+def test_a_cancelled_meeting_counts_toward_its_year(tmp_path: Path) -> None:
+    data = _calendar()
+    data["cancelled"] = []
+    with pytest.raises(ConfigError, match="2020 lists 7 meetings, not 8"):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
+def test_a_cancelled_meeting_on_a_held_meetings_day_is_refused(tmp_path: Path) -> None:
+    data = _calendar()
+    data["cancelled"] = [{**data["cancelled"][0], "decision_day": date(2020, 4, 29)}]
+    with pytest.raises(ConfigError, match="in date order"):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
+@pytest.mark.parametrize(
+    ("action", "match"),
+    [
+        ({"day": date(2016, 12, 30), "verified": True, "source": FED_PAGE}, "outside valid_from"),
+        ({"day": date(2020, 3, 3), "verified": True, "source": FED_PAGE}, "in date order"),
+        ({"day": date(2020, 3, 4), "verified": 1, "source": FED_PAGE}, "true or false"),
+        (
+            {"day": date(2020, 3, 4), "verified": True, "source": "https://x.org/"},
+            "Federal Reserve",
+        ),
+        ({"day": date(2020, 3, 4), "verified": True}, "missing keys"),
+    ],
+)
+def test_bad_intermeeting_actions_are_refused(
+    tmp_path: Path, action: dict[str, Any], match: str
+) -> None:
+    data = _calendar()
+    actions = list(data["intermeeting"])
+    data["intermeeting"] = sorted([*actions, action], key=lambda a: a["day"])
+    with pytest.raises(ConfigError, match=match):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
+def test_out_of_order_intermeeting_actions_are_refused(tmp_path: Path) -> None:
+    data = _calendar()
+    data["intermeeting"] = list(reversed(data["intermeeting"]))
+    with pytest.raises(ConfigError, match="in date order"):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
+def test_no_intermeeting_actions_and_no_cancellations_may_be_empty_lists(tmp_path: Path) -> None:
+    data = _calendar()
+    data["intermeeting"] = []
+    data["cancelled"] = []
+    data["valid_from"] = date(2021, 1, 1)
+    data["meetings"] = [m for m in data["meetings"] if m["decision_day"] >= date(2021, 1, 1)]
+    fomc = load_fomc(_write_calendar(tmp_path, data))
+    assert (fomc.cancelled, fomc.intermeeting) == ((), ())

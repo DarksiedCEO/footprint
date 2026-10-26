@@ -94,20 +94,6 @@
   [
    "rules",
    "src/footprint/decision/news_rules.py",
-   "        if not meeting.verified:",
-   "        if False:",
-   "UNVERIFIED treated as verified"
-  ],
-  [
-   "rules",
-   "src/footprint/decision/news_rules.py",
-   "        if not meeting.verified:",
-   "        if meeting.verified:",
-   "verified treated as UNVERIFIED"
-  ],
-  [
-   "rules",
-   "src/footprint/decision/news_rules.py",
    "                *self._fed(day),\n",
    "",
    "FOMC windows never listed"
@@ -153,27 +139,6 @@
    "    horizon = today + timedelta(days=settings.fomc_warn_days)",
    "    horizon = today",
    "no warning horizon"
-  ],
-  [
-   "rules",
-   "src/footprint/decision/news_rules.py",
-   "if not m.verified and today <= m.decision_day <= horizon]",
-   "if not m.verified and today < m.decision_day <= horizon]",
-   "unverified warning stops on the day itself"
-  ],
-  [
-   "rules",
-   "src/footprint/decision/news_rules.py",
-   "if not m.verified and today <= m.decision_day <= horizon]",
-   "if not m.verified and today <= m.decision_day]",
-   "unverified warning with no horizon"
-  ],
-  [
-   "rules",
-   "src/footprint/decision/news_rules.py",
-   "if not m.verified and today <= m.decision_day <= horizon]",
-   "if today <= m.decision_day <= horizon]",
-   "warns of verified dates"
   ],
   [
    "wiring",
@@ -262,13 +227,6 @@
   [
    "rules",
    "src/footprint/core/config.py",
-   "        if not calendar.valid_from <= m.decision_day <= calendar.valid_through:",
-   "        if False:",
-   "meeting outside the span accepted"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
    "        if whole and listed != calendar.meetings_per_year:",
    "        if False:",
    "incomplete year accepted"
@@ -307,6 +265,153 @@
    "                *self._fed(day),\n",
    "",
    "held position not closed on an FOMC day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        for action in self._actions.get(day, ()):",
+   "        for action in ():",
+   "intermeeting days not blacked out"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "            flag = \"\" if action.verified else \" UNVERIFIED\"",
+   "            flag = \"\"",
+   "unverified action not named"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if day in self._cancelled:",
+   "        if False:",
+   "cancelled day not blacked out"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._cancelled = frozenset(m.decision_day for m in fomc.cancelled)",
+   "self._cancelled = frozenset(m.first_day for m in fomc.cancelled)",
+   "cancelled blackout on the first day"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "self._actions.setdefault(action.day, []).append(action)",
+   "self._actions.setdefault(action.day + _DAY, []).append(action)",
+   "action blackout a day late"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        + [a.day for a in fomc.intermeeting if not a.verified]\n",
+   "",
+   "unverified actions not warned"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if not source.startswith(_FED_SITE):",
+   "    if False:",
+   "non-Fed source accepted anywhere"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if m.decision_day in held:",
+   "        if False:",
+   "cancelled on a held day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    for day in (*days, *(a.day for a in calendar.intermeeting)):",
+   "    for day in days:",
+   "intermeeting outside the span accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    days = [m.decision_day for m in (*calendar.meetings, *calendar.cancelled)]",
+   "    days = [m.decision_day for m in calendar.meetings]",
+   "cancelled not counted in its year"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if actions and action.day <= actions[-1].day:",
+   "        if actions and action.day < actions[-1].day:",
+   "duplicate action accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if actions and action.day <= actions[-1].day:",
+   "        if False:",
+   "out-of-order actions accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "            _boolean(body, \"verified\", where),\n            _fed_source(body, \"source\", where),\n        )\n        if actions",
+   "            bool(body[\"verified\"]),\n            _fed_source(body, \"source\", where),\n        )\n        if actions",
+   "non-bool action verified accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if not isinstance(items, list) or (not items and not empty):",
+   "    if not isinstance(items, list):",
+   "empty meetings list accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if not isinstance(items, list) or (not items and not empty):",
+   "    if not isinstance(items, list) or not items:",
+   "empty optional lists refused"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if meeting is not None and not meeting.verified:",
+   "        if False:",
+   "UNVERIFIED treated as verified"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "        if meeting is not None and not meeting.verified:",
+   "        if meeting is not None and meeting.verified:",
+   "verified treated as UNVERIFIED"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    ahead = [day for day in ahead if today <= day <= horizon]",
+   "    ahead = [day for day in ahead if today < day <= horizon]",
+   "unverified warning stops on the day itself"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "    ahead = [day for day in ahead if today <= day <= horizon]",
+   "    ahead = [day for day in ahead if today <= day]",
+   "unverified warning with no horizon"
+  ],
+  [
+   "rules",
+   "src/footprint/decision/news_rules.py",
+   "[m.decision_day for m in fomc.meetings if not m.verified]",
+   "[m.decision_day for m in fomc.meetings]",
+   "warns of verified dates"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if not calendar.valid_from <= day <= calendar.valid_through:",
+   "        if False:",
+   "meeting outside the span accepted"
   ]
  ]
 }

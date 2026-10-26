@@ -33,7 +33,7 @@ def fomc_on(profiles: Profiles, day: date) -> NewsRules:
     """The repo's rules with `day` as an FOMC decision day (in place of the same year's
     September meeting, so the calendar stays complete)."""
     meetings = tuple(
-        FomcMeeting(day - timedelta(days=1), day, True)
+        FomcMeeting(day - timedelta(days=1), day, True, m.source)
         if m.decision_day == date(2026, 9, 16)
         else m
         for m in profiles.news_rules.fomc.meetings
