@@ -1,0 +1,39 @@
+source: ed3b065d1bbe79d3c0a1c9696d199204f6dbf2f6 tree-dirty: 0 files
+baseline [config]: passed
+baseline [model]: passed
+baseline [picker]: passed
+baseline [shipped]: passed
+  1 KILLED   [picker] src/footprint/agents/contract_picker.py: points cap removed
+  2 KILLED   [picker] src/footprint/agents/contract_picker.py: equality refused
+  3 KILLED   [picker] src/footprint/agents/contract_picker.py: comparison inverted
+  4 KILLED   [picker] src/footprint/agents/contract_picker.py: wrong field: percent read as points
+  5 KILLED   [picker] src/footprint/agents/contract_picker.py: wrong field: strike distance
+  6 KILLED   [picker] src/footprint/agents/contract_picker.py: mid compared, not spread
+  7 KILLED   [picker] src/footprint/agents/contract_picker.py: ask compared, not spread
+  8 KILLED   [picker] src/footprint/agents/contract_picker.py: half spread compared
+  9 KILLED   [picker] src/footprint/agents/contract_picker.py: half spread (ask - mid) compared
+ 10 KILLED   [picker] src/footprint/agents/contract_picker.py: cap doubled
+ 11 KILLED   [picker] src/footprint/agents/contract_picker.py: cap loosened by a quarter
+ 12 KILLED   [picker] src/footprint/agents/contract_picker.py: points refuses only when percent also fails
+ 13 KILLED   [picker] src/footprint/agents/contract_picker.py: percent refuses only when points also fails
+ 14 KILLED   [picker] src/footprint/agents/contract_picker.py: percent filter removed
+ 15 KILLED   [picker] src/footprint/agents/contract_picker.py: percent equality refused
+ 16 KILLED   [picker] src/footprint/agents/contract_picker.py: check order swapped (points reason first)
+ 17 KILLED   [picker] src/footprint/agents/contract_picker.py: contract id dropped from the reason
+ 18 KILLED   [picker] src/footprint/agents/contract_picker.py: mid printed as the spread
+ 19 KILLED   [picker] src/footprint/agents/contract_picker.py: wrong cap printed
+ 20 KILLED   [picker] src/footprint/agents/contract_picker.py: unit dropped from the reason
+ 21 KILLED   [config] src/footprint/core/config.py: zero accepted
+ 22 KILLED   [config] src/footprint/core/config.py: no validation
+ 23 KILLED   [config] src/footprint/core/config.py: wrong key read (percent)
+ 24 KILLED   [config] src/footprint/core/config.py: wrong key read (strike distance)
+ 25 KILLED   [config] src/footprint/core/config.py: missing key defaults open (fail open)
+ 26 KILLED   [config] src/footprint/core/config.py: infinity accepted (shared helper)
+ 27 KILLED   [config] src/footprint/core/config.py: booleans accepted (shared helper)
+ 28 KILLED   [shipped] config/execution.yaml: draft loosened to 15
+ 29 KILLED   [shipped] config/execution.yaml: draft tightened under the live 7.5 quote
+ 30 KILLED   [shipped] config/execution.yaml: draft tightened to 9
+ 31 KILLED   [shipped] config/execution.yaml: draft at the model's spread
+ 32 KILLED   [shipped] config/execution.yaml: draft off by one tick
+ 33 KILLED   [model] config/backtest.yaml: model spread at the cap
+33 mutants, 0 survived or errored
