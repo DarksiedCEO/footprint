@@ -1,0 +1,47 @@
+source: b3db5dd5e3ac1dff22318681e2849853177a3516 tree-dirty: 0 files
+baseline [exits]: passed
+baseline [rules]: passed
+baseline [wiring]: passed
+  1 KILLED   [rules] src/footprint/decision/news_rules.py: window ends at the start of its end minute
+  2 KILLED   [rules] src/footprint/decision/news_rules.py: window end covers the next minute's first instant
+  3 KILLED   [rules] src/footprint/decision/news_rules.py: overnight start minute not inside the session
+  4 KILLED   [rules] src/footprint/decision/news_rules.py: overnight start check inverted
+  5 KILLED   [rules] src/footprint/decision/news_rules.py: overnight start at the session's last minute accepted
+  6 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window never crosses midnight
+  7 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window always ends the next day
+  8 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window drops its end minute
+  9 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window ends at the session start
+ 10 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window ignores overnight_flat_from
+ 11 KILLED   [rules] src/footprint/decision/news_rules.py: lead read from lag
+ 12 KILLED   [rules] src/footprint/decision/news_rules.py: lag read from lead
+ 13 KILLED   [rules] src/footprint/decision/news_rules.py: no lead
+ 14 KILLED   [rules] src/footprint/decision/news_rules.py: no lag
+ 15 KILLED   [rules] src/footprint/decision/news_rules.py: daily events on the prime clock, not the news clock
+ 16 KILLED   [rules] src/footprint/decision/news_rules.py: daily windows ignore N-OPEN-2 switch
+ 17 KILLED   [rules] src/footprint/decision/news_rules.py: N4 window ignores N-OPEN-2 switch
+ 18 KILLED   [rules] src/footprint/decision/news_rules.py: N4 window never starts the time stop
+ 19 KILLED   [rules] src/footprint/decision/news_rules.py: N4 starts at the prime start on the news clock
+ 20 KILLED   [rules] src/footprint/decision/news_rules.py: N4 ends when the until window starts
+ 21 KILLED   [rules] src/footprint/decision/news_rules.py: N4 refusal inverted
+ 22 KILLED   [rules] src/footprint/decision/news_rules.py: N4 empty window not refused
+ 23 KILLED   [rules] src/footprint/decision/news_rules.py: N4 until ignores pre_news_until
+ 24 KILLED   [rules] src/footprint/decision/news_rules.py: N4 not checked over the calendar at start
+ 25 KILLED   [rules] src/footprint/decision/news_rules.py: windows rebuilt every call
+ 26 KILLED   [rules] src/footprint/decision/news_rules.py: yesterday's windows dropped
+ 27 KILLED   [rules] src/footprint/decision/news_rules.py: tomorrow's windows dropped
+ 28 KILLED   [rules] src/footprint/decision/news_rules.py: naive moment accepted
+ 29 KILLED   [rules] src/footprint/decision/news_rules.py: N4 window not listed
+ 30 KILLED   [rules] src/footprint/decision/news_rules.py: overnight window not listed
+ 31 KILLED   [rules] src/footprint/decision/news_rules.py: scheduled windows dropped
+ 32 KILLED   [rules] src/footprint/decision/news_rules.py: CSV windows dropped
+ 33 KILLED   [rules] src/footprint/decision/session.py: non-bool time_stop accepted
+ 34 KILLED   [exits] src/footprint/decision/session.py: CSV windows stop starting the time stop
+ 35 KILLED   [exits] src/footprint/execution/management/malik.py: time stop ignores the window's switch
+ 36 KILLED   [rules] src/footprint/core/config.py: duplicate event names accepted
+ 37 KILLED   [rules] src/footprint/core/config.py: unknown pre_news_until accepted
+ 38 KILLED   [rules] src/footprint/core/config.py: negative lead accepted
+ 39 KILLED   [rules] src/footprint/core/config.py: negative lag accepted
+ 40 KILLED   [rules] src/footprint/core/config.py: profiles read the wrong file
+ 41 KILLED   [wiring] src/footprint/backtest/engine.py: backtest without the scheduled windows
+ 42 KILLED   [wiring] src/footprint/live/app.py: live without the scheduled windows
+42 mutants, 0 survived or errored
