@@ -300,6 +300,13 @@
    "if execution.contract.max_spread_points < instrument.option_tick_size:",
    "if execution.contract.max_spread_points < execution.contract.max_spread_pct_of_mid / 100:",
    "F3: wrong floor (percent field)"
+  ],
+  [
+   "consistency",
+   "src/footprint/core/config.py",
+   "if execution.contract.max_spread_points < instrument.option_tick_size:",
+   "if execution.contract.max_spread_points < instrument.tick_size:",
+   "review R2-F1: futures tick used as the floor, not the option tick"
   ]
  ]
 }

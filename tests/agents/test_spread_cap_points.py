@@ -287,3 +287,23 @@ def test_f3_the_start_up_path_refuses_a_points_cap_under_one_tick(tmp_path: Path
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ConfigError, match="max_spread_points"):
         load_profiles(config, "nq.yaml")
+
+
+# Review round 2, R2-F1: the floor is the OPTION tick, not the futures tick.
+
+
+@pytest.mark.parametrize(("cap", "ok"), [("0.05", True), ("0.04", False)])
+def test_r2_f1_the_floor_is_the_option_tick_not_the_futures_tick(
+    execution: ExecutionProfile,
+    instrument: InstrumentProfile,
+    risk: RiskProfile,
+    cap: str,
+    ok: bool,
+) -> None:
+    fine = replace(instrument, option_tick_size=D("0.05"), tick_size=D("0.25"))
+    capped = with_caps(execution, points=D(cap))
+    if ok:
+        check_consistency(fine, risk, capped)
+    else:
+        with pytest.raises(ConfigError, match="max_spread_points"):
+            check_consistency(fine, risk, capped)
