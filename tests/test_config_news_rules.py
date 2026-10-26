@@ -55,10 +55,10 @@ INTERMEETING = {
     date(2020, 3, 2): HISTORY.format(2020),
     date(2020, 3, 3): RELEASE.format("20200303"),
     date(2020, 3, 15): RELEASE.format("20200315"),
-    date(2020, 3, 19): HISTORY.format(2020),
+    date(2020, 3, 19): RELEASE.format("20200319").replace("a.htm", "b.htm"),
     date(2020, 3, 23): RELEASE.format("20200323"),
-    date(2020, 3, 31): HISTORY.format(2020),
-    date(2020, 8, 27): HISTORY.format(2020),
+    date(2020, 3, 31): RELEASE.format("20200331"),
+    date(2020, 8, 27): RELEASE.format("20200827"),
     date(2025, 8, 22): FED_PAGE,
 }
 
@@ -102,8 +102,9 @@ def test_the_shipped_fomc_dates_are_the_feds_own() -> None:
     assert [m.decision_day for m in fomc.meetings] == expected
     for m in fomc.meetings:
         assert (m.decision_day - m.first_day).days == 1  # two-day meetings
-        # 2027 is tentative on the Fed's page: UNVERIFIED (a whole-day blackout)
-        assert m.verified is (m.decision_day.year < 2027)
+        # tentative on the Fed's page (after the Oct 27-28 2026 meeting, still to be
+        # held when read): UNVERIFIED (a whole-day blackout)
+        assert m.verified is (m.decision_day < date(2026, 12, 9))
         year = m.decision_day.year
         if year < 2021:
             assert m.source == HISTORY.format(year)
@@ -196,11 +197,42 @@ def test_an_extra_meeting_in_a_full_year_is_refused(tmp_path: Path) -> None:
         load_fomc(_write(tmp_path, FOMC, meetings=meetings))
 
 
-def test_a_partial_year_is_not_counted(tmp_path: Path) -> None:
-    """valid_through inside a year: that year cannot be checked for completeness."""
+def test_a_span_ending_inside_a_year_is_checked_by_its_gaps(tmp_path: Path) -> None:
+    """valid_through inside a year: the year cannot be counted, but every gap can."""
     meetings = [m for m in _meetings() if m["decision_day"] <= date(2027, 6, 30)]
     fomc = load_fomc(_write(tmp_path, FOMC, valid_through=date(2027, 6, 30), meetings=meetings))
     assert fomc.meetings[-1].decision_day == date(2027, 6, 9)
+
+
+def test_m1_a_span_extended_past_its_meetings_is_refused(tmp_path: Path) -> None:
+    """Review M1: extending valid_through without listing the new year's meetings
+    (the edit the expiry alarm asks for) must fail, not leave FOMC days unprotected."""
+    with pytest.raises(ConfigError, match="max_gap_days"):
+        load_fomc(_write(tmp_path, FOMC, valid_through=date(2028, 6, 30)))
+
+
+def test_m1_a_span_started_before_its_meetings_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="max_gap_days"):
+        load_fomc(_write(tmp_path, FOMC, valid_from=date(2016, 7, 1)))
+
+
+def test_m1_a_missing_meeting_inside_the_span_is_refused_by_its_gap(tmp_path: Path) -> None:
+    """Even where the year count cannot see it (valid_through mid-year)."""
+    meetings = [
+        m
+        for m in _meetings()
+        if m["decision_day"] <= date(2027, 6, 30) and m["decision_day"] != date(2027, 4, 28)
+    ]
+    with pytest.raises(ConfigError, match="max_gap_days"):
+        load_fomc(_write(tmp_path, FOMC, valid_through=date(2027, 6, 30), meetings=meetings))
+
+
+def test_m1_the_gap_limit_is_config(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="max_gap_days 55"):
+        load_fomc(_write(tmp_path, FOMC, max_gap_days=55))  # the listed maximum is 56
+    assert load_fomc(_write(tmp_path, FOMC, max_gap_days=56)).max_gap_days == 56
+    with pytest.raises(ConfigError, match="max_gap_days must be >= 1"):
+        load_fomc(_write(tmp_path, FOMC, max_gap_days=0))
 
 
 def test_partial_first_year_is_not_counted(tmp_path: Path) -> None:
@@ -213,7 +245,7 @@ def test_partial_first_year_is_not_counted(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("index", "meeting", "match"),
     [
-        (0, _meeting(date(2017, 2, 2), date(2017, 2, 1)), "first_day after its decision_day"),
+        (0, _meeting(date(2017, 2, 2), date(2017, 2, 1)), "the day after its first_day"),
         (0, _meeting(date(2016, 12, 13), date(2016, 12, 14)), "outside valid_from"),
         (-1, _meeting(date(2028, 1, 25), date(2028, 1, 26), False), "outside valid_from"),
         (1, _meeting(date(2017, 1, 31), date(2017, 2, 1)), "in date order"),
@@ -256,7 +288,9 @@ def test_a_cancelled_meeting_counts_toward_its_year(tmp_path: Path) -> None:
 
 def test_a_cancelled_meeting_on_a_held_meetings_day_is_refused(tmp_path: Path) -> None:
     data = _calendar()
-    data["cancelled"] = [{**data["cancelled"][0], "decision_day": date(2020, 4, 29)}]
+    data["cancelled"] = [
+        {**data["cancelled"][0], "first_day": date(2020, 4, 28), "decision_day": date(2020, 4, 29)}
+    ]
     with pytest.raises(ConfigError, match="in date order"):
         load_fomc(_write_calendar(tmp_path, data))
 
@@ -299,3 +333,74 @@ def test_no_intermeeting_actions_and_no_cancellations_may_be_empty_lists(tmp_pat
     data["meetings"] = [m for m in data["meetings"] if m["decision_day"] >= date(2021, 1, 1)]
     fomc = load_fomc(_write_calendar(tmp_path, data))
     assert (fomc.cancelled, fomc.intermeeting) == ((), ())
+
+
+# --- review round 1: L2 source host, L3 meeting shape, verified must be a bool --------
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://www.federalreserve.gov.evil.com/monetarypolicy/fomccalendars.htm",
+        "https://www.federalreserve.gov@evil.com/monetarypolicy/fomccalendars.htm",
+        "https://www.federalreserve.gov:8443/monetarypolicy/fomccalendars.htm",
+        "http://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        "https://federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        "https://WWW.FEDERALRESERVE.GOV/monetarypolicy/fomccalendars.htm",
+        "www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    ],
+)
+def test_l2_only_https_on_the_feds_own_host_is_accepted(tmp_path: Path, source: str) -> None:
+    with pytest.raises(ConfigError, match="Federal Reserve"):
+        load_fomc(_write(tmp_path, FOMC, source=source))
+    meetings = _meetings()
+    meetings[0] = {**meetings[0], "source": source}
+    with pytest.raises(ConfigError, match="Federal Reserve"):
+        load_fomc(_write(tmp_path, FOMC, meetings=meetings))
+
+
+@pytest.mark.parametrize(
+    ("first", "decision", "match"),
+    [
+        (date(2017, 2, 1), date(2017, 2, 1), "the day after its first_day"),  # one-day
+        (date(2017, 1, 22), date(2017, 2, 1), "the day after its first_day"),  # too long
+        (date(2017, 2, 3), date(2017, 2, 4), "weekday"),  # a Saturday
+        (date(2017, 2, 4), date(2017, 2, 5), "weekday"),  # a Sunday
+    ],
+)
+def test_l3_a_meeting_must_be_two_days_ending_on_a_weekday(
+    tmp_path: Path, first: date, decision: date, match: str
+) -> None:
+    meetings = _meetings()
+    meetings[0] = {**meetings[0], "first_day": first, "decision_day": decision}
+    with pytest.raises(ConfigError, match=match):
+        load_fomc(_write(tmp_path, FOMC, meetings=meetings))
+
+
+def test_l3_a_cancelled_meeting_has_the_same_shape(tmp_path: Path) -> None:
+    data = _calendar()
+    data["cancelled"] = [{**data["cancelled"][0], "first_day": date(2020, 3, 16)}]
+    with pytest.raises(ConfigError, match="the day after its first_day"):
+        load_fomc(_write_calendar(tmp_path, data))
+
+
+def test_l3_a_meeting_overlapping_the_previous_one_is_refused(tmp_path: Path) -> None:
+    """2017-03-14/15 then a meeting starting on 2017-03-15 itself."""
+    meetings = _meetings()
+    meetings.insert(
+        2,
+        {**meetings[1], "first_day": date(2017, 3, 15), "decision_day": date(2017, 3, 16)},
+    )
+    with pytest.raises(ConfigError, match="overlaps"):
+        load_fomc(_write(tmp_path, FOMC, meetings=meetings))
+
+
+@pytest.mark.parametrize("word", ["yes", "no", "on", "off", "y", "1"])
+def test_verified_must_be_written_true_or_false(tmp_path: Path, word: str) -> None:
+    """YAML 1.1 reads yes/on as true: the FOMC file accepts only the words true/false."""
+    text = FOMC.read_text()
+    assert "verified: true," in text
+    target = tmp_path / "fomc.yaml"
+    target.write_text(text.replace("verified: true,", f"verified: {word},", 1))
+    with pytest.raises(ConfigError, match="true or false"):
+        load_fomc(target)

@@ -148,3 +148,16 @@ def test_the_shipped_fomc_calendar_starts_with_bh14s_history(profiles: Profiles)
     check_fomc_span(profiles, first, datetime(2027, 12, 31, 15, tzinfo=UTC))
     with pytest.raises(ValueError, match="FOMC calendar starts 2017-01-01"):
         check_fomc_span(profiles, datetime(2016, 12, 31, 15, tzinfo=UTC), first)
+
+
+def test_l1_the_span_check_reads_the_et_date(profiles: Profiles) -> None:
+    """2017-01-01 02:00Z is 2016-12-31 21:00 ET: before the calendar (review L1)."""
+    from footprint.decision.news_rules import check_fomc_span
+
+    last = datetime(2017, 1, 3, 15, tzinfo=UTC)
+    with pytest.raises(ValueError, match="trades from 2016-12-31"):
+        check_fomc_span(profiles, datetime(2017, 1, 1, 2, tzinfo=UTC), last)
+    check_fomc_span(profiles, datetime(2017, 1, 1, 5, tzinfo=UTC), last)  # 00:00 ET
+    with pytest.raises(ValueError, match="trades until 2028-01-01"):
+        check_fomc_span(profiles, last, datetime(2028, 1, 1, 5, tzinfo=UTC))
+    check_fomc_span(profiles, last, datetime(2028, 1, 1, 4, 59, tzinfo=UTC))  # 23:59 ET

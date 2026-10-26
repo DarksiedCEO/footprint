@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import re
+from calendar import SATURDAY
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -172,9 +175,27 @@ def load_yaml(text: str) -> object:
     return yaml.load(text, Loader=_UniqueKeyLoader)  # a SafeLoader subclass: safe
 
 
-def _read_mapping(path: Path, expected: set[str]) -> Mapping[str, object]:
+_BOOL_TAG = "tag:yaml.org,2002:bool"
+
+
+class _StrictBoolLoader(_UniqueKeyLoader):
+    """As load_yaml, but only the words true and false are booleans (YAML 1.1 also reads
+    yes, no, on, off, y, n): the FOMC calendar's `verified` must be written out (review
+    round 1)."""
+
+
+_StrictBoolLoader.yaml_implicit_resolvers = {
+    first: [(tag, rx) for tag, rx in resolvers if tag != _BOOL_TAG]
+    for first, resolvers in _UniqueKeyLoader.yaml_implicit_resolvers.items()
+}
+_StrictBoolLoader.add_implicit_resolver(_BOOL_TAG, re.compile(r"^(?:true|false)$"), list("tf"))
+
+
+def _read_mapping(
+    path: Path, expected: set[str], loader: type[_UniqueKeyLoader] = _UniqueKeyLoader
+) -> Mapping[str, object]:
     try:
-        raw = load_yaml(path.read_text(encoding="utf-8"))
+        raw = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)  # SafeLoader: safe
     except OSError as exc:
         raise ConfigError(f"{path}: cannot read profile: {exc}") from exc
     except yaml.YAMLError as exc:
@@ -1124,20 +1145,27 @@ class FomcCalendar:
     valid_from: date
     valid_through: date
     meetings_per_year: int
+    max_gap_days: int  # review M1: no longer gap between the span's edges and meetings
     meetings: tuple[FomcMeeting, ...]
     cancelled: tuple[FomcMeeting, ...]
     intermeeting: tuple[FomcAction, ...]
 
 
-_FED_SITE = "https://www.federalreserve.gov/"
+_FED_SCHEME = "https"
+_ONE_DAY = timedelta(days=1)
+_FED_HOST = "www.federalreserve.gov"
 
 
 def _fed_source(body: Mapping[str, object], key: str, where: str) -> str:
+    """A page on the Federal Reserve's own site: https, and exactly its host (no user,
+    no port, no look-alike suffix; review L2)."""
     source = _text(body, key, where)
-    if not source.startswith(_FED_SITE):
+    parts = urlsplit(source)
+    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:
         raise ConfigError(
-            f"{where}: source {source!r} is not the Federal Reserve's own site "
-            f"({_FED_SITE}): FOMC dates come from its published pages only (N6)"
+            f"{where}: source {source!r} is not a page on the Federal Reserve's own site "
+            f"({_FED_SCHEME}://{_FED_HOST}/): FOMC dates come from its published pages only "
+            "(N6)"
         )
     return source
 
@@ -1162,11 +1190,23 @@ def _fomc_meetings(
             True if cancelled else _boolean(body, "verified", where),
             _fed_source(body, "source", where),
         )
-        if meeting.first_day > meeting.decision_day:
-            raise ConfigError(f"{where}: {meeting.decision_day}: first_day after its decision_day")
+        if meeting.decision_day - meeting.first_day != _ONE_DAY:
+            raise ConfigError(
+                f"{where}: {meeting.decision_day}: a meeting's decision_day must be the day "
+                f"after its first_day ({meeting.first_day}): a two-day meeting (review L3)"
+            )
+        if meeting.decision_day.weekday() >= SATURDAY:
+            raise ConfigError(
+                f"{where}: {meeting.decision_day}: a scheduled decision day is a weekday"
+            )
         if meetings and meeting.decision_day <= meetings[-1].decision_day:
             raise ConfigError(
                 f"{where}: {key} must be in date order, each once ({meeting.decision_day})"
+            )
+        if meetings and meeting.first_day <= meetings[-1].decision_day:
+            raise ConfigError(
+                f"{where}: {meeting.decision_day}: the meeting overlaps the one before "
+                f"({meetings[-1].decision_day})"
             )
         meetings.append(meeting)
     return tuple(meetings)
@@ -1191,13 +1231,14 @@ def _fomc_actions(raw: Mapping[str, object], where: str) -> tuple[FomcAction, ..
 
 def load_fomc(path: Path) -> FomcCalendar:
     where = str(path)
-    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})
+    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)}, _StrictBoolLoader)
     calendar = FomcCalendar(
         source=_fed_source(raw, "source", where),
         read_on=_date(raw, "read_on", where),
         valid_from=_date(raw, "valid_from", where),
         valid_through=_date(raw, "valid_through", where),
         meetings_per_year=_integer(raw, "meetings_per_year", where, minimum=1),
+        max_gap_days=_integer(raw, "max_gap_days", where, minimum=1),
         meetings=_fomc_meetings(raw, "meetings", where, cancelled=False),
         cancelled=_fomc_meetings(raw, "cancelled", where, cancelled=True),
         intermeeting=_fomc_actions(raw, where),
@@ -1230,6 +1271,17 @@ def load_fomc(path: Path) -> FomcCalendar:
             raise ConfigError(
                 f"{where}: {year} lists {listed} meetings, not {calendar.meetings_per_year}: "
                 "copy the year from the Federal Reserve's calendar"
+            )
+    # Review M1: a year the span only partly covers cannot be counted, so no gap between
+    # the span's edges and its meetings (held or cancelled) may be longer than
+    # max_gap_days: extending the span without its meetings is refused.
+    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]
+    for before, after in pairwise(edges):
+        if (after - before).days > calendar.max_gap_days:
+            raise ConfigError(
+                f"{where}: {before} to {after} lists no FOMC meeting, longer than "
+                f"max_gap_days {calendar.max_gap_days}: list the Fed's meetings in it, or "
+                "end (or start) the span earlier"
             )
     return calendar
 

@@ -192,27 +192,6 @@
   [
    "rules",
    "src/footprint/core/config.py",
-   "    if not source.startswith(_FED_SITE):",
-   "    if False:",
-   "any source accepted"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
-   "_FED_SITE = \"https://www.federalreserve.gov/\"",
-   "_FED_SITE = \"http\"",
-   "any http source accepted"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
-   "        if meeting.first_day > meeting.decision_day:",
-   "        if False:",
-   "first_day after decision_day accepted"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
    "        if meetings and meeting.decision_day <= meetings[-1].decision_day:",
    "        if meetings and meeting.decision_day < meetings[-1].decision_day:",
    "duplicate meeting accepted"
@@ -311,13 +290,6 @@
   [
    "rules",
    "src/footprint/core/config.py",
-   "    if not source.startswith(_FED_SITE):",
-   "    if False:",
-   "non-Fed source accepted anywhere"
-  ],
-  [
-   "rules",
-   "src/footprint/core/config.py",
    "        if m.decision_day in held:",
    "        if False:",
    "cancelled on a held day accepted"
@@ -412,6 +384,111 @@
    "        if not calendar.valid_from <= day <= calendar.valid_through:",
    "        if False:",
    "meeting outside the span accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (after - before).days > calendar.max_gap_days:",
+   "        if False:",
+   "M1: no gap check"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if (after - before).days > calendar.max_gap_days:",
+   "        if (after - before).days > calendar.max_gap_days + 1:",
+   "M1: gap limit off by one"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]",
+   "    edges = [calendar.valid_from, *sorted(days)]",
+   "M1: span end not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    edges = [calendar.valid_from, *sorted(days), calendar.valid_through]",
+   "    edges = [*sorted(days), calendar.valid_through]",
+   "M1: span start not checked"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=1),",
+   "        max_gap_days=_integer(raw, \"max_gap_days\", where, minimum=0),",
+   "M1: zero gap limit accepted"
+  ],
+  [
+   "wiring",
+   "src/footprint/decision/news_rules.py",
+   "    start, end = first.astimezone(zone).date(), last.astimezone(zone).date()",
+   "    start, end = first.date(), last.date()",
+   "L1: span check on UTC dates"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.scheme != _FED_SCHEME or not parts.netloc.startswith(_FED_HOST):",
+   "L2: look-alike host suffix accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.netloc != _FED_HOST:",
+   "L2: http accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    if parts.scheme != _FED_SCHEME or parts.netloc != _FED_HOST:",
+   "    if parts.scheme != _FED_SCHEME or parts.hostname != _FED_HOST:",
+   "L2: user/port in the authority accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day - meeting.first_day != _ONE_DAY:",
+   "        if meeting.decision_day - meeting.first_day < _ONE_DAY:",
+   "L3: long meeting accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day - meeting.first_day != _ONE_DAY:",
+   "        if meeting.decision_day - meeting.first_day > _ONE_DAY:",
+   "L3: one-day meeting accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meeting.decision_day.weekday() >= SATURDAY:",
+   "        if False:",
+   "L3: weekend decision day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meetings and meeting.first_day <= meetings[-1].decision_day:",
+   "        if False:",
+   "L3: overlapping meetings accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "        if meetings and meeting.first_day <= meetings[-1].decision_day:",
+   "        if meetings and meeting.first_day < meetings[-1].decision_day:",
+   "L3: meeting starting on the previous decision day accepted"
+  ],
+  [
+   "rules",
+   "src/footprint/core/config.py",
+   "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)}, _StrictBoolLoader)",
+   "    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})",
+   "yes/on read as true"
   ]
  ]
 }

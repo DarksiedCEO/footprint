@@ -9,10 +9,11 @@
 # The policy statement comes at 2 p.m. ET on the second day of each regularly scheduled
 # meeting (the decision day); N5 applies on the decision day.
 #
-# verified: false = UNVERIFIED. The Fed's page says of 2027: "Each meeting date is
-# tentative until confirmed at the meeting immediately preceding it." Those dates are
-# listed but not confirmed, so they are UNVERIFIED and the WHOLE decision day is a
-# blackout (fail closed) until Andre sets verified: true after the Fed confirms each one.
+# verified: false = UNVERIFIED. The Fed's page says: "Each meeting date is tentative
+# until confirmed at the meeting immediately preceding it." So every date after the
+# next meeting still to be held when read (2026-10-27/28) is UNVERIFIED: 2026-12-09
+# and all of 2027. Each such WHOLE decision day is a blackout (fail closed) until Andre
+# sets verified: true after the Fed confirms it at the meeting before.
 #
 # Not listed (accepted, N1-N9 notes): minutes, testimony, speeches, and any action not
 # on the Fed's meeting pages. Intermeeting actions that are listed (unscheduled
@@ -28,6 +29,11 @@ read_on: 2026-10-26
 valid_from: 2017-01-01
 valid_through: 2027-12-31
 meetings_per_year: 8
+max_gap_days: 60    # DEFAULT (draft, review M1): the loader refuses a gap longer than
+                    #   this between valid_from, consecutive decision days (held or
+                    #   cancelled) and valid_through, so a span cannot be extended past
+                    #   meetings it does not list (the longest gap listed, 2017-2027, is 56:
+                    #   late July to late September)
 meetings:
   - {first_day: 2017-01-31, decision_day: 2017-02-01, verified: true,
      source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2017.htm"}
@@ -185,8 +191,8 @@ meetings:
      source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
   - {first_day: 2026-10-27, decision_day: 2026-10-28, verified: true,
      source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
-  - {first_day: 2026-12-08, decision_day: 2026-12-09, verified: true,
-     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}
+  - {first_day: 2026-12-08, decision_day: 2026-12-09, verified: false,
+     source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}  # tentative until the Oct 27-28 meeting confirms it
   - {first_day: 2027-01-26, decision_day: 2027-01-27, verified: false,
      source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250905a.htm"}  # tentative
   - {first_day: 2027-03-16, decision_day: 2027-03-17, verified: false,
@@ -221,9 +227,12 @@ intermeeting:
      source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200303a.htm"}  # cut, 10:00 ET
   - {day: 2020-03-15, verified: true,
      source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200315a.htm"}  # Sunday cut ("March 15 (unscheduled)")
-  - {day: 2020-03-19, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}  # "March 19 (notation vote)"
+  - {day: 2020-03-19, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200319b.htm"}  # "March 19 (notation vote)", same-day 9:00 ET release
   - {day: 2020-03-23, verified: true,
      source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200323a.htm"}  # "March 23 (notation vote)", FOMC statement
-  - {day: 2020-03-31, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}  # "March 31 (notation vote)"
-  - {day: 2020-08-27, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomchistorical2020.htm"}  # "August 27 (notation vote)"
+  - {day: 2020-03-31, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200331a.htm"}  # "March 31 (notation vote)", same-day 8:30 ET release
+  - {day: 2020-08-27, verified: true,
+     source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20200827a.htm"}  # "August 27 (notation vote)", same-day 9:10 ET release
   - {day: 2025-08-22, verified: true, source: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"}  # "August: 22 (notation vote)"

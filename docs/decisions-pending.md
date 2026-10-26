@@ -1613,22 +1613,24 @@ Review not done.
   2020-03-31 and 2020-08-27 (notation votes, fomchistorical2020.htm); 2025-08-22
   (notation vote, fomccalendars.htm; earlier left out, now in, fail closed). Why whole
   day: an intermeeting action has no fixed time (10:00 ET, 11:00 ET, a Sunday evening),
-  so no N5-style window fits. Where the Fed's notation-vote heading and its release
-  day could differ and no release was found, the heading day is used (2020-03-19,
-  03-31, 08-27: UNVERIFIED that the announcement fell on that same day; those days
-  are blacked out either way). Not covered: an action the Fed's meeting pages do not
+  so no N5-style window fits. The notation votes of 2020-03-19, 2020-03-31 and
+  2020-08-27 are each confirmed by the Fed's same-day release (monetary20200319b.htm
+  9:00 ET, monetary20200331a.htm 8:30 ET, monetary20200827a.htm 9:10 ET; review round
+  1, L4), so all ten intermeeting days are verified. Not covered: an action the Fed's
+  meeting pages do not
   list, and the days after an action (2020-03-16 traded normally under these rules).
 - **Cancelled meetings:** 2020-03-17/18 ("cancelled" on fomchistorical2020.htm): it
   counts toward 2020's 8 meetings and its decision day is a whole-day blackout (fail
   closed: it was on the published calendar).
 - **N6, UNVERIFIED:** the Fed's page says 2027 dates are "tentative until confirmed at
-  the meeting immediately preceding it": all eight 2027 dates are `verified: false`,
+  the meeting immediately preceding it": every date after the next meeting still to
+  be held when read (2026-10-27/28) is `verified: false`: **2026-12-09** (review round 1,
+  L5: fail closed until the October meeting confirms it) and all eight 2027 dates,
   so each of those **whole days is a blackout** (fail closed), and live warns
   `fomc_warn_days` (30, DEFAULT) ahead (of an UNVERIFIED intermeeting day too). Andre
   flips each to true once the Fed confirms it. Note: a tentative date that MOVES is not
   protected on its new day until the file is updated (re-read the Fed's page after
-  each meeting). The 2026-12-09 date is listed without the tentative note on the page;
-  it is marked verified.
+  each meeting).
 - **N6, fail closed:** every day (on the ET clock) before `valid_from` (**2017-01-01**,
   BH-14) or after `valid_through` (2027-12-31) is a whole-day blackout ("FOMC CALENDAR
   EXPIRED on ..."); live alarms it daily as critical, and 30 days before. A backtest
@@ -1637,6 +1639,25 @@ Review not done.
   the Fed's historical pages first).
 - **History note:** in 2017 to 2021-06-25 the prime session ended at CME's 13:15 PT halt
   (BH-3), so N5 runs 10:55-13:15 PT on those FOMC days.
+- **Review round 1 fixes (loader):** (M1) a span whose edges outrun its meetings was
+  accepted (valid_through moved into 2028 with no 2028 meetings: those FOMC days had no
+  blackout). Now the loader refuses any gap longer than `max_gap_days` (config/fomc.yaml,
+  **DEFAULT (draft, review M1): 60**; the longest listed gap, late July to late
+  September, is 56) between valid_from, consecutive decision days (held or cancelled)
+  and valid_through. (L2) a `source` must parse as https with host exactly
+  www.federalreserve.gov (no look-alike suffix, user or port). (L3) a scheduled or
+  cancelled meeting must be two days (decision day = first day + 1), end on a weekday
+  and not overlap the meeting before. `verified` must be written `true` or `false`
+  (YAML's yes/no/on/off are refused in this file).
+- **Review round 1, noted only (not changed):** (L6) the live FOMC alarm is dated on the
+  PT calendar day, the blackouts on the ET day: the EXPIRED alarm can come up to 3 hours
+  after the blackout starts (the blackout itself is right). (I1) inside the last
+  `fomc_warn_days` the "calendar ends" warning hides an UNVERIFIED-date warning (both
+  days are blacked out anyway). (I2) `read_on` in the future is accepted. (I3) the
+  start-up check of `fomc_flat_from` skips early-close days (all of 2017 to mid-2021,
+  BH-3): a late flat time there gives no N5 window, which is harmless (the prime close
+  flattens). (I4) the research harness does not apply N5/N6. **D-A for Andre:** a
+  backtest before 2017 is refused until those years are added from the Fed's pages.
 - **Backtest goldens: unchanged** (the pre-existing tests run with the stand-in, which
   now also skips the span check: tests/backtest/conftest.py `no_scheduled_news`).
 - **Not verified:** the live alarm wiring is checked by AST only (ibapi). The research
