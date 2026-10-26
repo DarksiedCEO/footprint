@@ -13,3 +13,8 @@ def instrument_path() -> Path:
 @pytest.fixture
 def risk_path() -> Path:
     return REPO_ROOT / "config" / "risk.yaml"
+
+
+@pytest.fixture
+def strategy_path() -> Path:
+    return REPO_ROOT / "config" / "strategy.yaml"

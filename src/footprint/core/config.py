@@ -233,3 +233,70 @@ def load_risk(path: Path) -> RiskProfile:
     if profile.kill_switch_drawdown_pct > _PERCENT_MAX:
         raise ConfigError(f"{where}: kill_switch_drawdown_pct must be <= {_PERCENT_MAX}")
     return profile
+
+
+@dataclass(frozen=True, slots=True)
+class TrendSettings:
+    timeframe_minutes: int
+    ema_fast: int
+    ema_slow: int
+    swing_strength: int
+
+
+@dataclass(frozen=True, slots=True)
+class VolumeSettings:
+    timeframe_minutes: int
+    lookback_sessions: int
+    spike_multiple: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class RangeSettings:
+    adr_days: int
+    quiet_below_pct: Decimal
+    extended_above_pct: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyProfile:
+    trend: TrendSettings
+    volume: VolumeSettings
+    range: RangeSettings
+
+
+def load_strategy(path: Path) -> StrategyProfile:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(StrategyProfile)})
+
+    t_where = f"{where}: trend"
+    t = _check_keys(raw["trend"], {f.name for f in fields(TrendSettings)}, t_where)
+    trend = TrendSettings(
+        timeframe_minutes=_integer(t, "timeframe_minutes", t_where, minimum=1),
+        ema_fast=_integer(t, "ema_fast", t_where, minimum=1),
+        ema_slow=_integer(t, "ema_slow", t_where, minimum=1),
+        swing_strength=_integer(t, "swing_strength", t_where, minimum=1),
+    )
+    if trend.ema_fast >= trend.ema_slow:
+        raise ConfigError(f"{t_where}: ema_fast must be < ema_slow")
+
+    v_where = f"{where}: volume"
+    v = _check_keys(raw["volume"], {f.name for f in fields(VolumeSettings)}, v_where)
+    volume = VolumeSettings(
+        timeframe_minutes=_integer(v, "timeframe_minutes", v_where, minimum=1),
+        lookback_sessions=_integer(v, "lookback_sessions", v_where, minimum=1),
+        spike_multiple=_positive_decimal(v, "spike_multiple", v_where),
+    )
+    if volume.spike_multiple <= 1:
+        raise ConfigError(f"{v_where}: spike_multiple must be > 1")
+
+    r_where = f"{where}: range"
+    r = _check_keys(raw["range"], {f.name for f in fields(RangeSettings)}, r_where)
+    range_ = RangeSettings(
+        adr_days=_integer(r, "adr_days", r_where, minimum=1),
+        quiet_below_pct=_positive_decimal(r, "quiet_below_pct", r_where),
+        extended_above_pct=_positive_decimal(r, "extended_above_pct", r_where),
+    )
+    if range_.quiet_below_pct >= range_.extended_above_pct:
+        raise ConfigError(f"{r_where}: quiet_below_pct must be < extended_above_pct")
+
+    return StrategyProfile(trend=trend, volume=volume, range=range_)

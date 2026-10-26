@@ -83,22 +83,26 @@ def test_allow_marker_count_matches_the_reviewed_number() -> None:
 
 
 def test_profiles_yield_the_expected_forbidden_values(
-    instrument_path: Path, risk_path: Path
+    instrument_path: Path, risk_path: Path, strategy_path: Path
 ) -> None:
-    numbers = forbidden_numbers(instrument_path, risk_path)
+    numbers = forbidden_numbers(instrument_path, risk_path, strategy_path)
     assert {Decimal("20"), Decimal("0.25"), Decimal("100"), Decimal("25000")} <= numbers
     assert forbidden_words(instrument_path) == {"NQ", "CME", "04:00", "14:00", "15:00", "03:59"}
 
 
-def test_src_contains_no_literal_instrument_values(instrument_path: Path, risk_path: Path) -> None:
+def test_src_contains_no_literal_instrument_values(
+    instrument_path: Path, risk_path: Path, strategy_path: Path
+) -> None:
     found = violations(
-        SRC, forbidden_numbers(instrument_path, risk_path), forbidden_words(instrument_path)
+        SRC,
+        forbidden_numbers(instrument_path, risk_path, strategy_path),
+        forbidden_words(instrument_path),
     )
     assert not found, "hardcoded profile values under src/:\n" + "\n".join(found)
 
 
 def test_scanner_catches_planted_values(
-    instrument_path: Path, risk_path: Path, tmp_path: Path
+    instrument_path: Path, risk_path: Path, strategy_path: Path, tmp_path: Path
 ) -> None:
     (tmp_path / "planted.py").write_text(
         "POINT_VALUE = 20\n"
@@ -110,6 +114,8 @@ def test_scanner_catches_planted_values(
         "limit = 100  # allow-literal: percent\n"
     )
     found = violations(
-        tmp_path, forbidden_numbers(instrument_path, risk_path), forbidden_words(instrument_path)
+        tmp_path,
+        forbidden_numbers(instrument_path, risk_path, strategy_path),
+        forbidden_words(instrument_path),
     )
     assert [line.split(":")[1] for line in found] == ["1", "2", "3", "4", "5"]
