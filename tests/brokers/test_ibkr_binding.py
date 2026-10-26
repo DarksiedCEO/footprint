@@ -117,6 +117,8 @@ def opened(**changes: Any) -> tuple[IbBinding, Recording, Events, list[str]]:
     binding, client, events, alarms = bound(**changes)
     binding._wrapper.managedAccounts(ACCOUNT)
     binding._wrapper.nextValidId(100)
+    assert client.calls == [("reqMarketDataType", (1,))]  # real-time only, set at open
+    client.calls.clear()
     events.got.clear()
     return binding, client, events, alarms
 
@@ -449,7 +451,11 @@ def test_the_adapter_resyncs_through_the_binding_in_order() -> None:
     binding.attach(adapter)
     binding._wrapper.managedAccounts(ACCOUNT)
     binding._wrapper.nextValidId(100)
-    assert [n for n, _ in client.calls] == ["reqAllOpenOrders", "reqExecutions"]
+    assert [n for n, _ in client.calls] == [
+        "reqMarketDataType",  # real-time data is asked for before anything else
+        "reqAllOpenOrders",
+        "reqExecutions",
+    ]
     binding._wrapper.openOrderEnd()
     binding._wrapper.execDetailsEnd(1)
     assert [n for n, _ in client.calls][-2:] == ["cancelPositions", "reqPositions"]
