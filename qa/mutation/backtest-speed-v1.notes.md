@@ -47,3 +47,26 @@ scratch run, not committed). The full spec was then run on the committed tree
 ## Final run (`backtest-speed-v1.out`, on 8a5a27b, tree clean)
 
 44 mutants: 42 killed, 2 survived: M41 and M42, the two argued equivalences above.
+
+## After the independent review (CERTIFIED WITH CONDITIONS, head 689321b)
+
+The reviewer's mutants R7, R1 and R5 survived every test. Each now has a test
+(tests/test_series_windows.py) and a mutant in the spec:
+
+| reviewer | mutant | test that kills it (failed first under the mutant) |
+|---|---|---|
+| R7 (F1) | zero-day: `days.highs[k] <= hi + 1` (a day one bar past the window taken whole) | `test_a_window_one_bar_short_of_a_days_last_bar_never_sees_it` (window vs list, `_window_spans` with late cutoffs and the public `check()` at a mid-minute `as_of`) |
+| R1 (F3) | clock index from the first series ever seen | `test_two_series_alive_keep_their_own_clock_index` |
+| R5 (F3) | closed-minute memo shared by every reader and instrument | `test_two_levels_readers_on_two_instruments_keep_their_own_closed_minutes` |
+
+F4 (hardening): `BarSeries` has slots and read-only properties (`bars`, `starts` now a
+tuple, `timeframe_minutes`); `BarWindow` refuses setting or deleting attributes (a
+tuple subclass cannot have slots, so its `__dict__` exists; writing to it directly is
+the only way round, and nothing does). Cost: none measurable. Interleaved runs of the
+130-session timing file on a busier box: 689321b 46.8 s and 44.5 s; with F4 43.8 s,
+43.4 s and 48.5 s.
+
+## Final run after the review (`backtest-speed-v1.out`, on a3bb464, tree clean)
+
+47 mutants: 45 killed, 2 survived: M41 and M42, the argued equivalences above. The
+previous final run (44 mutants on 8a5a27b) is kept as `backtest-speed-v1-on-8a5a27b.out`.

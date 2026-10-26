@@ -1502,6 +1502,14 @@ Every number below is a DEFAULT (draft, Andre BH-n), marked so in config.
   code); the seam goldens unchanged; every helper on windows against the same bars as a
   list (`tests/test_series_windows.py`). Mutation: `qa/mutation/backtest-speed-v1.out`
   and `.notes.md`.
+  **Independent review of 689321b: CERTIFIED WITH CONDITIONS** (no look-ahead, no
+  behaviour change; 13 adversarial datasets byte-identical, 4 trading, 18 trades).
+  Conditions met on the branch with tests first: F1 (a window one bar short of a day's
+  extreme; the reviewer's R7 now killed), F2 (a fast scenario where the real play
+  caller labels TREND and a rule trades: 4 trades, reference written on 928ca71), F3
+  (two series alive, two instruments' levels readers: R1 and R5 killed), F4 (BarSeries
+  and BarWindow read-only, no measurable cost). Mutation after it: 47 mutants, 45
+  killed, the 2 argued equivalences survive.
 - **Smoke runs (2026-10-24, code 9a9c9a3, shipped config, reference_price 20000).**
   2010-06-06..2010-08-06 bars, traded from 2010-07-19: ran to the end, 0 trades, exit 1
   (NOT ENOUGH TRADES), ledger and journal agree, not ended early. 2024-06-02..2024-08-02

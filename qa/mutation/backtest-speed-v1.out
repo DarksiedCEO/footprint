@@ -1,5 +1,5 @@
 warning: The `UV_NATIVE_TLS` environment variable is deprecated and will be removed in a future release. Use `UV_SYSTEM_CERTS` instead.
-source: 8a5a27b067a3173fe4f4310965e6e437fe2e45ea tree-dirty: 0 files
+source: a3bb464a90aa685edc0380344c231519abe38d29 tree-dirty: 0 files
 baseline [engine]: passed
 baseline [windows]: passed
   1 KILLED   [windows] src/footprint/data/aggregate.py: completed(): a bar still open counts as closed (look-ahead)
@@ -44,6 +44,9 @@ baseline [windows]: passed
  40 KILLED   [windows] src/footprint/agents/regime_reader.py: regime: start times from the series' start, not the window's
  41 SURVIVED [windows] src/footprint/agents/levels.py: levels: the closed-minute memo never starts over (memory only: argued equivalent)
  42 SURVIVED [windows] src/footprint/decision/pipeline.py: range days: no day of margin before today's midnight (argued equivalent)
- 43 KILLED   [engine] src/footprint/backtest/engine.py: play caller history: the open bar included (look-ahead)
- 44 KILLED   [engine] src/footprint/backtest/engine.py: decision window: one bar past the closed ones (look-ahead)
-44 mutants, 2 survived or errored
+ 43 KILLED   [windows] src/footprint/agents/zero_day.py: review R7: zero-day range: a day one bar past the window's end taken whole (look-ahead)
+ 44 KILLED   [windows] src/footprint/agents/_series.py: review R1: clock index reused from the first series ever seen
+ 45 KILLED   [windows] src/footprint/agents/levels.py: review R5: the closed-minute memo shared by every reader and instrument
+ 46 KILLED   [engine] src/footprint/backtest/engine.py: play caller history: the open bar included (look-ahead)
+ 47 KILLED   [engine] src/footprint/backtest/engine.py: decision window: one bar past the closed ones (look-ahead)
+47 mutants, 2 survived or errored
