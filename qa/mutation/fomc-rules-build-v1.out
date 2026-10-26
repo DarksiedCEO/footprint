@@ -1,4 +1,4 @@
-source: 1bc15916d005f367e398fa15db879ed52ec4b376 tree-dirty: 0 files
+source: 2f4cbb6334fba4a4459037200c1238ba978f881f tree-dirty: 0 files
 baseline [exits]: passed
 baseline [rules]: passed
 baseline [wiring]: passed
@@ -55,19 +55,27 @@ baseline [wiring]: passed
  51 KILLED   [rules] src/footprint/decision/news_rules.py: unverified warning with no horizon
  52 KILLED   [rules] src/footprint/decision/news_rules.py: warns of verified dates
  53 KILLED   [rules] src/footprint/core/config.py: meeting outside the span accepted
- 54 KILLED   [rules] src/footprint/core/config.py: M1: no gap check
- 55 KILLED   [rules] src/footprint/core/config.py: M1: gap limit off by one
- 56 KILLED   [rules] src/footprint/core/config.py: M1: span end not checked
- 57 KILLED   [rules] src/footprint/core/config.py: M1: span start not checked
- 58 KILLED   [rules] src/footprint/core/config.py: M1: zero gap limit accepted
- 59 KILLED   [wiring] src/footprint/decision/news_rules.py: L1: span check on UTC dates
- 60 KILLED   [rules] src/footprint/core/config.py: L2: look-alike host suffix accepted
- 61 KILLED   [rules] src/footprint/core/config.py: L2: http accepted
- 62 KILLED   [rules] src/footprint/core/config.py: L2: user/port in the authority accepted
- 63 KILLED   [rules] src/footprint/core/config.py: L3: long meeting accepted
- 64 KILLED   [rules] src/footprint/core/config.py: L3: one-day meeting accepted
- 65 KILLED   [rules] src/footprint/core/config.py: L3: weekend decision day accepted
- 66 KILLED   [rules] src/footprint/core/config.py: L3: overlapping meetings accepted
- 67 KILLED   [rules] src/footprint/core/config.py: L3: meeting starting on the previous decision day accepted
- 68 KILLED   [rules] src/footprint/core/config.py: yes/on read as true
-68 mutants, 0 survived or errored
+ 54 KILLED   [rules] src/footprint/core/config.py: M1: zero gap limit accepted
+ 55 KILLED   [wiring] src/footprint/decision/news_rules.py: L1: span check on UTC dates
+ 56 KILLED   [rules] src/footprint/core/config.py: L2: look-alike host suffix accepted
+ 57 KILLED   [rules] src/footprint/core/config.py: L2: http accepted
+ 58 KILLED   [rules] src/footprint/core/config.py: L2: user/port in the authority accepted
+ 59 KILLED   [rules] src/footprint/core/config.py: L3: long meeting accepted
+ 60 KILLED   [rules] src/footprint/core/config.py: L3: one-day meeting accepted
+ 61 KILLED   [rules] src/footprint/core/config.py: L3: weekend decision day accepted
+ 62 KILLED   [rules] src/footprint/core/config.py: L3: overlapping meetings accepted
+ 63 KILLED   [rules] src/footprint/core/config.py: L3: meeting starting on the previous decision day accepted
+ 64 KILLED   [rules] src/footprint/core/config.py: yes/on read as true
+ 65 KILLED   [rules] src/footprint/core/config.py: M1: no gap check between meetings
+ 66 KILLED   [rules] src/footprint/core/config.py: M1: gap limit off by one
+ 67 KILLED   [rules] src/footprint/core/config.py: R2-M1: no edge check
+ 68 KILLED   [rules] src/footprint/core/config.py: R2-M1: edges use the gap limit
+ 69 KILLED   [rules] src/footprint/core/config.py: R2-M1: edge limit off by one
+ 70 KILLED   [rules] src/footprint/core/config.py: R2-M1: start edge not checked
+ 71 KILLED   [rules] src/footprint/core/config.py: R2-M1: end edge not checked
+ 72 KILLED   [rules] src/footprint/core/config.py: R2-M1: start edge to the decision day
+ 73 KILLED   [rules] src/footprint/core/config.py: R2-M1: zero edge limit accepted
+ 74 KILLED   [rules] src/footprint/core/config.py: R2-L2: intermeeting days fill gaps
+ 75 KILLED   [rules] src/footprint/core/config.py: M1: cancelled meetings not gap anchors
+ 76 KILLED   [rules] src/footprint/decision/news_rules.py: R2-L1: EXPIRED alarm a day early
+76 mutants, 0 survived or errored
