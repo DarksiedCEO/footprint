@@ -45,6 +45,7 @@ class Session:
 class InstrumentProfile:
     symbol: str
     exchange: str
+    currency: str
     point_value: Decimal
     tick_size: Decimal
     round_number_step: Decimal
@@ -202,6 +203,7 @@ def load_instrument(path: Path) -> InstrumentProfile:
     profile = InstrumentProfile(
         symbol=_text(raw, "symbol", where),
         exchange=_text(raw, "exchange", where),
+        currency=_text(raw, "currency", where),
         point_value=_positive_decimal(raw, "point_value", where),
         tick_size=_positive_decimal(raw, "tick_size", where),
         round_number_step=_positive_decimal(raw, "round_number_step", where),
@@ -514,6 +516,20 @@ class IbkrConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketDataSettings:
+    history_days: int
+    roll_days_before_expiry: int
+    bar_poll_delay_seconds: int
+    min_poll_seconds: int
+    history_request_gap_seconds: int
+    request_timeout_seconds: int
+    retry_seconds: int
+    strike_window_points: Decimal
+    recenter_points: Decimal
+    max_quote_lines: int
+
+
+@dataclass(frozen=True, slots=True)
 class AlarmSettings:
     retry_seconds: int
     max_pending: int
@@ -530,6 +546,7 @@ class ExecutionProfile:
     reconcile: ReconcileSettings
     alarms: AlarmSettings
     ibkr: IbkrConfig
+    market_data: MarketDataSettings
 
 
 def load_execution(path: Path) -> ExecutionProfile:
@@ -610,6 +627,28 @@ def load_execution(path: Path) -> ExecutionProfile:
         require_paper=_boolean(ib, "require_paper", i_where),
         paper_account_prefix=_text(ib, "paper_account_prefix", i_where),
     )
+    m_where = f"{where}: market_data"
+    m = _check_keys(raw["market_data"], {f.name for f in fields(MarketDataSettings)}, m_where)
+    market_data = MarketDataSettings(
+        history_days=_integer(m, "history_days", m_where, minimum=1),
+        roll_days_before_expiry=_integer(m, "roll_days_before_expiry", m_where, minimum=1),
+        bar_poll_delay_seconds=_integer(m, "bar_poll_delay_seconds", m_where, minimum=1),
+        min_poll_seconds=_integer(m, "min_poll_seconds", m_where, minimum=1),
+        history_request_gap_seconds=_integer(m, "history_request_gap_seconds", m_where, minimum=1),
+        request_timeout_seconds=_integer(m, "request_timeout_seconds", m_where, minimum=1),
+        retry_seconds=_integer(m, "retry_seconds", m_where, minimum=1),
+        strike_window_points=_positive_decimal(m, "strike_window_points", m_where),
+        recenter_points=_positive_decimal(m, "recenter_points", m_where),
+        max_quote_lines=_integer(m, "max_quote_lines", m_where, minimum=2),
+    )
+    if (
+        market_data.strike_window_points
+        < contract.max_strike_distance + market_data.recenter_points
+    ):
+        raise ConfigError(
+            f"{m_where}: strike_window_points must cover contract.max_strike_distance plus "
+            "recenter_points, or the strike the picker wants may not be streamed"
+        )
     return ExecutionProfile(
         quotes=quotes,
         contract=contract,
@@ -620,6 +659,7 @@ def load_execution(path: Path) -> ExecutionProfile:
         reconcile=reconcile,
         alarms=alarms,
         ibkr=ibkr,
+        market_data=market_data,
     )
 
 

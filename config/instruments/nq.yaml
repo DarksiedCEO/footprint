@@ -1,6 +1,7 @@
 # Instrument profile. Every instrument-specific number lives here, never in code.
 symbol: NQ
 exchange: CME
+currency: USD                # the futures' and options' currency at IBKR
 point_value: 20
 tick_size: 0.25
 round_number_step: 100
