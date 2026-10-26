@@ -1,5 +1,6 @@
-source: ed3b065d1bbe79d3c0a1c9696d199204f6dbf2f6 tree-dirty: 0 files
+source: 97e73728e8bb7049fe6aec0c4a57d2cdf4bef297 tree-dirty: 0 files
 baseline [config]: passed
+baseline [consistency]: passed
 baseline [model]: passed
 baseline [picker]: passed
 baseline [shipped]: passed
@@ -36,4 +37,11 @@ baseline [shipped]: passed
  31 KILLED   [shipped] config/execution.yaml: draft at the model's spread
  32 KILLED   [shipped] config/execution.yaml: draft off by one tick
  33 KILLED   [model] config/backtest.yaml: model spread at the cap
-33 mutants, 0 survived or errored
+ 34 KILLED   [picker] src/footprint/agents/contract_picker.py: review F1: narrowest same-expiry spread judged, not the chosen contract's
+ 35 KILLED   [picker] src/footprint/agents/contract_picker.py: widest same-expiry spread judged, not the chosen contract's
+ 36 KILLED   [picker] src/footprint/agents/contract_picker.py: review F2: points check moved after the open-interest check
+ 37 KILLED   [consistency] src/footprint/core/config.py: F3: tick floor removed
+ 38 KILLED   [consistency] src/footprint/core/config.py: F3: exactly one tick refused
+ 39 KILLED   [consistency] src/footprint/core/config.py: F3: floor at half a tick
+ 40 KILLED   [consistency] src/footprint/core/config.py: F3: wrong floor (percent field)
+40 mutants, 0 survived or errored
