@@ -65,7 +65,7 @@ from footprint.core.calendar import SessionKind, local_minute, session_at
 from footprint.core.config import _PERCENT_MAX, Profiles
 from footprint.core.models import Bar, Direction
 from footprint.core.options import OptionChain
-from footprint.core.series import require_series
+from footprint.core.series import BarSeries
 from footprint.decision.pipeline import EntryTrigger, Gatekeeper, Pipeline
 from footprint.decision.play import PlayCaller, PlayGate
 from footprint.decision.session import NewsBlackout
@@ -144,8 +144,9 @@ class Backtest:
         )
         self._p = profiles
         self._s = settings
-        self._bars = tuple(bars)
-        require_series(self._bars, 1, "backtest bars")
+        # Checked once; every decision window is a BarWindow of it (BH-11).
+        self._series = BarSeries(bars, 1, "backtest bars")
+        self._bars = self._series.bars
         if self._bars[0].symbol != profiles.instrument.symbol:
             raise ValueError(
                 f"bars are for {self._bars[0].symbol!r}, not {profiles.instrument.symbol!r}"
@@ -164,7 +165,7 @@ class Backtest:
                     f"{last}): the roll list is for other data, or for a longer span; give "
                     "the rolls of these bars only"
                 )
-        self._starts = [bar.ts for bar in self._bars]
+        self._starts = self._series.starts
         self._first = 0 if trade_from is None else bisect_left(self._starts, trade_from)
         if self._first >= len(self._bars):
             raise ValueError("trade_from is after the last bar")
@@ -241,13 +242,13 @@ class Backtest:
         end = bisect_right(self._starts, now - _MINUTE)
         if end != self._window_end:
             start = max(0, end - self._s.engine.history_minutes)
-            self._window, self._window_end = self._bars[start:end], end
+            self._window, self._window_end = self._series.window(start, end), end
         return self._window
 
     def _history_bars(self, now: datetime) -> tuple[Bar, ...]:
         """Every bar that had closed by `now`, from the start of the data (the play
         caller's history: no look-ahead, no window)."""
-        return self._bars[: bisect_right(self._starts, now - _MINUTE)]
+        return self._series.window(0, bisect_right(self._starts, now - _MINUTE))
 
     def _chain(self, now: datetime) -> OptionChain:
         """The chain a decision sees. Nothing live (review round 1, L1): at the price now,

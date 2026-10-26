@@ -1,0 +1,9 @@
+source: 883218d3dd61f67f8e4ec06b3e9b0b4eb7fa68ae tree-dirty: 0 files
+baseline [es]: passed
+  1 KILLED   [es] src/footprint/live/__main__.py: R3A-1 live ignores --instrument (es.yaml would run as nq and reach the broker)
+  2 KILLED   [es] src/footprint/live/__main__.py: R3A-2 live profile refusal exits 0 instead of 2
+  3 KILLED   [es] src/footprint/live/__main__.py: R3-4 live: profile refusal moved after env/alarm checks
+  4 KILLED   [es] src/footprint/live/__main__.py: R3-11 live builds the broker client before the profile refusal
+  5 KILLED   [es] src/footprint/live/__main__.py: R3-12 live opens a socket before the profile refusal
+  6 KILLED   [es] src/footprint/live/__main__.py: RV-2 live refuses es.yaml only after building/connecting the broker
+6 mutants, 0 survived or errored

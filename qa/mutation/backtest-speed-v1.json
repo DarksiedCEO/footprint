@@ -1,0 +1,342 @@
+{
+ "groups": {
+  "windows": [
+   "tests/test_series_windows.py"
+  ],
+  "engine": [
+   "tests/backtest/test_engine.py",
+   "tests/backtest/test_engine_play.py"
+  ]
+ },
+ "mutants": [
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "bars.series.starts, as_of, bars.start, bars.end, key=lambda ts: ts + length",
+   "bars.series.starts, as_of, bars.start, bars.end, key=lambda ts: ts",
+   "completed(): a bar still open counts as closed (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "        end = bisect_right(\n            bars.series.starts",
+   "        end = bisect_left(\n            bars.series.starts",
+   "completed(): the bar closing exactly at as_of left out (bisect bound)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "        return bars if end == bars.end else bars.series.window(bars.start, end)",
+   "        return bars",
+   "completed(): the whole window returned, open bars included (stale)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    firsts.append(len(bars))\n",
+   "    firsts.append(len(bars) - 1)\n",
+   "buckets: the last bucket's end one short"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    first = bisect_right(b.firsts, lo) - 1",
+   "    first = bisect_left(b.firsts, lo)",
+   "resample: the bucket holding the window's first bar skipped when cut (bisect off by one)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    last = bisect_left(b.firsts, hi)  #",
+   "    last = bisect_right(b.firsts, hi)  #",
+   "resample: one bucket past the window's end considered"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    if g < stop and b.firsts[g] < lo:",
+   "    if g < stop and b.firsts[g] > lo:",
+   "resample: a bucket cut by the window's start taken whole (bars before the window)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    if stop > g and b.firsts[stop] > hi:",
+   "    if stop > g and b.firsts[stop] > hi + 1:",
+   "resample: a bucket cut by one bar at the window's end taken whole (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    stop = bisect_right(b.starts, as_of, first, last, key=lambda ts: ts + length)",
+   "    stop = bisect_right(b.starts, as_of, first, last, key=lambda ts: ts)",
+   "resample: a bucket not yet closed emitted"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    found = by_length.get(minutes)",
+   "    found = next(iter(by_length.values()), None)",
+   "buckets: cache key missing the bucket length (stale cache)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "        if lo <= d.lows[k] and d.highs[k] <= hi:",
+   "        if lo <= d.lows[k]:",
+   "session days: a day cut by the window's end taken whole (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "        if lo <= d.lows[k] and d.highs[k] <= hi:",
+   "        if d.highs[k] <= hi:",
+   "session days: a day cut by the window's start taken whole"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    for k in range(bisect_right(d.highs, lo), len(d.dates)):",
+   "    for k in range(bisect_right(d.highs, lo) + 1, len(d.dates)):",
+   "session days: the window's first day skipped"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    if session in by_session:\n        return by_session[session]",
+   "    if by_session:\n        return next(iter(by_session.values()))",
+   "session days: cache key missing the session (stale cache)"
+  ],
+  [
+   "windows",
+   "src/footprint/data/aggregate.py",
+   "    usable = all(lows[k] >= highs[k - 1] for k in range(1, len(dates)))",
+   "    usable = True",
+   "session days: a series whose local dates go back searched as if in order"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "        hi = bisect_left(found_at, bars.start + index, lo)",
+   "        hi = bisect_right(found_at, bars.start + index, lo)",
+   "same time: the bar itself counted as an earlier one"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "        lo = bisect_left(found_at, bars.start)",
+   "        lo = 0",
+   "same time: bars before the window counted"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "found_at[max(lo, hi - lookback) : hi]",
+   "found_at[max(lo, hi - lookback - 1) : hi]",
+   "same time: one bar too many"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "    found = by_zone.get(timezone)",
+   "    found = next(iter(by_zone.values()), None)",
+   "clock index: cache key missing the time zone (stale cache)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "            if found[1:]:\n                break",
+   "            if found:\n                break",
+   "last two swings: stops at the first"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "    for i in range(len(values) - strength - 1, strength - 1, -1):",
+   "    for i in range(len(values) - strength, strength - 1, -1):",
+   "last two swings: an unconfirmed last value can be a swing (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "    if isinstance(bars, BarWindow) and bars and bars.series.covers(timeframe_minutes):",
+   "    if isinstance(bars, BarWindow) and bars.series.covers(timeframe_minutes):",
+   "require_series: an empty window passes"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "        return timeframe_minutes is None or timeframe_minutes == self._timeframe_minutes",
+   "        return True",
+   "require_series: a window passes a timeframe its series was never checked for"
+  ],
+  [
+   "windows",
+   "src/footprint/core/series.py",
+   "        if not 0 <= start <= end <= len(series.bars):",
+   "        if not 0 <= start <= end:",
+   "window: bounds past the series accepted"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "            if lo <= days.lows[k] and days.highs[k] <= hi and days.ordered[k]:",
+   "            if lo <= days.lows[k] and days.highs[k] <= hi:",
+   "zero-day range: a day with out-of-order clocks read by prefix"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "            if lo <= days.lows[k] and days.highs[k] <= hi and days.ordered[k]:",
+   "            if lo <= days.lows[k] and days.ordered[k]:",
+   "zero-day range: a day cut by the window's end taken whole (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "                n = bisect_left(members, cutoff, key=clock)",
+   "                n = bisect_right(members, cutoff, key=clock)",
+   "zero-day range: the bar at the cutoff counted"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "    if any(lows[k] < highs[k - 1] for k in range(1, len(dates))):",
+   "    if False:",
+   "zero-day range: a series whose local dates go back searched as if in order"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "            top.append(bar.high if not top or bar.high > top[-1] else top[-1])",
+   "            top.append(bar.high if not top or bar.high >= top[-1] else top[-1])",
+   "zero-day range: the last of equal highs kept, not the first"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "            bottom.append(bar.low if not bottom or bar.low < bottom[-1] else bottom[-1])",
+   "            bottom.append(bar.low if not bottom or bar.low <= bottom[-1] else bottom[-1])",
+   "zero-day range: the last of equal lows kept, not the first"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "            if not self._counted(day):\n                continue\n            members = days.members[k]",
+   "            members = days.members[k]",
+   "zero-day range: holidays and weekends counted on the window path"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "    for k in range(bisect_right(days.highs, lo), len(days.dates)):",
+   "    for k in range(bisect_right(days.highs, lo) + 1, len(days.dates)):",
+   "zero-day range: the window's first day skipped"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "    if (timezone, start) in by_key:\n        return by_key[(timezone, start)]",
+   "    if by_key:\n        return next(iter(by_key.values()))",
+   "zero-day range: cache key missing zone and start (stale cache)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        last = bisect_left(starts, end, first, bars.end)",
+   "        last = bisect_right(starts, end, first, bars.end)",
+   "levels: the bar at a window's end counted"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        first = bisect_left(starts, begin, bars.start, bars.end)",
+   "        first = bisect_left(starts, begin, 0, bars.end)",
+   "levels: bars before the decision window counted"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        return set(starts[bisect_left(starts, begin, bars.start, bars.end) : bars.end])",
+   "        return set(starts[bisect_left(starts, begin, bars.start, bars.end) :])",
+   "levels: minutes after the window counted present (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        closed = self._closed_at.get(moment)",
+   "        closed = self._closed_at.get(moment - _MINUTE)",
+   "levels: the closed-minute memo keyed by the wrong minute"
+  ],
+  [
+   "windows",
+   "src/footprint/decision/pipeline.py",
+   "    return minutes.series.bars[first : minutes.end]",
+   "    return minutes.series.bars[first:]",
+   "range days: bars after the window read (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/decision/pipeline.py",
+   "    since = datetime.combine(today, time.min, zone).astimezone(UTC) - timedelta(days=1)",
+   "    since = datetime.combine(today, time.max, zone).astimezone(UTC)",
+   "range days: today's later bars searched from the day's end (none found)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/regime_reader.py",
+   "            starts = bars.series.starts[bars.start : bars.end]",
+   "            starts = bars.series.starts[: bars.end]",
+   "regime: start times from the series' start, not the window's"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "            if len(self._closed_at) >= _CLOSED_MEMO:",
+   "            if False:",
+   "levels: the closed-minute memo never starts over (memory only: argued equivalent)"
+  ],
+  [
+   "windows",
+   "src/footprint/decision/pipeline.py",
+   "    since = datetime.combine(today, time.min, zone).astimezone(UTC) - timedelta(days=1)",
+   "    since = datetime.combine(today, time.min, zone).astimezone(UTC)",
+   "range days: no day of margin before today's midnight (argued equivalent)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "days.highs[k] <= hi and days.ordered[k]",
+   "days.highs[k] <= hi + 1 and days.ordered[k]",
+   "review R7: zero-day range: a day one bar past the window's end taken whole (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "    by_zone = _SERIES_CLOCK.setdefault(series, {})",
+   "    by_zone = _SERIES_CLOCK.setdefault(next(iter(_SERIES_CLOCK), series), {})",
+   "review R1: clock index reused from the first series ever seen"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        self._closed_at: dict[datetime, bool] = {}",
+   "        self._closed_at: dict[datetime, bool] = LevelsReader.__init__.__dict__.setdefault(\"memo\", {})",
+   "review R5: the closed-minute memo shared by every reader and instrument"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "        return self._series.window(0, bisect_right(self._starts, now - _MINUTE))",
+   "        return self._series.window(0, bisect_right(self._starts, now))",
+   "play caller history: the open bar included (look-ahead)"
+  ],
+  [
+   "engine",
+   "src/footprint/backtest/engine.py",
+   "            self._window, self._window_end = self._series.window(start, end), end",
+   "            self._window, self._window_end = self._series.window(start, end + 1 if end < len(self._bars) else end), end",
+   "decision window: one bar past the closed ones (look-ahead)"
+  ]
+ ]
+}

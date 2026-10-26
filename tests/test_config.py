@@ -624,6 +624,7 @@ def test_execution_profile_loads(execution_path: Path) -> None:
         ("contract", {"max_spread_pct_of_mid": 100}),
         ("contract", {"min_open_interest": 0}),  # would switch the filter off
         ("contract", {"max_strike_distance": 0}),
+        ("contract", {"max_spread_points": 0}),  # M3 (b): would refuse every quote
         ("entry", {"step_ticks": 0}),
         ("entry", {"max_over_mid_pct_of_spread": 51}),  # past the ask
         ("entry", {"timeout_seconds": 19}),  # 4 steps x 5 s do not fit

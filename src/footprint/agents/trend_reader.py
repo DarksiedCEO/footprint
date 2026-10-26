@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from footprint.agents._series import ema, require_series, swing_points
+from footprint.agents._series import ema, last_two_swing_points, require_series
 from footprint.core.config import TrendSettings
 from footprint.core.models import Bar, Read, Score
 
@@ -37,8 +37,9 @@ class TrendReader:
                 Score.NEUTRAL,
                 f"insufficient bars: {len(bars)} of {s.ema_slow} for the slow EMA",
             )
-        highs = swing_points([bar.high for bar in bars], s.swing_strength, high=True)
-        lows = swing_points([bar.low for bar in bars], s.swing_strength, high=False)
+        # Only the last two swings are compared (BH-11: found from the end).
+        highs = last_two_swing_points([bar.high for bar in bars], s.swing_strength, high=True)
+        lows = last_two_swing_points([bar.low for bar in bars], s.swing_strength, high=False)
         if len(highs) < 2 or len(lows) < 2:
             return Read(self.agent_id, last.ts, Score.NEUTRAL, "fewer than two swing highs/lows")
         f, sl = fast[-1], slow[-1]
