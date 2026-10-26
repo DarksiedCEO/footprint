@@ -1,0 +1,38 @@
+{
+ "groups": {
+  "trail": [
+   "tests/backtest/test_exit_trail.py",
+   "tests/backtest/test_entry_stairstep.py"
+  ]
+ },
+ "mutants": [
+  [
+   "trail",
+   "src/footprint/backtest/rules.py",
+   "    builds trade management exactly as with no rule named. See docs/strategy-rules.md.\"\"\"\n    return None\n",
+   "    builds trade management exactly as with no rule named. See docs/strategy-rules.md.\"\"\"\n    return type(\"Out\", (), {\"wants_out\": lambda *_: True})()  # type: ignore[no-any-return]\n",
+   "Q54-1: trail adds a way out (always out)"
+  ],
+  [
+   "trail",
+   "src/footprint/backtest/rules.py",
+   "    builds trade management exactly as with no rule named. See docs/strategy-rules.md.\"\"\"\n    return None\n",
+   "    builds trade management exactly as with no rule named. See docs/strategy-rules.md.\"\"\"\n    return type(\"Never\", (), {\"wants_out\": lambda *_: False})()  # type: ignore[no-any-return]\n",
+   "Q54-2: trail hands trade management a rule (one that never wants out) instead of none"
+  ],
+  [
+   "trail",
+   "src/footprint/backtest/rules.py",
+   "    \"trail\": trail,\n",
+   "",
+   "Q54-3: trail is not registered"
+  ],
+  [
+   "trail",
+   "src/footprint/backtest/engine.py",
+   "            if exit_rule is None\n",
+   "            if exit_rule is not None and exit_rule is None\n",
+   "Q54-4: with no exit rule, trade management is not built exactly as the live call"
+  ]
+ ]
+}
