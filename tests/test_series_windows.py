@@ -530,3 +530,73 @@ def test_the_levels_snapshot_on_a_window_ending_inside_a_trend_bucket(
         assert got == reader.snapshot(list(window), closes)
         checked += 1
     assert checked
+
+
+# --- review of PR 49 (certified with conditions): F1, F3, F4 -------------------------
+
+
+def _last_session_spike(profiles: Profiles) -> BarSeries:
+    """25 sessions; the series' last bar (13:59 PT, the day's last bar) is the day's
+    extreme: its high far above everything before it."""
+    bars = _sessions(profiles, date(2024, 4, 1), 25, 19)
+    last = bars[-1]
+    bars[-1] = replace(last, high=last.high + D(500))
+    return BarSeries(bars, 1, "bars")
+
+
+def test_a_window_one_bar_short_of_a_days_last_bar_never_sees_it(profiles: Profiles) -> None:
+    """F1: the window ends one bar before the day's last bar (the day's high). Read with
+    a cutoff after that bar, the day is cut by the window, so it is measured from the
+    window's own bars: the extreme outside the window never counts."""
+    series = _last_session_spike(profiles)
+    n = len(series.bars)
+    window = series.window(0, n - 1)
+    s = profiles.strategy
+    agent = ZeroDayAgent(s.zeroday, s.data, profiles.instrument)
+    today = series.bars[-1].ts.astimezone(PT).date()
+    for cutoff in (time(13, 59, 30), time(23, 0)):
+        got = agent._window_spans(window, cutoff)
+        assert got == agent._spans(list(window), cutoff)
+        assert got[today] < D(500)
+    # Through the public check: a mid-minute moment, after the left-out bar opened.
+    as_of = series.bars[-1].ts + timedelta(seconds=30)
+    assert agent.check(window, as_of) == agent.check(list(window), as_of)
+    # The left-out bar would change today's range if it were read (it is the extreme).
+    with_it = agent._spans(list(series.bars), time(13, 59, 30))[today]
+    assert with_it != agent._spans(list(window), time(13, 59, 30))[today]
+
+
+def test_two_series_alive_keep_their_own_clock_index() -> None:
+    """F3 (R1): the clock index is per series, never one series' reused for another."""
+    first = BarSeries(random_bars(20, 3000), 1, "bars")
+    other_bars = random_bars(21, 3000)
+    second = BarSeries(other_bars, 1, "bars")
+    rng = random.Random(20)
+    for series in (first, second, first, second):
+        window = series.window(0, len(series.bars))
+        for _ in range(40):
+            index = rng.randrange(len(window))
+            assert same_time_indices(window, index, 3, TZ) == same_time_indices(
+                list(window), index, 3, TZ
+            )
+
+
+def test_two_levels_readers_on_two_instruments_keep_their_own_closed_minutes(
+    profiles: Profiles,
+) -> None:
+    """F3 (R5): the closed-minute memo belongs to one reader and its instrument."""
+    from footprint.core.calendar import SessionKind, session_at
+
+    s = profiles.strategy
+    nq = profiles.instrument
+    es_style = replace(nq, prime_session=replace(nq.prime_session, end=time(13, 0)))
+    start = datetime(2024, 4, 2, 19, 0, tzinfo=UTC)  # 12:00 PT
+    moments = [start + MINUTE * i for i in range(240)]
+    for instrument in (nq, es_style, nq):
+        reader = LevelsReader(s.levels, s.trend, s.data, instrument)
+        expected = [session_at(m, instrument) is SessionKind.CLOSED for m in moments]
+        assert [reader._closed(m) for m in moments] == expected
+    other = LevelsReader(s.levels, s.trend, s.data, es_style)
+    assert [other._closed(m) for m in moments] != [
+        session_at(m, nq) is SessionKind.CLOSED for m in moments
+    ]

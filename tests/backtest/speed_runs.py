@@ -45,7 +45,7 @@ class Scenario:
 
 
 # The normal pytest run: 63 sessions (the play caller's 61 fill), the last one traded.
-FAST = (
+FAST: tuple[Scenario, ...] = (
     Scenario("real_play_1day", 63, "2024-06-07T00:00:00+00:00", real_play=True),
     Scenario("trend_1day", 63, "2024-06-07T00:00:00+00:00", real_play=False),
     Scenario(  # a gateless rule: trades, closed by the live exit
@@ -60,6 +60,16 @@ FAST = (
         63,
         "2024-06-07T00:00:00+00:00",
         real_play=False,
+        extra=("--entry", "bb_bounce_fast", "--exit", "time"),
+    ),
+)
+# The real play caller labels both days TREND and a rule trades on them (review F2).
+FAST += (
+    Scenario(
+        "real_play_bb_bounce_time_2day",
+        64,
+        "2024-06-07T00:00:00+00:00",
+        real_play=True,
         extra=("--entry", "bb_bounce_fast", "--exit", "time"),
     ),
 )

@@ -56,3 +56,6 @@ def test_the_references_cover_trades_plays_and_every_scenario() -> None:
     assert all(r["summary"]["decisions"] > 0 for r in records)
     assert sum(r["summary"]["trades"] for r in records) > 0
     assert sum(r["summary"]["plays"] for r in records) > 0
+    # Review F2: the real play caller labels days TREND and a rule trades on them.
+    real = [r for r, s in zip(records, (*FAST, *LONG), strict=True) if s.real_play]
+    assert any(r["summary"]["trades"] > 0 for r in real)
