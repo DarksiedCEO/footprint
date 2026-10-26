@@ -48,17 +48,20 @@ def trend_every_day(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
 
 @pytest.fixture(autouse=True)
 def no_scheduled_news(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The backtest always runs the scheduled news windows (N1-N6, with_news_rules). The
+    """The backtest always runs the scheduled news windows (N1-N6, with_news_rules) and
+    refuses a run outside the FOMC calendar (N6, check_fomc_span; 2021-2027 today). The
     backtest tests written before them trade the scenario's long at 07:01 PT (10:01 ET),
     inside N1's 09:55-10:02 ET window, to test the crew, the exits, the CLI and the
     readout. For them the backtest runs the CSV windows alone (as before N1-N6), so
-    they keep testing what they were written for. Tests marked `real_news` run the real
+    they keep testing what they were written for (the 2010 history runs included: the
+    FOMC calendar does not reach back there yet). Tests marked `real_news` run the real
     rules; tests/backtest/test_engine_news_rules.py covers them in the backtest."""
     if request.node.get_closest_marker("real_news") is not None:
         return
     from footprint.backtest import engine
 
     monkeypatch.setattr(engine, "with_news_rules", lambda profiles, extra: extra)
+    monkeypatch.setattr(engine, "check_fomc_span", lambda profiles, first, last: None)
 
 
 @pytest.fixture(scope="session")

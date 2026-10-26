@@ -67,6 +67,7 @@ CRITICAL_MARKERS: tuple[str, ...] = (
     "IBKR SESSION KEEPS FAILING",
     "resync is not completing",
     "EXCHANGE CALENDAR EXPIRED",
+    "FOMC CALENDAR EXPIRED",  # N6: no new entries until config/fomc.yaml is extended
     "market data step failed",
     "that data is missing",  # MARKET DATA: <bars, chain, history...> failed
     "could not read the held contracts",

@@ -1090,6 +1090,95 @@ class DailyEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class FomcMeeting:
+    """One scheduled FOMC meeting from the Federal Reserve's own calendar (N6). The
+    statement comes on its decision day; `verified` False is UNVERIFIED (a date the
+    Fed's page lists as not yet confirmed): that whole day is a blackout."""
+
+    first_day: date
+    decision_day: date
+    verified: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FomcCalendar:
+    """config/fomc.yaml (N6): complete from valid_from to valid_through; outside that
+    span every day is a blackout (fail closed, like the exchange calendar, D34)."""
+
+    source: str
+    read_on: date
+    valid_from: date
+    valid_through: date
+    meetings_per_year: int
+    meetings: tuple[FomcMeeting, ...]
+
+
+_FED_SITE = "https://www.federalreserve.gov/"
+
+
+def _fomc_meetings(raw: Mapping[str, object], where: str) -> tuple[FomcMeeting, ...]:
+    items = raw["meetings"]
+    if not isinstance(items, list) or not items:
+        raise ConfigError(f"{where}: meetings must be a non-empty list")
+    meetings: list[FomcMeeting] = []
+    for item in items:
+        body = _check_keys(item, {"first_day", "decision_day", "verified"}, f"{where}: meetings")
+        meeting = FomcMeeting(
+            _date(body, "first_day", where),
+            _date(body, "decision_day", where),
+            _boolean(body, "verified", where),
+        )
+        if meeting.first_day > meeting.decision_day:
+            raise ConfigError(f"{where}: {meeting.decision_day}: first_day after its decision_day")
+        if meetings and meeting.decision_day <= meetings[-1].decision_day:
+            raise ConfigError(
+                f"{where}: meetings must be in date order, each once ({meeting.decision_day})"
+            )
+        meetings.append(meeting)
+    return tuple(meetings)
+
+
+def load_fomc(path: Path) -> FomcCalendar:
+    where = str(path)
+    raw = _read_mapping(path, {f.name for f in fields(FomcCalendar)})
+    source = _text(raw, "source", where)
+    if not source.startswith(_FED_SITE):
+        raise ConfigError(
+            f"{where}: source {source!r} is not the Federal Reserve's own site "
+            f"({_FED_SITE}): FOMC dates come from its published calendar only (N6)"
+        )
+    calendar = FomcCalendar(
+        source=source,
+        read_on=_date(raw, "read_on", where),
+        valid_from=_date(raw, "valid_from", where),
+        valid_through=_date(raw, "valid_through", where),
+        meetings_per_year=_integer(raw, "meetings_per_year", where, minimum=1),
+        meetings=_fomc_meetings(raw, where),
+    )
+    if calendar.valid_from > calendar.valid_through:
+        raise ConfigError(f"{where}: valid_from must not be after valid_through")
+    for m in calendar.meetings:
+        if not calendar.valid_from <= m.decision_day <= calendar.valid_through:
+            raise ConfigError(
+                f"{where}: {m.decision_day} is outside valid_from..valid_through "
+                f"({calendar.valid_from}..{calendar.valid_through})"
+            )
+    # Every whole calendar year in the span must list meetings_per_year meetings.
+    for year in range(calendar.valid_from.year, calendar.valid_through.year + 1):
+        jan_first = date(year, 1, 1)
+        whole = calendar.valid_from <= jan_first and (
+            date(year + 1, 1, 1) - timedelta(days=1) <= calendar.valid_through
+        )
+        listed = sum(1 for m in calendar.meetings if m.decision_day.year == year)
+        if whole and listed != calendar.meetings_per_year:
+            raise ConfigError(
+                f"{where}: {year} lists {listed} meetings, not {calendar.meetings_per_year}: "
+                "copy the year from the Federal Reserve's calendar"
+            )
+    return calendar
+
+
+@dataclass(frozen=True, slots=True)
 class NewsRulesSettings:
     """The scheduled news and opening-bell windows (config/news.yaml; Andre's N1-N4 and
     the N-OPEN defaults, decisions-pending.md). Every window is a blackout: no new
@@ -1102,6 +1191,9 @@ class NewsRulesSettings:
     pre_news_until: str  # N4 / N-OPEN-1: the daily event whose window ends it
     time_stop_after_daily: bool  # N-OPEN-2
     overnight_flat_from: time  # N-OPEN-3, on the overnight session's clock
+    fomc_flat_from: time  # N5, on the news clock
+    fomc_warn_days: int  # N6
+    fomc: FomcCalendar  # N6: config/fomc.yaml
 
 
 def _daily_events(raw: Mapping[str, object], key: str, where: str) -> tuple[DailyEvent, ...]:
@@ -1118,9 +1210,9 @@ def _daily_events(raw: Mapping[str, object], key: str, where: str) -> tuple[Dail
     return tuple(events)
 
 
-def load_news_rules(path: Path) -> NewsRulesSettings:
+def load_news_rules(path: Path, fomc_path: Path) -> NewsRulesSettings:
     where = str(path)
-    raw = _read_mapping(path, {f.name for f in fields(NewsRulesSettings)})
+    raw = _read_mapping(path, {f.name for f in fields(NewsRulesSettings)} - {"fomc"})
     events = _daily_events(raw, "daily_events", where)
     until = _text(raw, "pre_news_until", where)
     if until not in {e.name for e in events}:
@@ -1133,6 +1225,9 @@ def load_news_rules(path: Path) -> NewsRulesSettings:
         pre_news_until=until,
         time_stop_after_daily=_boolean(raw, "time_stop_after_daily", where),
         overnight_flat_from=_clock(raw, "overnight_flat_from", where),
+        fomc_flat_from=_clock(raw, "fomc_flat_from", where),
+        fomc_warn_days=_integer(raw, "fomc_warn_days", where, minimum=0),
+        fomc=load_fomc(fomc_path),
     )
 
 
@@ -1416,7 +1511,7 @@ def load_profiles(config_dir: Path, instrument_file: str) -> Profiles:
         execution=load_execution(config_dir / "execution.yaml"),
         regime=load_regime(config_dir / "regime.yaml"),
         play=load_play(config_dir / "play.yaml"),
-        news_rules=load_news_rules(config_dir / "news.yaml"),
+        news_rules=load_news_rules(config_dir / "news.yaml", config_dir / "fomc.yaml"),
     )
     check_consistency(profiles.instrument, profiles.risk, profiles.execution)
     _check_gamma_reachable(

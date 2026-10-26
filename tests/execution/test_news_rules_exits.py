@@ -1,10 +1,11 @@
-"""Held positions under the scheduled windows (N3, N-OPEN-2): every close goes
+"""Held positions under the scheduled windows (N3, N5, N-OPEN-2): every close goes
 through the existing exit path: the resting stop's cancel, then a LIMIT sell, once."""
 
 from dataclasses import replace
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
+from footprint.core.config import FomcMeeting, Profiles
 from footprint.decision.news_rules import NewsRules
 from footprint.decision.session import NewsBlackout, in_news_blackout
 from footprint.execution.executor.diego import EntryOutcome, Position
@@ -26,6 +27,19 @@ def filled_position(stack: Stack) -> Position:
     assert ticket.outcome is EntryOutcome.PROTECTED, ticket.outcome
     assert ticket.position is not None
     return ticket.position
+
+
+def fomc_on(profiles: Profiles, day: date) -> NewsRules:
+    """The repo's rules with `day` as an FOMC decision day (in place of the same year's
+    September meeting, so the calendar stays complete)."""
+    meetings = tuple(
+        FomcMeeting(day - timedelta(days=1), day, True)
+        if m.decision_day == date(2026, 9, 16)
+        else m
+        for m in profiles.news_rules.fomc.meetings
+    )
+    fomc = replace(profiles.news_rules.fomc, meetings=meetings)
+    return NewsRules(replace(profiles.news_rules, fomc=fomc), profiles.instrument)
 
 
 def pt(hh: int, mm: int, ss: int = 0) -> datetime:
@@ -70,8 +84,30 @@ def test_n3_a_position_held_into_the_open_is_closed_at_0625_pt(stack: Stack) -> 
     ]
 
 
+def test_n5_a_held_position_is_flat_by_1055_pt_on_an_fomc_day(stack: Stack) -> None:
+    rules = fomc_on(stack.profiles, LAST_DAY)
+    position = filled_position(stack)
+    before = pt(10, 54, 59)
+    assert (
+        stack.step(position, stack.quote(160, 161, before), rules.windows(before), before) is None
+    )
+    t = pt(10, 55)
+    closed = stack.step(position, stack.quote(160, 161, t), rules.windows(t), t)
+    assert closed is not None
+    assert closed.reason is ExitReason.NEWS
+    exit_order = stack.broker.status(f"{position.position_id}-exit-1").order
+    assert exit_order.order_type is OrderType.LIMIT  # never a market order
+    assert exit_order.quantity == position.contracts
+    assert stack.broker.status(f"{position.position_id}-stop").state is OrderState.CANCELLED
+    # one stop and one exit: never sold twice
+    assert sorted(sells(stack, position)) == [
+        f"{position.position_id}-exit-1",
+        f"{position.position_id}-stop",
+    ]
+
+
 def test_the_rules_leave_a_position_alone_outside_every_window(stack: Stack) -> None:
-    rules = NewsRules(stack.profiles.news_rules, stack.profiles.instrument)
+    rules = NewsRules(stack.profiles.news_rules, stack.profiles.instrument)  # 15 Sep: day one
     position = filled_position(stack)
     t = pt(10, 55)
     assert stack.step(position, stack.quote(160, 161, t), rules.windows(t), t) is None

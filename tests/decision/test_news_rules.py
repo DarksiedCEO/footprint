@@ -1,4 +1,4 @@
-"""The scheduled news and opening-bell windows (Andre's N1-N4, N7, 2026-10-14) and the
+"""The scheduled news, opening-bell and Fed windows (Andre's N1-N7, 2026-10-14) and the
 N-OPEN-1..3 defaults. Times in these tests are written out by hand from the rules, not
 computed from config, so a config or code change that moves a window fails here."""
 
@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from footprint.core.config import ConfigError, Profiles, load_profiles
-from footprint.decision.news_rules import NewsRules, with_news_rules
+from footprint.core.config import ConfigError, FomcMeeting, Profiles, load_profiles
+from footprint.decision.news_rules import NewsRules, fomc_warning, with_news_rules
 from footprint.decision.session import NewsBlackout, in_news_blackout
+from footprint.execution.channels import is_critical
 from tests.conftest import REPO_ROOT
 
 ET = ZoneInfo("America/New_York")
@@ -18,6 +19,7 @@ PT = ZoneInfo("America/Los_Angeles")
 US = timedelta(microseconds=1)
 WINTER = date(2026, 1, 6)  # a Tuesday on standard time
 SUMMER = date(2026, 7, 7)  # a Tuesday on daylight time
+FOMC_DAY = date(2026, 9, 16)  # decision day (second day) of the 15-16 September meeting
 
 
 @pytest.fixture(scope="module")
@@ -116,6 +118,103 @@ def test_n4_ending_before_the_prime_start_is_refused(profiles: Profiles) -> None
         NewsRules(settings, profiles.instrument)
 
 
+# --- N5: FOMC decision day -------------------------------------------------------------
+
+
+def test_n5_fomc_decision_day_flat_by_1055_pt_to_the_prime_close(rules: NewsRules) -> None:
+    w = named(rules, FOMC_DAY, f"FOMC decision day {FOMC_DAY} (N5)")
+    assert w.start == at(FOMC_DAY, 10, 55, PT)
+    assert w.end == end_of_minute(FOMC_DAY, 14, 0, PT)
+    assert not w.covers(at(FOMC_DAY, 15, 0, PT))  # the overnight session trades again
+    assert w.time_stop
+
+
+def test_n5_not_on_the_meetings_first_day_or_an_ordinary_day(rules: NewsRules) -> None:
+    for day in (FOMC_DAY - timedelta(days=1), SUMMER):
+        assert not [w for w in rules.day(day) if "FOMC" in w.name]
+
+
+def test_n5_ends_at_an_early_close(profiles: Profiles) -> None:
+    """2021-06-16 is inside the BH-3 halt period: prime closed at 13:15 PT."""
+    rules = NewsRules(profiles.news_rules, profiles.instrument)
+    day = date(2021, 6, 16)
+    w = named(rules, day, f"FOMC decision day {day} (N5)")
+    assert (w.start, w.end) == (at(day, 10, 55, PT), end_of_minute(day, 13, 15, PT))
+
+
+def test_n5_on_a_day_closing_before_the_flat_time_adds_nothing(profiles: Profiles) -> None:
+    """An early close before 10:55 PT: the prime close already flattens."""
+    day = date(2026, 11, 27)  # early close 10:00 PT
+    assert profiles.instrument.early_closes[day] < time(10, 55)
+    meetings = tuple(
+        FomcMeeting(day - timedelta(days=1), day, True)
+        if m.decision_day == date(2026, 12, 9)
+        else m
+        for m in profiles.news_rules.fomc.meetings
+    )
+    fomc = replace(profiles.news_rules.fomc, meetings=meetings)
+    rules = NewsRules(replace(profiles.news_rules, fomc=fomc), profiles.instrument)
+    assert not [w for w in rules.day(day) if "FOMC" in w.name]
+
+
+def test_n5_flat_time_follows_config(profiles: Profiles) -> None:
+    settings = replace(profiles.news_rules, fomc_flat_from=time(13, 30))
+    w = named(
+        NewsRules(settings, profiles.instrument), FOMC_DAY, f"FOMC decision day {FOMC_DAY} (N5)"
+    )
+    assert w.start == at(FOMC_DAY, 13, 30)
+
+
+# --- N6: fail closed -------------------------------------------------------------------
+
+
+def test_n6_an_unverified_date_is_a_blackout_all_day(rules: NewsRules) -> None:
+    day = date(2027, 1, 27)  # tentative on the Fed's page
+    w = named(rules, day, f"FOMC date {day} UNVERIFIED (N6): no new entries all day")
+    assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+
+
+def test_n6_after_valid_through_every_day_is_a_blackout(rules: NewsRules) -> None:
+    for day in (date(2028, 1, 1), date(2028, 6, 6)):
+        w = named(rules, day, "FOMC CALENDAR EXPIRED on 2027-12-31 (N6): no new entries")
+        assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+    assert not [w for w in rules.day(date(2027, 12, 31)) if "EXPIRED" in w.name]
+
+
+def test_n6_before_valid_from_every_day_is_a_blackout(rules: NewsRules) -> None:
+    day = date(2020, 12, 31)
+    w = named(rules, day, "FOMC calendar starts 2021-01-01 (N6): no new entries")
+    assert (w.start, w.end) == (at(day, 0, 0), at(day + timedelta(days=1), 0, 0) - US)
+    assert not [w for w in rules.day(date(2021, 1, 1)) if "FOMC" in w.name]
+
+
+def test_n6_warning_and_critical_alarm(profiles: Profiles) -> None:
+    every = tuple(replace(m, verified=True) for m in profiles.news_rules.fomc.meetings)
+    s = replace(profiles.news_rules, fomc=replace(profiles.news_rules.fomc, meetings=every))
+    through = s.fomc.valid_through
+    assert fomc_warning(through - timedelta(days=s.fomc_warn_days + 1), s) is None
+    soon = fomc_warning(through - timedelta(days=s.fomc_warn_days), s)
+    assert soon is not None
+    assert "FOMC calendar ends 2027-12-31 (30 days)" in soon
+    assert not is_critical(soon)
+    expired = fomc_warning(through + timedelta(days=1), s)
+    assert expired is not None
+    assert expired.startswith("FOMC CALENDAR EXPIRED on 2027-12-31")
+    assert is_critical(expired)
+
+
+def test_n6_warns_of_an_unverified_date_ahead(profiles: Profiles) -> None:
+    s = profiles.news_rules
+    first = date(2027, 1, 27)
+    assert fomc_warning(first - timedelta(days=s.fomc_warn_days + 1), s) is None
+    ahead = fomc_warning(first - timedelta(days=s.fomc_warn_days), s)
+    assert ahead is not None
+    assert "FOMC date 2027-01-27 is UNVERIFIED" in ahead
+    assert fomc_warning(first, s) is not None  # the day itself
+    assert fomc_warning(first + timedelta(days=1), s) is None  # 2027-03-17 is 48 days on
+    assert fomc_warning(date(2026, 9, 1), s) is None
+
+
 # --- N7: no rule depends on the weekday -----------------------------------------------
 
 
@@ -163,9 +262,16 @@ def test_n_open_2_daily_windows_carry_the_time_stop_switch(profiles: Profiles) -
     for switch in (True, False):
         settings = replace(profiles.news_rules, time_stop_after_daily=switch)
         rules = NewsRules(settings, profiles.instrument)
-        for w in rules.day(SUMMER):
+        for w in rules.day(FOMC_DAY):
             daily = "(N1)" in w.name or "(N3)" in w.name or "(N4)" in w.name
             assert w.time_stop is (switch if daily else True), w.name
+
+
+def test_other_windows_always_carry_the_time_stop(profiles: Profiles) -> None:
+    settings = replace(profiles.news_rules, time_stop_after_daily=False)
+    rules = NewsRules(settings, profiles.instrument)
+    for day in (date(2027, 1, 27), date(2028, 1, 1), date(2020, 12, 31)):
+        assert all(w.time_stop for w in rules.day(day) if "FOMC" in w.name)
 
 
 # --- windows at a moment, and the combination with a CSV -------------------------------
@@ -221,3 +327,16 @@ def test_a_blackout_time_stop_must_be_a_bool() -> None:
     with pytest.raises(TypeError, match="time_stop must be a bool"):
         NewsBlackout("x", at(SUMMER, 8, 0), at(SUMMER, 8, 1), time_stop=1)  # type: ignore[arg-type]
     assert NewsBlackout("x", at(SUMMER, 8, 0), at(SUMMER, 8, 1)).time_stop is True
+
+
+def test_an_fomc_flat_time_at_or_after_a_normal_close_is_refused(profiles: Profiles) -> None:
+    """A flat time no FOMC day could reach would silently switch N5 off: refused at start."""
+    for flat in (time(23, 0), time(17, 0)):  # 17:00 ET is the 14:00 PT close itself
+        settings = replace(profiles.news_rules, fomc_flat_from=flat)
+        with pytest.raises(ConfigError, match="fomc_flat_from"):
+            NewsRules(settings, profiles.instrument)
+    settings = replace(profiles.news_rules, fomc_flat_from=time(16, 59))
+    w = named(
+        NewsRules(settings, profiles.instrument), FOMC_DAY, f"FOMC decision day {FOMC_DAY} (N5)"
+    )
+    assert w.start == at(FOMC_DAY, 13, 59, PT)

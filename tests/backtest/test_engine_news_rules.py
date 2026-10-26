@@ -1,4 +1,4 @@
-"""The scheduled news windows in the backtest (N1-N4). The backtest always runs them, on
+"""The scheduled news windows in the backtest (N1-N6). The backtest always runs them, on
 top of any --blackouts CSV, exactly as live does (decision/news_rules.with_news_rules).
 Other backtest tests get a stand-in with no scheduled windows (tests/backtest/conftest.py),
 as they do for the play caller: these are marked `real_news`."""
@@ -6,7 +6,7 @@ as they do for the play caller: these are marked `real_news`."""
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -98,3 +98,43 @@ def test_the_backtest_builds_the_rules_from_its_profiles(
     monkeypatch.setattr(engine, "with_news_rules", spy)
     Backtest(profiles, settings, extend(history, [D(1)]), workdir(tmp_path), trade_from=TRADE_FROM)
     assert seen == [profiles]
+
+
+def test_a_backtest_past_the_fomc_calendar_is_refused(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    """N6, like D34: a run trading past valid_through would trade blind. The exchange
+    calendar ends first today, so a shorter FOMC calendar stands in."""
+    fomc = profiles.news_rules.fomc
+    short = _replace_fomc(profiles, valid_through=date(2026, 9, 14))
+    with pytest.raises(ValueError, match="FOMC calendar"):
+        Backtest(short, settings, extend(history, [D(1)]), workdir(tmp_path), trade_from=TRADE_FROM)
+    assert fomc.valid_through > LAST_DAY
+
+
+def test_a_backtest_before_the_fomc_calendar_is_refused(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    late = _replace_fomc(profiles, valid_from=date(2026, 9, 16))
+    with pytest.raises(ValueError, match="FOMC calendar starts 2026-09-16"):
+        Backtest(late, settings, extend(history, [D(1)]), workdir(tmp_path), trade_from=TRADE_FROM)
+
+
+def test_a_backtest_inside_the_fomc_calendar_runs(
+    profiles: Profiles, settings: BacktestSettings, history: tuple[Bar, ...], tmp_path: Path
+) -> None:
+    exact = _replace_fomc(profiles, valid_from=date(2026, 9, 15), valid_through=date(2026, 9, 15))
+    Backtest(exact, settings, extend(history, [D(1)]), workdir(tmp_path), trade_from=TRADE_FROM)
+
+
+def _replace_fomc(
+    profiles: Profiles, valid_from: date | None = None, valid_through: date | None = None
+) -> Profiles:
+    from dataclasses import replace
+
+    fomc = profiles.news_rules.fomc
+    lo = fomc.valid_from if valid_from is None else valid_from
+    hi = fomc.valid_through if valid_through is None else valid_through
+    meetings = tuple(m for m in fomc.meetings if lo <= m.decision_day <= hi)
+    new = replace(fomc, meetings=meetings, valid_from=lo, valid_through=hi)
+    return replace(profiles, news_rules=replace(profiles.news_rules, fomc=new))

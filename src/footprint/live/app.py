@@ -47,7 +47,7 @@ from footprint.brokers.ibkr.market import MarketData
 from footprint.brokers.ibkr.paper import check_paper
 from footprint.core.calendar import calendar_warning
 from footprint.core.config import Profiles
-from footprint.decision.news_rules import with_news_rules
+from footprint.decision.news_rules import fomc_warning, with_news_rules
 from footprint.decision.pipeline import Pipeline
 from footprint.decision.play import check_live_history
 from footprint.decision.session import NewsBlackout
@@ -127,7 +127,8 @@ class Live:
         self.alarms.submit(Alarm(self.clock(), message))
 
     def check_calendar(self) -> None:
-        """Alarm once a day while the exchange calendar is about to run out, or has."""
+        """Alarm once a day while the exchange calendar or the FOMC calendar (N6) is
+        about to run out, or has, or an UNVERIFIED FOMC date is near."""
         p = self.profiles.instrument
         today = self.clock().astimezone(ZoneInfo(p.prime_session.timezone)).date()
         if today == self._calendar_checked:
@@ -136,6 +137,9 @@ class Live:
         warning = calendar_warning(today, p)
         if warning is not None:
             self.alarm(warning)
+        fed = fomc_warning(today, self.profiles.news_rules)
+        if fed is not None:
+            self.alarm(fed)
 
 
 def build(

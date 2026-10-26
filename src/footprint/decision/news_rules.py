@@ -1,5 +1,5 @@
-"""The scheduled news and opening-bell windows (Andre's N1-N4, N7 and the N-OPEN defaults,
-2026-10-14; config/news.yaml, docs/decisions-pending.md).
+"""The scheduled news, opening-bell and Fed windows (Andre's N1-N7 and the N-OPEN defaults,
+2026-10-14; config/news.yaml, config/fomc.yaml, docs/decisions-pending.md).
 
 Every window is a NewsBlackout, so it does what any blackout does, through the paths that
 already exist: the risk layer refuses new entries while one is in force (pipeline and
@@ -15,6 +15,12 @@ backtest and the live program both add these windows to the CSV ones through
   to the end of the `pre_news_until` event's window.
 - N-OPEN-3 (DEFAULT, pending Andre): from `overnight_flat_from` to the overnight
   session's end (its whole end minute).
+- N5: on an FOMC decision day, from `fomc_flat_from` to the prime session's close of
+  that day (an early close included; nothing when the close comes first).
+- N6: the FOMC dates come from the Federal Reserve's calendar only. An UNVERIFIED date
+  is a blackout all day; so is every day outside the calendar's valid_from ..
+  valid_through (fail closed, like the exchange calendar), and live alarms it
+  (`fomc_warning`, "FOMC CALENDAR EXPIRED" is critical).
 - N-OPEN-2 (DEFAULT, pending Andre): the daily windows (N1, N3, N4) start the news time
   stop only when `time_stop_after_daily` is on; every other window always does.
 
@@ -27,9 +33,11 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from footprint.core.calendar import prime_close
 from footprint.core.config import (
     ConfigError,
     DailyEvent,
+    FomcMeeting,
     InstrumentProfile,
     NewsRulesSettings,
     Profiles,
@@ -41,6 +49,7 @@ from footprint.decision.session import NewsBlackout
 _DAY = timedelta(days=1)
 _MINUTE = timedelta(minutes=1)
 OVERNIGHT_NAME = "overnight flat window (N-OPEN-3)"
+EXPIRED_MARKER = "FOMC CALENDAR EXPIRED"
 
 
 def _utc(day: date, clock: time, zone: ZoneInfo) -> datetime:
@@ -85,6 +94,14 @@ class NewsRules:
         while day <= instrument.calendar_through:
             self._pre_news(day)  # raises on an empty window
             day += _DAY
+        fomc = settings.fomc
+        self._decisions = {m.decision_day: m for m in fomc.meetings}
+        for m in fomc.meetings:
+            if instrument.early_closes.get(m.decision_day) is None and self._fomc(m) is None:
+                raise ConfigError(
+                    f"news rules: fomc_flat_from {settings.fomc_flat_from} is not before the "
+                    f"prime close on {m.decision_day}: N5 could never be in force"
+                )
 
     def _daily(self, day: date, event: DailyEvent) -> NewsBlackout:
         at = _utc(day, event.at, self._zone)
@@ -122,6 +139,46 @@ class NewsRules:
             _end_of_minute(_utc(ends_on, session.end, zone)),
         )
 
+    def _whole_day(self, day: date, name: str) -> NewsBlackout:
+        start = _utc(day, time.min, self._zone)
+        return NewsBlackout(
+            name, start, _utc(day + _DAY, time.min, self._zone) - timedelta.resolution
+        )
+
+    def _fomc(self, meeting: FomcMeeting) -> NewsBlackout | None:
+        """N5 on a decision day: None when the prime session closes first."""
+        day = meeting.decision_day
+        prime = self._instrument.prime_session
+        start = _utc(day, self._s.fomc_flat_from, self._zone)
+        close = _utc(day, prime_close(day, self._instrument), ZoneInfo(prime.timezone))
+        if start >= close:
+            return None
+        return NewsBlackout(f"FOMC decision day {day} (N5)", start, _end_of_minute(close))
+
+    def _fed(self, day: date) -> tuple[NewsBlackout, ...]:
+        fomc = self._s.fomc
+        if day > fomc.valid_through:
+            return (
+                self._whole_day(
+                    day, f"{EXPIRED_MARKER} on {fomc.valid_through} (N6): no new entries"
+                ),
+            )
+        if day < fomc.valid_from:
+            return (
+                self._whole_day(
+                    day, f"FOMC calendar starts {fomc.valid_from} (N6): no new entries"
+                ),
+            )
+        meeting = self._decisions.get(day)
+        if meeting is None:
+            return ()
+        if not meeting.verified:
+            return (
+                self._whole_day(day, f"FOMC date {day} UNVERIFIED (N6): no new entries all day"),
+            )
+        found = self._fomc(meeting)
+        return () if found is None else (found,)
+
     def day(self, day: date) -> tuple[NewsBlackout, ...]:
         """The windows that begin on `day` (on each rule's own clock), built once."""
         found = self._cache.get(day)
@@ -130,6 +187,7 @@ class NewsRules:
                 *(self._daily(day, event) for event in self._s.daily_events),
                 self._pre_news(day),
                 self._overnight(day),
+                *self._fed(day),
             )
             self._cache[day] = found
         return found
@@ -155,3 +213,50 @@ def with_news_rules(
         return (*rules.windows(now), *extra(now))
 
     return blackouts
+
+
+def fomc_warning(today: date, settings: NewsRulesSettings) -> str | None:
+    """What to tell Andre, once a day, about the FOMC calendar (N6): expired (critical:
+    no new entries until it is extended), running out, or an UNVERIFIED date ahead."""
+    fomc = settings.fomc
+    if today > fomc.valid_through:
+        return (
+            f"{EXPIRED_MARKER} on {fomc.valid_through}: NO NEW TRADES (every later day is a "
+            "blackout, N6) until config/fomc.yaml is extended from the Federal Reserve's "
+            "published calendar and the program is restarted"
+        )
+    horizon = today + timedelta(days=settings.fomc_warn_days)
+    if fomc.valid_through <= horizon:
+        left = (fomc.valid_through - today).days
+        return (
+            f"FOMC calendar ends {fomc.valid_through} ({left} days): add the next meetings "
+            "from the Federal Reserve's published calendar to config/fomc.yaml"
+        )
+    ahead = [m for m in fomc.meetings if not m.verified and today <= m.decision_day <= horizon]
+    if ahead:
+        return (
+            f"FOMC date {ahead[0].decision_day} is UNVERIFIED on the Federal Reserve's calendar: "
+            "that whole day is a blackout until config/fomc.yaml marks it verified (N6)"
+        )
+    return None
+
+
+def check_fomc_span(profiles: Profiles, first: datetime, last: datetime) -> None:
+    """A backtest must trade inside the FOMC calendar (N6, like D34): outside it every
+    day is a blackout, so a run there would trade nothing without an error. Raises
+    ValueError."""
+    s = profiles.news_rules
+    zone = ZoneInfo(s.timezone)
+    start, end = first.astimezone(zone).date(), last.astimezone(zone).date()
+    if start < s.fomc.valid_from:
+        raise ValueError(
+            f"the backtest trades from {start}, but the FOMC calendar starts {s.fomc.valid_from} "
+            "(N6): every day before it is a blackout. Add the earlier meetings from the "
+            "Federal Reserve's own calendar pages to config/fomc.yaml first"
+        )
+    if end > s.fomc.valid_through:
+        raise ValueError(
+            f"the backtest trades until {end}, past the FOMC calendar's valid_through "
+            f"{s.fomc.valid_through} (N6): every later day is a blackout. Extend "
+            "config/fomc.yaml from the Federal Reserve's calendar first"
+        )

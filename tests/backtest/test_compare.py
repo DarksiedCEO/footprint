@@ -75,6 +75,7 @@ def compared(bars: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path
         patch.setattr(engine, "PlayCaller", lambda *args, **kwargs: open_play())
         # ... and conftest's no_scheduled_news stand-in (the CSV windows alone), by hand.
         patch.setattr(engine, "with_news_rules", lambda profiles, extra: extra)
+        patch.setattr(engine, "check_fomc_span", lambda profiles, first, last: None)
         code, printed, _ = _compare(bars, out)
     assert code == 0
     return out, printed
