@@ -32,13 +32,15 @@ and a login that manages any non-paper account. There is no live switch to find.
    then has no prices and opens nothing (it fails closed and alarms), so a forgotten
    login can quietly cost whole days. Watch the market somewhere other than IBKR (for
    example thinkorswim). Fix: log out of the other session (closing an app is not
-   logging out), wait a few minutes, re-run `check --market-data`. Seen on 2026-10-25:
-   the check passed only after Andre's other live sessions were closed (which one was
-   the cause is not verified).
+   logging out), wait a few minutes, re-run
+   `uv run python -m footprint.brokers.ibkr.check --market-data`. Seen on 2026-10-25: the
+   check passed only after Andre's other live sessions were closed (which one was the
+   cause is not verified).
 8. **Never hand-trade NQ futures options in the paper account** while the bot runs. Any
-   NQ option position or order there is in the bot's scope (`system scope NQ FOP`), so a
-   position or order it did not place is a broker/ledger mismatch, which it reconciles
-   or halts on.
+   NQ option position or order there is in the bot's scope (`system scope NQ FOP`). A
+   position the bot did not open makes the broker and the ledger disagree: that raises the
+   positions-disagree alarm and a resync. An order placed by hand is listed as foreign and
+   may trigger a reconcile or halt; that it always does is not proven. Either way, don't.
 
 ## Phone alarms (D20)
 

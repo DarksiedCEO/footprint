@@ -20,9 +20,11 @@ child with a marker (exit 97), with socket connects blocked the same way, and wi
 filled stand-in .env (a paper DU account, nothing real), so the profile is the only
 thing that can stop the es.yaml run. The live runner's stand-in .env also carries six
 dummy alarm keys (fake values in the right format; nothing is sent, every socket connect
-ends the child), so it gets past its alarm set-up too. Under nq.yaml all four commands
-reach the stand-in (the harness is live), so under es.yaml the profile is the only stop
-(review R3-A).
+ends the child), so it gets past its alarm set-up too. The es.yaml live run is made both
+without and with those keys: without them, a profile check moved after the alarm set-up
+would show the alarm refusal, not the stop_max one (PR #50 review F1). Under nq.yaml all
+four commands reach the stand-in (the harness is live), so under es.yaml the profile is
+the only stop (review R3-A).
 """
 
 from __future__ import annotations
@@ -180,8 +182,8 @@ def _child(tmp: Path, module: str, argv: list[str]) -> subprocess.CompletedProce
     )
 
 
-def _argv(module: str, tmp: Path, instrument: str) -> list[str]:
-    env = _env(tmp, alarms=module == LIVE)
+def _argv(module: str, tmp: Path, instrument: str, *, alarms: bool = False) -> list[str]:
+    env = _env(tmp, alarms=alarms)
     common = ["--config", str(CONFIG), "--instrument", instrument, "--env", str(env)]
     if module == LIVE:
         return [*common, "--no-blackouts", "--state", str(tmp / "state")]
@@ -277,8 +279,12 @@ def test_the_stand_in_ibapi_catches_a_broker_connection(tmp_path: Path) -> None:
     assert TOUCHED in done.stdout
 
 
-def test_the_live_runner_refuses_es_for_its_stop(tmp_path: Path) -> None:
-    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, ES))
+@pytest.mark.parametrize("alarms", [False, True], ids=["no-alarm-keys", "dummy-alarm-keys"])
+def test_the_live_runner_refuses_es_for_its_stop(tmp_path: Path, alarms: bool) -> None:
+    """Both ways (PR #50 review F1): without alarm keys, a profile check moved after the
+    alarm set-up would print the alarm refusal instead, so the order is pinned; with the
+    dummy keys, nothing but the profile can stop the run before the broker."""
+    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, ES, alarms=alarms))
     assert done.returncode == 0, done.stderr
     assert TOUCHED not in done.stdout
     assert "EXIT 2" in done.stdout
@@ -321,7 +327,7 @@ def test_with_nq_the_live_runner_reaches_the_stand_in_broker(tmp_path: Path) -> 
     """The control (R3-A): with nq.yaml and the dummy alarm keys, the live runner gets past
     the profile and its alarm set-up and reaches the stand-in. So the es.yaml live run
     above stops at the profile alone, before any broker or alarm connection."""
-    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, NQ))
+    done = _child(tmp_path, LIVE, _argv(LIVE, tmp_path, NQ, alarms=True))
     assert done.returncode == _TOUCHED_EXIT, (done.stdout, done.stderr)
     assert TOUCHED in done.stdout
     assert REFUSAL not in done.stdout + done.stderr
