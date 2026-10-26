@@ -87,7 +87,7 @@ def test_a_series_is_checked_once_and_refuses_what_require_series_refuses() -> N
     with pytest.raises(ValueError, match="must not be empty"):
         BarSeries([], 1, "bars")
     series = BarSeries(good, 1, "bars")
-    assert series.starts == [b.ts for b in good]
+    assert series.starts == tuple(b.ts for b in good)
 
 
 def test_require_series_on_a_window_passes_what_it_passes_and_refuses_the_rest() -> None:
@@ -600,3 +600,22 @@ def test_two_levels_readers_on_two_instruments_keep_their_own_closed_minutes(
     assert [other._closed(m) for m in moments] != [
         session_at(m, nq) is SessionKind.CLOSED for m in moments
     ]
+
+
+def test_a_series_and_its_windows_are_read_only() -> None:
+    """F4: a checked series cannot be swapped or edited under its windows."""
+    series = BarSeries(random_bars(22, 50), 1, "bars")
+    window = series.window(5, 20)
+    assert isinstance(series.starts, tuple)
+    with pytest.raises(AttributeError):
+        series.bars = ()  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        series.starts = ()  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        series.timeframe_minutes = 15  # type: ignore[misc]
+    for name, value in (("start", 0), ("series", series), ("other", 1)):
+        with pytest.raises(AttributeError):
+            setattr(window, name, value)
+    with pytest.raises(AttributeError):
+        del window.start
+    assert (window.start, window.end, window.series) == (5, 20, series)

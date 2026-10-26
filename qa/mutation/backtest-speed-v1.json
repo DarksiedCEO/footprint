@@ -166,7 +166,7 @@
   [
    "windows",
    "src/footprint/core/series.py",
-   "        return timeframe_minutes is None or timeframe_minutes == self.timeframe_minutes",
+   "        return timeframe_minutes is None or timeframe_minutes == self._timeframe_minutes",
    "        return True",
    "require_series: a window passes a timeframe its series was never checked for"
   ],
@@ -302,6 +302,27 @@
    "    since = datetime.combine(today, time.min, zone).astimezone(UTC) - timedelta(days=1)",
    "    since = datetime.combine(today, time.min, zone).astimezone(UTC)",
    "range days: no day of margin before today's midnight (argued equivalent)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/zero_day.py",
+   "days.highs[k] <= hi and days.ordered[k]",
+   "days.highs[k] <= hi + 1 and days.ordered[k]",
+   "review R7: zero-day range: a day one bar past the window's end taken whole (look-ahead)"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/_series.py",
+   "    by_zone = _SERIES_CLOCK.setdefault(series, {})",
+   "    by_zone = _SERIES_CLOCK.setdefault(next(iter(_SERIES_CLOCK), series), {})",
+   "review R1: clock index reused from the first series ever seen"
+  ],
+  [
+   "windows",
+   "src/footprint/agents/levels.py",
+   "        self._closed_at: dict[datetime, bool] = {}",
+   "        self._closed_at: dict[datetime, bool] = LevelsReader.__init__.__dict__.setdefault(\"memo\", {})",
+   "review R5: the closed-minute memo shared by every reader and instrument"
   ],
   [
    "engine",

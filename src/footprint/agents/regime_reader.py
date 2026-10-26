@@ -237,6 +237,7 @@ class RegimeReader:
             return call, False
 
         bars = completed(minute_bars, as_of, 1)
+        starts: Sequence[datetime]
         if isinstance(bars, BarWindow):  # a run of a checked series: in order already
             starts = bars.series.starts[bars.start : bars.end]
         else:

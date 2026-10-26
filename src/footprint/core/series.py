@@ -62,18 +62,35 @@ def _check(bars: Sequence[Bar], timeframe_minutes: int | None, field: str) -> No
 class BarSeries:
     """A run of bars checked once (`require_series` with `timeframe_minutes`), with
     each bar's start time, so the windows taken from it need no second check and can
-    be searched by time (BH-11: the backtest's decision windows)."""
+    be searched by time (BH-11: the backtest's decision windows). Read-only: its bars,
+    start times and timeframe cannot be replaced or edited once checked."""
+
+    __slots__ = ("__weakref__", "_bars", "_starts", "_timeframe_minutes")
 
     def __init__(self, bars: Sequence[Bar], timeframe_minutes: int, field: str) -> None:
-        self.bars: tuple[Bar, ...] = tuple(bars)
-        _check(self.bars, timeframe_minutes, field)
-        self.timeframe_minutes = timeframe_minutes
-        self.starts: list[datetime] = [bar.ts for bar in self.bars]
+        checked = tuple(bars)
+        _check(checked, timeframe_minutes, field)
+        self._bars = checked
+        self._starts = tuple(bar.ts for bar in checked)
+        self._timeframe_minutes = timeframe_minutes
+
+    @property
+    def bars(self) -> tuple[Bar, ...]:
+        return self._bars
+
+    @property
+    def starts(self) -> tuple[datetime, ...]:
+        """Each bar's start time, in order."""
+        return self._starts
+
+    @property
+    def timeframe_minutes(self) -> int:
+        return self._timeframe_minutes
 
     def covers(self, timeframe_minutes: int | None) -> bool:
         """Every run of consecutive bars of this series passes `require_series` with
         `timeframe_minutes` (None: no spacing check; else the series' own)."""
-        return timeframe_minutes is None or timeframe_minutes == self.timeframe_minutes
+        return timeframe_minutes is None or timeframe_minutes == self._timeframe_minutes
 
     def window(self, start: int, end: int) -> BarWindow:
         """bars[start:end] as a BarWindow."""
@@ -85,7 +102,8 @@ class BarWindow(tuple[Bar, ...]):
     It also says where they lie in their series, so the series helpers can reuse work
     done once per series. They only ever use it for bars inside the window, so a
     window never shows a bar it does not hold (no look-ahead). Its bars are in strictly
-    increasing time order (the series was checked)."""
+    increasing time order (the series was checked). Its attributes cannot be set or
+    deleted after it is made (a tuple subclass cannot have slots)."""
 
     series: BarSeries
     start: int
@@ -94,9 +112,15 @@ class BarWindow(tuple[Bar, ...]):
         if not 0 <= start <= end <= len(series.bars):
             raise ValueError(f"window [{start}, {end}) is outside a series of {len(series.bars)}")
         window = super().__new__(cls, series.bars[start:end])
-        window.series = series
-        window.start = start
+        object.__setattr__(window, "series", series)
+        object.__setattr__(window, "start", start)
         return window
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"a BarWindow is read-only: cannot set {name!r}")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"a BarWindow is read-only: cannot delete {name!r}")
 
     @property
     def end(self) -> int:
